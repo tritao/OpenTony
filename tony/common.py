@@ -96,14 +96,19 @@ def headless_wine_env(prefix: str | Path | None = None) -> dict[str, str]:
 
 
 def headless_wine_command(command: Sequence[str | Path]) -> list[str | Path]:
-    """Initialize the isolated prefix and run a Wine command on one Xvfb display."""
+    """Initialize the isolated prefix and run a Wine command on one Xvfb display.
+
+    New per-session prefixes are empty. Wine's ``-u`` update mode can wait
+    indefinitely on this Wine build; ``-i`` is the one-shot initialization
+    mode needed for a newly-created prefix.
+    """
 
     return [
         "sh",
         "-c",
         (
             'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
-            'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -u && '
+            'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -i && '
             'wine reg add "HKCU\\Software\\Wine\\Direct3D" /v renderer /d gl /f >/dev/null 2>&1 && '
             'mkdir -p "$WINEPREFIX/dosdevices" && '
             'if [ -L "$WINEPREFIX/dosdevices/d:" ] && '

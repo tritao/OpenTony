@@ -40,7 +40,7 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.frame import FrameClock
 from opentony.memory import Memory
-from opentony.physics import PhysicsProbe
+from opentony.physics import PhysicsProbe, PlayerDiffProbe
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
@@ -213,6 +213,34 @@ def test_player_view_exposes_fixed_position_and_integer_state_fields():
     assert events[0]["position_history_fixed"] == [0.25, 0.75, 16672.0]
     assert events[0]["physics_state"] == 1
     assert "candidate_position" not in events[0]
+
+
+def test_player_diff_probe_records_changed_relative_words():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x500
+    inferior.data[player + 0x30B8:player + 0x30BC] = struct.pack("<I", 0)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = PlayerDiffProbe(count=2, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": player, "eip": 0x300}),
+        memory,
+    )
+    probe.on_count(context)
+    inferior.data[player + 0x104:player + 0x108] = struct.pack("<I", 0x12345678)
+    probe.on_count(context)
+
+    assert events[0]["previous_available"] is False
+    assert events[0]["changed_words"] == []
+    assert events[1]["previous_available"] is True
+    assert {entry["offset"] for entry in events[1]["changed_words"]} == {"0x0104"}
+    assert events[1]["changed_words"][0]["before"] == 0
+    assert events[1]["changed_words"][0]["after"] == 0x12345678
 
 
 def test_snapshot_diff_is_raw_first_with_all_word_heuristics():

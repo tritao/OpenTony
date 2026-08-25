@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from tony import commands, wine
+from tony import commands, common, wine
 from tony.cli import parse_args
 
 
@@ -88,3 +88,10 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
         "--fullscreen",
     ]
     assert calls[-2:] == ["stop-recording", "close"]
+
+
+def test_headless_wine_command_initializes_empty_prefixes():
+    command = common.headless_wine_command(["winedbg", "--gdb"])
+
+    assert "wineboot -i" in command[2]
+    assert "wineboot -u" not in command[2]

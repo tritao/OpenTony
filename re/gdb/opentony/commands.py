@@ -12,7 +12,7 @@ from .breakpoint import CountingBreakpoint, TonyBreakpoint
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
-from .physics import PhysicsProbe
+from .physics import PhysicsProbe, PlayerDiffProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
@@ -788,6 +788,25 @@ class TonyPhysicsProbe(gdb.Command):
         _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyPlayerDiff(gdb.Command):
+    """tony-player-diff [COUNT] -- log changed player words at physics dispatch."""
+
+    def __init__(self):
+        super().__init__("tony-player-diff", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-player-diff [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-player-diff [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = PlayerDiffProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"player diff probe armed {limit} at 0x{probe.address:08x}")
+
+
 class TonyPositionCommitProbe(gdb.Command):
     """tony-position-commit [COUNT] -- log stable callers of position commit."""
 
@@ -844,6 +863,7 @@ def register_commands() -> None:
     TonyTraceClose()
     TonyFrameClock()
     TonyPhysicsProbe()
+    TonyPlayerDiff()
     TonyPositionCommitProbe()
     _registered = True
     _write(
@@ -853,5 +873,5 @@ def register_commands() -> None:
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
-        "tony-position-commit"
+        "tony-player-diff, tony-position-commit"
     )
