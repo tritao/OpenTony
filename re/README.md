@@ -20,3 +20,8 @@ The first structured runtime probes are available after loading the bootstrap:
 `tony-physics-probe [COUNT]` emits conservative JSON observations from the
 physics dispatcher. The frame function is deliberately selected explicitly
 until runtime evidence establishes a true rendered-frame boundary.
+
+Object experiments use in-session snapshots: `tony-snapshot idle PLAYER 0x3200`,
+`tony-snapshot moving PLAYER 0x3200`, then `tony-diff idle moving`. Use
+`tony-trace-open FILE EXPERIMENT` before probes to capture a header, typed probe
+events, and a frame-count footer as JSONL.

@@ -13,6 +13,8 @@ from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
 from .physics import PhysicsProbe
+from .snapshot import format_diff, snapshots
+from .trace import JsonlWriter
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
 THPS2_ADDRESSES = dict(known_function_addresses())
@@ -21,6 +23,8 @@ THPS2_LEVELS = {
     "hangar": 0,
     "warehouse": 12,
 }
+
+_trace_writer = None
 
 
 def _argv(arg: str, usage: str) -> list[str]:
@@ -43,6 +47,19 @@ def _integer(value: str) -> int:
 
 def _write(text: str) -> None:
     gdb.write(text + "\n")
+
+
+def _snapshot_address(value: str) -> int:
+    try:
+        return _integer(value)
+    except gdb.GdbError:
+        if value.casefold() == "player":
+            from .player import PlayerView
+
+            player = PlayerView.current()
+            if player is not None:
+                return player.address
+        raise
 
 
 class TonyReadInteger(gdb.Command):
@@ -133,6 +150,45 @@ class TonyDump(gdb.Command):
         except OSError as exc:
             raise gdb.GdbError(f"could not write {path}: {exc}") from exc
         _write(f"wrote {length} bytes from 0x{address:08x} to {path}")
+
+
+class TonySnapshot(gdb.Command):
+    """tony-snapshot NAME ADDRESS SIZE [--force] -- capture an in-session raw snapshot."""
+
+    def __init__(self):
+        super().__init__("tony-snapshot", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-snapshot NAME ADDRESS SIZE [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 3:
+            raise gdb.GdbError("usage: tony-snapshot NAME ADDRESS SIZE [--force]")
+        name = values[0]
+        address = _snapshot_address(values[1])
+        size = _integer(values[2])
+        snapshot = snapshots.capture(name, address, size, overwrite=force)
+        _write(f"captured snapshot {name} at 0x{snapshot.address:08x} ({snapshot.size} bytes)")
+
+
+class TonyDiff(gdb.Command):
+    """tony-diff BEFORE AFTER -- show changed raw words and heuristic interpretations."""
+
+    def __init__(self):
+        super().__init__("tony-diff", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-diff BEFORE AFTER")
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-diff BEFORE AFTER")
+        before, after = values
+        entries = snapshots.diff(before, after)
+        _write(f"{before} -> {after}: {len(entries)} changed words")
+        for line in format_diff(entries):
+            _write(line)
+        if not entries:
+            _write("no changes")
 
 
 class TonyModules(gdb.Command):
@@ -290,10 +346,11 @@ class TonyForceLevel(gdb.Command):
 class TonyPlayerSampleBreakpoint(CountingBreakpoint):
     """Collect raw player-object snapshots at level-loop entry."""
 
-    def __init__(self, count: int, path: Path):
+    def __init__(self, count: int, path: Path, writer=None):
         super().__init__(THPS2_ADDRESSES["frame_tick"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
+        self.writer = writer
 
     def on_count(self, ctx):
         player = mem.u32(GLOBALS["Player"])
@@ -317,6 +374,8 @@ class TonyPlayerSampleBreakpoint(CountingBreakpoint):
                 stream.write(json.dumps(record, sort_keys=True) + "\n")
         except OSError as exc:
             raise gdb.GdbError(f"could not write player sample {self.path}: {exc}") from exc
+        if self.writer is not None:
+            self.writer.event({"type": "player_sample", **record})
         self.sample += 1
         return True
 
@@ -349,17 +408,18 @@ class TonyPlayerSample(gdb.Command):
                 path.unlink(missing_ok=True)
         except OSError as exc:
             raise gdb.GdbError(f"could not prepare player sample {path}: {exc}") from exc
-        TonyPlayerSampleBreakpoint(count, path)
+        TonyPlayerSampleBreakpoint(count, path, writer=_trace_writer)
         _write(f"player sampling armed for {count} level-loop hits -> {path}")
 
 
 class TonyInputSampleBreakpoint(CountingBreakpoint):
     """Collect action and raw-keyboard state after the input update."""
 
-    def __init__(self, count: int, path: Path):
+    def __init__(self, count: int, path: Path, writer=None):
         super().__init__(THPS2_ADDRESSES["gameplay_update"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
+        self.writer = writer
 
     def on_count(self, ctx):
         level = mem.u32(GLOBALS["CurrentLevel"])
@@ -381,6 +441,8 @@ class TonyInputSampleBreakpoint(CountingBreakpoint):
                 stream.write(json.dumps(record, sort_keys=True) + "\n")
         except OSError as exc:
             raise gdb.GdbError(f"could not write input sample {self.path}: {exc}") from exc
+        if self.writer is not None:
+            self.writer.event({"type": "input_sample", **record})
         self.sample += 1
         return True
 
@@ -413,11 +475,61 @@ class TonyInputSample(gdb.Command):
                 path.unlink(missing_ok=True)
         except OSError as exc:
             raise gdb.GdbError(f"could not prepare input sample {path}: {exc}") from exc
-        TonyInputSampleBreakpoint(count, path)
+        TonyInputSampleBreakpoint(count, path, writer=_trace_writer)
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
 _runtime_breakpoints = []
+
+
+class TonyTraceOpen(gdb.Command):
+    """tony-trace-open FILE EXPERIMENT [--force] -- start a JSONL runtime trace."""
+
+    def __init__(self):
+        super().__init__("tony-trace-open", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        global _trace_writer
+        values = _argv(arg, "tony-trace-open FILE EXPERIMENT [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-trace-open FILE EXPERIMENT [--force]")
+        if _trace_writer is not None:
+            raise gdb.GdbError("a runtime trace is already open; run tony-trace-close first")
+        writer = JsonlWriter(values[0], values[1], overwrite=force)
+        try:
+            writer.open()
+        except OSError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _trace_writer = writer
+        _write(f"runtime trace opened: {writer.path}")
+
+
+class TonyTraceClose(gdb.Command):
+    """tony-trace-close -- write the trace footer and close the active writer."""
+
+    def __init__(self):
+        super().__init__("tony-trace-close", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        global _trace_writer
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-trace-close")
+        if _trace_writer is None:
+            _write("no runtime trace is open")
+            return
+        writer = _trace_writer
+        for breakpoint in _runtime_breakpoints:
+            if getattr(breakpoint, "writer", None) is writer:
+                breakpoint.enabled = False
+        try:
+            writer.close()
+        except OSError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _trace_writer = None
+        _write(f"runtime trace closed: {writer.path}")
 
 
 class TonyFrameClock(gdb.Command):
@@ -455,7 +567,7 @@ class TonyPhysicsProbe(gdb.Command):
         count = _integer(values[0]) if values else None
         if count is not None and count <= 0:
             raise gdb.GdbError("COUNT must be positive")
-        probe = PhysicsProbe(count)
+        probe = PhysicsProbe(count, writer=_trace_writer)
         _runtime_breakpoints.append(probe)
         limit = "until disabled" if count is None else f"for {count} observations"
         _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
@@ -474,6 +586,8 @@ def register_commands() -> None:
     TonyReadFloat()
     TonyHexdump()
     TonyDump()
+    TonySnapshot()
+    TonyDiff()
     TonyModules()
     TonyBreakpointCommand()
     TonyAddresses()
@@ -482,12 +596,15 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyPlayerSample()
     TonyInputSample()
+    TonyTraceOpen()
+    TonyTraceClose()
     TonyFrameClock()
     TonyPhysicsProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
-        "tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, "
+        "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
+        "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
-        "tony-frame-clock, tony-physics-probe"
+        "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe"
     )

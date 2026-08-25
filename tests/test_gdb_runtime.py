@@ -1,3 +1,4 @@
+import json
 import struct
 import sys
 import types
@@ -36,6 +37,8 @@ from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe
 from opentony.player import PlayerView
+from opentony.snapshot import SnapshotStore, format_diff
+from opentony.trace import JsonlWriter
 
 
 class FakeInferior:
@@ -125,3 +128,38 @@ def test_player_view_and_physics_probe_keep_candidate_names_and_raw_bits():
     probe.on_hit(context)
     assert probe.hits == 1
     assert probe.remaining == 0
+
+
+def test_snapshot_diff_is_raw_first_with_u32_and_f32_heuristics():
+    inferior = FakeInferior()
+    inferior.data[0x300:0x308] = struct.pack("<2I", 0, 0)
+    store = SnapshotStore()
+    store.capture("idle", 0x300, 8, memory=Memory(inferior))
+
+    inferior.data[0x300:0x308] = struct.pack("<2f", 1.0, 2.5)
+    store.capture("moving", 0x300, 8, memory=Memory(inferior))
+    entries = store.diff("idle", "moving")
+
+    assert [entry.offset for entry in entries] == [0, 4]
+    assert entries[0].before_u32 == 0
+    assert entries[0].after_f32 == 1.0
+    assert "u32 0 -> 1065353216" in format_diff(entries)[0]
+    assert "f32 0.0 -> 2.5" in format_diff(entries)[1]
+
+
+def test_jsonl_writer_emits_header_events_and_footer(tmp_path):
+    path = tmp_path / "trace.jsonl"
+    writer = JsonlWriter(path, "warehouse-ollie")
+    writer.open()
+    writer.event({"type": "physics", "frame": 4, "player": "0x100"})
+    writer.close(frames=8)
+
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert records[0] == {
+        "binary_sha256": "test",
+        "experiment": "warehouse-ollie",
+        "format": "opentony-runtime-trace-v1",
+        "type": "header",
+    }
+    assert records[1]["frame"] == 4
+    assert records[-1] == {"frames": 8, "type": "end"}
