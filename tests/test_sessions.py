@@ -41,12 +41,13 @@ def test_create_session_rejects_active_port_and_duplicate_name(monkeypatch, tmp_
 
 def test_stop_and_clean_session(monkeypatch, tmp_path: Path):
     _use_temp_registry(monkeypatch, tmp_path)
-    sessions.create_session("warehouse", None, isolated=True)
+    session = sessions.create_session("warehouse", None, isolated=True)
 
     sessions.stop_session("warehouse")
     assert sessions.load_session("warehouse").data["status"] == "stopped"
     sessions.clean_session("warehouse")
 
+    assert not session.prefix.exists()
     with pytest.raises(SystemExit, match="not found"):
         sessions.load_session("warehouse")
 

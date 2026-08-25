@@ -15,6 +15,8 @@ Addresses: `0x004524a0`, `0x004544a0`, `0x00458900`, `0x0046a8d0`
 
 The frontend function `0x00452ff0` selects `levelsel.pre`, calls the level-select wrapper, and routes a successful selection into the launch path. `SKWARE`/`Warehouse` assets therefore provide a concrete target for the first dynamic breakpoint experiment.
 
+The headless Free Skate Hangar run dynamically confirmed this chain. `0x004544a0` received level index `0` and mode `2`, then `0x004524a0` logged `Loading Level: The Hangar` before the session reached `0x0046a3a0`.
+
 ## Interpretation
 
 The PC binary has a recoverable level-selection chain independent of the PSX symbol dump. `SKATE2.TAG` helps name concepts and source files, but it is not being treated as a direct PC address map.

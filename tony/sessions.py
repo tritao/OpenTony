@@ -268,6 +268,9 @@ def clean_session(session_id: str) -> None:
     session = load_session(session_id)
     if session.active:
         raise SystemExit(f"debug session is still active: {session_id}; run: tony sessions stop {session_id}")
+    prefix = session.prefix
+    if prefix is not None and prefix.is_dir():
+        shutil.rmtree(prefix)
     shutil.rmtree(session.path)
 
 

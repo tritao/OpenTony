@@ -1,6 +1,6 @@
 # Startup, frontend, and gameplay loops
 
-Status: frontend observed; gameplay loops inferred
+Status: gameplay loop observed; Warehouse target pending
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004f7e30`, `0x00452ff0`, `0x004544a0`, `0x0046a3a0`, `0x0041c2d0`
 
@@ -18,7 +18,9 @@ Ghidra's decompiler identifies the following static path in the recorded PE32/i3
 
 The movie helper at `0x004e7090` formats the exact `PCMOVIE_PlayGameFMV` diagnostic before starting and finishing a Bink movie. It is part of startup/frontend flow, not the gameplay frame loop.
 
-Under the recorded `640x480x16` headless profile, bypassing the blocking movie routine at `0x004e5ec0` led to a runtime breakpoint hit at `0x00452ff0`, returning through `0x00503054`. This dynamically confirms the frontend anchor. Neither gameplay-loop candidate has yet been observed at runtime.
+Under the recorded `640x480x16` headless profile, bypassing the blocking movie routine at `0x004e5ec0` led to a runtime breakpoint hit at `0x00452ff0`, returning through `0x00503054`. This dynamically confirms the frontend anchor; the subsequent Hangar run confirmed the level-loop candidate as well.
+
+The same profile was then driven through Free Skate → Tony Hawk → Hangar. Runtime breakpoints confirmed the authentic launch chain: `0x004544a0` was called with level index `0` and mode `2`, `0x004524a0` performed the Hangar resource load, and `0x0046a3a0` was reached after selecting PLAY on the Free Skate loading screen. At the first level-loop hit, the registers included `EDX=0x05f34100`, `EBP=1`, and `EDI=7`; `EDX` is a candidate session/player root for follow-up memory tracing, not yet a confirmed type.
 
 ## Interpretation
 
@@ -27,5 +29,6 @@ The conservative current names are `FrontEnd_Main`, `Front_LaunchGameLevel`, `Ga
 ## Open questions / falsifiers
 
 - Confirm at runtime that `0x0046a3a0` is reached after the Warehouse level is selected and that repeated hits correspond to frames.
+- Trace the candidate `0x05f34100` object across loop iterations and compare it with the player-state layout candidates.
 - Determine whether `0x0041c2d0` is the main gameplay loop or a broader shell/session loop invoked for a different mode.
 - Resolve the meanings of `DAT_0056a8d0`, `DAT_0056a898`, and the callback object at `DAT_0056a858` with GDB observations.
