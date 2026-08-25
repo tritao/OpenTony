@@ -15,14 +15,15 @@ Addresses: `0x0049db80`, `0x00497f40`
 - A three-watch Warehouse run watched `player + 0x08`, `+0x0c`, and `+0x10` simultaneously, using three of the four x86 hardware slots. It captured 621 writes before the WineDbg proxy failed while a bounded watch was being removed; the trace is `build/debug/sessions/pos-writes-auto2/xyz.trace.ndjson`.
 - The same writes repeatedly trap after the contiguous stores in `0x00496060`: `0x00496257` writes Y, `0x00496260` writes X, and `0x00496263` writes Z. This is the strongest current candidate for a position commit path because all three components are written to the skater object in one routine.
 - Other confirmed writers include the vector-add helper at `0x004ca9f0` (post-store PCs `0x004ca9ff`, `0x004caa0d`, and `0x004caa16`) and a physics-dispatch path at `0x0049f0cc`, `0x0049f0d4`, and `0x0049f0e2`. The post-store PC is one instruction beyond the actual write, as expected for x86 debug traps.
+- Static callers of `0x00496060` include the in-air candidate `0x00497f40` at `0x00498cf5`, `0x0049905c`, and `0x0049917b`, the dispatcher path at `0x0049f0e5`, and additional state routines at `0x00496550` and `0x00499710`. The common call shape loads three scalar arguments and invokes the routine with the player object in `ecx`.
 
 ## Interpretation
 
 `0x0049db80` is conservatively named `Skater_PhysicsDispatcher`; `0x00497f40` is a strong candidate for the in-air physics routine. The object layout and exact state enum remain unconfirmed.
-The dynamic position watches now identify `0x00496060` as the next high-value breakpoint target: inspect its caller and arguments while changing only one input direction, then compare the values passed into its three position stores. `0x004ca9f0` is best treated as a reusable `Vector3_Add` helper rather than the owner of the player state.
+The dynamic position watches and static cross-references identify `0x00496060` as a shared position commit path. The strongest state-specific caller is the in-air routine at `0x00497f40`; `0x0049f0e5` is the dispatcher handoff that supplies the prior-position/current-position vectors. `0x004ca9f0` is best treated as a reusable `Vector3_Add` helper rather than the owner of the player state.
 
 ## Open questions / falsifiers
 
-- Break on `0x00496060` and follow its caller to identify which physics/collision path supplies each committed position vector.
+- Use the stable callsites at `0x00498cf5`, `0x0049905c`, and `0x0049917b` as software-breakpoint targets when the WineDbg proxy refuses to stop at the shared callee entry.
 - Confirm which dispatcher case corresponds to stationary ground, rolling, airborne, and rail states.
 - Do not assign final names to the object vectors until repeated runtime observations support them.
