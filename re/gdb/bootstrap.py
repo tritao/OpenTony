@@ -35,6 +35,11 @@ THPS2_ADDRESSES = {
     "movie_play": (0x004E5EC0, "blocking startup movie playback", "re/evidence/startup-runtime.md"),
 }
 
+THPS2_LEVELS = {
+    "hangar": 0,
+    "warehouse": 12,
+}
+
 
 def _argv(arg: str, usage: str) -> list[str]:
     try:
@@ -279,6 +284,46 @@ class TonySkipMovies(gdb.Command):
         _write(f"startup movie bypass enabled at 0x{address:08x}")
 
 
+class TonyForceLevelBreakpoint(gdb.Breakpoint):
+    """Replace the next Front_LaunchGameLevel level argument."""
+
+    def __init__(self, level: int, label: str):
+        address = THPS2_ADDRESSES["launch_level"][0]
+        super().__init__(f"*0x{address:x}", gdb.BP_BREAKPOINT, internal=True, temporary=True)
+        self.level = level
+        self.label = label
+
+    def stop(self):
+        esp = int(gdb.parse_and_eval("$esp"))
+        original = struct.unpack("<I", _read(esp + 4, 4))[0]
+        gdb.selected_inferior().write_memory(esp + 4, struct.pack("<I", self.level))
+        _write(f"forced launch level {original} -> {self.level} ({self.label})")
+        return True
+
+
+class TonyForceLevel(gdb.Command):
+    """tony-force-level NAME|INDEX -- replace the next level launch argument."""
+
+    def __init__(self):
+        super().__init__("tony-force-level", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-force-level NAME|INDEX")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-force-level NAME|INDEX")
+        value = values[0].casefold()
+        if value in THPS2_LEVELS:
+            level = THPS2_LEVELS[value]
+            label = value
+        else:
+            level = _integer(values[0])
+            label = f"level-{level}"
+        if not 0 <= level < 13:
+            raise gdb.GdbError("THPS2 level index must be between 0 and 12")
+        TonyForceLevelBreakpoint(level, label)
+        _write(f"next level launch will use {level} ({label})")
+
+
 TonyReadInteger("tony-read8", 1, "<B", "uint8")
 TonyReadInteger("tony-read16", 2, "<H", "uint16")
 TonyReadInteger("tony-read32", 4, "<I", "uint32")
@@ -290,4 +335,5 @@ TonyBreakpointCommand()
 TonyAddresses()
 TonyTHPS2Breakpoint()
 TonySkipMovies()
-_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, tony-skip-movies")
+TonyForceLevel()
+_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, tony-skip-movies, tony-force-level")

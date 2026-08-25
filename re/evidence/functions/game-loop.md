@@ -1,6 +1,6 @@
 # Startup, frontend, and gameplay loops
 
-Status: gameplay loop observed; Warehouse target pending
+Status: Warehouse gameplay loop observed
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004f7e30`, `0x00452ff0`, `0x004544a0`, `0x0046a3a0`, `0x0041c2d0`
 
@@ -22,13 +22,15 @@ Under the recorded `640x480x16` headless profile, bypassing the blocking movie r
 
 The same profile was then driven through Free Skate → Tony Hawk → Hangar. Runtime breakpoints confirmed the authentic launch chain: `0x004544a0` was called with level index `0` and mode `2`, `0x004524a0` performed the Hangar resource load, and `0x0046a3a0` was reached after selecting PLAY on the Free Skate loading screen. At the first level-loop hit, the registers included `EDX=0x05f34100`, `EBP=1`, and `EDI=7`; `EDX` is a candidate session/player root for follow-up memory tracing, not yet a confirmed type.
 
+The Warehouse override experiment dynamically confirmed the same loop after loading level index `12`. At entry, `DAT_0056a858` held player pointer `0x05f39530`, while `EDX` held `0x05f39500`, exactly 0x30 bytes before that object. `DAT_0056a898` remained `12`. These addresses are allocation-dependent observations; the stable relationships are the globals and relative offset.
+
 ## Interpretation
 
 The conservative current names are `FrontEnd_Main`, `Front_LaunchGameLevel`, `Game_LevelLoop`, and `Game_MainLoop`. The level loop is the best first runtime breakpoint for a Warehouse experiment; the outer loop is the better candidate for global frame timing.
 
 ## Open questions / falsifiers
 
-- Confirm at runtime that `0x0046a3a0` is reached after the Warehouse level is selected and that repeated hits correspond to frames.
-- Trace the candidate `0x05f34100` object across loop iterations and compare it with the player-state layout candidates.
+- Confirm that repeated inner-loop hits correspond to rendered frames.
+- Trace `DAT_0056a858` and its `-0x30` owner/header relationship across loop iterations and compare it with the player-state layout candidates.
 - Determine whether `0x0041c2d0` is the main gameplay loop or a broader shell/session loop invoked for a different mode.
 - Resolve the meanings of `DAT_0056a8d0`, `DAT_0056a898`, and the callback object at `DAT_0056a858` with GDB observations.
