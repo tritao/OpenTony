@@ -25,8 +25,11 @@ Object experiments use in-session snapshots: `tony-snapshot idle PLAYER 0x3200`,
 `tony-snapshot moving PLAYER 0x3200`, then `tony-diff idle moving`. Use
 `tony-trace-open FILE EXPERIMENT` before probes to capture a header, typed probe
 events, watchpoint events, and a frame-count footer as JSONL. `tony-watch ADDRESS [SIZE]
-[--limit COUNT]` logs writes and stops at 256 events by default; use
-`tony-watch-once` to stop at the first exact writer. Continuous movement
+[--limit COUNT]` logs writes and latches after 256 events by default; use
+`tony-watch-once` to record one exact writer and continue. Run `tony-watch-clear`
+while stopped to release managed watchpoints. The repeatable movement handoff
+probe is `tony-position-commit [COUNT]`, which observes four stable callers of
+the shared position commit routine and records its three arguments plus player state. Continuous movement
 observation should use `tony-physics-probe [COUNT]`, which uses a software
 breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records

@@ -42,6 +42,7 @@ from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe
 from opentony.player import PlayerView
+from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
 from opentony.trace import JsonlWriter
 from opentony.watchpoint import TonyWatchpoint, WatchpointManager
@@ -118,6 +119,36 @@ def test_counting_breakpoint_and_frame_clock_share_context_state():
     assert probe.hits == 2
     assert probe.remaining == 0
     assert probe.enabled is False
+
+
+def test_position_commit_probe_records_arguments_and_player_state():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x500
+    inferior.data[0x100:0x110] = struct.pack("<4I", 0x2222, 11, 22, 33)
+    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
+    inferior.data[player + 0xBC:player + 0xC8] = struct.pack("<3I", 201, 202, 203)
+    inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = PositionCommitBreakpoint(0x450, "test-callsite", 1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": player, "eip": 0x450}),
+        memory,
+    )
+
+    probe.on_count(context)
+
+    assert events[0]["type"] == "position_commit"
+    assert events[0]["player"] == "0x00000500"
+    assert events[0]["argument_values"] == ["0x0000000b", "0x00000016", "0x00000021"]
+    assert [word["u32"] for word in events[0]["position_before"]] == [101, 102, 103]
+    assert [word["u32"] for word in events[0]["history_vector"]] == [201, 202, 203]
+    assert events[0]["physics_state"]["u32"] == 4
 
 
 def test_player_view_exposes_raw_words_and_candidate_interpretations():
