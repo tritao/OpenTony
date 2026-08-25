@@ -58,7 +58,7 @@ class FakeInferior:
         self.data[address:address + len(data)] = data
 
 
-def test_typed_memory_preserves_float_bits_and_supports_writes():
+def test_typed_memory_preserves_word_views_and_float_bits():
     inferior = FakeInferior()
     inferior.data[0x10:0x14] = struct.pack("<I", 0x41460000)
     inferior.data[0x20:0x2C] = struct.pack("<3f", 1.0, -2.0, 3.5)
@@ -67,6 +67,13 @@ def test_typed_memory_preserves_float_bits_and_supports_writes():
     bits = memory.f32_bits(0x10)
     assert bits.value == 12.375
     assert bits.bits == 0x41460000
+    assert memory.fixed16(0x10) == 0x41460000 / 65536.0
+    assert memory.word32(0x10)._asdict() == {
+        "u32": 0x41460000,
+        "s32": 0x41460000,
+        "fixed16": 0x41460000 / 65536.0,
+        "f32": 12.375,
+    }
     assert memory.vec3(0x20) == (1.0, -2.0, 3.5)
 
     memory.write_u32(0x30, 0x12345678)
@@ -113,19 +120,24 @@ def test_counting_breakpoint_and_frame_clock_share_context_state():
     assert probe.enabled is False
 
 
-def test_player_view_and_physics_probe_keep_candidate_names_and_raw_bits():
+def test_player_view_exposes_raw_words_and_candidate_interpretations():
     inferior = FakeInferior()
     inferior.data[0x200:0x204] = struct.pack("<I", 0x100)
-    inferior.data[0x108:0x114] = struct.pack("<3f", 1.0, -2.0, 3.5)
-    inferior.data[0x1BC:0x1C8] = struct.pack("<3f", 4.0, 5.0, 6.0)
+    inferior.data[0x108:0x114] = struct.pack("<3I", 0x00018000, 0x00008000, 0x3F800000)
+    inferior.data[0x1BC:0x1C8] = struct.pack("<3I", 0x00004000, 0x0000C000, 0x41200000)
     inferior.data[0x31B8:0x31BC] = struct.pack("<I", 1)
     inferior.data[0x31C4:0x31C8] = struct.pack("<I", 2)
     memory = Memory(inferior)
     view = PlayerView.current(memory)
 
     assert view is not None
-    assert view.candidate_position == (1.0, -2.0, 3.5)
-    assert view.candidate_velocity == (4.0, 5.0, 6.0)
+    assert view.position_raw == (0x00018000, 0x00008000, 0x3F800000)
+    assert view.position_signed == (0x00018000, 0x00008000, 0x3F800000)
+    assert view.position_fixed16 == (1.5, 0.5, 16256.0)
+    assert view.position_float[2] == 1.0
+    assert view.velocity_raw == (0x00004000, 0x0000C000, 0x41200000)
+    assert view.velocity_fixed16 == (0.25, 0.75, 16672.0)
+    assert view.velocity_float[2] == 10.0
     assert view.physics_state == 1
 
     inferior.data[0x100:0x108] = struct.pack("<2I", 0x2222, 0x100)
@@ -136,7 +148,7 @@ def test_player_view_and_physics_probe_keep_candidate_names_and_raw_bits():
     assert probe.remaining == 0
 
 
-def test_snapshot_diff_is_raw_first_with_u32_and_f32_heuristics():
+def test_snapshot_diff_is_raw_first_with_all_word_heuristics():
     inferior = FakeInferior()
     inferior.data[0x300:0x308] = struct.pack("<2I", 0, 0)
     store = SnapshotStore()
@@ -149,7 +161,11 @@ def test_snapshot_diff_is_raw_first_with_u32_and_f32_heuristics():
     assert [entry.offset for entry in entries] == [0, 4]
     assert entries[0].before_u32 == 0
     assert entries[0].after_f32 == 1.0
+    assert entries[0].after_s32 == 0x3F800000
+    assert entries[0].after_fixed16 == 16256.0
     assert "u32 0 -> 1065353216" in format_diff(entries)[0]
+    assert "s32 0 -> 1065353216" in format_diff(entries)[0]
+    assert "fixed16 0.0 -> 16256.0" in format_diff(entries)[0]
     assert "f32 0.0 -> 2.5" in format_diff(entries)[1]
 
 
@@ -171,7 +187,7 @@ def test_jsonl_writer_emits_header_events_and_footer(tmp_path):
     assert records[-1] == {"frames": 8, "type": "end"}
 
 
-def test_watchpoint_records_raw_and_heuristic_old_new_values():
+def test_watchpoint_records_raw_and_all_heuristic_old_new_values():
     inferior = FakeInferior()
     inferior.data[0x350:0x354] = struct.pack("<I", 0)
     memory = Memory(inferior)
@@ -183,8 +199,10 @@ def test_watchpoint_records_raw_and_heuristic_old_new_values():
 
     assert record["old_raw"] == "00000000"
     assert record["new_raw"] == "41a8233d"
-    assert record["old"] == {"u32": 0, "f32": 0.0}
+    assert record["old"] == {"u32": 0, "s32": 0, "fixed16": 0.0, "f32": 0.0}
     assert record["new"]["u32"] == 0x3D23A841
+    assert record["new"]["s32"] == 0x3D23A841
+    assert record["new"]["fixed16"] == 0x3D23A841 / 65536.0
     assert record["function"] == "Skater_PhysicsDispatcher+0x5"
     assert record["address"] == "0x00000350"
 

@@ -7,10 +7,6 @@ from .knowledge import function_address
 from .player import PlayerView
 
 
-def _vec3_bits(view: PlayerView, offset: int) -> list[str]:
-    return [f"0x{view.memory.f32_bits(view.address + offset + index * 4).bits:08x}" for index in range(3)]
-
-
 class PhysicsProbe(CountingBreakpoint):
     """Observe the dispatcher without assigning meanings to its state enum."""
 
@@ -23,8 +19,6 @@ class PhysicsProbe(CountingBreakpoint):
         if not ctx.memory.valid(player):
             return False
         view = PlayerView(player, ctx.memory)
-        position = view.candidate_position
-        velocity = view.candidate_velocity
         record = {
             "type": "physics",
             "frame": ctx.frame,
@@ -32,12 +26,22 @@ class PhysicsProbe(CountingBreakpoint):
             "eip": f"0x{ctx.eip:08x}",
             "caller": f"0x{ctx.caller():08x}",
             "player": f"0x{player:08x}",
-            "physics_state": view.physics_state,
-            "unknown_state": view.unknown_state,
-            "candidate_position": list(position),
-            "candidate_position_raw": _vec3_bits(view, view.POSITION_OFFSET),
-            "candidate_velocity": list(velocity),
-            "candidate_velocity_raw": _vec3_bits(view, view.VELOCITY_OFFSET),
+            "physics_state": view.physics_state_raw,
+            "physics_state_signed": view.physics_state_signed,
+            "physics_state_fixed16": view.physics_state_fixed16,
+            "physics_state_float": view.physics_state_float,
+            "unknown_state": view.unknown_state_raw,
+            "unknown_state_signed": view.unknown_state_signed,
+            "unknown_state_fixed16": view.unknown_state_fixed16,
+            "unknown_state_float": view.unknown_state_float,
+            "position_raw": list(view.position_raw),
+            "position_signed": list(view.position_signed),
+            "position_fixed16": list(view.position_fixed16),
+            "position_float": list(view.position_float),
+            "velocity_raw": list(view.velocity_raw),
+            "velocity_signed": list(view.velocity_signed),
+            "velocity_fixed16": list(view.velocity_fixed16),
+            "velocity_float": list(view.velocity_float),
         }
         if self.writer is None:
             self.emit(record)

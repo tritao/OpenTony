@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import json
-import struct
 
 import gdb
 
 from .breakpoint import Context
 from .knowledge import function_name_at
-from .memory import Memory, mem
+from .memory import Memory, decode_word32, mem
 
 
 def _typed_values(data: bytes) -> dict[str, int | float] | None:
     if len(data) != 4:
         return None
-    return {
-        "u32": struct.unpack("<I", data)[0],
-        "f32": struct.unpack("<f", data)[0],
-    }
+    word = decode_word32(data)
+    return word._asdict()
 
 
 def _caller_address() -> int | None:

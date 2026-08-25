@@ -24,6 +24,11 @@ until runtime evidence establishes a true rendered-frame boundary.
 Object experiments use in-session snapshots: `tony-snapshot idle PLAYER 0x3200`,
 `tony-snapshot moving PLAYER 0x3200`, then `tony-diff idle moving`. Use
 `tony-trace-open FILE EXPERIMENT` before probes to capture a header, typed probe
-events, watchpoint events, and a frame-count footer as JSONL. `tony-watch
-ADDRESS [SIZE]` logs writes and auto-continues; the input sampler also records
+events, watchpoint events, and a frame-count footer as JSONL. `tony-watch ADDRESS [SIZE]`
+logs writes and auto-continues; the input sampler also records
 the four movement action-state records alongside the action mask.
+
+Player movement words remain semantically unresolved. `PlayerView` and runtime
+records preserve each word as raw `u32` and also expose `s32`, signed 16.16,
+and IEEE float32 candidate interpretations. Use `position_raw`/
+`velocity_raw` as authoritative until writer evidence establishes the format.

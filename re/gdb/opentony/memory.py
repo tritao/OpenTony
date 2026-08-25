@@ -13,6 +13,15 @@ class Float32Bits(NamedTuple):
     bits: int
 
 
+class Word32(NamedTuple):
+    """The useful candidate interpretations of one raw 32-bit word."""
+
+    u32: int
+    s32: int
+    fixed16: float
+    f32: float
+
+
 class Vec3(NamedTuple):
     x: float
     y: float
@@ -74,6 +83,12 @@ class Memory:
     def f32(self, address: int) -> float:
         return self._unpack("<f", address)
 
+    def fixed16(self, address: int) -> float:
+        return self.s32(address) / 65536.0
+
+    def word32(self, address: int) -> Word32:
+        return decode_word32(self.bytes(address, 4))
+
     def f32_bits(self, address: int) -> Float32Bits:
         raw = self.bytes(address, 4)
         bits = struct.unpack("<I", raw)[0]
@@ -127,3 +142,14 @@ class Memory:
 
 
 mem = Memory()
+
+
+def decode_word32(data: bytes) -> Word32:
+    """Decode one word without selecting a semantic representation."""
+
+    if len(data) != 4:
+        raise ValueError(f"expected exactly 4 bytes, got {len(data)}")
+    u32 = struct.unpack("<I", data)[0]
+    s32 = struct.unpack("<i", data)[0]
+    f32 = struct.unpack("<f", data)[0]
+    return Word32(u32=u32, s32=s32, fixed16=s32 / 65536.0, f32=f32)

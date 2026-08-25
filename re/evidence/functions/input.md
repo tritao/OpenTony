@@ -17,6 +17,8 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 - A controlled Warehouse run held Left while sampling 80 post-poll iterations. The companion player trace showed stable player/owner pointers and movement in the position-like 16.16 fields at offsets `0x08/0x0c/0x10`, `0x90/0x94/0x98`, and `0xbc/0xc0/0xc4`.
 - The dynamic input trace now distinguishes idle from held input: 30 idle Warehouse samples had action mask `0x0000`, while held-key samples at level `12` produced Left `0x8000` (60/60), Right `0x2000` (20/20), Up `0x1000` (20/20), and Down `0x4000` (20/20). This confirms the complete keyboard movement-to-action-bit mapping.
 - The corrected sampler captured DIK_LEFT (`0xcb`) as held byte `0x80` in the DirectInput buffer while the action mask was `0x8000`; idle capture produced no held scan codes.
+- The movement action-state records are 16 bytes each at `0x0056b078` (Left), `0x0056b088` (Right), `0x0056b098` (Up), and `0x0056b0a8` (Down). A held-Left trace at the state-update chain observed `byte0` changing `0 -> 1` at `0x00489966` and returning `1 -> 0` at `0x0048996a`; `byte1` changed `0 -> 1` once at `0x00489951`, identifying it as a press-edge latch candidate.
+- In the same trace, the first counter word at record `+0x04` reset on activation and incremented once per update while held, while the second counter at `+0x08` reset on activation and incremented during the inactive interval. The `+0x0c` word advanced with the state-update cadence. These counter roles are recorded as behavior, not yet assigned final type names.
 
 ## Interpretation
 
@@ -24,5 +26,5 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 
 ## Open questions / falsifiers
 
-- Distinguish held, pressed, and released transitions, then follow the movement consumer that reads these bits into acceleration and rotation state.
+- Follow the movement consumer that reads these confirmed action-state transitions into acceleration and rotation state.
 - Confirm input transitions dynamically with one held key and one edge-triggered key.

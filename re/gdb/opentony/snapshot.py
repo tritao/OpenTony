@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
 
 import gdb
 
-from .memory import Memory, mem
+from .memory import Memory, decode_word32, mem
 
 
 @dataclass(frozen=True)
@@ -29,19 +28,35 @@ class DiffEntry:
 
     @property
     def before_u32(self) -> int | None:
-        return struct.unpack("<I", self.before)[0] if len(self.before) == 4 else None
+        return decode_word32(self.before).u32 if len(self.before) == 4 else None
 
     @property
     def after_u32(self) -> int | None:
-        return struct.unpack("<I", self.after)[0] if len(self.after) == 4 else None
+        return decode_word32(self.after).u32 if len(self.after) == 4 else None
+
+    @property
+    def before_s32(self) -> int | None:
+        return decode_word32(self.before).s32 if len(self.before) == 4 else None
+
+    @property
+    def after_s32(self) -> int | None:
+        return decode_word32(self.after).s32 if len(self.after) == 4 else None
+
+    @property
+    def before_fixed16(self) -> float | None:
+        return decode_word32(self.before).fixed16 if len(self.before) == 4 else None
+
+    @property
+    def after_fixed16(self) -> float | None:
+        return decode_word32(self.after).fixed16 if len(self.after) == 4 else None
 
     @property
     def before_f32(self) -> float | None:
-        return struct.unpack("<f", self.before)[0] if len(self.before) == 4 else None
+        return decode_word32(self.before).f32 if len(self.before) == 4 else None
 
     @property
     def after_f32(self) -> float | None:
-        return struct.unpack("<f", self.after)[0] if len(self.after) == 4 else None
+        return decode_word32(self.after).f32 if len(self.after) == 4 else None
 
 
 class SnapshotStore:
@@ -99,6 +114,8 @@ def format_diff(entries: list[DiffEntry]) -> list[str]:
         if entry.before_u32 is not None:
             line += (
                 f"  | u32 {entry.before_u32} -> {entry.after_u32};"
+                f" s32 {entry.before_s32} -> {entry.after_s32};"
+                f" fixed16 {entry.before_fixed16!r} -> {entry.after_fixed16!r};"
                 f" f32 {entry.before_f32!r} -> {entry.after_f32!r}"
             )
         lines.append(line)
