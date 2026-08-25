@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from fcntl import LOCK_EX, flock
 from pathlib import Path
 
+from .audio import cleanup_muted_audio
 from .common import load_yaml, resolve
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -152,6 +153,27 @@ class DebugSession:
         _write_metadata(self.path / "session.json", self.data)
 
 
+def cleanup_session_audio(session: DebugSession) -> bool:
+    had_recorded_route = bool(session.data.get("audio_module_id"))
+    result = cleanup_muted_audio(session.data)
+    values = {"audio_cleanup": result.status}
+    if result.ok:
+        values.update(
+            audio_muted=False,
+            audio_backend=None,
+            audio_pactl=None,
+            audio_module_id=None,
+            audio_sink=None,
+            audio_pulse_server=None,
+            audio_error=None if had_recorded_route else session.data.get("audio_error"),
+            audio_cleanup_error=None,
+        )
+    else:
+        values["audio_cleanup_error"] = result.status
+    session.update(**values)
+    return result.ok
+
+
 def create_session(session_id: str | None, requested_port: int | None, *, isolated: bool) -> DebugSession:
     root = _sessions_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -187,6 +209,15 @@ def create_session(session_id: str | None, requested_port: int | None, *, isolat
         "gdb_pid": None,
         "display": None,
         "xauthority": None,
+        "audio_muted": False,
+        "audio_backend": None,
+        "audio_pactl": None,
+        "audio_module_id": None,
+        "audio_sink": None,
+        "audio_pulse_server": None,
+        "audio_error": None,
+        "audio_cleanup": None,
+        "audio_cleanup_error": None,
     }
     _write_metadata(session_path / "session.json", data)
     return DebugSession(session_path, data)
@@ -260,6 +291,7 @@ def stop_session(session_id: str) -> DebugSession:
         value = session.data.get(key)
         if value:
             _terminate_pid(int(value))
+    cleanup_session_audio(session)
     session.update(status="stopped", stopped_at=_timestamp())
     return session
 
@@ -268,6 +300,9 @@ def clean_session(session_id: str) -> None:
     session = load_session(session_id)
     if session.active:
         raise SystemExit(f"debug session is still active: {session_id}; run: tony sessions stop {session_id}")
+    if not cleanup_session_audio(session):
+        detail = session.data.get("audio_cleanup_error", "unknown audio cleanup error")
+        raise SystemExit(f"could not clean debug session audio: {detail}; retry sessions clean {session_id}")
     prefix = session.prefix
     if prefix is not None and prefix.is_dir():
         shutil.rmtree(prefix)

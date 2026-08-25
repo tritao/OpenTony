@@ -31,6 +31,13 @@ OpenTony creates a normal 64-bit prefix at `.tools/wineprefix`. Do not force the
 The configured `tony run`/`tony play` path uses a `1024x768` Wine virtual desktop. This keeps old DirectDraw mode changes inside a Wine window and prevents the game from changing the host display mode. The size is configured in `re/config/wine.yml`.
 
 New `tony debug` launches are isolated in Xvfb by default; use `tony debug --pid <pid>` to attach to a visible game launched by `tony run` or `tony play`.
+Debug sessions are muted by default: `tony debug` routes game audio to a temporary
+PulseAudio null sink and removes it when the session ends. Sink ownership is stored
+in the session metadata so `tony sessions stop` and `tony sessions clean` can retry
+cleanup after an interrupted debugger. Use `tony debug --unmute` when audio is
+needed. If `pactl` is unavailable, the session continues without the forced mute.
+This applies to debugger-launched games; attaching with `--pid` does not change
+audio for an already-running game.
 
 For headless smoke tests, Xvfb provides a completely separate display:
 

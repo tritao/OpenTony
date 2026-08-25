@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tony.audio import AudioCleanup
 from tony import sessions
 
 
@@ -58,3 +59,26 @@ def test_clean_rejects_active_session(monkeypatch, tmp_path: Path):
 
     with pytest.raises(SystemExit, match="still active"):
         sessions.clean_session("warehouse")
+
+
+def test_clean_preserves_session_when_audio_cleanup_fails(monkeypatch, tmp_path: Path):
+    _use_temp_registry(monkeypatch, tmp_path)
+    session = sessions.create_session("warehouse", None, isolated=True)
+    session.update(
+        status="stopped",
+        audio_muted=True,
+        audio_pactl="/usr/bin/pactl",
+        audio_module_id="271",
+        audio_sink="opentony_debug_warehouse",
+    )
+    monkeypatch.setattr(
+        sessions,
+        "cleanup_muted_audio",
+        lambda _data: AudioCleanup(False, "pactl-unavailable"),
+    )
+
+    with pytest.raises(SystemExit, match="could not clean debug session audio"):
+        sessions.clean_session("warehouse")
+
+    assert session.path.exists()
+    assert sessions.load_session("warehouse").data["audio_cleanup_error"] == "pactl-unavailable"

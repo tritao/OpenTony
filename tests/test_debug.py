@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tony import debug, display
+from tony import audio, debug, display
 
 
 def _winedbg_result(output, returncode=0):
@@ -31,6 +31,81 @@ def test_find_game_pid_requires_one_game(monkeypatch):
     monkeypatch.setattr(debug.subprocess, "run", lambda *args, **kwargs: _winedbg_result(output))
     with pytest.raises(SystemExit, match="multiple THawk2.nocd.exe"):
         debug._find_game_pid({})
+
+
+def test_muted_audio_uses_temporary_pulse_sink(monkeypatch):
+    calls = []
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/pactl" if name == "pactl" else None)
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return _winedbg_result("271\n")
+
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    env = {"PULSE_SERVER": "unix:/tmp/pulse"}
+
+    start = audio.start_muted_audio(env, "warehouse-1")
+
+    assert start.route is not None
+    assert start.route.pactl == "/usr/bin/pactl"
+    assert start.route.module_id == "271"
+    assert start.route.sink_name == "opentony_debug_warehouse_1"
+    assert env["PULSE_SINK"] == "opentony_debug_warehouse_1"
+    assert calls[0][0] == [
+        "/usr/bin/pactl",
+        "load-module",
+        "module-null-sink",
+        "sink_name=opentony_debug_warehouse_1",
+        "sink_properties=device.description=opentony_debug_warehouse_1",
+    ]
+
+
+
+def test_cleanup_muted_audio_verifies_module_identity(monkeypatch):
+    calls = []
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/pactl")
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[1:4] == ["list", "short", "modules"]:
+            return _winedbg_result("271\tmodule-null-sink\tsink_name=opentony_debug_warehouse_1\n")
+        return _winedbg_result("")
+
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    result = audio.cleanup_muted_audio(
+        {
+            "audio_pactl": "/usr/bin/pactl",
+            "audio_module_id": "271",
+            "audio_sink": "opentony_debug_warehouse_1",
+            "audio_pulse_server": "unix:/tmp/pulse",
+        }
+    )
+
+    assert result.ok is True
+    assert result.status == "removed"
+    assert calls[1][0] == ["/usr/bin/pactl", "unload-module", "271"]
+
+
+def test_cleanup_muted_audio_rejects_reused_module_id(monkeypatch):
+    calls = []
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/pactl")
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return _winedbg_result("271\tmodule-null-sink\tsink_name=some_other_session\n")
+
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    result = audio.cleanup_muted_audio(
+        {
+            "audio_pactl": "/usr/bin/pactl",
+            "audio_module_id": "271",
+            "audio_sink": "opentony_debug_warehouse_1",
+        }
+    )
+
+    assert result.ok is False
+    assert result.status == "audio-module-identity-mismatch"
+    assert calls == [["/usr/bin/pactl", "list", "short", "modules"]]
 
 
 def test_xvfb_command_uses_16_bit_software_profile(monkeypatch):

@@ -10,6 +10,7 @@ wine:
   sessions_dir: "build/debug/sessions"
   session_prefix_dir: ".tools/debug-sessions"
   debug_quiet: true
+  debug_mute_audio: true
   debug_xvfb: true
   xvfb:
     depth: 16

@@ -9,7 +9,8 @@ from pathlib import Path
 from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .nocd import nocd_executable
-from .sessions import _timestamp, create_session
+from .audio import start_muted_audio
+from .sessions import _timestamp, cleanup_session_audio, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
 
@@ -83,6 +84,20 @@ def debug_game(args) -> int:
         env = headless_wine_env(session.prefix) if headless_launch else wine_env()
         env["TONY_SESSION_ID"] = session.session_id
         env["TONY_SESSION_DIR"] = str(session.path)
+        if pid_arg is None and not getattr(args, "unmute", False) and cfg.get("debug_mute_audio", True):
+            audio_start = start_muted_audio(env, session.session_id)
+            if audio_start.route is not None:
+                session.update(
+                    audio_muted=True,
+                    audio_backend="pulse-null-sink",
+                    audio_pactl=audio_start.route.pactl,
+                    audio_module_id=audio_start.route.module_id,
+                    audio_sink=audio_start.route.sink_name,
+                    audio_pulse_server=audio_start.route.pulse_server,
+                    audio_error=None,
+                )
+            else:
+                session.update(audio_muted=False, audio_error=audio_start.error)
         if pid_arg is not None:
             target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
             cwd = ROOT
@@ -144,6 +159,7 @@ def debug_game(args) -> int:
                 proxy.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 proxy.kill()
+        cleanup_session_audio(session)
         if display is not None:
             display.close()
         session.update(status="stopped", exit_code=exit_code, stopped_at=_timestamp())

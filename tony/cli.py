@@ -142,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("debug", help="run through WineDbg GDB proxy and interactive GDB")
     p.add_argument("--headless", action="store_true", help="use the isolated Xvfb display (the default for launches)")
+    p.add_argument("--unmute", action="store_true", help="leave game audio enabled for this debug session")
     p.add_argument("--screenshot", metavar="PATH", help="capture the isolated display after the target starts")
     p.add_argument("--record", metavar="PATH", help="record the isolated display until GDB exits")
     p.add_argument("--session", help="named debug session; omitted generates a unique session")

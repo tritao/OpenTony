@@ -53,6 +53,11 @@ def test_debug_session_parse():
     assert callable(args.func)
 
 
+def test_debug_unmute_parse():
+    args = build_parser().parse_args(["debug", "--unmute"])
+    assert args.unmute is True
+
+
 def test_sessions_commands_parse():
     for command in ("list", "stop", "clean"):
         argv = ["sessions", command]
