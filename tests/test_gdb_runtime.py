@@ -266,5 +266,22 @@ def test_watchpoint_manager_tracks_active_watches_and_writer_shutdown():
     manager.watchpoints.extend((first, second))
 
     assert manager.active() == [first, second]
+    assert manager.available() == 2
     manager.disable_writer("trace-a")
     assert manager.active() == [second]
+
+
+def test_watchpoint_manager_rejects_a_fifth_active_hardware_watch():
+    manager = WatchpointManager()
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    for offset in range(4):
+        manager.arm(0x350 + offset * 4, memory=memory)
+
+    assert manager.available() == 0
+    try:
+        manager.arm(0x360, memory=memory)
+    except RuntimeError as exc:
+        assert "four OpenTony hardware watchpoint slots" in str(exc)
+    else:
+        raise AssertionError("expected the fifth hardware watchpoint to be rejected")

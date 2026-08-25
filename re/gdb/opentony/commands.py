@@ -547,8 +547,7 @@ class TonyInputSample(gdb.Command):
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
-def _watch_arguments(arg: str, usage: str, *, default_limit: int | None) -> tuple[int, str, int, int | None]:
-    values = _argv(arg, usage)
+def _watch_limit(values: list[str], usage: str, *, default_limit: int | None) -> tuple[list[str], int | None]:
     limit = default_limit
     if "--limit" in values:
         if values.count("--limit") != 1:
@@ -560,6 +559,11 @@ def _watch_arguments(arg: str, usage: str, *, default_limit: int | None) -> tupl
         values[index:index + 2] = []
         if limit <= 0:
             raise gdb.GdbError("LIMIT must be positive")
+    return values, limit
+
+
+def _watch_arguments(arg: str, usage: str, *, default_limit: int | None) -> tuple[int, str, int, int | None]:
+    values, limit = _watch_limit(_argv(arg, usage), usage, default_limit=default_limit)
     if len(values) not in (1, 2):
         raise gdb.GdbError(f"usage: {usage}")
     address, label = _watch_address(values[0])
@@ -569,12 +573,14 @@ def _watch_arguments(arg: str, usage: str, *, default_limit: int | None) -> tupl
     return address, label, size, limit
 
 
-def _arm_watchpoint(arg: str, *, once: bool, command: str):
-    address, label, size, limit = _watch_arguments(
-        arg,
-        f"{command} ADDRESS [SIZE] [--limit COUNT]",
-        default_limit=None if once else _WATCH_DEFAULT_LIMIT,
-    )
+def _arm_resolved_watchpoint(
+    address: int,
+    label: str,
+    size: int,
+    *,
+    once: bool,
+    limit: int | None,
+):
     watchpoint = watchpoints.arm(
         address,
         size=size,
@@ -591,6 +597,15 @@ def _arm_watchpoint(arg: str, *, once: bool, command: str):
         f" (0x{address:08x}, {size} bytes{limit_text})"
     )
     return watchpoint
+
+
+def _arm_watchpoint(arg: str, *, once: bool, command: str):
+    address, label, size, limit = _watch_arguments(
+        arg,
+        f"{command} ADDRESS [SIZE] [--limit COUNT]",
+        default_limit=None if once else _WATCH_DEFAULT_LIMIT,
+    )
+    return _arm_resolved_watchpoint(address, label, size, once=once, limit=limit)
 
 
 class TonyWatch(gdb.Command):
@@ -613,6 +628,28 @@ class TonyWatchOnce(gdb.Command):
         _arm_watchpoint(arg, once=True, command="tony-watch-once")
 
 
+class TonyWatchBatch(gdb.Command):
+    """tony-watch-batch ADDRESS... [--limit COUNT] -- arm a safe four-watch group."""
+
+    def __init__(self):
+        super().__init__("tony-watch-batch", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        usage = "tony-watch-batch ADDRESS... [--limit COUNT]"
+        values, limit = _watch_limit(_argv(arg, usage), usage, default_limit=_WATCH_DEFAULT_LIMIT)
+        if not values:
+            raise gdb.GdbError(f"usage: {usage}")
+        available = watchpoints.available()
+        if len(values) > available:
+            raise gdb.GdbError(
+                f"watch batch needs {len(values)} hardware slots, but only {available} are available; "
+                "split the experiment into groups of four"
+            )
+        for value in values:
+            address, label = _watch_address(value)
+            _arm_resolved_watchpoint(address, label, 4, once=False, limit=limit)
+
+
 class TonyWatchLog(gdb.Command):
     """tony-watch-log [ADDRESS [SIZE] [--limit COUNT]] -- list or arm bounded watches."""
 
@@ -628,8 +665,8 @@ class TonyWatchLog(gdb.Command):
             _write("no active OpenTony watchpoints")
             return
         _write(
-            f"{len(active)} active OpenTony watchpoint(s); writes are logged and auto-continued"
-            " until each watch limit"
+            f"{len(active)} active OpenTony watchpoint(s); "
+            f"{watchpoints.available()} hardware slot(s) available"
         )
         for watchpoint in active:
             number = getattr(watchpoint, "number", "?")
@@ -760,6 +797,7 @@ def register_commands() -> None:
     TonyInputSample()
     TonyWatch()
     TonyWatchOnce()
+    TonyWatchBatch()
     TonyWatchLog()
     TonyTraceOpen()
     TonyTraceClose()
@@ -771,6 +809,6 @@ def register_commands() -> None:
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
-        "tony-watch, tony-watch-once, tony-watch-log, "
+        "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe"
     )

@@ -32,6 +32,10 @@ breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records
 the four movement action-state records alongside the action mask.
 
+The debugger exposes four hardware watchpoint slots. `tony-watch-batch`
+accepts up to four addresses and rejects an over-capacity group before it
+reaches WineDbg; split larger layout experiments into batches.
+
 Player movement words remain semantically unresolved. `PlayerView` and runtime
 records preserve each word as raw `u32` and also expose `s32`, signed 16.16,
 and IEEE float32 candidate interpretations. Use `position_raw`/

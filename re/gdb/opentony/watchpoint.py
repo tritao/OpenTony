@@ -101,8 +101,13 @@ class TonyWatchpoint(gdb.Breakpoint):
 
 
 class WatchpointManager:
+    HARDWARE_SLOTS = 4
+
     def __init__(self):
         self.watchpoints: list[TonyWatchpoint] = []
+
+    def available(self) -> int:
+        return max(0, self.HARDWARE_SLOTS - len(self.active()))
 
     def arm(
         self,
@@ -112,14 +117,21 @@ class WatchpointManager:
         label: str | None = None,
         once: bool = False,
         limit: int | None = None,
+        memory: Memory | None = None,
         writer=None,
     ):
+        if self.available() == 0:
+            raise gdb.GdbError(
+                "all four OpenTony hardware watchpoint slots are in use; "
+                "disable an active watch or run this experiment in batches"
+            )
         watchpoint = TonyWatchpoint(
             address,
             size=size,
             label=label,
             once=once,
             limit=limit,
+            memory=memory,
             writer=writer,
         )
         self.watchpoints.append(watchpoint)
