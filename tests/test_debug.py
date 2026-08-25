@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -171,3 +172,35 @@ def test_headless_display_publishes_connection_details(monkeypatch, tmp_path: Pa
     assert calls[0][0][:4] == ["/usr/bin/xvfb-run", "-a", "-s", "-screen 0 1024x768x16 +extension GLX"]
     assert calls[0][1]["env"]["RENDER"] == "software"
     session.close()
+
+
+def test_recover_incomplete_trace_appends_explicit_footer(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in (
+                {"type": "header"},
+                {"type": "watchpoint", "frame": 17},
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "trace.active").write_text(
+        json.dumps({"path": str(trace_path), "experiment": "test"}) + "\n",
+        encoding="utf-8",
+    )
+    session = SimpleNamespace(path=session_dir)
+
+    assert debug._recover_incomplete_trace(session, "gdb-proxy-disconnected:1") is True
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert records[-1] == {
+        "complete": False,
+        "frames": 17,
+        "reason": "gdb-proxy-disconnected:1",
+        "type": "end",
+    }
+    assert not (session_dir / "trace.active").exists()

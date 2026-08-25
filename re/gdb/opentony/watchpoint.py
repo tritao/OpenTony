@@ -28,7 +28,7 @@ def _caller_address() -> int | None:
 
 
 class TonyWatchpoint(gdb.Breakpoint):
-    """Hardware write watchpoint that auto-continues after emitting an event."""
+    """Hardware write watchpoint with bounded auto-continue behavior."""
 
     def __init__(
         self,
@@ -37,15 +37,20 @@ class TonyWatchpoint(gdb.Breakpoint):
         size: int = 4,
         label: str | None = None,
         once: bool = False,
+        limit: int | None = None,
         memory: Memory | None = None,
         writer=None,
     ):
         if size not in (1, 2, 4):
             raise gdb.GdbError("watchpoint size must be 1, 2, or 4 bytes")
+        if limit is not None and limit <= 0:
+            raise gdb.GdbError("watchpoint event limit must be positive")
         self.address = address
         self.size = size
         self.label = label or f"0x{address:08x}"
         self.once = once
+        self.limit = limit
+        self.events = 0
         self.memory = memory or mem
         self.writer = writer
         self.previous = self.memory.bytes(address, size)
@@ -88,17 +93,35 @@ class TonyWatchpoint(gdb.Breakpoint):
             gdb.write(json.dumps(record, sort_keys=True) + "\n")
         else:
             self.writer.event(record)
-        if self.once:
+        self.events += 1
+        should_stop = self.once or (self.limit is not None and self.events >= self.limit)
+        if should_stop:
             self.enabled = False
-        return False
+        return should_stop
 
 
 class WatchpointManager:
     def __init__(self):
         self.watchpoints: list[TonyWatchpoint] = []
 
-    def arm(self, address: int, *, size: int = 4, label: str | None = None, once: bool = False, writer=None):
-        watchpoint = TonyWatchpoint(address, size=size, label=label, once=once, writer=writer)
+    def arm(
+        self,
+        address: int,
+        *,
+        size: int = 4,
+        label: str | None = None,
+        once: bool = False,
+        limit: int | None = None,
+        writer=None,
+    ):
+        watchpoint = TonyWatchpoint(
+            address,
+            size=size,
+            label=label,
+            once=once,
+            limit=limit,
+            writer=writer,
+        )
         self.watchpoints.append(watchpoint)
         return watchpoint
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -14,6 +15,46 @@ from .nocd import nocd_executable
 from .sessions import _timestamp, cleanup_session_audio, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
+
+
+def _recover_incomplete_trace(session, reason: str) -> bool:
+    """Append an incomplete footer after GDB/WineDbg dies with a trace open."""
+
+    marker = session.path / "trace.active"
+    try:
+        metadata = json.loads(marker.read_text(encoding="utf-8"))
+        trace_path = Path(metadata["path"])
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return False
+
+    if not trace_path.is_file():
+        marker.unlink(missing_ok=True)
+        return False
+
+    try:
+        lines = trace_path.read_text(encoding="utf-8").splitlines()
+        last = json.loads(lines[-1]) if lines else {}
+        if last.get("type") == "end":
+            marker.unlink(missing_ok=True)
+            return False
+        frame = int(last.get("frame", 0))
+        with trace_path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "type": "end",
+                        "frames": frame,
+                        "complete": False,
+                        "reason": reason,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    marker.unlink(missing_ok=True)
+    return True
 
 
 def _find_game_pid(env: dict[str, str]) -> int:
@@ -131,6 +172,8 @@ def debug_game(args) -> int:
             "-x", str(ROOT / "re/gdb/bootstrap.gdb"),
         ]
         gdb_env = os.environ.copy()
+        gdb_env["TONY_SESSION_ID"] = session.session_id
+        gdb_env["TONY_SESSION_DIR"] = str(session.path)
         if display is not None:
             gdb_env.update(display.environment)
         gdb_process = subprocess.Popen(gdb_cmd, cwd=ROOT, env=gdb_env, start_new_session=True)
@@ -145,6 +188,16 @@ def debug_game(args) -> int:
             display.stop_recording()
         if gdb_process is not None and gdb_process.poll() is None:
             terminate_process(gdb_process)
+        if gdb_process is not None or proxy is not None:
+            gdb_returncode = gdb_process.returncode if gdb_process is not None else None
+            proxy_returncode = proxy.poll() if proxy is not None else None
+            if proxy_returncode not in (None, 0):
+                reason = f"gdb-proxy-disconnected:{proxy_returncode}"
+            elif gdb_returncode not in (None, 0):
+                reason = f"gdb-exited:{gdb_returncode}"
+            else:
+                reason = "debugger-exited-with-trace-open"
+            _recover_incomplete_trace(session, reason)
         if display is not None and proxy is not None:
             terminate_process(proxy)
             if env is not None:

@@ -199,6 +199,17 @@ def test_jsonl_writer_emits_header_events_and_footer(tmp_path):
     assert records[-1] == {"frames": 8, "type": "end"}
 
 
+def test_jsonl_writer_tracks_active_session_trace(tmp_path, monkeypatch):
+    session_dir = tmp_path / "session"
+    monkeypatch.setenv("TONY_SESSION_DIR", str(session_dir))
+    writer = JsonlWriter(tmp_path / "trace.jsonl", "warehouse-ollie")
+    writer.open()
+    marker = session_dir / "trace.active"
+    assert marker.is_file()
+    writer.close(frames=1)
+    assert not marker.exists()
+
+
 def test_watchpoint_records_raw_and_all_heuristic_old_new_values():
     inferior = FakeInferior()
     inferior.data[0x350:0x354] = struct.pack("<I", 0)
@@ -217,6 +228,33 @@ def test_watchpoint_records_raw_and_all_heuristic_old_new_values():
     assert record["new"]["fixed16"] == 0x3D23A841 / 65536.0
     assert record["function"] == "Skater_PhysicsDispatcher+0x5"
     assert record["address"] == "0x00000350"
+
+
+def test_watchpoint_once_stops_after_recording_writer(monkeypatch):
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    watchpoint = TonyWatchpoint(0x350, memory=memory, once=True)
+    inferior.data[0x350:0x354] = struct.pack("<I", 1)
+    context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x305}), memory)
+    monkeypatch.setattr("opentony.watchpoint.Context.capture", lambda _memory: context)
+
+    assert watchpoint.stop() is True
+    assert watchpoint.enabled is False
+    assert watchpoint.events == 1
+
+
+def test_watchpoint_limit_stops_without_unbounded_auto_continue(monkeypatch):
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    watchpoint = TonyWatchpoint(0x350, memory=memory, limit=2)
+    context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x305}), memory)
+    monkeypatch.setattr("opentony.watchpoint.Context.capture", lambda _memory: context)
+
+    for value in (1, 2):
+        inferior.data[0x350:0x354] = struct.pack("<I", value)
+        assert watchpoint.stop() is (value == 2)
+    assert watchpoint.enabled is False
+    assert watchpoint.events == 2
 
 
 def test_watchpoint_manager_tracks_active_watches_and_writer_shutdown():

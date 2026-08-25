@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Self
 
@@ -19,6 +20,32 @@ class JsonlWriter:
         self.overwrite = overwrite
         self._stream = None
         self._closed = False
+        self._marker = self._session_marker()
+
+    def _session_marker(self) -> Path | None:
+        session_dir = os.environ.get("TONY_SESSION_DIR")
+        return Path(session_dir) / "trace.active" if session_dir else None
+
+    def _mark_active(self) -> None:
+        if self._marker is None:
+            return
+        self._marker.parent.mkdir(parents=True, exist_ok=True)
+        self._marker.write_text(
+            json.dumps(
+                {
+                    "path": str(self.path.resolve()),
+                    "experiment": self.experiment,
+                    "format": self.FORMAT,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def _clear_marker(self) -> None:
+        if self._marker is not None:
+            self._marker.unlink(missing_ok=True)
 
     def open(self) -> None:
         if self._stream is not None:
@@ -27,6 +54,7 @@ class JsonlWriter:
             raise OSError(f"refusing to overwrite {self.path}; use --force if intended")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._stream = self.path.open("w", encoding="utf-8")
+        self._mark_active()
         self.write(
             {
                 "type": "header",
@@ -57,6 +85,7 @@ class JsonlWriter:
         self.write({"type": "end", "frames": frame_clock.value if frames is None else frames})
         self._stream.close()
         self._closed = True
+        self._clear_marker()
 
     def __enter__(self) -> Self:
         self.open()

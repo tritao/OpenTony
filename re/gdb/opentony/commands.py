@@ -34,6 +34,7 @@ ACTION_STATE_RECORDS = {
 }
 
 _trace_writer = None
+_WATCH_DEFAULT_LIMIT = 256
 
 
 def _argv(arg: str, usage: str) -> list[str]:
@@ -546,34 +547,54 @@ class TonyInputSample(gdb.Command):
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
-def _watch_arguments(arg: str, usage: str) -> tuple[int, str, int]:
+def _watch_arguments(arg: str, usage: str, *, default_limit: int | None) -> tuple[int, str, int, int | None]:
     values = _argv(arg, usage)
+    limit = default_limit
+    if "--limit" in values:
+        if values.count("--limit") != 1:
+            raise gdb.GdbError(f"usage: {usage}")
+        index = values.index("--limit")
+        if index + 1 >= len(values):
+            raise gdb.GdbError(f"usage: {usage}")
+        limit = _integer(values[index + 1])
+        values[index:index + 2] = []
+        if limit <= 0:
+            raise gdb.GdbError("LIMIT must be positive")
     if len(values) not in (1, 2):
         raise gdb.GdbError(f"usage: {usage}")
     address, label = _watch_address(values[0])
     size = _integer(values[1]) if len(values) == 2 else 4
     if size not in (1, 2, 4):
         raise gdb.GdbError("SIZE must be 1, 2, or 4 bytes")
-    return address, label, size
+    return address, label, size, limit
 
 
 def _arm_watchpoint(arg: str, *, once: bool, command: str):
-    address, label, size = _watch_arguments(arg, f"{command} ADDRESS [SIZE]")
+    address, label, size, limit = _watch_arguments(
+        arg,
+        f"{command} ADDRESS [SIZE] [--limit COUNT]",
+        default_limit=None if once else _WATCH_DEFAULT_LIMIT,
+    )
     watchpoint = watchpoints.arm(
         address,
         size=size,
         label=label,
         once=once,
+        limit=limit,
         writer=_trace_writer,
     )
     mode = "one-shot " if once else ""
     number = getattr(watchpoint, "number", "?")
-    _write(f"{mode}write watchpoint {number} armed at {label} (0x{address:08x}, {size} bytes)")
+    limit_text = "" if once else f"; limit {limit} events"
+    _write(
+        f"{mode}write watchpoint {number} armed at {label}"
+        f" (0x{address:08x}, {size} bytes{limit_text})"
+    )
     return watchpoint
 
 
 class TonyWatch(gdb.Command):
-    """tony-watch ADDRESS [SIZE] -- log writes and auto-continue."""
+    """tony-watch ADDRESS [SIZE] [--limit COUNT] -- bounded write logging."""
 
     def __init__(self):
         super().__init__("tony-watch", gdb.COMMAND_BREAKPOINTS)
@@ -583,7 +604,7 @@ class TonyWatch(gdb.Command):
 
 
 class TonyWatchOnce(gdb.Command):
-    """tony-watch-once ADDRESS [SIZE] -- log the next write and disable."""
+    """tony-watch-once ADDRESS [SIZE] -- stop at the next write."""
 
     def __init__(self):
         super().__init__("tony-watch-once", gdb.COMMAND_BREAKPOINTS)
@@ -593,7 +614,7 @@ class TonyWatchOnce(gdb.Command):
 
 
 class TonyWatchLog(gdb.Command):
-    """tony-watch-log [ADDRESS [SIZE]] -- list or arm auto-continuing log watches."""
+    """tony-watch-log [ADDRESS [SIZE] [--limit COUNT]] -- list or arm bounded watches."""
 
     def __init__(self):
         super().__init__("tony-watch-log", gdb.COMMAND_BREAKPOINTS)
@@ -606,12 +627,16 @@ class TonyWatchLog(gdb.Command):
         if not active:
             _write("no active OpenTony watchpoints")
             return
-        _write(f"{len(active)} active OpenTony watchpoint(s); writes are logged and auto-continued")
+        _write(
+            f"{len(active)} active OpenTony watchpoint(s); writes are logged and auto-continued"
+            " until each watch limit"
+        )
         for watchpoint in active:
             number = getattr(watchpoint, "number", "?")
+            mode = "one-shot" if watchpoint.once else f"limit {watchpoint.limit}"
             _write(
                 f"  {number}: {watchpoint.label} @ 0x{watchpoint.address:08x}"
-                f" ({watchpoint.size} bytes)"
+                f" ({watchpoint.size} bytes; {mode})"
             )
 
 

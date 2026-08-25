@@ -24,8 +24,12 @@ until runtime evidence establishes a true rendered-frame boundary.
 Object experiments use in-session snapshots: `tony-snapshot idle PLAYER 0x3200`,
 `tony-snapshot moving PLAYER 0x3200`, then `tony-diff idle moving`. Use
 `tony-trace-open FILE EXPERIMENT` before probes to capture a header, typed probe
-events, watchpoint events, and a frame-count footer as JSONL. `tony-watch ADDRESS [SIZE]`
-logs writes and auto-continues; the input sampler also records
+events, watchpoint events, and a frame-count footer as JSONL. `tony-watch ADDRESS [SIZE]
+[--limit COUNT]` logs writes and stops at 256 events by default; use
+`tony-watch-once` to stop at the first exact writer. Continuous movement
+observation should use `tony-physics-probe [COUNT]`, which uses a software
+breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
+`complete: false` and a recovery reason. The input sampler also records
 the four movement action-state records alongside the action mask.
 
 Player movement words remain semantically unresolved. `PlayerView` and runtime
