@@ -56,6 +56,7 @@ class PositionCommitBreakpoint(CountingBreakpoint):
             "arguments": [_word_record(ctx.esp + index * 4, ctx.memory) for index in range(3)],
             "argument_values": [f"0x{value:08x}" for value in arguments],
             "position_before": _fixed_vector_record(player + view.POSITION_OFFSET, ctx.memory),
+            "vector_4c": _fixed_vector_record(player + view.VECTOR_4C_OFFSET, ctx.memory),
             "position_history": _fixed_vector_record(player + view.POSITION_HISTORY_OFFSET, ctx.memory),
             "physics_state": view.physics_state,
             "unknown_state": view.unknown_state,

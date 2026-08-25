@@ -147,6 +147,7 @@ def test_position_commit_probe_records_arguments_and_player_state():
     player = 0x500
     inferior.data[0x100:0x10C] = struct.pack("<3I", 11, 22, 33)
     inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
+    inferior.data[player + 0x4C:player + 0x58] = struct.pack("<3I", 401, 402, 403)
     inferior.data[player + 0xBC:player + 0xC8] = struct.pack("<3I", 201, 202, 203)
     inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
     events = []
@@ -170,6 +171,7 @@ def test_position_commit_probe_records_arguments_and_player_state():
     assert events[0]["caller_return"] is None
     assert events[0]["position_before"]["raw"] == [101, 102, 103]
     assert events[0]["position_before"]["fixed"] == [101 / 65536.0, 102 / 65536.0, 103 / 65536.0]
+    assert events[0]["vector_4c"]["raw"] == [401, 402, 403]
     assert events[0]["position_history"]["raw"] == [201, 202, 203]
     assert events[0]["physics_state"] == 4
 

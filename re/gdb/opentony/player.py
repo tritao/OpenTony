@@ -15,6 +15,7 @@ class PlayerView:
     """
 
     POSITION_OFFSET = 0x08
+    VECTOR_4C_OFFSET = 0x4C
     POSITION_HISTORY_OFFSET = 0xBC
     PHYSICS_STATE_OFFSET = 0x30B8
     UNKNOWN_STATE_OFFSET = 0x30C4
@@ -38,6 +39,16 @@ class PlayerView:
     @property
     def position_raw(self) -> tuple[int, int, int]:
         return self.memory.u32_vec3(self.address + self.POSITION_OFFSET)
+
+    @property
+    def vector_4c(self) -> FixedVec3:
+        """The contiguous collision/platform response vector at player + 0x4c."""
+
+        return self.memory.fixed_vec3(self.address + self.VECTOR_4C_OFFSET)
+
+    @property
+    def vector_4c_raw(self) -> tuple[int, int, int]:
+        return self.memory.u32_vec3(self.address + self.VECTOR_4C_OFFSET)
 
     @property
     def position_history(self) -> FixedVec3:
