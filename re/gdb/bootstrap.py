@@ -5,6 +5,7 @@ OpenTony virtualenv is not available to GDB. Promote repeatable discoveries
 into the main ``tony`` package and evidence files.
 """
 
+import json
 import shlex
 import struct
 from pathlib import Path
@@ -28,6 +29,7 @@ THPS2_ADDRESSES = {
     "launch_level": (0x004544A0, "frontend level launch", "re/evidence/functions/level-load.md"),
     "load_game": (0x004524A0, "level and player resource loading", "re/evidence/functions/level-load.md"),
     "level_loop": (0x0046A3A0, "active level update/render loop", "re/evidence/functions/game-loop.md"),
+    "frame_tick": (0x004F7CE0, "level-loop timing/input tick", "re/evidence/functions/game-loop.md"),
     "game_loop": (0x0041C2D0, "outer game/session loop", "re/evidence/functions/game-loop.md"),
     "physics_dispatch": (0x0049DB80, "skater physics state dispatcher", "re/evidence/functions/physics.md"),
     "physics_in_air": (0x00497F40, "candidate in-air physics routine", "re/evidence/functions/physics.md"),
@@ -324,6 +326,77 @@ class TonyForceLevel(gdb.Command):
         _write(f"next level launch will use {level} ({label})")
 
 
+class TonyPlayerSampleBreakpoint(gdb.Breakpoint):
+    """Collect raw player-object snapshots at level-loop entry."""
+
+    def __init__(self, count: int, path: Path):
+        super().__init__(f"*0x{THPS2_ADDRESSES['frame_tick'][0]:x}", gdb.BP_BREAKPOINT, internal=True)
+        self.remaining = count
+        self.path = path
+        self.sample = 0
+
+    def stop(self):
+        pointer_bytes = _read(0x0056A858, 4)
+        player = struct.unpack("<I", pointer_bytes)[0]
+        level = struct.unpack("<I", _read(0x0056A898, 4))[0]
+        if player == 0 or level > 12:
+            return False
+        registers = {
+            name: int(gdb.parse_and_eval(f"${name}"))
+            for name in ("eax", "ecx", "edx", "ebx", "ebp", "esi", "edi")
+        }
+        record = {
+            "sample": self.sample,
+            "eip": int(gdb.parse_and_eval("$eip")),
+            "level": level,
+            "player": player,
+            "owner_header": player - 0x30 if player >= 0x30 else None,
+            "registers": registers,
+            "owner_bytes": _read(player - 0x30, 0x30).hex() if player >= 0x30 else None,
+            "player_bytes": _read(player, 0x200).hex() if player else None,
+        }
+        try:
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        except OSError as exc:
+            raise gdb.GdbError(f"could not write player sample {self.path}: {exc}") from exc
+        self.sample += 1
+        self.remaining -= 1
+        if self.remaining <= 0:
+            self.enabled = False
+            _write(f"player sampling complete: {self.sample} samples -> {self.path}")
+        return False
+
+
+class TonyPlayerSample(gdb.Command):
+    """tony-player-sample COUNT FILE [--force] -- collect raw frame-tick snapshots."""
+
+    def __init__(self):
+        super().__init__("tony-player-sample", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-player-sample COUNT FILE [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-player-sample COUNT FILE [--force]")
+        count = _integer(values[0])
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        path = Path(values[1]).expanduser()
+        if path.exists() and not force:
+            raise gdb.GdbError(f"refusing to overwrite {path}; add --force if intended")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if force:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise gdb.GdbError(f"could not prepare player sample {path}: {exc}") from exc
+        TonyPlayerSampleBreakpoint(count, path)
+        _write(f"player sampling armed for {count} level-loop hits -> {path}")
+
+
 TonyReadInteger("tony-read8", 1, "<B", "uint8")
 TonyReadInteger("tony-read16", 2, "<H", "uint16")
 TonyReadInteger("tony-read32", 4, "<I", "uint32")
@@ -336,4 +409,5 @@ TonyAddresses()
 TonyTHPS2Breakpoint()
 TonySkipMovies()
 TonyForceLevel()
-_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, tony-skip-movies, tony-force-level")
+TonyPlayerSample()
+_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, tony-skip-movies, tony-force-level, tony-player-sample")

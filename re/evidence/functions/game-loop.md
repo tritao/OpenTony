@@ -24,6 +24,10 @@ The same profile was then driven through Free Skate → Tony Hawk → Hangar. Ru
 
 The Warehouse override experiment dynamically confirmed the same loop after loading level index `12`. At entry, `DAT_0056a858` held player pointer `0x05f39530`, while `EDX` held `0x05f39500`, exactly 0x30 bytes before that object. `DAT_0056a898` remained `12`. These addresses are allocation-dependent observations; the stable relationships are the globals and relative offset.
 
+The repeatable raw collector is `tony-player-sample COUNT FILE [--force]`. It arms a temporary breakpoint at the repeated timing/input tick `0x004f7ce0` inside `Game_LevelLoop`, records registers plus the owner/player byte ranges as NDJSON, and automatically continues until `COUNT` samples are collected. The `0x0046a3a0` breakpoint remains the one-time level-session entry.
+
+A five-sample Warehouse baseline produced five consecutive `0x004f7ce0` hits with level `12`, stable player pointer `0x05f39530`, and stable owner/header address `0x05f39500`. The initial samples were byte-identical in the captured player range after startup settled, establishing a usable stationary baseline for the next controlled-input comparison.
+
 ## Interpretation
 
 The conservative current names are `FrontEnd_Main`, `Front_LaunchGameLevel`, `Game_LevelLoop`, and `Game_MainLoop`. The level loop is the best first runtime breakpoint for a Warehouse experiment; the outer loop is the better candidate for global frame timing.
