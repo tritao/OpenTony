@@ -32,6 +32,17 @@ def function_address(name: str) -> int:
     return _lookup(name, FUNCTIONS, FUNCTION_ALIASES)
 
 
+def function_name_at(address: int) -> str:
+    """Return the nearest generated function name with an interior offset."""
+
+    candidates = [(entry, name) for name, entry in FUNCTIONS.items() if entry <= address]
+    if not candidates:
+        return f"0x{address:08x}"
+    entry, name = max(candidates)
+    offset = address - entry
+    return name if offset == 0 else f"{name}+0x{offset:x}"
+
+
 def global_address(name: str) -> int:
     return _lookup(name, GLOBALS, GLOBAL_ALIASES)
 

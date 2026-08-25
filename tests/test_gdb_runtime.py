@@ -9,11 +9,16 @@ if "gdb" not in sys.modules:
         def __init__(self, *args, **kwargs):
             self.enabled = True
 
+        def is_valid(self):
+            return True
+
     gdb_stub = types.ModuleType("gdb")
     gdb_stub.error = RuntimeError
     gdb_stub.GdbError = RuntimeError
     gdb_stub.Breakpoint = FakeBreakpoint
     gdb_stub.BP_BREAKPOINT = 1
+    gdb_stub.BP_WATCHPOINT = 2
+    gdb_stub.WP_WRITE = 1
     gdb_stub.write = lambda _text: None
     sys.modules["gdb"] = gdb_stub
 
@@ -39,6 +44,7 @@ from opentony.physics import PhysicsProbe
 from opentony.player import PlayerView
 from opentony.snapshot import SnapshotStore, format_diff
 from opentony.trace import JsonlWriter
+from opentony.watchpoint import TonyWatchpoint, WatchpointManager
 
 
 class FakeInferior:
@@ -163,3 +169,34 @@ def test_jsonl_writer_emits_header_events_and_footer(tmp_path):
     }
     assert records[1]["frame"] == 4
     assert records[-1] == {"frames": 8, "type": "end"}
+
+
+def test_watchpoint_records_raw_and_heuristic_old_new_values():
+    inferior = FakeInferior()
+    inferior.data[0x350:0x354] = struct.pack("<I", 0)
+    memory = Memory(inferior)
+    watchpoint = TonyWatchpoint(0x350, label="player+0x08", memory=memory)
+
+    inferior.data[0x350:0x354] = struct.pack("<I", 0x3D23A841)
+    context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x305}), memory)
+    record = watchpoint.record(context)
+
+    assert record["old_raw"] == "00000000"
+    assert record["new_raw"] == "41a8233d"
+    assert record["old"] == {"u32": 0, "f32": 0.0}
+    assert record["new"]["u32"] == 0x3D23A841
+    assert record["function"] == "Skater_PhysicsDispatcher+0x5"
+    assert record["address"] == "0x00000350"
+
+
+def test_watchpoint_manager_tracks_active_watches_and_writer_shutdown():
+    manager = WatchpointManager()
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    first = TonyWatchpoint(0x350, memory=memory, writer="trace-a")
+    second = TonyWatchpoint(0x354, memory=memory, writer="trace-b")
+    manager.watchpoints.extend((first, second))
+
+    assert manager.active() == [first, second]
+    manager.disable_writer("trace-a")
+    assert manager.active() == [second]

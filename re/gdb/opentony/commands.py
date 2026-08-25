@@ -15,6 +15,7 @@ from .memory import mem
 from .physics import PhysicsProbe
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
+from .watchpoint import watchpoints
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
 THPS2_ADDRESSES = dict(known_function_addresses())
@@ -60,6 +61,47 @@ def _snapshot_address(value: str) -> int:
             if player is not None:
                 return player.address
         raise
+
+
+_PLAYER_WATCH_FIELDS = {
+    "position.x": 0x08,
+    "position.y": 0x0C,
+    "position.z": 0x10,
+    "velocity.x": 0xBC,
+    "velocity.y": 0xC0,
+    "velocity.z": 0xC4,
+    "physics_state": 0x30B8,
+    "unknown_state": 0x30C4,
+}
+
+
+def _watch_address(value: str) -> tuple[int, str]:
+    """Resolve a raw address or a small candidate PlayerView expression."""
+
+    lowered = value.casefold()
+    if lowered == "player" or lowered.startswith(("player+", "player.")):
+        from .player import PlayerView
+
+        player = PlayerView.current()
+        if player is None:
+            raise gdb.GdbError("the generated Player pointer is null or unreadable")
+        if lowered == "player":
+            return player.address, value
+        if lowered.startswith("player+"):
+            try:
+                offset = int(value[7:], 0)
+            except ValueError as exc:
+                raise gdb.GdbError(f"invalid player offset {value!r}") from exc
+            if offset < 0:
+                raise gdb.GdbError("player watch offset must be non-negative")
+            return player.address + offset, value
+        field = lowered[7:]
+        try:
+            return player.address + _PLAYER_WATCH_FIELDS[field], value
+        except KeyError as exc:
+            fields = ", ".join(sorted(_PLAYER_WATCH_FIELDS))
+            raise gdb.GdbError(f"unknown PlayerView field {field!r}; choose one of: {fields}") from exc
+    return _integer(value), value
 
 
 class TonyReadInteger(gdb.Command):
@@ -479,6 +521,75 @@ class TonyInputSample(gdb.Command):
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
+def _watch_arguments(arg: str, usage: str) -> tuple[int, str, int]:
+    values = _argv(arg, usage)
+    if len(values) not in (1, 2):
+        raise gdb.GdbError(f"usage: {usage}")
+    address, label = _watch_address(values[0])
+    size = _integer(values[1]) if len(values) == 2 else 4
+    if size not in (1, 2, 4):
+        raise gdb.GdbError("SIZE must be 1, 2, or 4 bytes")
+    return address, label, size
+
+
+def _arm_watchpoint(arg: str, *, once: bool, command: str):
+    address, label, size = _watch_arguments(arg, f"{command} ADDRESS [SIZE]")
+    watchpoint = watchpoints.arm(
+        address,
+        size=size,
+        label=label,
+        once=once,
+        writer=_trace_writer,
+    )
+    mode = "one-shot " if once else ""
+    number = getattr(watchpoint, "number", "?")
+    _write(f"{mode}write watchpoint {number} armed at {label} (0x{address:08x}, {size} bytes)")
+    return watchpoint
+
+
+class TonyWatch(gdb.Command):
+    """tony-watch ADDRESS [SIZE] -- log writes and auto-continue."""
+
+    def __init__(self):
+        super().__init__("tony-watch", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        _arm_watchpoint(arg, once=False, command="tony-watch")
+
+
+class TonyWatchOnce(gdb.Command):
+    """tony-watch-once ADDRESS [SIZE] -- log the next write and disable."""
+
+    def __init__(self):
+        super().__init__("tony-watch-once", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        _arm_watchpoint(arg, once=True, command="tony-watch-once")
+
+
+class TonyWatchLog(gdb.Command):
+    """tony-watch-log [ADDRESS [SIZE]] -- list or arm auto-continuing log watches."""
+
+    def __init__(self):
+        super().__init__("tony-watch-log", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        if arg.strip():
+            _arm_watchpoint(arg, once=False, command="tony-watch-log")
+            return
+        active = watchpoints.active()
+        if not active:
+            _write("no active OpenTony watchpoints")
+            return
+        _write(f"{len(active)} active OpenTony watchpoint(s); writes are logged and auto-continued")
+        for watchpoint in active:
+            number = getattr(watchpoint, "number", "?")
+            _write(
+                f"  {number}: {watchpoint.label} @ 0x{watchpoint.address:08x}"
+                f" ({watchpoint.size} bytes)"
+            )
+
+
 _runtime_breakpoints = []
 
 
@@ -524,6 +635,7 @@ class TonyTraceClose(gdb.Command):
         for breakpoint in _runtime_breakpoints:
             if getattr(breakpoint, "writer", None) is writer:
                 breakpoint.enabled = False
+        watchpoints.disable_writer(writer)
         try:
             writer.close()
         except OSError as exc:
@@ -596,6 +708,9 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyPlayerSample()
     TonyInputSample()
+    TonyWatch()
+    TonyWatchOnce()
+    TonyWatchLog()
     TonyTraceOpen()
     TonyTraceClose()
     TonyFrameClock()
@@ -606,5 +721,6 @@ def register_commands() -> None:
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-watch, tony-watch-once, tony-watch-log, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe"
     )
