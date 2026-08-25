@@ -138,14 +138,26 @@ def test_player_view_exposes_raw_words_and_candidate_interpretations():
     assert view.velocity_raw == (0x00004000, 0x0000C000, 0x41200000)
     assert view.velocity_fixed16 == (0.25, 0.75, 16672.0)
     assert view.velocity_float[2] == 10.0
-    assert view.physics_state == 1
+    assert view.physics_state_raw == 1
+    assert view.physics_state_signed == 1
+    assert view.physics_state_fixed16 == 1 / 65536.0
 
     inferior.data[0x100:0x108] = struct.pack("<2I", 0x2222, 0x100)
     context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x300}), memory)
-    probe = PhysicsProbe(count=1)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = PhysicsProbe(count=1, writer=Writer())
     probe.on_hit(context)
     assert probe.hits == 1
     assert probe.remaining == 0
+    assert events[0]["position_raw"] == [0x00018000, 0x00008000, 0x3F800000]
+    assert events[0]["position_fixed16"] == [1.5, 0.5, 16256.0]
+    assert events[0]["position_float"][2] == 1.0
+    assert "candidate_position" not in events[0]
 
 
 def test_snapshot_diff_is_raw_first_with_all_word_heuristics():

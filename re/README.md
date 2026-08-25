@@ -31,4 +31,5 @@ the four movement action-state records alongside the action mask.
 Player movement words remain semantically unresolved. `PlayerView` and runtime
 records preserve each word as raw `u32` and also expose `s32`, signed 16.16,
 and IEEE float32 candidate interpretations. Use `position_raw`/
-`velocity_raw` as authoritative until writer evidence establishes the format.
+`velocity_raw` as authoritative until writer evidence establishes the format;
+state records follow the same explicit `*_raw` naming.
