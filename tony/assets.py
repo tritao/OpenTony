@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import struct
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -16,6 +17,26 @@ _PKR_FILE = struct.Struct("<32sIIII")
 _PKR_MAGIC = b"PKR2"
 _PKR_FILE_MARKER = 0xFFFFFFFE
 _PRE_HEADER = struct.Struct("<I")
+_TRG_HEADER = struct.Struct("<4sII")
+_TRG_MAGIC = b"_TRG"
+_TRG_NODE_NAMES = {
+    1: "baddy",
+    2: "crate",
+    3: "point",
+    4: "autoexec",
+    5: "powerup",
+    6: "command_point",
+    8: "restart",
+    10: "rail_point",
+    11: "rail_def",
+    12: "trick_object",
+    13: "camera_point",
+    14: "goal_object",
+    15: "autoexec2",
+    255: "terminator",
+    501: "off_light",
+    1000: "script_point",
+}
 
 
 class PkrFormatError(ValueError):
@@ -47,6 +68,18 @@ class PreEntry:
     name: str
     data_offset: int
     size: int
+
+
+@dataclass(frozen=True)
+class TrgNode:
+    index: int
+    offset: int
+    size: int
+    node_type: int
+
+    @property
+    def type_name(self) -> str:
+        return _TRG_NODE_NAMES.get(self.node_type, "unknown")
 
 
 def _decode_name(raw: bytes, label: str) -> str:
@@ -248,6 +281,67 @@ class PreArchive:
         }
 
 
+class TrgArchive:
+    """Reader for the common TRG2 node table, without decoding node payloads."""
+
+    def __init__(self, path: Path, version: int, nodes: list[TrgNode]):
+        self.path = path
+        self.version = version
+        self.nodes = nodes
+
+    @classmethod
+    def read(cls, path: str | Path) -> TrgArchive:
+        source = resolve(path)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        file_size = source.stat().st_size
+        with source.open("rb") as stream:
+            magic, version, node_count = _TRG_HEADER.unpack(
+                _read_exact(stream, _TRG_HEADER.size, "TRG header")
+            )
+            if magic != _TRG_MAGIC:
+                raise PkrFormatError(f"unsupported TRG magic: {magic!r}")
+            table_end = _TRG_HEADER.size + node_count * 4
+            if table_end > file_size:
+                raise PkrFormatError("TRG node-offset table extends beyond the file")
+            offsets = [
+                struct.unpack("<I", _read_exact(stream, 4, f"TRG node offset {index}"))[0]
+                for index in range(node_count)
+            ]
+            if offsets != sorted(set(offsets)):
+                raise PkrFormatError("TRG node offsets must be strictly increasing")
+            if any(offset < table_end or offset + 2 > file_size for offset in offsets):
+                raise PkrFormatError("TRG node offset is outside the file")
+
+            nodes = []
+            for index, offset in enumerate(offsets):
+                next_offset = offsets[index + 1] if index + 1 < len(offsets) else file_size
+                if next_offset <= offset:
+                    raise PkrFormatError(f"TRG node {index} has a non-positive size")
+                stream.seek(offset)
+                node_type = struct.unpack("<H", _read_exact(stream, 2, f"TRG node {index} type"))[0]
+                nodes.append(TrgNode(index, offset, next_offset - offset, node_type))
+
+        return cls(source, version, nodes)
+
+    def summary(self) -> dict:
+        counts = Counter(node.node_type for node in self.nodes)
+        return {
+            "format": "TRG",
+            "version": self.version,
+            "node_count": len(self.nodes),
+            "node_types": [
+                {
+                    "type": node_type,
+                    "name": _TRG_NODE_NAMES.get(node_type, "unknown"),
+                    "count": count,
+                }
+                for node_type, count in sorted(counts.items())
+            ],
+            "unknown_node_types": sorted(node_type for node_type in counts if node_type not in _TRG_NODE_NAMES),
+        }
+
+
 def _display_path(path: Path) -> str:
     try:
         return relative_to_root(path)
@@ -299,6 +393,64 @@ def inspect_pre(path: str | Path, *, include_entries: bool = False) -> dict:
             for entry in archive.entries
         ]
     return result
+
+
+def inspect_trg(path: str | Path, *, include_nodes: bool = False) -> dict:
+    source = resolve(path)
+    archive = TrgArchive.read(source)
+    result = {
+        "source": {
+            "path": _display_path(source),
+            "size": source.stat().st_size,
+            "sha256": sha256(source),
+        },
+        **archive.summary(),
+    }
+    if include_nodes:
+        result["nodes"] = [
+            {
+                "index": node.index,
+                "offset": node.offset,
+                "size": node.size,
+                "type": node.node_type,
+                "name": node.type_name,
+            }
+            for node in archive.nodes
+        ]
+    return result
+
+
+def inventory_assets(root: str | Path, *, examples: int = 3) -> dict:
+    source = resolve(root)
+    if not source.is_dir():
+        raise FileNotFoundError(source)
+    if examples < 0:
+        raise ValueError("examples must not be negative")
+
+    buckets: dict[str, dict[str, int | list[str]]] = {}
+    file_count = 0
+    total_size = 0
+    for path in sorted(candidate for candidate in source.rglob("*") if candidate.is_file()):
+        extension = path.suffix.lower() or "<none>"
+        bucket = buckets.setdefault(extension, {"file_count": 0, "total_size": 0, "examples": []})
+        size = path.stat().st_size
+        bucket["file_count"] = int(bucket["file_count"]) + 1
+        bucket["total_size"] = int(bucket["total_size"]) + size
+        bucket_examples = bucket["examples"]
+        if isinstance(bucket_examples, list) and len(bucket_examples) < examples:
+            bucket_examples.append(path.relative_to(source).as_posix())
+        file_count += 1
+        total_size += size
+
+    return {
+        "root": _display_path(source),
+        "file_count": file_count,
+        "total_size": total_size,
+        "extensions": [
+            {"extension": extension, **buckets[extension]}
+            for extension in sorted(buckets)
+        ],
+    }
 
 
 def _build_output(path: str | Path) -> Path:
@@ -419,6 +571,18 @@ def assets_inspect_pkr(args) -> int:
 
 def assets_inspect_pre(args) -> int:
     result = inspect_pre(args.path, include_entries=args.entries)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def assets_inspect_trg(args) -> int:
+    result = inspect_trg(args.path, include_nodes=args.nodes)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def assets_inventory(args) -> int:
+    result = inventory_assets(args.path, examples=args.examples)
     print(json.dumps(result, indent=2))
     return 0
 

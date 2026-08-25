@@ -28,6 +28,6 @@ def test_nocd_patch_command_parse():
 
 
 def test_asset_commands_parse():
-    for command in ("inspect-pkr", "extract-pkr", "inspect-pre", "extract-pre"):
+    for command in ("inspect-pkr", "extract-pkr", "inspect-pre", "extract-pre", "inventory", "inspect-trg"):
         args = build_parser().parse_args(["assets", command, "archive.PKR"])
         assert callable(args.func)

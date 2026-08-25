@@ -25,8 +25,18 @@ Observed in the files extracted from `ALL.PKR`, including `CREATE.PRE`, `LEVEL.P
 
 `tony assets inspect-pre` reports the embedded entries and `tony assets extract-pre` restores them under `build/`. This exposes the individual BMP/FNT/other resources that are otherwise nested inside PKR.
 
-## Next format: CD.HED/CD.WAD
+## TRG (`*_T.TRG`)
 
-The reference project identifies the PC `CD.HED/CD.WAD` pair as a container used by the game, with a variable-length NUL-terminated filename followed by 4-byte alignment, an offset, and a size. The current extracted installer contains `ALL.PKR` but no HED/WAD pair, so the next evidence source should be an installed game directory or a runtime file-open trace.
+Observed in 32 files extracted from `ALL.PKR`.
+
+- Header: ASCII `_TRG` at offset `0x00`, followed by little-endian version `2` and a little-endian node count.
+- Node table: `node_count` little-endian absolute offsets immediately after the 12-byte header. Offsets are strictly increasing and bound each node to the next offset, or to end-of-file for the final node.
+- Each node begins with a little-endian `u16` node type. The current inspector names types documented by the reference disassembler, but leaves payloads opaque.
+
+`tony assets inspect-trg` reports the node-type histogram; add `--nodes` for offsets and node sizes. `tony assets inventory` summarizes the extracted tree by extension. Full TRG command/script disassembly remains a separate step because node payloads have type-specific structures and known THPS1/THPS2 variants.
+
+## Next format: CD.HET/CD.HEP/CD.HED/CD.WAD
+
+The extracted PKR contains all four files under `data/`. Initial inspection differs from the simple named HED/WAD layout in the reference tool: `CD.HET` and `CD.HEP` contain fixed-width filename/size records, while `CD.HED` appears to contain 12-byte hash/offset/size records for `CD.WAD`. The name-to-hash correlation and exact table counts remain open. This is now the next concrete container target; no installed-game directory or runtime trace is required to begin.
 
 Record observations with build identity, addresses, and evidence confidence. Prefer links into `re/evidence/` for claims that should survive refactors.

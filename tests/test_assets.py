@@ -8,10 +8,13 @@ from tony.assets import (
     PkrArchive,
     PkrFormatError,
     PreArchive,
+    TrgArchive,
     extract_pkr,
     extract_pre,
     inspect_pkr,
     inspect_pre,
+    inspect_trg,
+    inventory_assets,
 )
 
 
@@ -85,6 +88,42 @@ def test_read_and_extract_pre(tmp_path: Path):
     assert (output / "files/one.bin").read_bytes() == b"one"
     assert (output / "files/two.bin").read_bytes() == b"two!"
     assert json.loads((output / "manifest.json").read_text()) == manifest
+
+
+def test_inventory_assets_groups_extensions(tmp_path: Path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/a.BMP").write_bytes(b"123")
+    (tmp_path / "data/b.bmp").write_bytes(b"12")
+    (tmp_path / "data/README").write_bytes(b"1")
+
+    result = inventory_assets(tmp_path, examples=1)
+
+    assert result["file_count"] == 3
+    assert result["total_size"] == 6
+    assert result["extensions"] == [
+        {"extension": ".bmp", "file_count": 2, "total_size": 5, "examples": ["data/a.BMP"]},
+        {"extension": "<none>", "file_count": 1, "total_size": 1, "examples": ["data/README"]},
+    ]
+
+
+def test_read_trg_header_and_node_table(tmp_path: Path):
+    source = tmp_path / "SKATE_T.TRG"
+    source.write_bytes(
+        struct.pack("<4sII", b"_TRG", 2, 2)
+        + struct.pack("<II", 20, 24)
+        + struct.pack("<HH", 1, 0x1234)
+        + struct.pack("<HH", 255, 0x5678)
+    )
+
+    archive = TrgArchive.read(source)
+    assert [(node.offset, node.size, node.type_name) for node in archive.nodes] == [
+        (20, 4, "baddy"),
+        (24, 4, "terminator"),
+    ]
+    result = inspect_trg(source, include_nodes=True)
+    assert result["node_count"] == 2
+    assert result["unknown_node_types"] == []
+    assert result["nodes"][1]["name"] == "terminator"
 
 
 @pytest.mark.parametrize(
