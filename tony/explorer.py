@@ -65,16 +65,18 @@ a { color:var(--accent); } .pill { display:inline-block; padding:2px 7px; border
 <aside id="details"><h3>Selection</h3><p class="muted">Choose a scene, model, texture, or blockmap from the left.</p></aside>
 </main>
 <script>
+const PACKAGE_PATH = null;
 const state = { manifest:null, object:null, animation:0, frame:null };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fileUrl = path => '/files/' + path.split('/').map(encodeURIComponent).join('/');
-const apiUrl = path => '/api/obj?path=' + encodeURIComponent(path);
+const packageQuery = () => PACKAGE_PATH ? `&package=${encodeURIComponent(PACKAGE_PATH)}` : '';
+const fileUrl = path => '/files/' + path.split('/').map(encodeURIComponent).join('/') + (PACKAGE_PATH ? `?package=${encodeURIComponent(PACKAGE_PATH)}` : '');
+const apiUrl = path => '/api/obj?path=' + encodeURIComponent(path) + packageQuery();
 function card(label, value) { return `<div class="card"><strong>${esc(value)}</strong><small>${esc(label)}</small></div>`; }
 function navButton(label, action) { return `<button class="nav-button" onclick="${action}">${esc(label)}</button>`; }
 
 async function init() {
-  state.manifest = await fetch('/api/manifest').then(r => r.json());
+  state.manifest = await fetch('/api/manifest' + (PACKAGE_PATH ? `?package=${encodeURIComponent(PACKAGE_PATH)}` : '')).then(r => r.json());
   const m = state.manifest;
   $('source').textContent = m.source?.path || 'generated asset directory';
   renderNav();
@@ -175,6 +177,38 @@ init().catch(error => { $('content').innerHTML=`<h2>Explorer error</h2><pre>${es
 </body>
 </html>"""
 
+_DASHBOARD_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenTony Asset Library</title>
+<style>
+:root { color-scheme:dark; --bg:#101217; --panel:#171a21; --panel2:#20242d; --line:#303642; --text:#e7eaf0; --muted:#9da6b5; --accent:#77d4c5; }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
+header { padding:24px max(22px,calc((100vw - 1200px)/2)); border-bottom:1px solid var(--line); background:#13161c; }
+h1 { margin:0; font-size:24px; } header p { margin:6px 0 0; color:var(--muted); }
+main { max-width:1200px; margin:0 auto; padding:24px 22px; } .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:14px; }
+.package { display:block; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); text-decoration:none; }
+.package:hover { border-color:var(--accent); transform:translateY(-1px); } .package h2 { margin:0 0 6px; font-size:17px; }
+.package p { margin:4px 0 14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats { display:flex; gap:12px; flex-wrap:wrap; color:var(--accent); } .stats span { color:var(--muted); }
+.empty { padding:24px; border:1px dashed var(--line); border-radius:10px; color:var(--muted); }
+code { color:var(--accent); }
+</style>
+</head>
+<body><header><h1>OpenTony Asset Library</h1><p>Generated asset packages under <code id="root">build/assets</code></p></header>
+<main><div id="packages" class="grid"><p class="empty">Scanning manifests…</p></div></main>
+<script>
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+fetch('/api/catalog').then(response => response.json()).then(items => {
+  const target = document.getElementById('packages');
+  if (!items.length) { target.innerHTML = '<div class="empty">No generated asset packages found. Run <code>tony assets extract-psx …</code> first.</div>'; return; }
+  target.innerHTML = items.map(item => `<a class="package" href="/package?path=${encodeURIComponent(item.path)}"><h2>${esc(item.name)}</h2><p>${esc(item.source || item.path)}</p><div class="stats"><span>${item.models} models</span><span>${item.objects} objects</span><span>${item.textures} textures</span><span>${item.collision_faces} collision faces</span></div></a>`).join('');
+}).catch(error => { document.getElementById('packages').innerHTML = `<div class="empty">Explorer error: ${esc(error)}</div>`; });
+</script>
+</body></html>"""
+
 
 def explorer_root(path: str | Path) -> Path:
     root = resolve(path).resolve()
@@ -182,6 +216,13 @@ def explorer_root(path: str | Path) -> Path:
         raise SystemExit(f"asset explorer path is not a directory: {root}")
     if not (root / "manifest.json").is_file():
         raise SystemExit(f"asset explorer requires a generated manifest.json: {root}")
+    return root
+
+
+def asset_workspace_root(path: str | Path) -> Path:
+    root = resolve(path).resolve()
+    if not root.is_dir():
+        raise SystemExit(f"asset explorer workspace is not a directory: {root}")
     return root
 
 
@@ -292,7 +333,50 @@ def _safe_child(root: Path, relative: str) -> Path:
     return candidate
 
 
-def _handler_for(root: Path):
+def _safe_directory(root: Path, relative: str) -> Path:
+    candidate = (root / unquote(relative or ".")).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError("asset package escapes explorer workspace") from exc
+    if not candidate.is_dir() or not (candidate / "manifest.json").is_file():
+        raise FileNotFoundError(relative)
+    return candidate
+
+
+def _catalog(root: Path) -> list[dict]:
+    packages = []
+    for manifest_path in sorted(root.rglob("manifest.json")):
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        package_path = manifest_path.parent.relative_to(root).as_posix()
+        if package_path == ".":
+            package_path = ""
+        collision = manifest.get("collision") or {}
+        packages.append(
+            {
+                "path": package_path or ".",
+                "name": manifest_path.parent.name,
+                "source": (manifest.get("source") or {}).get("path"),
+                "models": len(manifest.get("models") or []),
+                "objects": len(manifest.get("objects") or []),
+                "textures": len(manifest.get("textures") or []),
+                "collision_faces": collision.get("face_count", 0),
+            }
+        )
+    return packages
+
+
+def _package_html(package_path: str | None) -> bytes:
+    value = json.dumps(package_path) if package_path else "null"
+    return _INDEX_HTML.replace("const PACKAGE_PATH = null;", f"const PACKAGE_PATH = {value};").encode("utf-8")
+
+
+def _handler_for(root: Path, *, package_mode: bool):
     class ExplorerHandler(BaseHTTPRequestHandler):
         def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
             self.send_response(status)
@@ -305,20 +389,39 @@ def _handler_for(root: Path):
         def _error(self, status: int, message: str) -> None:
             self._send(json.dumps({"error": message}).encode("utf-8"), "application/json", status)
 
+        def _package_root(self, query: dict[str, list[str]]) -> Path:
+            if package_mode:
+                return root
+            package_path = query.get("package", [""])[0]
+            return _safe_directory(root, package_path)
+
         def do_GET(self) -> None:
             request = urlparse(self.path)
+            query = parse_qs(request.query)
             try:
                 if request.path == "/":
-                    self._send(_INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    if package_mode:
+                        self._send(_package_html(None), "text/html; charset=utf-8")
+                    else:
+                        self._send(_DASHBOARD_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                elif request.path == "/package":
+                    package_path = query.get("path", [""])[0]
+                    _safe_directory(root, package_path)
+                    self._send(_package_html(package_path or "."), "text/html; charset=utf-8")
+                elif request.path == "/api/catalog":
+                    self._send(json.dumps(_catalog(root)).encode("utf-8"), "application/json")
                 elif request.path == "/api/manifest":
-                    self._send((root / "manifest.json").read_bytes(), "application/json")
+                    self._send((self._package_root(query) / "manifest.json").read_bytes(), "application/json")
                 elif request.path == "/api/obj":
-                    relative = parse_qs(request.query).get("path", [""])[0]
-                    target = _safe_child(root, relative)
-                    self._send(json.dumps(parse_obj(target.read_text(encoding="utf-8"))).encode("utf-8"), "application/json")
+                    relative = query.get("path", [""])[0]
+                    target = _safe_child(self._package_root(query), relative)
+                    self._send(
+                        json.dumps(parse_obj(target.read_text(encoding="utf-8"))).encode("utf-8"),
+                        "application/json",
+                    )
                 elif request.path.startswith("/files/"):
                     relative = request.path.removeprefix("/files/")
-                    target = _safe_child(root, relative)
+                    target = _safe_child(self._package_root(query), relative)
                     body = target.read_bytes()
                     content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
                     if target.suffix.lower() == ".ppm":
@@ -336,9 +439,15 @@ def _handler_for(root: Path):
     return ExplorerHandler
 
 
-def assets_explore(path: str | Path, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> int:
-    root = explorer_root(path)
-    server = ThreadingHTTPServer((host, port), _handler_for(root))
+def run_asset_explorer(
+    root: Path,
+    *,
+    package_mode: bool,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = False,
+) -> int:
+    server = ThreadingHTTPServer((host, port), _handler_for(root, package_mode=package_mode))
     url = f"http://{host}:{server.server_address[1]}/"
     print(f"Asset explorer: {url}")
     print(f"Serving: {root}")
@@ -351,3 +460,25 @@ def assets_explore(path: str | Path, *, host: str = "127.0.0.1", port: int = 876
     finally:
         server.server_close()
     return 0
+
+
+def assets_explore(args) -> int:
+    if args.path:
+        candidate = resolve(args.path).resolve()
+        if (candidate / "manifest.json").is_file():
+            root = explorer_root(candidate)
+            package_mode = True
+        else:
+            root = asset_workspace_root(candidate)
+            package_mode = False
+    else:
+        root = resolve("build/assets").resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        package_mode = False
+    return run_asset_explorer(
+        root,
+        package_mode=package_mode,
+        host=args.host,
+        port=args.port,
+        open_browser=args.open_browser,
+    )

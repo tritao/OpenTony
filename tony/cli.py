@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--textures-only", action="store_true", help="export only PPM texture files")
     p.set_defaults(func=commands.assets_extract_psx)
     p = assets_sub.add_parser("explore", help="serve a local browser explorer for generated assets")
-    p.add_argument("path", help="generated asset directory containing manifest.json")
+    p.add_argument("path", nargs="?", help="generated asset directory or asset workspace; defaults to build/assets")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--open", action="store_true", dest="open_browser", help="open the explorer in a browser")

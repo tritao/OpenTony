@@ -9,13 +9,19 @@ tony assets extract-psx build/assets/all-pkr/files/data/SKB1.PSX \
   --output build/assets/psx-skb1 --force
 ```
 
-Start the explorer:
+Start the asset library dashboard:
+
+```bash
+tony assets explore --open
+```
+
+It scans `build/assets` for generated `manifest.json` packages. Select a package to open its explorer. A specific package can still be opened directly:
 
 ```bash
 tony assets explore build/assets/psx-skb1 --open
 ```
 
-Then open the printed local URL. The explorer reads `manifest.json` and provides:
+The explorer reads `manifest.json` and provides:
 
 - model inventory with OBJ wireframe previews;
 - placed scene and collision mesh previews;

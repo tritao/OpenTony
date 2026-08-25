@@ -1,7 +1,7 @@
 import json
 
 from tony.cli import build_parser
-from tony.explorer import explorer_root, parse_obj, ppm_to_png
+from tony.explorer import _catalog, explorer_root, parse_obj, ppm_to_png
 
 
 def test_parse_obj_returns_preview_geometry():
@@ -45,3 +45,35 @@ def test_explorer_command_parses():
     assert args.port == 9000
     assert args.open_browser is True
     assert callable(args.func)
+
+    dashboard_args = build_parser().parse_args(["assets", "explore"])
+    assert dashboard_args.path is None
+
+
+def test_catalog_discovers_generated_packages(tmp_path):
+    package = tmp_path / "psx-level"
+    package.mkdir()
+    (package / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source": {"path": "data/SKB1.PSX"},
+                "models": [{"index": 0}],
+                "objects": [{"index": 0}, {"index": 1}],
+                "textures": [{"index": 0}],
+                "collision": {"face_count": 12},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _catalog(tmp_path) == [
+        {
+            "path": "psx-level",
+            "name": "psx-level",
+            "source": "data/SKB1.PSX",
+            "models": 1,
+            "objects": 2,
+            "textures": 1,
+            "collision_faces": 12,
+        }
+    ]
