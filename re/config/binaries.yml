@@ -1,12 +1,16 @@
 version: 1
-
 media:
   thps2_pc_disc:
-    path: "game/THPS2.img"
-    size: null
-    sha256: null
-    file_description: null
-
+    path: game/THPS2.img
+    size: 830514720
+    sha256: d7cb5caaa9751b9afced2ebbca68b74fdc0f7a0df70fa4d550230cd7ac33a66e
+    file_description: data
+    format: raw-cd-mode2-form1
+    sector_size: 2352
+    user_data_offset: 24
+    user_data_size: 2048
+    pvd_sector: 16
+    data_sectors: 316808
 executables:
   thps2_pc:
     path: null

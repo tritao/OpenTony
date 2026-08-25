@@ -98,16 +98,17 @@ def export_functions(output: Path | None = None) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     pyghidra.start(install_dir=install)
-    with pyghidra.open_project(project_parent, project_name, create=False) as project:
-        with pyghidra.program_context(project, f"/{exe.name}") as program:
-            rows = []
-            for function in program.getFunctionManager().getFunctions(True):
-                rows.append({
-                    "address": int(function.getEntryPoint().getOffset()),
-                    "address_hex": str(function.getEntryPoint()),
-                    "name": str(function.getName()),
-                    "namespace": str(function.getParentNamespace().getName()),
-                })
+    with pyghidra.open_project(project_parent, project_name, create=False) as project, pyghidra.program_context(
+        project, f"/{exe.name}"
+    ) as program:
+        rows = []
+        for function in program.getFunctionManager().getFunctions(True):
+            rows.append({
+                "address": int(function.getEntryPoint().getOffset()),
+                "address_hex": str(function.getEntryPoint()),
+                "name": str(function.getName()),
+                "namespace": str(function.getParentNamespace().getName()),
+            })
     output.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     print(f"Exported {len(rows)} functions: {output}")
     return output

@@ -73,7 +73,7 @@ tony ghidra rebuild
 tony ghidra export-functions
 ```
 
-Generated Ghidra output is under `build/ghidra/`.
+`tony media extract` keeps the original image untouched, converts raw Mode 2/Form 1 CD sectors when needed, writes a normalized ISO and extraction manifest under `build/disc/`, and restores files under `build/disc/files/`. Generated Ghidra output is under `build/ghidra/`.
 
 ## Useful commands
 
@@ -83,7 +83,7 @@ tony setup ghidra
 
 tony media identify [path] [--record]
 tony media list [path]
-tony media extract [path] [--output build/disc]
+tony media extract [path] [--output build/disc] [--force]
 
 tony exe identify <path> [--record]
 tony verify

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from . import __version__
-from . import commands
+from . import __version__, commands
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,12 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path", nargs="?")
     p.add_argument("--record", action="store_true")
     p.set_defaults(func=commands.media_identify)
-    p = media_sub.add_parser("list", help="probe/list image contents with 7-Zip")
+    p = media_sub.add_parser("list", help="probe/list image contents")
     p.add_argument("path", nargs="?")
     p.set_defaults(func=commands.media_list)
     p = media_sub.add_parser("extract", help="extract image/container to a generated build directory")
     p.add_argument("path", nargs="?")
     p.add_argument("--output", default="build/disc")
+    p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
     p.set_defaults(func=commands.media_extract)
 
     exe = sub.add_parser("exe", help="inspect installed PE executable")

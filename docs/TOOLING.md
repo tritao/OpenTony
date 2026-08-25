@@ -36,7 +36,7 @@ Runtime traces should record the exact `wine --version` because Wine is not byte
 
 ## Disc images
 
-`tony media identify` never writes the image. `tony media list` uses 7-Zip as a quick filesystem/container probe. `tony media extract` writes to `build/` only. Raw/CloneCD images may need additional format-specific handling after identification.
+`tony media identify` never writes the image and records the detected layout. `tony media list` probes the normalized filesystem without modifying the source. `tony media extract` writes to `build/` only: raw Mode 2/Form 1 CD images are converted from 2352-byte sectors to 2048-byte ISO payloads, then extracted with xorriso. Each extraction writes a manifest containing source/output hashes, sector parameters, and tool versions.
 
 ## Not initial dependencies
 
