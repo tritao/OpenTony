@@ -11,6 +11,14 @@ media:
     user_data_size: 2048
     pvd_sector: 16
     data_sectors: 316808
+    raw_sector_count: 353110
+    raw_tail:
+      start_sector: 316808
+      sector_count: 36302
+      offset: 745132416
+      size: 85382304
+      sha256: 0452b0321938bf7da2a52d0540ab9f2030aaac6c230c939ff621e7075eff60bf
+      classification: unclassified
 executables:
   thps2_pc:
     path: null

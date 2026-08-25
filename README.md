@@ -73,7 +73,7 @@ tony ghidra rebuild
 tony ghidra export-functions
 ```
 
-`tony media extract` keeps the original image untouched, converts raw Mode 2/Form 1 CD sectors when needed, writes a normalized ISO and extraction manifest under `build/disc/`, and restores files under `build/disc/files/`. Generated Ghidra output is under `build/ghidra/`.
+`tony media extract` keeps the original image untouched, converts raw Mode 2/Form 1 CD sectors when needed, writes a normalized ISO and extraction manifest under `build/disc/`, and restores files under `build/disc/files/`. The normalized ISO contains only the declared ISO-9660 volume; use `tony media tracks` to inspect any raw tail beyond it. Generated Ghidra output is under `build/ghidra/`.
 
 ## Useful commands
 
@@ -82,6 +82,7 @@ tony doctor
 tony setup ghidra
 
 tony media identify [path] [--record]
+tony media tracks [path]
 tony media list [path]
 tony media extract [path] [--output build/disc] [--force]
 

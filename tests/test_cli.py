@@ -9,3 +9,8 @@ def test_parser_builds():
 def test_experiments_parse():
     args = build_parser().parse_args(["experiments", "list"])
     assert callable(args.func)
+
+
+def test_media_tracks_parse():
+    args = build_parser().parse_args(["media", "tracks"])
+    assert callable(args.func)

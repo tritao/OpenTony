@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tony.commands import _convert_raw_cd, _detect_media_format
+from tony.media import _media_layout
 
 
 def _raw_mode2_sector(payload: bytes = b"") -> bytes:
@@ -26,6 +27,13 @@ def test_detect_and_convert_raw_mode2_form1(tmp_path: Path):
     assert media_format["format"] == "raw-cd-mode2-form1"
     assert media_format["user_data_offset"] == 24
     assert media_format["user_data_size"] == 2048
+
+    layout = _media_layout(source, media_format)
+    assert layout["raw_sector_count"] == 19
+    assert layout["raw_tail"]["start_sector"] == 17
+    assert layout["raw_tail"]["sector_count"] == 2
+    assert layout["raw_tail"]["size"] == 2 * 2352
+    assert layout["raw_tail"]["classification"] == "unclassified"
 
     destination = tmp_path / "disc.iso"
     _convert_raw_cd(source, destination, media_format)

@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from .common import ROOT, load_yaml, resolve
+from .identity import recorded_executable
 
 
 def _require_pyghidra():
@@ -16,14 +17,7 @@ def _require_pyghidra():
 
 
 def _exe_path() -> Path:
-    config = load_yaml("re/config/binaries.yml")
-    path = config["executables"]["thps2_pc"].get("path")
-    if not path:
-        raise SystemExit("No THPS2 executable recorded. Run: tony exe identify <path> --record")
-    exe = resolve(path)
-    if not exe.is_file():
-        raise SystemExit(f"Recorded executable does not exist: {exe}")
-    return exe
+    return recorded_executable()
 
 
 def _apply_symbols(program, pyghidra) -> None:
@@ -55,11 +49,11 @@ def _apply_symbols(program, pyghidra) -> None:
 
 
 def rebuild() -> None:
+    exe = _exe_path()
     pyghidra = _require_pyghidra()
     config = load_yaml("re/config/ghidra.yml")
     spec = config["ghidra"]
     install = resolve(spec["install_dir"])
-    exe = _exe_path()
     project_parent = resolve(spec["project_dir"])
     project_name = spec["project_name"]
 
@@ -87,11 +81,11 @@ def rebuild() -> None:
 
 
 def export_functions(output: Path | None = None) -> Path:
+    exe = _exe_path()
     pyghidra = _require_pyghidra()
     config = load_yaml("re/config/ghidra.yml")
     spec = config["ghidra"]
     install = resolve(spec["install_dir"])
-    exe = _exe_path()
     project_parent = resolve(spec["project_dir"])
     project_name = spec["project_name"]
     output = output or (ROOT / "build/ghidra/functions.json")

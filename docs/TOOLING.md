@@ -4,7 +4,7 @@
 
 | Tool | Role | Policy |
 |---|---|---|
-| Python 3.10-3.13 | orchestration and tests | project venv under `.tools/venv` |
+| Python 3.12-3.13 | orchestration and tests | project venv under `.tools/venv` |
 | Git | source/history | system package |
 | Ghidra 12.1.3 | static RE | pinned + SHA-verified download |
 | JDK 21 | Ghidra runtime | system package |
@@ -36,7 +36,7 @@ Runtime traces should record the exact `wine --version` because Wine is not byte
 
 ## Disc images
 
-`tony media identify` never writes the image and records the detected layout. `tony media list` probes the normalized filesystem without modifying the source. `tony media extract` writes to `build/` only: raw Mode 2/Form 1 CD images are converted from 2352-byte sectors to 2048-byte ISO payloads, then extracted with xorriso. Each extraction writes a manifest containing source/output hashes, sector parameters, and tool versions.
+`tony media identify` never writes the image and records the detected layout. `tony media tracks` reports the ISO filesystem volume and any raw sectors beyond it as unclassified regions. `tony media list` probes the normalized filesystem without modifying the source. `tony media extract` writes to `build/` only: raw Mode 2/Form 1 CD images are converted from 2352-byte sectors to 2048-byte ISO payloads, then extracted with xorriso. Each extraction writes a manifest containing source/output hashes, sector parameters, raw-tail metadata, and tool versions.
 
 ## Not initial dependencies
 
