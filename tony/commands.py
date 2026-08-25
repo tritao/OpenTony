@@ -18,6 +18,7 @@ from .assets import (
 )
 from .common import capture, load_yaml, resolve, sha256
 from .debug import debug_game  # noqa: F401 - command handlers are consumed by cli.py
+from .explorer import assets_explore  # noqa: F401 - command handlers are consumed by cli.py
 from .ghidra_setup import install_ghidra
 from .media import (
     _convert_raw_cd,  # noqa: F401 - retained as a compatibility import for tooling/tests
