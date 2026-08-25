@@ -2,6 +2,8 @@ version: 1
 
 wine:
   prefix: ".tools/wineprefix"
+  headless_prefix: ".tools/wineprefix-headless"
+  headless_disc: "build/disc/files"
   minimum_major: 11
   debug_port: 31337
   debug_quiet: true

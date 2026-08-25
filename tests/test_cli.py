@@ -11,6 +11,13 @@ def test_experiments_parse():
     assert callable(args.func)
 
 
+def test_ghidra_decompile_parse():
+    args = build_parser().parse_args(["ghidra", "decompile", "0x0041c2d0", "--output", "loop.c"])
+    assert args.address == 0x0041C2D0
+    assert args.output == "loop.c"
+    assert callable(args.func)
+
+
 def test_media_tracks_parse():
     args = build_parser().parse_args(["media", "tracks"])
     assert callable(args.func)
@@ -44,6 +51,23 @@ def test_run_and_play_headless_parse():
         args = parse_args([command, "--headless", "--fullscreen"])
         assert args.headless is True
         assert args.game_args == ["--fullscreen"]
+
+
+def test_visual_options_are_not_forwarded_to_game():
+    args = parse_args(["run", "--headless", "--screenshot", "frame.png", "--record", "run.mp4", "--fullscreen"])
+
+    assert args.screenshot == "frame.png"
+    assert args.record == "run.mp4"
+    assert args.game_args == ["--fullscreen"]
+
+
+def test_debug_visual_options_parse():
+    args = parse_args(["debug", "--headless", "--screenshot", "frame.png", "--record", "run.mp4"])
+
+    assert args.headless is True
+    assert args.screenshot == "frame.png"
+    assert args.record == "run.mp4"
+    assert args.game_args == []
 
 
 def test_headless_game_argument_is_not_consumed():

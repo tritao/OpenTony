@@ -150,6 +150,12 @@ def ghidra_export_functions(args) -> int:
     return 0
 
 
+def ghidra_decompile(args) -> int:
+    output = resolve(args.output) if args.output else None
+    ghidra_ops.decompile_function(args.address, output)
+    return 0
+
+
 def experiments_list(_args) -> int:
     data = load_yaml("re/experiments/manifest.yml")
     for experiment in data.get("experiments", []):

@@ -106,3 +106,41 @@ def export_functions(output: Path | None = None) -> Path:
     output.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     print(f"Exported {len(rows)} functions: {output}")
     return output
+
+
+def decompile_function(address: int, output: Path | None = None) -> Path | None:
+    """Decompile one function from the deterministic local Ghidra project."""
+
+    exe = _exe_path()
+    pyghidra = _require_pyghidra()
+    config = load_yaml("re/config/ghidra.yml")
+    spec = config["ghidra"]
+    install = resolve(spec["install_dir"])
+    project_parent = resolve(spec["project_dir"])
+    project_name = spec["project_name"]
+
+    pyghidra.start(install_dir=install)
+    from ghidra.app.decompiler import DecompInterface
+    from ghidra.util.task import ConsoleTaskMonitor
+
+    with pyghidra.open_project(project_parent, project_name, create=False) as project, pyghidra.program_context(
+        project, f"/{exe.name}"
+    ) as program:
+        address_space = program.getAddressFactory().getDefaultAddressSpace()
+        function = program.getFunctionManager().getFunctionAt(address_space.getAddress(address))
+        if function is None:
+            raise SystemExit(f"no function starts at 0x{address:08x}")
+        decompiler = DecompInterface()
+        decompiler.openProgram(program)
+        result = decompiler.decompileFunction(function, 60, ConsoleTaskMonitor())
+        if not result.decompileCompleted():
+            raise SystemExit(f"could not decompile 0x{address:08x}: {result.getErrorMessage()}")
+        text = result.getDecompiledFunction().getC()
+
+    if output is None:
+        print(text)
+        return None
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text, encoding="utf-8")
+    print(f"Decompiled 0x{address:08x}: {output}")
+    return output

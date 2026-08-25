@@ -1,10 +1,57 @@
 version: 1
-functions: []
-
-# Example once evidence exists:
-# functions:
-#   - address: 0x00401230
-#     name: Game_MainLoop
-#     confidence: inferred
-#     evidence:
-#       - re/evidence/functions/game-main-loop.md
+functions:
+  - address: 0x0041c2d0
+    name: Game_MainLoop
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/game-main-loop.md
+  - address: 0x004524a0
+    name: Front_LoadGame
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/level-load.md
+  - address: 0x00452ff0
+    name: FrontEnd_Main
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/game-loop.md
+  - address: 0x004544a0
+    name: Front_LaunchGameLevel
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/level-load.md
+  - address: 0x00458900
+    name: LevelSelect_Main
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/level-load.md
+  - address: 0x0046a3a0
+    name: Game_LevelLoop
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/game-loop.md
+  - address: 0x0049db80
+    name: Skater_PhysicsDispatcher
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00497f40
+    name: Skater_DoPhysicsInAir
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x004e4690
+    name: PCInput_Initialize
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x004e4d10
+    name: PCInput_LoadBindings
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x004e7090
+    name: PCMovie_PlayGameFMV
+    confidence: observed
+    evidence:
+      - re/evidence/functions/game-loop.md

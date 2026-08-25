@@ -18,6 +18,14 @@ Do not mix addresses from retail/demo/region/patch builds without explicitly rec
 
 `tony ghidra rebuild` creates a fresh project under `build/ghidra/`, imports the recorded executable, runs analysis, then reapplies tracked names from `re/symbols/`.
 
+Use the deterministic project to decompile one verified function at a time:
+
+```bash
+tony ghidra decompile 0x0041c2d0 --output build/ghidra/decomp/game-loop.c
+```
+
+Without `--output`, the decompiler text is printed to stdout. Keep large generated decompilations under `build/`; promote only concise, reviewed interpretations into `re/evidence/`.
+
 The local Ghidra project is a cache. The real knowledge lives in Git.
 
 The retail executable is also kept canonical. `tony exe patch-nocd` verifies its recorded hash and creates an adjacent `THawk2.nocd.exe` with the known CD audio-TOC gate bypassed. `tony run` and `tony play` use that generated copy automatically; they do not alter the executable used for identity or Ghidra rebuilds.
@@ -69,7 +77,14 @@ For a headless debugger/smoke run, wrap the launch in Xvfb instead:
 tony play --headless
 ```
 
-Use `tony run --headless` when the disc is already mounted. Both commands use the configured 16-bit llvmpipe Xvfb profile; the visible Wine virtual desktop remains the default.
+Both commands use the configured 16-bit llvmpipe Xvfb profile. The isolated display is still inspectable:
+
+```bash
+tony run --headless --screenshot build/debug/frame.png
+tony debug --record build/debug/session.mp4
+```
+
+OpenTony prints the temporary display connection details for external X11 tools. Screenshot paths and recordings are not overwritten. Use `tony run` or `tony play` without `--headless` for visible gameplay in the Wine virtual desktop.
 
 `re/gdb/bootstrap.py` is loaded into GDB and is the place for small interactive helpers. Once a runtime observation becomes repeatable, move the procedure into a `tony` command or an experiment definition.
 
@@ -79,6 +94,8 @@ Useful helpers in the current GDB session:
 tony-thps2                         list known addresses and build identity
 tony-bp-thps2 cd_check             break at the CD-check helper
 tony-bp 0x004bb240 temporary       set a one-shot address breakpoint
+tony-bp-thps2 level_loop           break at the active level loop
+tony-bp-thps2 physics_dispatch     break at the skater physics dispatcher
 tony-modules                       show loaded Wine module ranges
 tony-read32 0x004bb240             read a little-endian uint32
 tony-hexdump 0x004bb240 32         print a memory region

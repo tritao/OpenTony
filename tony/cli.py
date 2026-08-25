@@ -122,15 +122,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="run recorded THPS2 executable under Wine")
     p.add_argument("--headless", action="store_true", help="run inside the configured Xvfb software-rendering display")
+    p.add_argument("--screenshot", metavar="PATH", help="capture the isolated display immediately after launch")
+    p.add_argument("--record", metavar="PATH", help="record the isolated display until the game exits")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.run_game)
 
     p = sub.add_parser("play", help="mount the disc if needed and run the recorded game under Wine")
     p.add_argument("--headless", action="store_true", help="run inside the configured Xvfb software-rendering display")
+    p.add_argument("--screenshot", metavar="PATH", help="capture the isolated display immediately after launch")
+    p.add_argument("--record", metavar="PATH", help="record the isolated display until the game exits")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.play_game)
 
     p = sub.add_parser("debug", help="run through WineDbg GDB proxy and interactive GDB")
+    p.add_argument("--headless", action="store_true", help="use the isolated Xvfb display (the default for launches)")
+    p.add_argument("--screenshot", metavar="PATH", help="capture the isolated display after the target starts")
+    p.add_argument("--record", metavar="PATH", help="record the isolated display until GDB exits")
     p.add_argument("--port", type=int)
     p.add_argument("--pid", help="attach to a PID, or use 'auto' to find the running game")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
@@ -143,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = ghidra_sub.add_parser("export-functions", help="export current function inventory as JSON")
     p.add_argument("--output")
     p.set_defaults(func=commands.ghidra_export_functions)
+    p = ghidra_sub.add_parser("decompile", help="decompile one function from the local Ghidra project")
+    p.add_argument("address", type=lambda value: int(value, 0), help="function entry address, for example 0x0041c2d0")
+    p.add_argument("--output", help="write decompiler output instead of printing it")
+    p.set_defaults(func=commands.ghidra_decompile)
 
     exp = sub.add_parser("experiments", help="experiment manifest operations")
     exp_sub = exp.add_subparsers(dest="experiments_command", required=True)
@@ -167,9 +178,22 @@ def parse_args(argv=None) -> argparse.Namespace:
         args.game_args.extend(unknown)
     if args.command in {"run", "play"}:
         command_index = raw_argv.index(args.command)
-        args.game_args = raw_argv[command_index + 1:]
-        if args.headless and args.game_args[:1] == ["--headless"]:
-            del args.game_args[0]
+        raw_game_args = raw_argv[command_index + 1:]
+        args.game_args = []
+        index = 0
+        while index < len(raw_game_args):
+            value = raw_game_args[index]
+            if value == "--":
+                args.game_args.extend(raw_game_args[index + 1:])
+                break
+            if value == "--headless":
+                index += 1
+                continue
+            if value in {"--screenshot", "--record"}:
+                index += 2
+                continue
+            args.game_args.append(value)
+            index += 1
     if args.command in {"run", "play", "debug"} and args.game_args[:1] == ["--"]:
         del args.game_args[0]
     return args

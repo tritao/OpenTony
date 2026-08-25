@@ -6,8 +6,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from .common import ROOT, load_yaml, wine_env
-from .display import xvfb_command
+from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
+from .display import HeadlessDisplay, configure_visual_capture, xvfb_command
 from .nocd import nocd_executable
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
@@ -70,8 +70,9 @@ def _xvfb_command(cfg: dict, env: dict[str, str]) -> list[str]:
 def debug_game(args) -> int:
     cfg = load_yaml("re/config/wine.yml")["wine"]
     port = int(args.port or cfg["debug_port"])
-    env = wine_env()
     pid_arg = getattr(args, "pid", None)
+    headless_launch = pid_arg is None and cfg.get("debug_xvfb", True)
+    env = headless_wine_env() if headless_launch else wine_env()
     if pid_arg is not None:
         target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
         cwd = ROOT
@@ -79,25 +80,36 @@ def debug_game(args) -> int:
         exe = nocd_executable()
         target = [str(exe), *args.game_args]
         cwd = exe.parent
-    display_wrapper = []
-    if getattr(args, "pid", None) is None and cfg.get("debug_xvfb", True):
-        display_wrapper = _xvfb_command(cfg, env)
-    proxy = subprocess.Popen(
-        [*display_wrapper, "winedbg", "--gdb", "--no-start", "--port", str(port), *target],
-        cwd=cwd,
-        env=env,
-    )
+    display = None
+    proxy_command = ["winedbg", "--gdb", "--no-start", "--port", str(port), *target]
+    if headless_launch:
+        proxy_command = headless_wine_command(proxy_command)
+        display = HeadlessDisplay(cfg, env)
+        proxy = display.popen(proxy_command, cwd=cwd, env=env)
+    else:
+        if getattr(args, "screenshot", None) or getattr(args, "record", None):
+            raise SystemExit("visual capture requires an isolated debug launch; omit --pid")
+        proxy = subprocess.Popen(proxy_command, cwd=cwd, env=env)
     try:
         _wait_port(port)
+        if display is not None:
+            configure_visual_capture(display, args)
         gdb_cmd = [
             "gdb", "-q", "-nx",
             "-ex", f"target remote localhost:{port}",
             "-x", str(ROOT / "re/gdb/bootstrap.gdb"),
         ]
-        return subprocess.run(gdb_cmd, cwd=ROOT, env=os.environ.copy(), check=False).returncode
+        gdb_env = os.environ.copy()
+        if display is not None:
+            gdb_env.update(display.environment)
+        return subprocess.run(gdb_cmd, cwd=ROOT, env=gdb_env, check=False).returncode
     finally:
+        if display is not None:
+            display.stop_recording()
         proxy.terminate()
         try:
             proxy.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proxy.kill()
+        if display is not None:
+            display.close()

@@ -11,7 +11,6 @@ from pathlib import Path
 
 import gdb
 
-
 THPS2_BUILD_SHA256 = "f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c"
 
 # These addresses belong to the recorded retail executable identified above.
@@ -24,6 +23,15 @@ THPS2_ADDRESSES = {
     "drive_scan": (0x004F6730, "CD drive and CDPATH scan", "re/evidence/cd-check.md"),
     "startup": (0x004F7E30, "startup CD-check caller", "re/evidence/cd-check.md"),
     "cd_recheck": (0x004F6510, "later CD-check caller", "re/evidence/cd-check.md"),
+    "frontend": (0x00452FF0, "frontend state machine", "re/evidence/functions/game-loop.md"),
+    "level_select": (0x00458900, "level selection loop", "re/evidence/functions/level-load.md"),
+    "launch_level": (0x004544A0, "frontend level launch", "re/evidence/functions/level-load.md"),
+    "load_game": (0x004524A0, "level and player resource loading", "re/evidence/functions/level-load.md"),
+    "level_loop": (0x0046A3A0, "active level update/render loop", "re/evidence/functions/game-loop.md"),
+    "game_loop": (0x0041C2D0, "outer game/session loop", "re/evidence/functions/game-loop.md"),
+    "physics_dispatch": (0x0049DB80, "skater physics state dispatcher", "re/evidence/functions/physics.md"),
+    "physics_in_air": (0x00497F40, "candidate in-air physics routine", "re/evidence/functions/physics.md"),
+    "input_load": (0x004E4D10, "PC input binding loader", "re/evidence/functions/input.md"),
 }
 
 

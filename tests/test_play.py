@@ -50,26 +50,41 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
     executable = tmp_path / "THawk2.nocd.exe"
     calls = []
 
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    class FakeDisplay:
+        def __init__(self, cfg, env):
+            calls.append(("display", cfg, env))
+
+        def popen(self, command, **kwargs):
+            calls.append(("popen", command, kwargs))
+            return FakeProcess()
+
+        def stop_recording(self):
+            calls.append("stop-recording")
+
+        def close(self):
+            calls.append("close")
+
     monkeypatch.setattr(wine, "nocd_executable", lambda: executable)
     monkeypatch.setattr(wine, "wine_env", lambda: {"WINEPREFIX": str(tmp_path / "prefix")})
-    monkeypatch.setattr(wine, "xvfb_command", lambda cfg, env: ["xvfb-run", "-a", "-s", "headless"])
-    monkeypatch.setattr(
-        wine.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=0),
-    )
+    monkeypatch.setattr(wine, "headless_wine_env", lambda: {"WINEPREFIX": str(tmp_path / "headless-prefix")})
+    monkeypatch.setattr(wine, "headless_wine_command", lambda command: ["headless-wrapper", *command])
+    monkeypatch.setattr(wine, "HeadlessDisplay", FakeDisplay)
+    monkeypatch.setattr(wine, "configure_visual_capture", lambda display, args: calls.append("capture"))
 
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"], headless=True))
 
     assert result == 0
-    assert calls[0][0] == [
-        "xvfb-run",
-        "-a",
-        "-s",
-        "headless",
+    assert calls[1][0] == "popen"
+    assert calls[1][1] == [
+        "headless-wrapper",
         "wine",
         "explorer",
         "/desktop=OpenTony,1024x768",
         str(executable),
         "--fullscreen",
     ]
+    assert calls[-2:] == ["stop-recording", "close"]

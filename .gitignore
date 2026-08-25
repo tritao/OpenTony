@@ -24,3 +24,7 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+
+# Runtime files created by the Windows game
+/TH2_OPT.CFG
+/THPCERR.LOG

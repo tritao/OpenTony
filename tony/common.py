@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -64,10 +65,52 @@ def capture(command: list[str], *, env: dict[str, str] | None = None, cwd: Path 
     return result.returncode, result.stdout.strip()
 
 
-def wine_env() -> dict[str, str]:
+def wine_env(prefix: str | Path | None = None) -> dict[str, str]:
     config = load_yaml("re/config/wine.yml")["wine"]
     env = os.environ.copy()
-    env["WINEPREFIX"] = str(resolve(config["prefix"]))
+    env["WINEPREFIX"] = str(resolve(prefix if prefix is not None else config["prefix"]))
     if config.get("debug_quiet", True):
         env.setdefault("WINEDEBUG", "-all")
     return env
+
+
+def headless_wine_env() -> dict[str, str]:
+    """Return an isolated Wine environment for Xvfb launches.
+
+    Wine's server keeps display state per prefix. Reusing the visible prefix
+    can route a supposedly headless process back to the host X display.
+    """
+
+    config = load_yaml("re/config/wine.yml")["wine"]
+    prefix = resolve(config.get("headless_prefix", ".tools/wineprefix-headless"))
+    disc = resolve(config.get("headless_disc", "build/disc/files"))
+    if not disc.is_dir():
+        raise SystemExit(f"headless Wine disc tree not found: {disc}")
+
+    drive = prefix / "dosdevices" / "d:"
+    if drive.exists() and not drive.is_symlink():
+        raise SystemExit(f"refusing to replace non-symlink headless Wine D: mapping: {drive}")
+    env = wine_env(prefix)
+    env["TONY_HEADLESS_DISC"] = str(disc)
+    return env
+
+
+def headless_wine_command(command: Sequence[str | Path]) -> list[str | Path]:
+    """Initialize the isolated prefix and run a Wine command on one Xvfb display."""
+
+    return [
+        "sh",
+        "-c",
+        (
+            'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
+            'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -u && '
+            'mkdir -p "$WINEPREFIX/dosdevices" && '
+            'if [ -L "$WINEPREFIX/dosdevices/d:" ] && '
+            '[ "$(readlink -f "$WINEPREFIX/dosdevices/d:")" != "$(readlink -f "$TONY_HEADLESS_DISC")" ]; then '
+            'unlink "$WINEPREFIX/dosdevices/d:"; fi && '
+            'if [ ! -e "$WINEPREFIX/dosdevices/d:" ] && [ ! -L "$WINEPREFIX/dosdevices/d:" ]; then '
+            'ln -s "$TONY_HEADLESS_DISC" "$WINEPREFIX/dosdevices/d:"; fi && exec "$@"'
+        ),
+        "opentony-headless-wine",
+        *command,
+    ]

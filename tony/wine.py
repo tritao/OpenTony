@@ -6,8 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from .common import ROOT, capture, load_yaml, resolve, wine_env
-from .display import xvfb_command
+from .common import ROOT, capture, headless_wine_command, headless_wine_env, load_yaml, resolve, wine_env
+from .display import HeadlessDisplay, configure_visual_capture
 from .identity import recorded_executable
 from .nocd import nocd_executable
 
@@ -181,10 +181,30 @@ def _virtual_desktop_command() -> list[str]:
 
 def run_game(args) -> int:
     exe = nocd_executable()
-    env = wine_env()
+    headless = getattr(args, "headless", False)
+    env = headless_wine_env() if headless else wine_env()
     command = ["wine", *_virtual_desktop_command(), str(exe), *args.game_args]
-    if getattr(args, "headless", False):
-        cfg = load_yaml("re/config/wine.yml")["wine"]
-        command = [*xvfb_command(cfg, env), *command]
     print(" ".join(command))
-    return subprocess.run(command, cwd=exe.parent, env=env, check=False).returncode
+    if not headless:
+        if getattr(args, "screenshot", None) or getattr(args, "record", None):
+            raise SystemExit("visual capture requires --headless")
+        return subprocess.run(command, cwd=exe.parent, env=env, check=False).returncode
+
+    cfg = load_yaml("re/config/wine.yml")["wine"]
+    display = HeadlessDisplay(cfg, env)
+    process = None
+    try:
+        process = display.popen(headless_wine_command(command), cwd=exe.parent, env=env)
+        configure_visual_capture(display, args)
+        return process.wait()
+    except BaseException:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        raise
+    finally:
+        display.stop_recording()
+        display.close()

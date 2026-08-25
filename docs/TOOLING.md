@@ -38,8 +38,14 @@ For headless smoke tests, Xvfb provides a completely separate display:
 tony play --headless
 ```
 
-The game will not be visible in this mode; use the Wine virtual desktop for visible gameplay.
-`tony debug` applies this 16-bit llvmpipe profile automatically for isolated launches.
+The game is rendered into that display even though it is not shown on the host desktop. OpenTony prints the temporary `DISPLAY` and `XAUTHORITY` values, and can capture the frame or record the session:
+
+```bash
+tony play --headless --screenshot build/debug/launch.png
+tony debug --screenshot build/debug/debug.png --record build/debug/debug.mp4
+```
+
+Screenshots use ffmpeg when available (including the configured Xvfb dimensions) and otherwise ImageMagick's `import`; recordings require ffmpeg. Capture paths are never overwritten automatically. `tony debug` applies this 16-bit llvmpipe profile automatically for isolated launches.
 Use `tony run --headless` when the disc is already mounted. The equivalent manual wrapper is:
 
 ```bash

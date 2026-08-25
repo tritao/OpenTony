@@ -80,6 +80,7 @@ tony wine mount-disc
 tony run
 tony ghidra rebuild
 tony ghidra export-functions
+tony ghidra decompile 0x0041c2d0 --output build/ghidra/decomp/game-loop.c
 ```
 
 `tony media extract` keeps the original image untouched, converts raw Mode 2/Form 1 CD sectors when needed, writes a normalized ISO and extraction manifest under `build/disc/`, and restores files under `build/disc/files/`. The normalized ISO contains only the declared ISO-9660 volume; use `tony media tracks` to inspect any raw tail beyond it. Generated Ghidra output is under `build/ghidra/`.
@@ -130,10 +131,12 @@ tony wine mount-disc
 tony wine unmount-disc
 tony run
 tony play
-tony debug
+tony run --headless --screenshot build/debug/frame.png
+tony debug --record build/debug/session.mp4
 
 tony ghidra rebuild
 tony ghidra export-functions
+tony ghidra decompile 0x0041c2d0 --output build/ghidra/decomp/game-loop.c
 
 tony experiments list
 tony compare <trace-a.jsonl> <trace-b.jsonl>

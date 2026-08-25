@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -62,3 +63,36 @@ def test_xvfb_command_uses_16_bit_software_profile(monkeypatch):
 def test_xvfb_command_rejects_invalid_depth():
     with pytest.raises(SystemExit, match="invalid Xvfb screen depth"):
         debug._xvfb_command({"xvfb": {"depth": 15}}, {})
+
+
+def test_headless_display_publishes_connection_details(monkeypatch, tmp_path: Path):
+    cfg = {
+        "virtual_desktop": {"width": 1024, "height": 768},
+        "xvfb": {"depth": 16, "server_args": ["+extension", "GLX"], "environment": {"RENDER": "software"}},
+    }
+    calls = []
+
+    class FakeProcess:
+        returncode = None
+
+        def __init__(self, command, **kwargs):
+            calls.append((command, kwargs))
+            metadata = Path(kwargs["env"]["TONY_DISPLAY_INFO"])
+            metadata.write_text(":77\n/tmp/xauthority\n", encoding="utf-8")
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(display.shutil, "which", lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None)
+    monkeypatch.setattr(display.subprocess, "Popen", FakeProcess)
+
+    session = display.HeadlessDisplay(cfg, {"WINEPREFIX": str(tmp_path / "prefix")})
+    process = session.popen(["wine", "game.exe"], cwd=tmp_path)
+
+    assert process.returncode is None
+    assert session.info is not None
+    assert session.environment["DISPLAY"] == ":77"
+    assert session.environment["XAUTHORITY"] == "/tmp/xauthority"
+    assert calls[0][0][:4] == ["/usr/bin/xvfb-run", "-a", "-s", "-screen 0 1024x768x16 +extension GLX"]
+    assert calls[0][1]["env"]["RENDER"] == "software"
+    session.close()
