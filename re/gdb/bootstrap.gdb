@@ -6,6 +6,7 @@ python
 import sys
 from pathlib import Path
 root = Path.cwd()
-sys.path.insert(0, str(root))
+sys.path.insert(0, str(root / "build/gdb"))
+sys.path.insert(0, str(root / "re/gdb"))
 end
 source re/gdb/bootstrap.py

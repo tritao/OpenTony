@@ -1,42 +1,162 @@
 version: 1
 functions:
+  - address: 0x00502f74
+    name: PE_EntryPoint
+    gdb_aliases:
+      - entry
+    description: PE entry point
+    confidence: observed
+    evidence:
+      - re/evidence/startup-runtime.md
+  - address: 0x00503054
+    name: Startup_ReturnPath
+    gdb_aliases:
+      - startup_return
+    description: startup return path
+    confidence: observed
+    evidence:
+      - re/evidence/startup-runtime.md
+  - address: 0x004bb240
+    name: CD_CheckAudioTOC
+    gdb_aliases:
+      - cd_check
+    description: CD audio TOC authentication helper
+    confidence: observed
+    evidence:
+      - re/evidence/cd-check.md
+  - address: 0x004bb2d0
+    name: CD_MCIHelper
+    gdb_aliases:
+      - cd_mci_helper
+    description: MCI/CD media helper
+    confidence: observed
+    evidence:
+      - re/evidence/cd-check.md
+  - address: 0x004f6730
+    name: CD_DriveScan
+    gdb_aliases:
+      - drive_scan
+    description: CD drive and CDPATH scan
+    confidence: observed
+    evidence:
+      - re/evidence/cd-check.md
+  - address: 0x004f7e30
+    name: Game_Startup
+    gdb_aliases:
+      - startup
+    description: startup CD-check caller
+    confidence: observed
+    evidence:
+      - re/evidence/cd-check.md
+  - address: 0x004f6510
+    name: CD_Recheck
+    gdb_aliases:
+      - cd_recheck
+    description: later CD-check caller
+    confidence: observed
+    evidence:
+      - re/evidence/cd-check.md
   - address: 0x0041c2d0
     name: Game_MainLoop
+    gdb_aliases:
+      - game_loop
+    description: outer game/session loop
     confidence: inferred
     evidence:
       - re/evidence/functions/game-main-loop.md
   - address: 0x004524a0
     name: Front_LoadGame
+    gdb_aliases:
+      - load_game
+    description: level and player resource loading
     confidence: inferred
     evidence:
       - re/evidence/functions/level-load.md
   - address: 0x00452ff0
     name: FrontEnd_Main
+    gdb_aliases:
+      - frontend
+    description: frontend state machine
     confidence: inferred
     evidence:
       - re/evidence/functions/game-loop.md
   - address: 0x004544a0
     name: Front_LaunchGameLevel
+    gdb_aliases:
+      - launch_level
+    description: frontend level launch
     confidence: inferred
     evidence:
       - re/evidence/functions/level-load.md
   - address: 0x00458900
     name: LevelSelect_Main
+    gdb_aliases:
+      - level_select
+    description: level selection loop
     confidence: inferred
     evidence:
       - re/evidence/functions/level-load.md
   - address: 0x0046a3a0
     name: Game_LevelLoop
+    gdb_aliases:
+      - level_loop
+    description: active level update/render loop
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/game-loop.md
+  - address: 0x004699f0
+    name: Game_InputUpdate
+    gdb_aliases:
+      - input_update
+    description: per-loop DirectInput poll and action update
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x004e42c0
+    name: PCInput_BuildActionMask
+    gdb_aliases:
+      - input_state
+    description: build per-player action bitmask
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x004e4a90
+    name: PCInput_Poll
+    gdb_aliases:
+      - input_poll
+    description: poll DirectInput device state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x00469de0
+    name: Game_GameplayUpdate
+    gdb_aliases:
+      - gameplay_update
+    description: post-input gameplay update
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x004f7ce0
+    name: Game_FrameTick
+    gdb_aliases:
+      - frame_tick
+    description: level-loop timing/input tick
     confidence: inferred
     evidence:
       - re/evidence/functions/game-loop.md
   - address: 0x0049db80
     name: Skater_PhysicsDispatcher
+    gdb_aliases:
+      - physics_dispatch
+    description: skater physics state dispatcher
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
+    gdb_aliases:
+      - physics_in_air
+    description: candidate in-air physics routine
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
@@ -47,11 +167,17 @@ functions:
       - re/evidence/functions/input.md
   - address: 0x004e4d10
     name: PCInput_LoadBindings
+    gdb_aliases:
+      - input_load
+    description: PC input binding loader
     confidence: observed
     evidence:
       - re/evidence/functions/input.md
   - address: 0x004e7090
     name: PCMovie_PlayGameFMV
+    gdb_aliases:
+      - movie_play
+    description: blocking startup movie playback
     confidence: observed
     evidence:
-      - re/evidence/functions/game-loop.md
+      - re/evidence/startup-runtime.md

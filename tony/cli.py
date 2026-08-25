@@ -151,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.debug_game)
 
+    gdb = sub.add_parser("gdb", help="generate and inspect OpenTony GDB support files")
+    gdb_sub = gdb.add_subparsers(dest="gdb_command", required=True)
+    p = gdb_sub.add_parser("generate", help="generate GDB symbol knowledge from re/symbols")
+    p.add_argument("--output", help="generated module path; defaults to build/gdb/knowledge.py")
+    p.set_defaults(func=commands.gdb_generate)
+
     sessions = sub.add_parser("sessions", help="manage concurrent debug sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)
     p = sessions_sub.add_parser("list", help="list debug sessions")

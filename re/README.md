@@ -11,3 +11,6 @@ Everything under `re/` should be reviewable evidence or a reproducible input to 
 - `gdb/` — tracked debugger helpers
 
 Generated analysis belongs in `build/`, not here.
+
+Before loading the GDB bootstrap manually, generate its dependency-free symbol
+module with `tony gdb generate`. `tony debug` performs this step automatically.

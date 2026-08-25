@@ -18,6 +18,12 @@ def test_ghidra_decompile_parse():
     assert callable(args.func)
 
 
+def test_gdb_generate_parse():
+    args = build_parser().parse_args(["gdb", "generate", "--output", "knowledge.py"])
+    assert args.output == "knowledge.py"
+    assert callable(args.func)
+
+
 def test_media_tracks_parse():
     args = build_parser().parse_args(["media", "tracks"])
     assert callable(args.func)

@@ -6,10 +6,11 @@ import subprocess
 import time
 from pathlib import Path
 
+from .audio import start_muted_audio
 from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
+from .gdb_knowledge import generate as generate_gdb_knowledge
 from .nocd import nocd_executable
-from .audio import start_muted_audio
 from .sessions import _timestamp, cleanup_session_audio, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
@@ -70,6 +71,8 @@ def _xvfb_command(cfg: dict, env: dict[str, str]) -> list[str]:
 
 
 def debug_game(args) -> int:
+    # GDB imports this generated, dependency-free module from build/gdb.
+    generate_gdb_knowledge()
     cfg = load_yaml("re/config/wine.yml")["wine"]
     pid_arg = getattr(args, "pid", None)
     headless_launch = pid_arg is None and cfg.get("debug_xvfb", True)
