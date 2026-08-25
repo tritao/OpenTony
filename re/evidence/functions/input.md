@@ -13,13 +13,14 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 - `0x004e4a90` is the per-loop DirectInput poll called from `0x00489a10`. It updates the keyboard device, polls the optional joystick, refreshes mouse state, and handles Alt-F4.
 - `0x004e42c0` converts the polled bindings into the per-player action mask at `DAT_006a3f1c`; `0x004e4650` exposes that mask to the higher-level action update.
 - `0x004699f0` calls the input-history/update chain (`0x00489cd0`, `0x00489a10`, `0x00489e70`) once per level-loop iteration. `0x00469de0` follows it and is a stable post-poll sampling point.
-- The repeatable GDB collector `tony-input-sample COUNT FILE [--force]` records the action mask, raw keyboard mask, and 256-byte keyboard state after the poll.
+- The repeatable GDB collector `tony-input-sample COUNT FILE [--force]` records the action mask, held DirectInput scan codes, and the 256-byte keyboard state after the poll. The keyboard wrapper is at `0x006a43e0`; its state buffer is at `0x006a43e4` (`+4`).
 - A controlled Warehouse run held Left while sampling 80 post-poll iterations. The companion player trace showed stable player/owner pointers and movement in the position-like 16.16 fields at offsets `0x08/0x0c/0x10`, `0x90/0x94/0x98`, and `0xbc/0xc0/0xc4`.
 - The dynamic input trace now distinguishes idle from held input: 30 idle Warehouse samples had action mask `0x0000`, while held-key samples at level `12` produced Left `0x8000` (60/60), Right `0x2000` (20/20), Up `0x1000` (20/20), and Down `0x4000` (20/20). This confirms the complete keyboard movement-to-action-bit mapping.
+- The corrected sampler captured DIK_LEFT (`0xcb`) as held byte `0x80` in the DirectInput buffer while the action mask was `0x8000`; idle capture produced no held scan codes.
 
 ## Interpretation
 
-`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll and action-mask construction are now identified. The next step is to map the configured movement binding to its action bit and correlate held versus edge-triggered bits with the skater state update.
+`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll, action-mask construction, and complete movement mapping are now identified. The next step is to correlate held versus edge-triggered bits with the skater state update and follow the movement consumer.
 
 ## Open questions / falsifiers
 

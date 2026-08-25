@@ -14,3 +14,9 @@ Generated analysis belongs in `build/`, not here.
 
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.
+
+The first structured runtime probes are available after loading the bootstrap:
+`tony-frame-clock game_loop` arms the shared candidate frame clock, and
+`tony-physics-probe [COUNT]` emits conservative JSON observations from the
+physics dispatcher. The frame function is deliberately selected explicitly
+until runtime evidence establishes a true rendered-frame boundary.

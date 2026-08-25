@@ -8,9 +8,11 @@ from pathlib import Path
 
 import gdb
 
-from .calling import capture
+from .breakpoint import CountingBreakpoint, TonyBreakpoint
+from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
+from .physics import PhysicsProbe
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
 THPS2_ADDRESSES = dict(known_function_addresses())
@@ -149,12 +151,6 @@ class TonyModules(gdb.Command):
         gdb.write(output)
 
 
-class TonyBreakpoint(gdb.Breakpoint):
-    def __init__(self, address: int, temporary: bool = False):
-        super().__init__(f"*0x{address:x}", gdb.BP_BREAKPOINT, temporary=temporary)
-        self.address = address
-
-
 def _set_breakpoint(address: int, temporary: bool = False) -> None:
     breakpoint = TonyBreakpoint(address, temporary=temporary)
     kind = "temporary breakpoint" if temporary else "breakpoint"
@@ -217,20 +213,18 @@ class TonyTHPS2Breakpoint(gdb.Command):
         _set_breakpoint(address, len(values) == 2)
 
 
-class TonySkipMovieBreakpoint(gdb.Breakpoint):
+class TonySkipMovieBreakpoint(TonyBreakpoint):
     """Return immediately from the blocking startup-movie routine."""
 
     def __init__(self):
         address = THPS2_ADDRESSES["movie_play"][0]
-        super().__init__(f"*0x{address:x}", gdb.BP_BREAKPOINT, internal=True)
+        super().__init__(address, internal=True)
 
-    def stop(self):
-        call = capture()
-        return_address = call.return_address()
+    def on_hit(self, ctx):
+        return_address = ctx.return_address()
         gdb.execute(f"set $eip = 0x{return_address:x}")
-        gdb.execute(f"set $esp = 0x{call.esp + 4:x}")
+        gdb.execute(f"set $esp = 0x{ctx.esp + 4:x}")
         _write(f"skipped movie playback; returning to 0x{return_address:08x}")
-        return False
 
 
 _movie_skip_breakpoint = None
@@ -254,19 +248,18 @@ class TonySkipMovies(gdb.Command):
         _write(f"startup movie bypass enabled at 0x{address:08x}")
 
 
-class TonyForceLevelBreakpoint(gdb.Breakpoint):
+class TonyForceLevelBreakpoint(CountingBreakpoint):
     """Replace the next Front_LaunchGameLevel level argument."""
 
     def __init__(self, level: int, label: str):
         address = THPS2_ADDRESSES["launch_level"][0]
-        super().__init__(f"*0x{address:x}", gdb.BP_BREAKPOINT, internal=True, temporary=True)
+        super().__init__(address, count=1, internal=True, temporary=True, should_stop=True)
         self.level = level
         self.label = label
 
-    def stop(self):
-        call = capture()
-        original = call.arg(0)
-        mem.write_u32(call.esp + 4, self.level)
+    def on_count(self, ctx):
+        original = ctx.arg(0)
+        mem.write_u32(ctx.esp + 4, self.level)
         _write(f"forced launch level {original} -> {self.level} ({self.label})")
         return True
 
@@ -294,25 +287,24 @@ class TonyForceLevel(gdb.Command):
         _write(f"next level launch will use {level} ({label})")
 
 
-class TonyPlayerSampleBreakpoint(gdb.Breakpoint):
+class TonyPlayerSampleBreakpoint(CountingBreakpoint):
     """Collect raw player-object snapshots at level-loop entry."""
 
     def __init__(self, count: int, path: Path):
-        super().__init__(f"*0x{THPS2_ADDRESSES['frame_tick'][0]:x}", gdb.BP_BREAKPOINT, internal=True)
-        self.remaining = count
+        super().__init__(THPS2_ADDRESSES["frame_tick"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
 
-    def stop(self):
+    def on_count(self, ctx):
         player = mem.u32(GLOBALS["Player"])
         level = mem.u32(GLOBALS["CurrentLevel"])
         if player == 0 or level > 12:
             return False
-        call = capture()
-        registers = {name: call.register(name) for name in ("eax", "ecx", "edx", "ebx", "ebp", "esi", "edi")}
+        registers = {name: ctx.register(name) for name in ("eax", "ecx", "edx", "ebx", "ebp", "esi", "edi")}
         record = {
             "sample": self.sample,
-            "eip": call.register("eip"),
+            "eip": ctx.eip,
+            "frame": ctx.frame,
             "level": level,
             "player": player,
             "owner_header": player - 0x30 if player >= 0x30 else None,
@@ -326,11 +318,10 @@ class TonyPlayerSampleBreakpoint(gdb.Breakpoint):
         except OSError as exc:
             raise gdb.GdbError(f"could not write player sample {self.path}: {exc}") from exc
         self.sample += 1
-        self.remaining -= 1
-        if self.remaining <= 0:
-            self.enabled = False
-            _write(f"player sampling complete: {self.sample} samples -> {self.path}")
-        return False
+        return True
+
+    def on_complete(self):
+        _write(f"player sampling complete: {self.sample} samples -> {self.path}")
 
 
 class TonyPlayerSample(gdb.Command):
@@ -362,28 +353,28 @@ class TonyPlayerSample(gdb.Command):
         _write(f"player sampling armed for {count} level-loop hits -> {path}")
 
 
-class TonyInputSampleBreakpoint(gdb.Breakpoint):
+class TonyInputSampleBreakpoint(CountingBreakpoint):
     """Collect action and raw-keyboard state after the input update."""
 
     def __init__(self, count: int, path: Path):
-        super().__init__(f"*0x{THPS2_ADDRESSES['gameplay_update'][0]:x}", gdb.BP_BREAKPOINT, internal=True)
-        self.remaining = count
+        super().__init__(THPS2_ADDRESSES["gameplay_update"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
 
-    def stop(self):
+    def on_count(self, ctx):
         level = mem.u32(GLOBALS["CurrentLevel"])
         action_word = mem.u16(GLOBALS["ActionMask"])
         action_words = mem.u32(GLOBALS["ActionMask"])
-        raw_keyboard = mem.u32(GLOBALS["RawKeyboardMask"])
+        keyboard_state = mem.bytes(GLOBALS["KeyboardState"], 0x100)
         record = {
             "sample": self.sample,
-            "eip": capture().register("eip"),
+            "eip": ctx.eip,
+            "frame": ctx.frame,
             "level": level,
             "action_mask": action_word,
             "action_words": action_words,
-            "raw_keyboard_mask": raw_keyboard,
-            "keyboard_state": mem.bytes(GLOBALS["KeyboardState"], 0x100).hex(),
+            "held_keys": [code for code, value in enumerate(keyboard_state) if value & 0x80],
+            "keyboard_state": keyboard_state.hex(),
         }
         try:
             with self.path.open("a", encoding="utf-8") as stream:
@@ -391,11 +382,10 @@ class TonyInputSampleBreakpoint(gdb.Breakpoint):
         except OSError as exc:
             raise gdb.GdbError(f"could not write input sample {self.path}: {exc}") from exc
         self.sample += 1
-        self.remaining -= 1
-        if self.remaining <= 0:
-            self.enabled = False
-            _write(f"input sampling complete: {self.sample} samples -> {self.path}")
-        return False
+        return True
+
+    def on_complete(self):
+        _write(f"input sampling complete: {self.sample} samples -> {self.path}")
 
 
 class TonyInputSample(gdb.Command):
@@ -427,6 +417,50 @@ class TonyInputSample(gdb.Command):
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
+_runtime_breakpoints = []
+
+
+class TonyFrameClock(gdb.Command):
+    """tony-frame-clock FUNCTION -- tick the shared clock at a chosen function."""
+
+    def __init__(self):
+        super().__init__("tony-frame-clock", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-frame-clock FUNCTION")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-frame-clock FUNCTION")
+        frame_clock.reset()
+        try:
+            breakpoint = FrameBreakpoint(values[0], internal=True)
+        except KeyError as exc:
+            raise gdb.GdbError(f"unknown function {values[0]!r}; run tony-thps2") from exc
+        _runtime_breakpoints.append(breakpoint)
+        _write(f"frame clock armed at {values[0]} (frame starts at 0)")
+
+
+class TonyPhysicsProbe(gdb.Command):
+    """tony-physics-probe [COUNT] -- emit conservative dispatcher observations."""
+
+    def __init__(self):
+        super().__init__("tony-physics-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        try:
+            values = shlex.split(arg)
+        except ValueError as exc:
+            raise gdb.GdbError(f"invalid arguments: {exc}") from exc
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-physics-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = PhysicsProbe(count)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
+
+
 _registered = False
 
 
@@ -448,9 +482,12 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyPlayerSample()
     TonyInputSample()
+    TonyFrameClock()
+    TonyPhysicsProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
         "tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, "
-        "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample"
+        "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-frame-clock, tony-physics-probe"
     )

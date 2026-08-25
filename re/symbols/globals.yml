@@ -25,19 +25,19 @@ globals:
     confidence: inferred
     evidence:
       - re/evidence/functions/input.md
-  - address: 0x0054ace4
-    name: RawKeyboardMask
+  - address: 0x006a43e0
+    name: KeyboardDevice
     gdb_aliases:
-      - raw_keyboard_mask
-    description: raw keyboard action mask
-    confidence: inferred
+      - keyboard_device
+    description: DirectInput keyboard wrapper; state buffer begins at +4
+    confidence: observed
     evidence:
       - re/evidence/functions/input.md
-  - address: 0x006a4354
+  - address: 0x006a43e4
     name: KeyboardState
     gdb_aliases:
       - keyboard_state
-    description: raw keyboard state buffer
-    confidence: inferred
+    description: 256-byte DirectInput keyboard state buffer
+    confidence: observed
     evidence:
       - re/evidence/functions/input.md

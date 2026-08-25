@@ -10,6 +10,9 @@ def test_gdb_knowledge_covers_runtime_addresses():
     assert database["FUNCTIONS_ALIASES"]["physics_dispatch"] == "Skater_PhysicsDispatcher"
     assert database["GLOBALS"]["Player"] == 0x0056A858
     assert database["GLOBALS"]["CurrentLevel"] == 0x0056A898
+    assert database["GLOBALS"]["KeyboardDevice"] == 0x006A43E0
+    assert database["GLOBALS"]["KeyboardState"] == 0x006A43E4
+    assert "RawKeyboardMask" not in database["GLOBALS"]
 
 
 def test_gdb_knowledge_is_a_dependency_free_python_module(tmp_path: Path):
