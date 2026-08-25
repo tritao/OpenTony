@@ -63,12 +63,19 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     inferior = FakeInferior()
     inferior.data[0x10:0x14] = struct.pack("<I", 0x41460000)
     inferior.data[0x20:0x2C] = struct.pack("<3f", 1.0, -2.0, 3.5)
+    inferior.data[0x40:0x4C] = struct.pack("<3I", 0xFFFF0000, 0, 0)
     memory = Memory(inferior)
 
     bits = memory.f32_bits(0x10)
     assert bits.value == 12.375
     assert bits.bits == 0x41460000
     assert memory.fixed16(0x10) == 0x41460000 / 65536.0
+    assert memory.u32_vec3(0x20) == (0x3F800000, 0xC0000000, 0x40600000)
+    fixed = memory.fixed_vec3(0x10)
+    assert fixed.raw == (0x41460000, 0, 0)
+    assert fixed.signed == (0x41460000, 0, 0)
+    assert fixed.values == (0x41460000 / 65536.0, 0.0, 0.0)
+    negative = memory.fixed_vec3(0x40)
     assert memory.word32(0x10)._asdict() == {
         "u32": 0x41460000,
         "s32": 0x41460000,
@@ -81,6 +88,8 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     memory.write_f32(0x34, 0.25)
     assert memory.u32(0x30) == 0x12345678
     assert memory.f32(0x34) == 0.25
+    assert negative.x.signed == -65536
+    assert negative.x.value == -1.0
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():
@@ -146,12 +155,13 @@ def test_position_commit_probe_records_arguments_and_player_state():
     assert events[0]["type"] == "position_commit"
     assert events[0]["player"] == "0x00000500"
     assert events[0]["argument_values"] == ["0x0000000b", "0x00000016", "0x00000021"]
-    assert [word["u32"] for word in events[0]["position_before"]] == [101, 102, 103]
-    assert [word["u32"] for word in events[0]["history_vector"]] == [201, 202, 203]
-    assert events[0]["physics_state"]["u32"] == 4
+    assert events[0]["position_before"]["raw"] == [101, 102, 103]
+    assert events[0]["position_before"]["fixed"] == [101 / 65536.0, 102 / 65536.0, 103 / 65536.0]
+    assert events[0]["position_history"]["raw"] == [201, 202, 203]
+    assert events[0]["physics_state"] == 4
 
 
-def test_player_view_exposes_raw_words_and_candidate_interpretations():
+def test_player_view_exposes_fixed_position_and_integer_state_fields():
     inferior = FakeInferior()
     inferior.data[0x200:0x204] = struct.pack("<I", 0x100)
     inferior.data[0x108:0x114] = struct.pack("<3I", 0x00018000, 0x00008000, 0x3F800000)
@@ -163,15 +173,12 @@ def test_player_view_exposes_raw_words_and_candidate_interpretations():
 
     assert view is not None
     assert view.position_raw == (0x00018000, 0x00008000, 0x3F800000)
-    assert view.position_signed == (0x00018000, 0x00008000, 0x3F800000)
-    assert view.position_fixed16 == (1.5, 0.5, 16256.0)
-    assert view.position_float[2] == 1.0
-    assert view.velocity_raw == (0x00004000, 0x0000C000, 0x41200000)
-    assert view.velocity_fixed16 == (0.25, 0.75, 16672.0)
-    assert view.velocity_float[2] == 10.0
-    assert view.physics_state_raw == 1
-    assert view.physics_state_signed == 1
-    assert view.physics_state_fixed16 == 1 / 65536.0
+    assert view.position.values == (1.5, 0.5, 16256.0)
+    assert view.position.x.raw == 0x00018000
+    assert view.position_history_raw == (0x00004000, 0x0000C000, 0x41200000)
+    assert view.position_history.values == (0.25, 0.75, 16672.0)
+    assert view.physics_state == 1
+    assert view.unknown_state == 2
 
     inferior.data[0x100:0x108] = struct.pack("<2I", 0x2222, 0x100)
     context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x300}), memory)
@@ -186,8 +193,10 @@ def test_player_view_exposes_raw_words_and_candidate_interpretations():
     assert probe.hits == 1
     assert probe.remaining == 0
     assert events[0]["position_raw"] == [0x00018000, 0x00008000, 0x3F800000]
-    assert events[0]["position_fixed16"] == [1.5, 0.5, 16256.0]
-    assert events[0]["position_float"][2] == 1.0
+    assert events[0]["position_fixed"] == [1.5, 0.5, 16256.0]
+    assert events[0]["position_history_raw"] == [0x00004000, 0x0000C000, 0x41200000]
+    assert events[0]["position_history_fixed"] == [0.25, 0.75, 16672.0]
+    assert events[0]["physics_state"] == 1
     assert "candidate_position" not in events[0]
 
 

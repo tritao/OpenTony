@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import gdb
@@ -20,6 +21,39 @@ class Word32(NamedTuple):
     s32: int
     fixed16: float
     f32: float
+
+
+@dataclass(frozen=True, slots=True)
+class Fixed16:
+    """One 32-bit word represented as signed 16.16 fixed point."""
+
+    raw: int
+
+    @property
+    def signed(self) -> int:
+        return self.raw - (1 << 32) if self.raw & 0x80000000 else self.raw
+
+    @property
+    def value(self) -> float:
+        return self.signed / 65536.0
+
+
+class FixedVec3(NamedTuple):
+    x: Fixed16
+    y: Fixed16
+    z: Fixed16
+
+    @property
+    def raw(self) -> tuple[int, int, int]:
+        return self.x.raw, self.y.raw, self.z.raw
+
+    @property
+    def signed(self) -> tuple[int, int, int]:
+        return self.x.signed, self.y.signed, self.z.signed
+
+    @property
+    def values(self) -> tuple[float, float, float]:
+        return self.x.value, self.y.value, self.z.value
 
 
 class Vec3(NamedTuple):
@@ -85,6 +119,12 @@ class Memory:
 
     def fixed16(self, address: int) -> float:
         return self.s32(address) / 65536.0
+
+    def u32_vec3(self, address: int) -> tuple[int, int, int]:
+        return struct.unpack("<3I", self.bytes(address, 12))
+
+    def fixed_vec3(self, address: int) -> FixedVec3:
+        return FixedVec3(*(Fixed16(raw) for raw in self.u32_vec3(address)))
 
     def word32(self, address: int) -> Word32:
         return decode_word32(self.bytes(address, 4))

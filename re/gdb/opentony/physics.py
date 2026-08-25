@@ -19,6 +19,8 @@ class PhysicsProbe(CountingBreakpoint):
         if not ctx.memory.valid(player):
             return False
         view = PlayerView(player, ctx.memory)
+        position = view.position
+        position_history = view.position_history
         record = {
             "type": "physics",
             "frame": ctx.frame,
@@ -26,22 +28,12 @@ class PhysicsProbe(CountingBreakpoint):
             "eip": f"0x{ctx.eip:08x}",
             "caller": f"0x{ctx.caller():08x}",
             "player": f"0x{player:08x}",
-            "physics_state_raw": view.physics_state_raw,
-            "physics_state_signed": view.physics_state_signed,
-            "physics_state_fixed16": view.physics_state_fixed16,
-            "physics_state_float": view.physics_state_float,
-            "unknown_state_raw": view.unknown_state_raw,
-            "unknown_state_signed": view.unknown_state_signed,
-            "unknown_state_fixed16": view.unknown_state_fixed16,
-            "unknown_state_float": view.unknown_state_float,
+            "physics_state": view.physics_state,
+            "unknown_state": view.unknown_state,
             "position_raw": list(view.position_raw),
-            "position_signed": list(view.position_signed),
-            "position_fixed16": list(view.position_fixed16),
-            "position_float": list(view.position_float),
-            "velocity_raw": list(view.velocity_raw),
-            "velocity_signed": list(view.velocity_signed),
-            "velocity_fixed16": list(view.velocity_fixed16),
-            "velocity_float": list(view.velocity_float),
+            "position_fixed": list(position.values),
+            "position_history_raw": list(view.position_history_raw),
+            "position_history_fixed": list(position_history.values),
         }
         if self.writer is None:
             self.emit(record)

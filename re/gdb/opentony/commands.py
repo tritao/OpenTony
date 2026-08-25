@@ -77,9 +77,9 @@ _PLAYER_WATCH_FIELDS = {
     "position.x": 0x08,
     "position.y": 0x0C,
     "position.z": 0x10,
-    "velocity.x": 0xBC,
-    "velocity.y": 0xC0,
-    "velocity.z": 0xC4,
+    "position_history.x": 0xBC,
+    "position_history.y": 0xC0,
+    "position_history.z": 0xC4,
     "physics_state": 0x30B8,
     "unknown_state": 0x30C4,
 }

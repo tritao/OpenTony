@@ -22,8 +22,10 @@ def _word_record(address: int, memory=None) -> dict:
     return {"address": f"0x{address:08x}", "raw": raw.hex(), **word._asdict()}
 
 
-def _vector_record(address: int, memory=None) -> list[dict]:
-    return [_word_record(address + index * 4, memory) for index in range(3)]
+def _fixed_vector_record(address: int, memory=None) -> dict:
+    memory = memory or mem
+    fixed = memory.fixed_vec3(address)
+    return {"raw": list(fixed.raw), "fixed": list(fixed.values)}
 
 
 class PositionCommitBreakpoint(CountingBreakpoint):
@@ -50,10 +52,10 @@ class PositionCommitBreakpoint(CountingBreakpoint):
             "player": f"0x{player:08x}",
             "arguments": [_word_record(ctx.esp + 4 + index * 4, ctx.memory) for index in range(3)],
             "argument_values": [f"0x{value:08x}" for value in arguments],
-            "position_before": _vector_record(player + view.POSITION_OFFSET, ctx.memory),
-            "history_vector": _vector_record(player + view.VELOCITY_OFFSET, ctx.memory),
-            "physics_state": _word_record(player + view.PHYSICS_STATE_OFFSET, ctx.memory),
-            "unknown_state": _word_record(player + view.UNKNOWN_STATE_OFFSET, ctx.memory),
+            "position_before": _fixed_vector_record(player + view.POSITION_OFFSET, ctx.memory),
+            "position_history": _fixed_vector_record(player + view.POSITION_HISTORY_OFFSET, ctx.memory),
+            "physics_state": view.physics_state,
+            "unknown_state": view.unknown_state,
         }
         action_mask_address = GLOBALS.get("ActionMask")
         keyboard_address = GLOBALS.get("KeyboardState")
