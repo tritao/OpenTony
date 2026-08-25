@@ -16,6 +16,7 @@ from tony.assets import (
     extract_hed,
     extract_pkr,
     extract_pre,
+    extract_psx,
     inspect_hed,
     inspect_pkr,
     inspect_pre,
@@ -200,6 +201,13 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
     assert result["model_count"] == 1
     assert result["texture_count"] == 1
     assert result["tags"][0]["name"] == "blockmap"
+
+    output = tmp_path / "psx-output"
+    manifest = extract_psx(source, output)
+    assert (output / "textures/texture_00002222_0000.ppm").is_file()
+    assert (output / "models/model_0000.obj").is_file()
+    assert manifest["textures"][0]["width"] == 4
+    assert json.loads((output / "manifest.json").read_text()) == manifest
 
 
 def test_read_inspect_and_extract_hed_family(tmp_path: Path):

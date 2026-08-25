@@ -61,6 +61,7 @@ def test_asset_commands_parse():
         "inventory",
         "inspect-trg",
         "inspect-psx",
+        "extract-psx",
         "inspect-hed",
         "extract-hed",
     ):

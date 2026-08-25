@@ -114,6 +114,16 @@ class NamedTableEntry:
 
 
 @dataclass(frozen=True)
+class PsxFace:
+    base_flags: int
+    vertex_indices: tuple[int, int, int, int]
+    normal_index: int
+    surface_flags: int
+    texture_index: int | None
+    uvs: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
 class PsxModel:
     index: int
     offset: int
@@ -124,6 +134,9 @@ class PsxModel:
     face_count: int
     bounds: tuple[int, int, int, int, int, int]
     face_flags: tuple[int, ...]
+    vertices: tuple[tuple[int, int, int], ...] = ()
+    normals: tuple[tuple[int, int, int], ...] = ()
+    faces: tuple[PsxFace, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -147,6 +160,26 @@ class PsxTexture:
     name_index: int
     width: int
     height: int
+    data_offset: int
+    available_size: int
+
+    @property
+    def aligned_width(self) -> int:
+        alignment = {16: 3, 256: 1, 65536: 0}[self.color_count]
+        return (self.width + alignment) & ~alignment
+
+    @property
+    def aligned_height(self) -> int:
+        alignment = {16: 3, 256: 1, 65536: 0}[self.color_count]
+        return (self.height + alignment) & ~alignment
+
+    @property
+    def expected_data_size(self) -> int:
+        if self.color_count == 16:
+            return self.aligned_width * self.aligned_height // 2
+        if self.color_count == 256:
+            return self.aligned_width * self.aligned_height
+        return self.aligned_width * self.aligned_height * 2
 
 
 class _PsxCursor:
@@ -473,8 +506,11 @@ class PsxArchive:
         tags: list[PsxTag],
         tag_terminated: bool,
         texture_name_count: int,
+        texture_names: list[int],
         palette4_count: int,
+        palettes4: dict[int, tuple[int, ...]],
         palette8_count: int,
+        palettes8: dict[int, tuple[int, ...]],
         textures: list[PsxTexture],
         texture_table_offset: int | None,
         metadata_end: int,
@@ -488,8 +524,11 @@ class PsxArchive:
         self.tags = tags
         self.tag_terminated = tag_terminated
         self.texture_name_count = texture_name_count
+        self.texture_names = texture_names
         self.palette4_count = palette4_count
+        self.palettes4 = palettes4
         self.palette8_count = palette8_count
+        self.palettes8 = palettes8
         self.textures = textures
         self.texture_table_offset = texture_table_offset
         self.metadata_end = metadata_end
@@ -554,14 +593,29 @@ class PsxArchive:
             bounds = tuple(cursor.i16(f"PSX model {index} bound {bound}") for bound in range(6))
             cursor.u32(f"PSX model {index} unknown header")
 
-            vertex_bytes = vertex_count * 8
-            normal_bytes = normal_count * 8
-            if cursor.position + vertex_bytes + normal_bytes > model_end:
-                raise PsxFormatError(f"PSX model {index} vertex/normal arrays exceed its boundary")
-            cursor.take(vertex_bytes, f"PSX model {index} vertices")
-            cursor.take(normal_bytes, f"PSX model {index} normals")
+            vertices = []
+            for vertex_index in range(vertex_count):
+                vertices.append(
+                    (
+                        cursor.i16(f"PSX model {index} vertex {vertex_index} x"),
+                        cursor.i16(f"PSX model {index} vertex {vertex_index} y"),
+                        cursor.i16(f"PSX model {index} vertex {vertex_index} z"),
+                    )
+                )
+                cursor.take(2, f"PSX model {index} vertex {vertex_index} padding")
+            normals = []
+            for normal_index in range(normal_count):
+                normals.append(
+                    (
+                        cursor.i16(f"PSX model {index} normal {normal_index} x"),
+                        cursor.i16(f"PSX model {index} normal {normal_index} y"),
+                        cursor.i16(f"PSX model {index} normal {normal_index} z"),
+                    )
+                )
+                cursor.take(2, f"PSX model {index} normal {normal_index} padding")
 
             face_flags: list[int] = []
+            faces: list[PsxFace] = []
             for face_index in range(face_count):
                 face_start = cursor.position
                 base_flags = cursor.u16(f"PSX model {index} face {face_index} flags")
@@ -570,12 +624,47 @@ class PsxArchive:
                 if face_length < 4 or face_end > model_end:
                     raise PsxFormatError(f"PSX model {index} face {face_index} has an invalid length")
 
-                index_bytes = 4 if version >= 4 else 8
-                cursor.take(index_bytes + 4 + 2 + 2, f"PSX model {index} face {face_index} core")
+                if version >= 4:
+                    vertex_indices = tuple(
+                        cursor.take(1, f"PSX model {index} face {face_index} vertex index")[0]
+                        for _ in range(4)
+                    )
+                else:
+                    vertex_indices = tuple(
+                        cursor.u16(f"PSX model {index} face {face_index} vertex index")
+                        for _ in range(4)
+                    )
+                if any(vertex_index >= vertex_count for vertex_index in vertex_indices):
+                    raise PsxFormatError(f"PSX model {index} face {face_index} references a missing vertex")
+                cursor.take(4, f"PSX model {index} face {face_index} GPU command")
+                normal_index = cursor.u16(f"PSX model {index} face {face_index} normal index")
+                if normal_index >= normal_count:
+                    raise PsxFormatError(f"PSX model {index} face {face_index} references a missing normal")
+                surface_flags = cursor.u16(f"PSX model {index} face {face_index} surface flags")
+                texture_index = None
                 if flags & 1 == 0 and base_flags & 2:
-                    cursor.take(4, f"PSX model {index} face {face_index} texture index")
+                    texture_index = cursor.u32(f"PSX model {index} face {face_index} texture index")
+                uvs: tuple[tuple[int, int], ...] = ()
                 if base_flags & 1:
-                    cursor.take(16 if version >= 6 else 8, f"PSX model {index} face {face_index} UVs")
+                    if version >= 6:
+                        u_values = tuple(
+                            cursor.u16(f"PSX model {index} face {face_index} U coordinate")
+                            for _ in range(4)
+                        )
+                        v_values = tuple(
+                            cursor.u16(f"PSX model {index} face {face_index} V coordinate")
+                            for _ in range(4)
+                        )
+                    else:
+                        u_values = tuple(
+                            cursor.take(1, f"PSX model {index} face {face_index} U coordinate")[0]
+                            for _ in range(4)
+                        )
+                        v_values = tuple(
+                            cursor.take(1, f"PSX model {index} face {face_index} V coordinate")[0]
+                            for _ in range(4)
+                        )
+                    uvs = tuple(zip(u_values, v_values))
                 if base_flags & 8:
                     cursor.take(8, f"PSX model {index} face {face_index} extra data")
                 if flags & 1 == 0 and base_flags & 0x20:
@@ -584,6 +673,7 @@ class PsxArchive:
                     raise PsxFormatError(f"PSX model {index} face {face_index} fields exceed its length")
                 cursor.seek(face_end, f"PSX model {index} face {face_index} end")
                 face_flags.append(base_flags)
+                faces.append(PsxFace(base_flags, vertex_indices, normal_index, surface_flags, texture_index, uvs))
 
             if cursor.position > model_end:
                 raise PsxFormatError(f"PSX model {index} exceeds its boundary")
@@ -598,13 +688,19 @@ class PsxArchive:
                     face_count,
                     bounds,
                     tuple(face_flags),
+                    tuple(vertices),
+                    tuple(normals),
+                    tuple(faces),
                 )
             )
 
         tags, tag_terminated, post_tables_offset = cls._read_tags(data, tag_offset)
         texture_name_count = 0
+        texture_names: list[int] = []
         palette4_count = 0
+        palettes4: dict[int, tuple[int, ...]] = {}
         palette8_count = 0
+        palettes8: dict[int, tuple[int, ...]] = {}
         textures: list[PsxTexture] = []
         texture_table_offset: int | None = None
         metadata_end = post_tables_offset
@@ -612,11 +708,19 @@ class PsxArchive:
             post = _PsxCursor(data, post_tables_offset)
             post.take(model_count * 4, "PSX model names")
             texture_name_count = post.u32("PSX texture name count")
-            post.take(texture_name_count * 4, "PSX texture names")
+            texture_names = [post.u32(f"PSX texture name {index}") for index in range(texture_name_count)]
             palette4_count = post.u32("PSX 4bpp palette count")
-            post.take(palette4_count * (4 + 16 * 2), "PSX 4bpp palettes")
+            for index in range(palette4_count):
+                name = post.u32(f"PSX 4bpp palette {index} name")
+                palettes4[name] = tuple(
+                    post.u16(f"PSX 4bpp palette {index} color {color}") for color in range(16)
+                )
             palette8_count = post.u32("PSX 8bpp palette count")
-            post.take(palette8_count * (4 + 256 * 2), "PSX 8bpp palettes")
+            for index in range(palette8_count):
+                name = post.u32(f"PSX 8bpp palette {index} name")
+                palettes8[name] = tuple(
+                    post.u16(f"PSX 8bpp palette {index} color {color}") for color in range(256)
+                )
             texture_count = post.u32("PSX texture count")
             if version >= 6 and texture_count == 0xFFFFFFFF:
                 reference_count = post.u32("PSX texture reference count")
@@ -644,8 +748,20 @@ class PsxArchive:
                     raise PsxFormatError(f"PSX texture {index} has unsupported color count {color_count}")
                 if name_index >= texture_name_count:
                     raise PsxFormatError(f"PSX texture {index} references a missing texture name")
+                next_offset = texture_offsets[index + 1] if index + 1 < len(texture_offsets) else len(data)
                 textures.append(
-                    PsxTexture(index, offset, flags, color_count, palette_name, name_index, width, height)
+                    PsxTexture(
+                        index,
+                        offset,
+                        flags,
+                        color_count,
+                        palette_name,
+                        name_index,
+                        width,
+                        height,
+                        offset + 20,
+                        max(0, next_offset - (offset + 20)),
+                    )
                 )
             metadata_end = max(
                 [post.position, *(texture.offset + 20 for texture in textures)],
@@ -662,8 +778,11 @@ class PsxArchive:
             tags,
             tag_terminated,
             texture_name_count,
+            texture_names,
             palette4_count,
+            palettes4,
             palette8_count,
+            palettes8,
             textures,
             texture_table_offset,
             metadata_end,
@@ -1060,6 +1179,11 @@ def inspect_psx(
                 "name_index": texture.name_index,
                 "width": texture.width,
                 "height": texture.height,
+                "aligned_width": texture.aligned_width,
+                "aligned_height": texture.aligned_height,
+                "data_offset": texture.data_offset,
+                "available_size": texture.available_size,
+                "expected_data_size": texture.expected_data_size,
             }
             for texture in archive.textures
         ]
@@ -1074,6 +1198,189 @@ def inspect_psx(
             for tag in archive.tags
         ]
     return result
+
+
+def _psx_color_to_rgb(color: int) -> tuple[int, int, int]:
+    return tuple(round(((color >> shift) & 0x1F) * 255 / 31) for shift in (0, 5, 10))
+
+
+def _psx_decode_texture(archive: PsxArchive, texture: PsxTexture, data: bytes) -> bytes:
+    if texture.available_size < texture.expected_data_size:
+        raise PsxFormatError(
+            f"PSX texture {texture.index} payload is truncated: "
+            f"need {texture.expected_data_size} bytes, have {texture.available_size}"
+        )
+    raw = data[texture.data_offset : texture.data_offset + texture.expected_data_size]
+    palette = None
+    if texture.color_count == 16:
+        palette = archive.palettes4.get(texture.palette_name)
+    elif texture.color_count == 256:
+        palette = archive.palettes8.get(texture.palette_name)
+    if palette is not None and len(palette) < texture.color_count:
+        raise PsxFormatError(f"PSX texture {texture.index} palette is incomplete")
+    pixels = bytearray()
+    if texture.color_count == 16:
+        assert palette is not None
+        for byte in raw:
+            pixels.extend(_psx_color_to_rgb(palette[byte & 0x0F]))
+            pixels.extend(_psx_color_to_rgb(palette[(byte >> 4) & 0x0F]))
+    elif texture.color_count == 256:
+        assert palette is not None
+        for index in raw:
+            pixels.extend(_psx_color_to_rgb(palette[index]))
+    else:
+        for offset in range(0, len(raw), 2):
+            pixels.extend(_psx_color_to_rgb(struct.unpack_from("<H", raw, offset)[0]))
+    expected_pixels = texture.aligned_width * texture.aligned_height * 3
+    if len(pixels) != expected_pixels:
+        raise PsxFormatError(
+            f"PSX texture {texture.index} decoded to {len(pixels)} bytes, expected {expected_pixels}"
+        )
+    return bytes(pixels)
+
+
+def _write_ppm(path: Path, width: int, height: int, pixels: bytes) -> None:
+    path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels)
+
+
+def _psx_texture_filename(archive: PsxArchive, texture: PsxTexture) -> str:
+    name = archive.texture_names[texture.name_index]
+    return f"texture_{name:08x}_{texture.index:04d}.ppm"
+
+
+def _write_psx_model(path: Path, model: PsxModel, texture_materials: dict[int, str]) -> set[str]:
+    materials: set[str] = set()
+    lines = ["# OpenTony PSX model export", "mtllib materials.mtl"]
+    lines.extend(f"v {x / 4096:.6f} {y / 4096:.6f} {z / 4096:.6f}" for x, y, z in model.vertices)
+    lines.extend(f"vn {x / 4096:.6f} {y / 4096:.6f} {z / 4096:.6f}" for x, y, z in model.normals)
+    texture_coordinate_index = 0
+    for face in model.faces:
+        if face.base_flags & 0x80:
+            continue
+        if face.texture_index is not None and face.texture_index in texture_materials:
+            material = texture_materials[face.texture_index]
+            materials.add(material)
+            lines.append(f"usemtl {material}")
+        order = (2, 1, 0) if face.base_flags & 0x10 else (0, 2, 3, 1)
+        corners = []
+        for corner in order:
+            vertex_index = face.vertex_indices[corner] + 1
+            normal_index = face.normal_index + 1
+            if face.uvs:
+                u, v = face.uvs[corner]
+                texture_coordinate_index += 1
+                lines.append(f"vt {u / 256:.6f} {v / 256:.6f}")
+                corners.append(f"{vertex_index}/{texture_coordinate_index}/{normal_index}")
+            else:
+                corners.append(f"{vertex_index}//{normal_index}")
+        lines.append("f " + " ".join(corners))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return materials
+
+
+def extract_psx(
+    path: str | Path,
+    output: str | Path,
+    *,
+    force: bool = False,
+    include_models: bool = True,
+    include_textures: bool = True,
+) -> dict:
+    source = resolve(path)
+    archive = PsxArchive.read(source)
+    if archive.version != 4:
+        raise SystemExit("PSX export currently supports version 4 assets only")
+    if not include_models and not include_textures:
+        raise ValueError("at least one PSX export category must be enabled")
+
+    destination = _prepare_output(output, force)
+    models_output = destination / "models"
+    textures_output = destination / "textures"
+    if include_models:
+        models_output.mkdir(parents=True, exist_ok=True)
+    if include_textures:
+        textures_output.mkdir(parents=True, exist_ok=True)
+
+    source_data = source.read_bytes()
+    texture_entries = []
+    skipped_textures = []
+    texture_files: dict[int, str] = {}
+    if include_textures:
+        for texture in archive.textures:
+            filename = _psx_texture_filename(archive, texture)
+            try:
+                pixels = _psx_decode_texture(archive, texture, source_data)
+            except PsxFormatError as exc:
+                skipped_textures.append({"index": texture.index, "reason": str(exc)})
+                continue
+            target = textures_output / filename
+            _write_ppm(target, texture.aligned_width, texture.aligned_height, pixels)
+            texture_files[texture.name_index] = filename
+            texture_entries.append(
+                {
+                    "index": texture.index,
+                    "path": f"textures/{filename}",
+                    "name": archive.texture_names[texture.name_index],
+                    "width": texture.aligned_width,
+                    "height": texture.aligned_height,
+                    "color_count": texture.color_count,
+                    "source_offset": texture.data_offset,
+                    "source_size": texture.expected_data_size,
+                    "sha256": hashlib.sha256(pixels).hexdigest(),
+                }
+            )
+
+    model_entries = []
+    model_materials: set[str] = set()
+    if include_models:
+        for model in archive.models:
+            target = models_output / f"model_{model.index:04d}.obj"
+            materials = _write_psx_model(target, model, {
+                name_index: f"texture_{archive.texture_names[name_index]:08x}_{texture.index:04d}"
+                for texture in archive.textures
+                for name_index in [texture.name_index]
+                if name_index in texture_files
+            })
+            model_materials.update(materials)
+            model_entries.append(
+                {
+                    "index": model.index,
+                    "path": f"models/{target.name}",
+                    "vertex_count": model.vertex_count,
+                    "normal_count": model.normal_count,
+                    "face_count": model.face_count,
+                }
+            )
+        materials_path = models_output / "materials.mtl"
+        material_lines = []
+        for material in sorted(model_materials):
+            texture_name = material.removeprefix("texture_")
+            texture_file = next(
+                (entry["path"].removeprefix("textures/") for entry in texture_entries if entry["path"].endswith(f"{texture_name}.ppm")),
+                None,
+            )
+            material_lines.extend([f"newmtl {material}", "Kd 1.0 1.0 1.0"])
+            if texture_file:
+                material_lines.append(f"map_Kd ../textures/{texture_file}")
+            material_lines.append("")
+        materials_path.write_text("\n".join(material_lines), encoding="utf-8")
+
+    manifest = {
+        "version": 1,
+        "tony_version": __version__,
+        "source": {
+            "path": _display_path(source),
+            "size": source.stat().st_size,
+            "sha256": sha256(source),
+        },
+        "format": archive.summary(),
+        "extracted_path": _display_path(destination),
+        "models": model_entries,
+        "textures": texture_entries,
+        "skipped_textures": skipped_textures,
+    }
+    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
 
 
 def _asset_source_info(path: Path) -> dict:
@@ -1365,6 +1672,24 @@ def assets_inspect_psx(args) -> int:
         include_tags=args.tags,
     )
     print(json.dumps(result, indent=2))
+    return 0
+
+
+def assets_extract_psx(args) -> int:
+    destination = _build_output(args.output)
+    manifest = extract_psx(
+        args.path,
+        destination,
+        force=args.force,
+        include_models=not args.textures_only,
+        include_textures=not args.models_only,
+    )
+    print(
+        f"Exported {len(manifest['models'])} models and {len(manifest['textures'])} textures into {destination}"
+    )
+    if manifest["skipped_textures"]:
+        print(f"Skipped textures: {len(manifest['skipped_textures'])}")
+    print(f"Manifest: {destination / 'manifest.json'}")
     return 0
 
 

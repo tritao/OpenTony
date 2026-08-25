@@ -8,6 +8,7 @@ from .assets import (
     assets_extract_hed,  # noqa: F401 - command handlers are consumed by cli.py
     assets_extract_pkr,  # noqa: F401 - command handlers are consumed by cli.py
     assets_extract_pre,  # noqa: F401 - command handlers are consumed by cli.py
+    assets_extract_psx,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_hed,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_pkr,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_pre,  # noqa: F401 - command handlers are consumed by cli.py
