@@ -1,6 +1,6 @@
 # Startup, frontend, and gameplay loops
 
-Status: inferred
+Status: frontend observed; gameplay loops inferred
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004f7e30`, `0x00452ff0`, `0x004544a0`, `0x0046a3a0`, `0x0041c2d0`
 
@@ -17,6 +17,8 @@ Ghidra's decompiler identifies the following static path in the recorded PE32/i3
 - `0x0041c2d0` is a second, outer game loop. It initializes input once, repeatedly performs timing and subsystem updates, invokes a virtual callback at `(*piVar3 + 4)`, presents a frame, and exits on a session callback result.
 
 The movie helper at `0x004e7090` formats the exact `PCMOVIE_PlayGameFMV` diagnostic before starting and finishing a Bink movie. It is part of startup/frontend flow, not the gameplay frame loop.
+
+Under the recorded `640x480x16` headless profile, bypassing the blocking movie routine at `0x004e5ec0` led to a runtime breakpoint hit at `0x00452ff0`, returning through `0x00503054`. This dynamically confirms the frontend anchor. Neither gameplay-loop candidate has yet been observed at runtime.
 
 ## Interpretation
 

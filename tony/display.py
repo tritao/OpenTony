@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -133,16 +134,13 @@ class HeadlessDisplay:
         ]
         process = None
         try:
+            kwargs.setdefault("start_new_session", True)
             process = subprocess.Popen(wrapped, cwd=cwd, env=launch_env, **kwargs)
             self._wait_for_metadata(process, width, height, depth)
             return process
         except BaseException:
             if process is not None and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+                terminate_process(process)
             metadata_path.unlink(missing_ok=True)
             self._metadata_path = None
             raise
@@ -262,6 +260,25 @@ class HeadlessDisplay:
     def _require_started(self) -> None:
         if self.info is None:
             raise RuntimeError("headless display has not been started")
+
+
+def terminate_process(process: subprocess.Popen, *, timeout: float = 2.0) -> None:
+    """Terminate a headless process and its Xvfb wrapper process group."""
+
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (AttributeError, OSError):
+        process.terminate()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (AttributeError, OSError):
+            process.kill()
+        process.wait(timeout=timeout)
 
 
 def configure_visual_capture(display: HeadlessDisplay, args) -> None:

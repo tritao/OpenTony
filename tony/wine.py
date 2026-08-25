@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .common import ROOT, capture, headless_wine_command, headless_wine_env, load_yaml, resolve, wine_env
-from .display import HeadlessDisplay, configure_visual_capture
+from .display import HeadlessDisplay, configure_visual_capture, terminate_process
 from .identity import recorded_executable
 from .nocd import nocd_executable
 
@@ -199,12 +199,9 @@ def run_game(args) -> int:
         return process.wait()
     except BaseException:
         if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            terminate_process(process)
         raise
     finally:
         display.stop_recording()
+        subprocess.run(["wineserver", "-k"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         display.close()

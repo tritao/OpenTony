@@ -7,8 +7,9 @@ import time
 from pathlib import Path
 
 from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
-from .display import HeadlessDisplay, configure_visual_capture, xvfb_command
+from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .nocd import nocd_executable
+from .sessions import _timestamp, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
 
@@ -44,7 +45,7 @@ def _find_game_pid(env: dict[str, str]) -> int:
     return matches[0]
 
 
-def _wait_port(port: int, timeout: float = 10.0) -> None:
+def _wait_port(port: int, timeout: float = 45.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         port_hex = f"{port:04X}"
@@ -69,31 +70,43 @@ def _xvfb_command(cfg: dict, env: dict[str, str]) -> list[str]:
 
 def debug_game(args) -> int:
     cfg = load_yaml("re/config/wine.yml")["wine"]
-    port = int(args.port or cfg["debug_port"])
     pid_arg = getattr(args, "pid", None)
     headless_launch = pid_arg is None and cfg.get("debug_xvfb", True)
-    env = headless_wine_env() if headless_launch else wine_env()
-    if pid_arg is not None:
-        target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
-        cwd = ROOT
-    else:
-        exe = nocd_executable()
-        target = [str(exe), *args.game_args]
-        cwd = exe.parent
+    session = create_session(getattr(args, "session", None), getattr(args, "port", None), isolated=headless_launch)
+    port = session.port
     display = None
-    proxy_command = ["winedbg", "--gdb", "--no-start", "--port", str(port), *target]
-    if headless_launch:
-        proxy_command = headless_wine_command(proxy_command)
-        display = HeadlessDisplay(cfg, env)
-        proxy = display.popen(proxy_command, cwd=cwd, env=env)
-    else:
-        if getattr(args, "screenshot", None) or getattr(args, "record", None):
-            raise SystemExit("visual capture requires an isolated debug launch; omit --pid")
-        proxy = subprocess.Popen(proxy_command, cwd=cwd, env=env)
+    proxy = None
+    gdb_process = None
+    exit_code = None
+    env = None
     try:
+        env = headless_wine_env(session.prefix) if headless_launch else wine_env()
+        env["TONY_SESSION_ID"] = session.session_id
+        env["TONY_SESSION_DIR"] = str(session.path)
+        if pid_arg is not None:
+            target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
+            cwd = ROOT
+        else:
+            exe = nocd_executable()
+            target = [str(exe), *args.game_args]
+            cwd = exe.parent
+        proxy_command = ["winedbg", "--gdb", "--no-start", "--port", str(port), *target]
+        if headless_launch:
+            proxy_command = headless_wine_command(proxy_command)
+            display = HeadlessDisplay(cfg, env)
+            proxy = display.popen(proxy_command, cwd=cwd, env=env)
+        else:
+            if getattr(args, "screenshot", None) or getattr(args, "record", None):
+                raise SystemExit("visual capture requires an isolated debug launch; omit --pid")
+            proxy = subprocess.Popen(proxy_command, cwd=cwd, env=env, start_new_session=True)
+        session.update(status="proxy-started", proxy_pid=proxy.pid)
         _wait_port(port)
         if display is not None:
             configure_visual_capture(display, args)
+            session.update(
+                display=display.info.display if display.info else None,
+                xauthority=str(display.info.xauthority) if display.info else None,
+            )
         gdb_cmd = [
             "gdb", "-q", "-nx",
             "-ex", f"target remote localhost:{port}",
@@ -102,14 +115,35 @@ def debug_game(args) -> int:
         gdb_env = os.environ.copy()
         if display is not None:
             gdb_env.update(display.environment)
-        return subprocess.run(gdb_cmd, cwd=ROOT, env=gdb_env, check=False).returncode
+        gdb_process = subprocess.Popen(gdb_cmd, cwd=ROOT, env=gdb_env, start_new_session=True)
+        session.update(status="running", gdb_pid=gdb_process.pid)
+        exit_code = gdb_process.wait()
+        return exit_code
+    except BaseException as exc:
+        session.update(status="failed", error=f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         if display is not None:
             display.stop_recording()
-        proxy.terminate()
-        try:
-            proxy.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proxy.kill()
+        if gdb_process is not None and gdb_process.poll() is None:
+            terminate_process(gdb_process)
+        if display is not None and proxy is not None:
+            terminate_process(proxy)
+            if env is not None:
+                subprocess.run(
+                    ["wineserver", "-k"],
+                    cwd=ROOT,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+        elif proxy is not None:
+            proxy.terminate()
+            try:
+                proxy.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proxy.kill()
         if display is not None:
             display.close()
+        session.update(status="stopped", exit_code=exit_code, stopped_at=_timestamp())

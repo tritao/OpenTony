@@ -30,6 +30,11 @@ from .media import (
 )
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
+from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
+    sessions_clean,
+    sessions_list,
+    sessions_stop,
+)
 from .wine import (  # noqa: F401 - public command compatibility
     _recorded_exe,
     run_game,

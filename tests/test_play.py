@@ -42,7 +42,7 @@ def test_run_uses_generated_nocd_executable(monkeypatch, tmp_path: Path):
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"]))
 
     assert result == 7
-    assert calls[0][0] == ["wine", "explorer", "/desktop=OpenTony,1024x768", str(executable), "--fullscreen"]
+    assert calls[0][0] == ["wine", "explorer", "/desktop=OpenTony,640x480", str(executable), "--fullscreen"]
     assert calls[0][1]["cwd"] == tmp_path
 
 
@@ -83,7 +83,7 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
         "headless-wrapper",
         "wine",
         "explorer",
-        "/desktop=OpenTony,1024x768",
+        "/desktop=OpenTony,640x480",
         str(executable),
         "--fullscreen",
     ]

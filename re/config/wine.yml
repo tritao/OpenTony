@@ -6,6 +6,9 @@ wine:
   headless_disc: "build/disc/files"
   minimum_major: 11
   debug_port: 31337
+  debug_port_range: [31337, 31399]
+  sessions_dir: "build/debug/sessions"
+  session_prefix_dir: ".tools/debug-sessions"
   debug_quiet: true
   debug_xvfb: true
   xvfb:
@@ -14,10 +17,9 @@ wine:
       - "+extension"
       - GLX
     environment:
-      LIBGL_ALWAYS_SOFTWARE: "1"
       MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
   virtual_desktop:
     enabled: true
     name: OpenTony
-    width: 1024
-    height: 768
+    width: 640
+    height: 480

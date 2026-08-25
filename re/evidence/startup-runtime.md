@@ -18,14 +18,15 @@ Using the WineDbg GDB proxy and `tony debug`:
 - Continuing from the CD-check helper produced the expected runtime paths (`CDPATH`, `PKRPATH`, `MUSPATH`, `MOVPATH`) and DirectDraw initialization messages.
 - The normal Wine virtual-desktop run reached `PCMOVIE_PlayGameFMV`, attempted `\\NSLOGO.STR;1`, and reported a 640x480 movie with 266 frames before the debugger session was stopped.
 - An isolated Xvfb launch using the old 24-bit screen stopped in DirectDraw with `DDERR_UNSUPPORTED`.
-- An isolated `1024x768x16` Xvfb launch with Mesa llvmpipe reached the game's 16-bit video-mode enumeration and Direct3D initialization; `tony debug` then hit both `0x00502f74` and `0x004bb240` headlessly.
+- Forcing `LIBGL_ALWAYS_SOFTWARE=1` caused `DirectDrawCreateEx` to hang. Leaving that override unset, selecting Wine's `gl` renderer, and matching both Xvfb and Wine's virtual desktop to `640x480x16` allowed `DirectDrawCreateEx` and `SetDisplayMode(640, 480, 16)` to return success.
+- With that profile, the game reported `DirectX and Direct3D Are Up` headlessly. Returning immediately from the blocking movie routine at `0x004e5ec0` skipped `ATVILOGO.STR`, `NSLOGO.STR`, and `INTRO.STR`.
+- Execution then stopped at `0x00452ff0`, the statically identified frontend state machine, with return address `0x00503054`. This is the first dynamically observed stable post-startup anchor.
 
 ## Interpretation
 
-These observations establish a reproducible startup-to-CD-check anchor for this exact executable build. They do not yet identify the main loop, frame boundary, or player state.
+These observations establish a reproducible startup-to-frontend path for this exact executable build. The GDB bootstrap command `tony-skip-movies` installs the recorded `0x004e5ec0` bypass; `tony-bp-thps2 frontend temporary` captures the resulting frontend entry. They do not yet dynamically confirm the level loop, frame boundary, or player state.
 
 ## Open questions / next experiment
 
-- Follow `0x00503054` in Ghidra to separate startup, movie playback, and game-loop initialization.
-- Determine how to advance or bypass the intro movie reproducibly, then attach after startup and capture a stable idle frame.
-- The headless debugger now uses the 16-bit llvmpipe profile from `re/config/wine.yml`. The remaining runtime question is how to advance or bypass the intro movie and capture a stable idle frame.
+- Automate frontend input far enough to select Warehouse and capture `0x0046a3a0` at runtime.
+- Determine whether repeated `0x0046a3a0` hits correspond to rendered gameplay frames and locate stable player-state roots.

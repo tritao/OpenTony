@@ -32,6 +32,7 @@ THPS2_ADDRESSES = {
     "physics_dispatch": (0x0049DB80, "skater physics state dispatcher", "re/evidence/functions/physics.md"),
     "physics_in_air": (0x00497F40, "candidate in-air physics routine", "re/evidence/functions/physics.md"),
     "input_load": (0x004E4D10, "PC input binding loader", "re/evidence/functions/input.md"),
+    "movie_play": (0x004E5EC0, "blocking startup movie playback", "re/evidence/startup-runtime.md"),
 }
 
 
@@ -241,6 +242,43 @@ class TonyTHPS2Breakpoint(gdb.Command):
         _set_breakpoint(address, len(values) == 2)
 
 
+class TonySkipMovieBreakpoint(gdb.Breakpoint):
+    """Return immediately from the blocking startup-movie routine."""
+
+    def __init__(self):
+        address = THPS2_ADDRESSES["movie_play"][0]
+        super().__init__(f"*0x{address:x}", gdb.BP_BREAKPOINT, internal=True)
+
+    def stop(self):
+        esp = int(gdb.parse_and_eval("$esp"))
+        return_address = struct.unpack("<I", _read(esp, 4))[0]
+        gdb.execute(f"set $eip = 0x{return_address:x}")
+        gdb.execute(f"set $esp = 0x{esp + 4:x}")
+        _write(f"skipped movie playback; returning to 0x{return_address:08x}")
+        return False
+
+
+_movie_skip_breakpoint = None
+
+
+class TonySkipMovies(gdb.Command):
+    """tony-skip-movies -- bypass blocking logo and intro movie playback."""
+
+    def __init__(self):
+        super().__init__("tony-skip-movies", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        global _movie_skip_breakpoint
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-skip-movies")
+        if _movie_skip_breakpoint is not None and _movie_skip_breakpoint.is_valid():
+            _write("startup movie bypass is already enabled")
+            return
+        _movie_skip_breakpoint = TonySkipMovieBreakpoint()
+        address = THPS2_ADDRESSES["movie_play"][0]
+        _write(f"startup movie bypass enabled at 0x{address:08x}")
+
+
 TonyReadInteger("tony-read8", 1, "<B", "uint8")
 TonyReadInteger("tony-read16", 2, "<H", "uint16")
 TonyReadInteger("tony-read32", 4, "<I", "uint32")
@@ -251,4 +289,5 @@ TonyModules()
 TonyBreakpointCommand()
 TonyAddresses()
 TonyTHPS2Breakpoint()
-_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2")
+TonySkipMovies()
+_write("OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, tony-hexdump, tony-dump, tony-modules, tony-bp, tony-thps2, tony-bp-thps2, tony-skip-movies")

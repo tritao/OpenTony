@@ -46,6 +46,22 @@ def test_debug_pid_auto_parse():
     assert callable(args.func)
 
 
+def test_debug_session_parse():
+    args = build_parser().parse_args(["debug", "--session", "warehouse", "--port", "31340"])
+    assert args.session == "warehouse"
+    assert args.port == 31340
+    assert callable(args.func)
+
+
+def test_sessions_commands_parse():
+    for command in ("list", "stop", "clean"):
+        argv = ["sessions", command]
+        if command != "list":
+            argv.append("warehouse")
+        args = build_parser().parse_args(argv)
+        assert callable(args.func)
+
+
 def test_run_and_play_headless_parse():
     for command in ("run", "play"):
         args = parse_args([command, "--headless", "--fullscreen"])

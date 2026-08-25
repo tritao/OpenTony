@@ -74,7 +74,7 @@ def wine_env(prefix: str | Path | None = None) -> dict[str, str]:
     return env
 
 
-def headless_wine_env() -> dict[str, str]:
+def headless_wine_env(prefix: str | Path | None = None) -> dict[str, str]:
     """Return an isolated Wine environment for Xvfb launches.
 
     Wine's server keeps display state per prefix. Reusing the visible prefix
@@ -82,7 +82,7 @@ def headless_wine_env() -> dict[str, str]:
     """
 
     config = load_yaml("re/config/wine.yml")["wine"]
-    prefix = resolve(config.get("headless_prefix", ".tools/wineprefix-headless"))
+    prefix = resolve(prefix if prefix is not None else config.get("headless_prefix", ".tools/wineprefix-headless"))
     disc = resolve(config.get("headless_disc", "build/disc/files"))
     if not disc.is_dir():
         raise SystemExit(f"headless Wine disc tree not found: {disc}")
@@ -104,6 +104,7 @@ def headless_wine_command(command: Sequence[str | Path]) -> list[str | Path]:
         (
             'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
             'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -u && '
+            'wine reg add "HKCU\\Software\\Wine\\Direct3D" /v renderer /d gl /f >/dev/null 2>&1 && '
             'mkdir -p "$WINEPREFIX/dosdevices" && '
             'if [ -L "$WINEPREFIX/dosdevices/d:" ] && '
             '[ "$(readlink -f "$WINEPREFIX/dosdevices/d:")" != "$(readlink -f "$TONY_HEADLESS_DISC")" ]; then '

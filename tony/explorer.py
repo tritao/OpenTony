@@ -23,9 +23,12 @@ _INDEX_HTML = r"""<!doctype html>
 :root { color-scheme: dark; --bg:#101217; --panel:#171a21; --panel2:#20242d; --line:#303642; --text:#e7eaf0; --muted:#9da6b5; --accent:#77d4c5; --warn:#efbd70; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
-header { height:58px; display:flex; align-items:center; gap:16px; padding:0 22px; border-bottom:1px solid var(--line); background:#13161c; }
+header { min-height:58px; display:flex; align-items:center; gap:16px; padding:10px 22px; border-bottom:1px solid var(--line); background:#13161c; }
 header h1 { margin:0; font:600 18px/1 system-ui,sans-serif; letter-spacing:.02em; }
-header span { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+header h1 a { color:var(--text); text-decoration:none; }
+header span { flex:1 1 220px; min-width:0; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-link { flex:0 0 auto; color:var(--accent); text-decoration:none; }
+.nav-toggle { display:none; flex:0 0 auto; }
 main { display:grid; grid-template-columns:280px minmax(0,1fr) 330px; height:calc(100vh - 58px); }
 aside, section { min-width:0; overflow:auto; }
 aside { padding:18px 14px; border-right:1px solid var(--line); background:var(--panel); }
@@ -48,25 +51,41 @@ button:hover, .link-button:hover { border-color:var(--accent); color:var(--accen
 .texture div { padding:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
 .model-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
 .model-list button { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.filter-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:14px 0; }
+.filter-row input { flex:1 1 260px; min-width:180px; }
+input, select { border:1px solid var(--line); border-radius:6px; padding:8px 10px; background:var(--panel2); color:var(--text); font:inherit; }
+input:focus, select:focus, button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 canvas { display:block; width:100%; height:420px; border:1px solid var(--line); border-radius:8px; background:radial-gradient(circle at 50% 40%,#252b35,#0d0f13 75%); }
 #blockmap-canvas { height:220px; margin-top:12px; }
 pre { max-height:520px; overflow:auto; padding:12px; border:1px solid var(--line); border-radius:8px; background:#0c0e12; color:#c7d0db; white-space:pre-wrap; word-break:break-word; }
 .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
 a { color:var(--accent); } .pill { display:inline-block; padding:2px 7px; border-radius:999px; background:var(--panel2); color:var(--muted); font-size:12px; }
 @media (max-width:1000px) { main { grid-template-columns:220px minmax(0,1fr); } #details { display:none; } }
-@media (max-width:700px) { main { display:block; height:auto; } aside, section { border:0; } aside { max-height:none; } canvas { height:300px; } }
+@media (max-width:700px) {
+  header { align-items:flex-start; flex-wrap:wrap; gap:8px 12px; padding:12px 14px; }
+  header h1 { flex:1 1 190px; line-height:1.2; }
+  header span { order:3; flex-basis:100%; white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
+  .library-link { margin-left:auto; }
+  .nav-toggle { display:block; order:2; }
+  main { display:block; height:auto; }
+  #nav { display:none; border:0; }
+  main.nav-open #nav { display:block; }
+  aside, section { border:0; }
+  #nav { max-height:none; }
+  canvas { height:300px; }
+}
 </style>
 </head>
 <body>
-<header><h1>OpenTony Asset Explorer</h1><span id="source">Loading manifest…</span></header>
-<main>
+<header><h1><a href="/">OpenTony Asset Explorer</a></h1><span id="source">Loading manifest…</span><a class="library-link" href="/">Asset Library</a><button class="nav-toggle" type="button" onclick="toggleNav()" aria-expanded="false">Menu</button></header>
+<main id="layout">
 <aside id="nav"></aside>
 <section id="content"><p class="muted">Loading…</p></section>
 <aside id="details"><h3>Selection</h3><p class="muted">Choose a scene, model, texture, or blockmap from the left.</p></aside>
 </main>
 <script>
 const PACKAGE_PATH = null;
-const state = { manifest:null, object:null, animation:0, frame:null };
+const state = { manifest:null, object:null, animation:0, paused:false, frame:null };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const packageQuery = () => PACKAGE_PATH ? `&package=${encodeURIComponent(PACKAGE_PATH)}` : '';
@@ -74,6 +93,12 @@ const fileUrl = path => '/files/' + path.split('/').map(encodeURIComponent).join
 const apiUrl = path => '/api/obj?path=' + encodeURIComponent(path) + packageQuery();
 function card(label, value) { return `<div class="card"><strong>${esc(value)}</strong><small>${esc(label)}</small></div>`; }
 function navButton(label, action) { return `<button class="nav-button" onclick="${action}">${esc(label)}</button>`; }
+function toggleNav() {
+  const layout = $('layout'), button = document.querySelector('.nav-toggle');
+  const open = layout.classList.toggle('nav-open');
+  button.setAttribute('aria-expanded', String(open));
+  button.textContent = open ? 'Close' : 'Menu';
+}
 
 async function init() {
   state.manifest = await fetch('/api/manifest' + (PACKAGE_PATH ? `?package=${encodeURIComponent(PACKAGE_PATH)}` : '')).then(r => r.json());
@@ -116,8 +141,22 @@ function showOverview() {
 
 function showModels() {
   const models = state.manifest.models || [];
-  $('content').innerHTML = `<h2>Models</h2><p class="muted">Select a model for a rotating wireframe preview.</p>
-    <div class="model-list">${models.map(model => `<button onclick="showObj('${model.path}', 'Model ${model.index}')">model_${String(model.index).padStart(4,'0')} · ${model.face_count} faces · ${model.name == null ? 'unnamed' : '0x' + Number(model.name).toString(16).padStart(8,'0')}</button>`).join('')}</div>`;
+  $('content').innerHTML = `<h2>Models</h2><p class="muted">Select a model for a rotating preview. Search by index, name, or face count.</p>
+    <div class="filter-row"><input id="model-filter" type="search" placeholder="Filter models…" aria-label="Filter models"><span id="model-count" class="pill"></span></div>
+    <div id="model-list" class="model-list"></div>`;
+  const filter = $('model-filter');
+  filter.addEventListener('input', () => renderModels(models, filter.value));
+  renderModels(models, '');
+}
+
+function renderModels(models, query) {
+  const needle = query.trim().toLowerCase();
+  const filtered = models.filter(model => {
+    const label = `model_${String(model.index).padStart(4,'0')} ${model.face_count} ${model.name == null ? 'unnamed' : Number(model.name).toString(16)}`;
+    return !needle || label.toLowerCase().includes(needle);
+  });
+  $('model-count').textContent = `${filtered.length} of ${models.length}`;
+  $('model-list').innerHTML = filtered.length ? filtered.map(model => `<button onclick="showObj('${model.path}', 'Model ${model.index}')">model_${String(model.index).padStart(4,'0')} · ${model.face_count} faces · ${model.name == null ? 'unnamed' : '0x' + Number(model.name).toString(16).padStart(8,'0')}</button>`).join('') : '<p class="empty">No models match this filter.</p>';
 }
 
 function showTextures() {
@@ -132,7 +171,7 @@ async function showObj(path, title) {
   $('content').innerHTML = `<h2>${esc(title)}</h2><p class="muted">Parsing ${esc(path)}…</p>`;
   const data = await fetch(apiUrl(path)).then(r => r.json());
   state.object = data;
-  $('content').innerHTML = `<div class="toolbar"><h2>${esc(title)}</h2><a href="${fileUrl(path)}" target="_blank">open raw OBJ</a></div>
+  $('content').innerHTML = `<div class="toolbar"><h2>${esc(title)}</h2><button type="button" onclick="toggleRotation()" id="rotate-toggle">Pause rotation</button><button type="button" onclick="resetObjectView()">Reset view</button><a href="${fileUrl(path)}" target="_blank">open raw OBJ</a></div>
     <canvas id="preview" width="1000" height="600"></canvas>
     <div class="cards">${card('vertices', data.vertex_count)}${card('faces', data.face_count)}${card('materials', data.materials.length)}${card('objects', data.objects.length)}</div>`;
   $('details').innerHTML = `<h3>OBJ metadata</h3><pre>${esc(JSON.stringify({path, bounds:data.bounds, vertex_count:data.vertex_count, face_count:data.face_count, materials:data.materials, objects:data.objects}, null, 2))}</pre>`;
@@ -148,7 +187,8 @@ function drawObject() {
   const ctx = canvas.getContext('2d'), data = state.object;
   const bounds = data.bounds, center = [(bounds[0]+bounds[3])/2,(bounds[1]+bounds[4])/2,(bounds[2]+bounds[5])/2];
   const span = Math.max(bounds[3]-bounds[0], bounds[4]-bounds[1], bounds[5]-bounds[2], 1);
-  const angle = state.animation++ / 160;
+  const angle = state.animation / 160;
+  if (!state.paused) state.animation++;
   const projected = data.vertices.map(v => {
     const x=v[0]-center[0], y=v[1]-center[1], z=v[2]-center[2];
     const rx=x*Math.cos(angle)-z*Math.sin(angle), rz=x*Math.sin(angle)+z*Math.cos(angle);
@@ -162,6 +202,16 @@ function drawObject() {
     ctx.fillStyle=colorFor(face.material); ctx.globalAlpha=.36; ctx.fill(); ctx.globalAlpha=.85; ctx.strokeStyle=colorFor(face.material); ctx.stroke();
   }
   state.frame = requestAnimationFrame(drawObject);
+}
+
+function toggleRotation() {
+  state.paused = !state.paused;
+  const button = $('rotate-toggle');
+  if (button) button.textContent = state.paused ? 'Resume rotation' : 'Pause rotation';
+}
+
+function resetObjectView() {
+  state.animation = 0;
 }
 
 async function showBlockmap() {
@@ -186,26 +236,78 @@ _DASHBOARD_HTML = r"""<!doctype html>
 <style>
 :root { color-scheme:dark; --bg:#101217; --panel:#171a21; --panel2:#20242d; --line:#303642; --text:#e7eaf0; --muted:#9da6b5; --accent:#77d4c5; }
 * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
-header { padding:24px max(22px,calc((100vw - 1200px)/2)); border-bottom:1px solid var(--line); background:#13161c; }
+header { border-bottom:1px solid var(--line); background:#13161c; }
+.header-inner, main { max-width:1200px; margin:0 auto; }
+.header-inner { padding:24px 22px; }
 h1 { margin:0; font-size:24px; } header p { margin:6px 0 0; color:var(--muted); }
-main { max-width:1200px; margin:0 auto; padding:24px 22px; } .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:14px; }
-.package { display:block; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); text-decoration:none; }
-.package:hover { border-color:var(--accent); transform:translateY(-1px); } .package h2 { margin:0 0 6px; font-size:17px; }
+main { padding:24px 22px; }
+.library-toolbar { padding:16px; margin-bottom:18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+.toolbar-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.toolbar-heading h2 { margin:0; font-size:18px; }
+.toolbar-heading p { margin:4px 0 0; color:var(--muted); }
+.filter-row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-top:16px; }
+.filter-row label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:12px; }
+.filter-row .search-field { flex:1 1 300px; }
+input, select { border:1px solid var(--line); border-radius:6px; padding:9px 10px; background:var(--panel2); color:var(--text); font:inherit; }
+input:focus, select:focus, button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.check { flex-direction:row !important; align-items:center; padding:9px 0; }
+button { border:1px solid var(--line); border-radius:6px; padding:9px 10px; background:var(--panel2); color:var(--text); cursor:pointer; font:inherit; }
+button:hover { border-color:var(--accent); color:var(--accent); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:14px; }
+.package { display:block; min-width:0; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); text-decoration:none; transition:border-color .15s, transform .15s; }
+.package:hover { border-color:var(--accent); transform:translateY(-1px); }
+.package.empty-package { opacity:.72; }
+.package-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.package h2 { min-width:0; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:17px; }
 .package p { margin:4px 0 14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.stats { display:flex; gap:12px; flex-wrap:wrap; color:var(--accent); } .stats span { color:var(--muted); }
+.stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 12px; color:var(--muted); }
+.stats span strong { color:var(--accent); font-weight:600; }
+.empty-label { color:var(--muted); font-size:13px; }
+.pill { display:inline-block; flex:0 0 auto; padding:3px 8px; border-radius:999px; background:var(--panel2); color:var(--muted); font-size:12px; }
 .empty { padding:24px; border:1px dashed var(--line); border-radius:10px; color:var(--muted); }
 code { color:var(--accent); }
+@media (max-width:700px) { .header-inner, main { padding-left:14px; padding-right:14px; } .toolbar-heading { display:block; } .toolbar-heading button { margin-top:12px; } .grid { grid-template-columns:1fr; } }
 </style>
 </head>
-<body><header><h1>OpenTony Asset Library</h1><p>Generated asset packages under <code id="root">build/assets</code></p></header>
-<main><div id="packages" class="grid"><p class="empty">Scanning manifests…</p></div></main>
+<body><header><div class="header-inner"><h1>OpenTony Asset Library</h1><p>Generated asset packages under <code id="root">build/assets</code></p></div></header>
+<main>
+  <section class="library-toolbar" aria-label="Asset library filters">
+    <div class="toolbar-heading"><div><h2>Packages</h2><p id="summary">Scanning manifests…</p></div><button id="show-empty" type="button">Show empty packages</button></div>
+    <div class="filter-row">
+      <label class="search-field">Search packages<input id="search" type="search" placeholder="Name or source path…"></label>
+      <label>Sort by<select id="sort"><option value="assets">Most assets</option><option value="name">Name</option><option value="source">Source path</option></select></label>
+    </div>
+  </section>
+  <div id="packages" class="grid"><p class="empty">Scanning manifests…</p></div>
+</main>
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-fetch('/api/catalog').then(response => response.json()).then(items => {
+const state = { items:[], showEmpty:false, query:'', sort:'assets' };
+const assetTotal = item => item.models + item.objects + item.textures + item.collision_faces;
+function card(item) {
+  const label = item.has_assets ? 'generated package' : 'empty manifest';
+  const stats = item.has_assets
+    ? `<div class="stats"><span><strong>${item.models}</strong> models</span><span><strong>${item.objects}</strong> objects</span><span><strong>${item.textures}</strong> textures</span><span><strong>${item.collision_faces}</strong> collision faces</span></div>`
+    : '<div class="empty-label">No exported assets · likely an internal/source manifest</div>';
+  return `<a class="package${item.has_assets ? '' : ' empty-package'}" href="/package?path=${encodeURIComponent(item.path)}"><div class="package-top"><h2>${esc(item.name)}</h2><span class="pill">${label}</span></div><p title="${esc(item.source || item.path)}">${esc(item.source || item.path)}</p>${stats}</a>`;
+}
+function render() {
   const target = document.getElementById('packages');
-  if (!items.length) { target.innerHTML = '<div class="empty">No generated asset packages found. Run <code>tony assets extract-psx …</code> first.</div>'; return; }
-  target.innerHTML = items.map(item => `<a class="package" href="/package?path=${encodeURIComponent(item.path)}"><h2>${esc(item.name)}</h2><p>${esc(item.source || item.path)}</p><div class="stats"><span>${item.models} models</span><span>${item.objects} objects</span><span>${item.textures} textures</span><span>${item.collision_faces} collision faces</span></div></a>`).join('');
-}).catch(error => { document.getElementById('packages').innerHTML = `<div class="empty">Explorer error: ${esc(error)}</div>`; });
+  const query = state.query.toLowerCase();
+  const usable = state.items.some(item => item.has_assets);
+  let items = state.items.filter(item => (state.showEmpty || !usable || item.has_assets));
+  items = items.filter(item => `${item.name} ${item.source || ''}`.toLowerCase().includes(query));
+  items.sort((a, b) => state.sort === 'name' ? a.name.localeCompare(b.name) : state.sort === 'source' ? (a.source || a.path).localeCompare(b.source || b.path) : assetTotal(b) - assetTotal(a) || a.name.localeCompare(b.name));
+  const emptyCount = state.items.filter(item => !item.has_assets).length;
+  document.getElementById('summary').textContent = `${items.length} shown · ${state.items.length} total${emptyCount && !state.showEmpty ? ` · ${emptyCount} empty hidden` : ''}`;
+  document.getElementById('show-empty').textContent = state.showEmpty ? 'Hide empty packages' : `Show empty packages${emptyCount ? ` (${emptyCount})` : ''}`;
+  if (!items.length) { target.innerHTML = '<div class="empty">No packages match this filter.</div>'; return; }
+  target.innerHTML = items.map(card).join('');
+}
+document.getElementById('search').addEventListener('input', event => { state.query = event.target.value.trim(); render(); });
+document.getElementById('sort').addEventListener('change', event => { state.sort = event.target.value; render(); });
+document.getElementById('show-empty').addEventListener('click', event => { state.showEmpty = !state.showEmpty; render(); });
+fetch('/api/catalog').then(response => response.json()).then(items => { state.items = items; render(); }).catch(error => { document.getElementById('packages').innerHTML = `<div class="empty">Explorer error: ${esc(error)}</div>`; });
 </script>
 </body></html>"""
 
