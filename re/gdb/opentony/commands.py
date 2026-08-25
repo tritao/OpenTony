@@ -619,7 +619,7 @@ class TonyWatch(gdb.Command):
 
 
 class TonyWatchOnce(gdb.Command):
-    """tony-watch-once ADDRESS [SIZE] -- stop at the next write."""
+    """tony-watch-once ADDRESS [SIZE] -- record the next write and continue."""
 
     def __init__(self):
         super().__init__("tony-watch-once", gdb.COMMAND_BREAKPOINTS)
@@ -673,8 +673,23 @@ class TonyWatchLog(gdb.Command):
             mode = "one-shot" if watchpoint.once else f"limit {watchpoint.limit}"
             _write(
                 f"  {number}: {watchpoint.label} @ 0x{watchpoint.address:08x}"
-                f" ({watchpoint.size} bytes; {mode})"
+                f" ({watchpoint.size} bytes; {mode}{'; latched' if watchpoint.latched else ''})"
             )
+
+
+class TonyWatchClear(gdb.Command):
+    """tony-watch-clear -- disable all managed hardware watchpoints while stopped."""
+
+    def __init__(self):
+        super().__init__("tony-watch-clear", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-watch-clear")
+        active = watchpoints.active()
+        for watchpoint in active:
+            watchpoint.enabled = False
+        _write(f"disabled {len(active)} OpenTony hardware watchpoint(s)")
 
 
 _runtime_breakpoints = []
@@ -799,6 +814,7 @@ def register_commands() -> None:
     TonyWatchOnce()
     TonyWatchBatch()
     TonyWatchLog()
+    TonyWatchClear()
     TonyTraceOpen()
     TonyTraceClose()
     TonyFrameClock()
@@ -809,6 +825,6 @@ def register_commands() -> None:
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
-        "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, "
+        "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe"
     )

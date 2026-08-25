@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from tony.audio import AudioCleanup
 from tony import sessions
+from tony.audio import AudioCleanup
 
 
 def _use_temp_registry(monkeypatch, tmp_path: Path):

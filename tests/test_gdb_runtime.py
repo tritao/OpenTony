@@ -230,7 +230,7 @@ def test_watchpoint_records_raw_and_all_heuristic_old_new_values():
     assert record["address"] == "0x00000350"
 
 
-def test_watchpoint_once_stops_after_recording_writer(monkeypatch):
+def test_watchpoint_once_latches_after_recording_without_disabling(monkeypatch):
     inferior = FakeInferior()
     memory = Memory(inferior)
     watchpoint = TonyWatchpoint(0x350, memory=memory, once=True)
@@ -238,12 +238,16 @@ def test_watchpoint_once_stops_after_recording_writer(monkeypatch):
     context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x305}), memory)
     monkeypatch.setattr("opentony.watchpoint.Context.capture", lambda _memory: context)
 
-    assert watchpoint.stop() is True
-    assert watchpoint.enabled is False
+    assert watchpoint.stop() is False
+    assert watchpoint.enabled is True
     assert watchpoint.events == 1
+    inferior.data[0x350:0x354] = struct.pack("<I", 2)
+    assert watchpoint.stop() is False
+    assert watchpoint.events == 1
+    assert watchpoint.latched is True
 
 
-def test_watchpoint_limit_stops_without_unbounded_auto_continue(monkeypatch):
+def test_watchpoint_limit_latches_without_unbounded_logging(monkeypatch):
     inferior = FakeInferior()
     memory = Memory(inferior)
     watchpoint = TonyWatchpoint(0x350, memory=memory, limit=2)
@@ -252,8 +256,12 @@ def test_watchpoint_limit_stops_without_unbounded_auto_continue(monkeypatch):
 
     for value in (1, 2):
         inferior.data[0x350:0x354] = struct.pack("<I", value)
-        assert watchpoint.stop() is (value == 2)
-    assert watchpoint.enabled is False
+        assert watchpoint.stop() is False
+    assert watchpoint.enabled is True
+    assert watchpoint.events == 2
+    assert watchpoint.latched is True
+    inferior.data[0x350:0x354] = struct.pack("<I", 3)
+    assert watchpoint.stop() is False
     assert watchpoint.events == 2
 
 

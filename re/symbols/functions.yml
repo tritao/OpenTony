@@ -152,11 +152,23 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x00496060
+    name: Skater_PositionWritePath
+    description: candidate skater position/collision commit path
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     gdb_aliases:
       - physics_in_air
     description: candidate in-air physics routine
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x004ca9f0
+    name: Math_Vector3Add
+    description: three-component fixed-point vector addition helper
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md

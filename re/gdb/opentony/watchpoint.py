@@ -28,7 +28,7 @@ def _caller_address() -> int | None:
 
 
 class TonyWatchpoint(gdb.Breakpoint):
-    """Hardware write watchpoint with bounded auto-continue behavior."""
+    """Hardware write watchpoint with bounded logging and safe auto-continue."""
 
     def __init__(
         self,
@@ -51,6 +51,7 @@ class TonyWatchpoint(gdb.Breakpoint):
         self.once = once
         self.limit = limit
         self.events = 0
+        self.latched = False
         self.memory = memory or mem
         self.writer = writer
         self.previous = self.memory.bytes(address, size)
@@ -88,16 +89,21 @@ class TonyWatchpoint(gdb.Breakpoint):
         return record
 
     def stop(self):
+        # WineDbg's GDB proxy is unstable when a live hardware watchpoint is
+        # removed as part of handling its own trap.  Keep the debug register
+        # installed and simply stop recording once the requested bound is
+        # reached.  The explicit clear command can disable it while stopped.
+        if self.latched:
+            return False
         record = self.record(Context.capture(self.memory))
         if self.writer is None:
             gdb.write(json.dumps(record, sort_keys=True) + "\n")
         else:
             self.writer.event(record)
         self.events += 1
-        should_stop = self.once or (self.limit is not None and self.events >= self.limit)
-        if should_stop:
-            self.enabled = False
-        return should_stop
+        if self.once or (self.limit is not None and self.events >= self.limit):
+            self.latched = True
+        return False
 
 
 class WatchpointManager:
