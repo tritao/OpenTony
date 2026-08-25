@@ -34,6 +34,18 @@ class CallContext:
             raise gdb.GdbError("argument index must be non-negative")
         return self.memory.ptr(self.esp + 4 + (index * 4))
 
+    def callsite_arg(self, index: int) -> int:
+        """Read an argument at a breakpoint on the caller's ``call`` instruction.
+
+        At a callsite the caller has already pushed the arguments, but the
+        return address has not been pushed yet.  The first argument is thus at
+        ``ESP`` rather than ``ESP + 4``.
+        """
+
+        if index < 0:
+            raise gdb.GdbError("argument index must be non-negative")
+        return self.memory.ptr(self.esp + (index * 4))
+
     def return_address(self) -> int:
         return self.memory.ptr(self.esp)
 

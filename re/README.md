@@ -29,7 +29,9 @@ events, watchpoint events, and a frame-count footer as JSONL. `tony-watch ADDRES
 `tony-watch-once` to record one exact writer and continue. Run `tony-watch-clear`
 while stopped to release managed watchpoints. The repeatable movement handoff
 probe is `tony-position-commit [COUNT]`, which observes four stable callers of
-the shared position commit routine and records its three arguments plus player state. Continuous movement
+the shared position commit routine and records its three caller-side arguments plus player state. These
+breakpoints are on the call instructions, so their arguments are read from the pushed words at `ESP`;
+function-entry probes use the separate `CallContext.arg()` convention. Continuous movement
 observation should use `tony-physics-probe [COUNT]`, which uses a software
 breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records

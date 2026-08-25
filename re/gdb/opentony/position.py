@@ -29,7 +29,7 @@ def _fixed_vector_record(address: int, memory=None) -> dict:
 
 
 class PositionCommitBreakpoint(CountingBreakpoint):
-    """Log arguments and state before a call into the shared commit routine."""
+    """Log arguments and state at a caller-side callsite."""
 
     def __init__(self, address: int, label: str, count: int, writer=None):
         self.label = label
@@ -41,16 +41,19 @@ class PositionCommitBreakpoint(CountingBreakpoint):
         if not ctx.memory.valid(player):
             return False
         view = PlayerView(player, ctx.memory)
-        arguments = [ctx.arg(index) for index in range(3)]
+        # These breakpoints are placed on the five-byte CALL instructions,
+        # after the caller has pushed the three cdecl arguments.  They are not
+        # function-entry breakpoints, so the first argument is at ESP.
+        arguments = [ctx.callsite_arg(index) for index in range(3)]
         record = {
             "type": "position_commit",
             "frame": ctx.frame,
             "callsite": self.label,
             "eip": f"0x{ctx.eip:08x}",
             "function": function_name_at(ctx.eip),
-            "caller_return": f"0x{ctx.caller():08x}",
+            "caller_return": None,
             "player": f"0x{player:08x}",
-            "arguments": [_word_record(ctx.esp + 4 + index * 4, ctx.memory) for index in range(3)],
+            "arguments": [_word_record(ctx.esp + index * 4, ctx.memory) for index in range(3)],
             "argument_values": [f"0x{value:08x}" for value in arguments],
             "position_before": _fixed_vector_record(player + view.POSITION_OFFSET, ctx.memory),
             "position_history": _fixed_vector_record(player + view.POSITION_HISTORY_OFFSET, ctx.memory),

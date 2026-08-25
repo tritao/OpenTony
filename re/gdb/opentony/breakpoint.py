@@ -44,6 +44,9 @@ class Context:
     def arg(self, index: int) -> int:
         return self.call.arg(index)
 
+    def callsite_arg(self, index: int) -> int:
+        return self.call.callsite_arg(index)
+
     def this_ptr(self) -> int:
         return self.call.this_ptr()
 

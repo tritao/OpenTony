@@ -106,6 +106,17 @@ def test_entry_call_context_reads_stack_arguments_and_this_pointer():
     assert context.return_value() == 7
 
 
+def test_callsite_call_context_reads_pushed_arguments_without_skipping_first():
+    inferior = FakeInferior()
+    inferior.data[0x100:0x10C] = struct.pack("<3I", 11, 22, 33)
+    memory = Memory(inferior)
+    context = CallContext(memory, registers={"esp": 0x100, "ecx": 0x05F39530})
+
+    assert context.callsite_arg(0) == 11
+    assert context.callsite_arg(1) == 22
+    assert context.callsite_arg(2) == 33
+
+
 def test_counting_breakpoint_and_frame_clock_share_context_state():
     inferior = FakeInferior()
     memory = Memory(inferior)
@@ -134,7 +145,7 @@ def test_position_commit_probe_records_arguments_and_player_state():
     inferior = FakeInferior()
     memory = Memory(inferior)
     player = 0x500
-    inferior.data[0x100:0x110] = struct.pack("<4I", 0x2222, 11, 22, 33)
+    inferior.data[0x100:0x10C] = struct.pack("<3I", 11, 22, 33)
     inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
     inferior.data[player + 0xBC:player + 0xC8] = struct.pack("<3I", 201, 202, 203)
     inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
@@ -155,6 +166,8 @@ def test_position_commit_probe_records_arguments_and_player_state():
     assert events[0]["type"] == "position_commit"
     assert events[0]["player"] == "0x00000500"
     assert events[0]["argument_values"] == ["0x0000000b", "0x00000016", "0x00000021"]
+    assert events[0]["arguments"][0]["address"] == "0x00000100"
+    assert events[0]["caller_return"] is None
     assert events[0]["position_before"]["raw"] == [101, 102, 103]
     assert events[0]["position_before"]["fixed"] == [101 / 65536.0, 102 / 65536.0, 103 / 65536.0]
     assert events[0]["position_history"]["raw"] == [201, 202, 203]
