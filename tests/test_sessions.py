@@ -61,6 +61,19 @@ def test_clean_rejects_active_session(monkeypatch, tmp_path: Path):
         sessions.clean_session("warehouse")
 
 
+def test_dead_active_session_is_stale_and_cleanable(monkeypatch, tmp_path: Path, capsys):
+    _use_temp_registry(monkeypatch, tmp_path)
+    session = sessions.create_session("warehouse", None, isolated=True)
+    session.update(status="running", proxy_pid=99991, gdb_pid=99992)
+    monkeypatch.setattr(sessions, "_pid_alive", lambda pid: False)
+
+    assert session.active is False
+    sessions.sessions_list(None)
+    assert "stale" in capsys.readouterr().out
+    sessions.clean_session("warehouse")
+    assert not session.path.exists()
+
+
 def test_clean_preserves_session_when_audio_cleanup_fails(monkeypatch, tmp_path: Path):
     _use_temp_registry(monkeypatch, tmp_path)
     session = sessions.create_session("warehouse", None, isolated=True)

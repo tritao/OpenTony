@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import re
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -15,6 +17,25 @@ from .nocd import nocd_executable
 from .sessions import _timestamp, cleanup_session_audio, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
+
+
+def _set_parent_death_signal() -> None:
+    """Make a debugger child terminate when its ``tony debug`` parent dies."""
+
+    if os.name != "posix":
+        return
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+            return
+    except (AttributeError, OSError):
+        return
+
+
+def _debug_signal_handler(signum: int, _frame) -> None:
+    """Route termination signals through ``debug_game``'s cleanup block."""
+
+    raise SystemExit(128 + signum)
 
 
 def _recover_incomplete_trace(session, reason: str) -> bool:
@@ -124,6 +145,12 @@ def debug_game(args) -> int:
     gdb_process = None
     exit_code = None
     env = None
+    previous_signal_handlers = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    for signum in previous_signal_handlers:
+        signal.signal(signum, _debug_signal_handler)
     try:
         env = headless_wine_env(session.prefix) if headless_launch else wine_env()
         env["TONY_SESSION_ID"] = session.session_id
@@ -153,11 +180,22 @@ def debug_game(args) -> int:
         if headless_launch:
             proxy_command = headless_wine_command(proxy_command)
             display = HeadlessDisplay(cfg, env)
-            proxy = display.popen(proxy_command, cwd=cwd, env=env)
+            proxy = display.popen(
+                proxy_command,
+                cwd=cwd,
+                env=env,
+                preexec_fn=_set_parent_death_signal,
+            )
         else:
             if getattr(args, "screenshot", None) or getattr(args, "record", None):
                 raise SystemExit("visual capture requires an isolated debug launch; omit --pid")
-            proxy = subprocess.Popen(proxy_command, cwd=cwd, env=env, start_new_session=True)
+            proxy = subprocess.Popen(
+                proxy_command,
+                cwd=cwd,
+                env=env,
+                start_new_session=True,
+                preexec_fn=_set_parent_death_signal,  # noqa: PLW1509 - child must die with the debugger launcher
+            )
         session.update(status="proxy-started", proxy_pid=proxy.pid)
         _wait_port(port)
         if display is not None:
@@ -176,7 +214,13 @@ def debug_game(args) -> int:
         gdb_env["TONY_SESSION_DIR"] = str(session.path)
         if display is not None:
             gdb_env.update(display.environment)
-        gdb_process = subprocess.Popen(gdb_cmd, cwd=ROOT, env=gdb_env, start_new_session=True)
+        gdb_process = subprocess.Popen(
+            gdb_cmd,
+            cwd=ROOT,
+            env=gdb_env,
+            start_new_session=True,
+            preexec_fn=_set_parent_death_signal,  # noqa: PLW1509 - child must die with the debugger launcher
+        )
         session.update(status="running", gdb_pid=gdb_process.pid)
         exit_code = gdb_process.wait()
         return exit_code
@@ -219,3 +263,5 @@ def debug_game(args) -> int:
         if display is not None:
             display.close()
         session.update(status="stopped", exit_code=exit_code, stopped_at=_timestamp())
+        for signum, handler in previous_signal_handlers.items():
+            signal.signal(signum, handler)

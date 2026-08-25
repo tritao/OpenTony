@@ -35,6 +35,11 @@ breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records
 the four movement action-state records alongside the action mask.
 
+Debug sessions are isolated and owned by their launcher. `tony sessions list`
+marks records whose owned processes have disappeared as `stale`; they are safe
+to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`
+remains the normal command when a debugger is still running.
+
 The debugger exposes four hardware watchpoint slots. `tony-watch-batch`
 accepts up to four addresses and rejects an over-capacity group before it
 reaches WineDbg; split larger layout experiments into batches.

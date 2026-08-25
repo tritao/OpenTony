@@ -11,7 +11,7 @@ from .common import ROOT
 
 @dataclass(frozen=True)
 class AudioStart:
-    route: "MutedAudio | None"
+    route: MutedAudio | None
     error: str | None = None
 
 

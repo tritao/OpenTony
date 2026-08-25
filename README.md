@@ -134,6 +134,9 @@ tony run
 tony play
 tony run --headless --screenshot build/debug/frame.png
 tony debug --record build/debug/session.mp4
+tony sessions list
+tony sessions stop <session>
+tony sessions clean <session>
 
 tony ghidra rebuild
 tony ghidra export-functions

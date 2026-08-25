@@ -204,3 +204,9 @@ def test_recover_incomplete_trace_appends_explicit_footer(tmp_path):
         "type": "end",
     }
     assert not (session_dir / "trace.active").exists()
+
+
+def test_parent_death_signal_is_best_effort():
+    # The helper is used as a subprocess pre-exec hook; it must not make
+    # debugger startup fail on platforms without Linux prctl.
+    assert debug._set_parent_death_signal() is None

@@ -144,9 +144,18 @@ class DebugSession:
 
     @property
     def active(self) -> bool:
-        if self.data.get("status") in _ACTIVE_STATUSES:
+        # A newly-created session is owned by the invoking ``tony debug``
+        # process until it has published its child PIDs.  Once startup has
+        # progressed, only the session's own processes keep it active.  This
+        # makes interrupted/debugger-crashed sessions cleanable instead of
+        # leaving a permanently "running" metadata record behind.
+        if self.data.get("status") == "starting" and _pid_alive(int(self.data.get("owner_pid") or 0)):
             return True
-        return any(_pid_alive(int(self.data[key])) for key in ("proxy_pid", "gdb_pid") if self.data.get(key))
+        return any(
+            _session_pid_alive(int(self.data[key]), self.session_id)
+            for key in ("proxy_pid", "gdb_pid")
+            if self.data.get(key)
+        )
 
     def update(self, **values) -> None:
         self.data.update(values)
@@ -205,6 +214,7 @@ def create_session(session_id: str | None, requested_port: int | None, *, isolat
         "created_at": _timestamp(),
         "port": port,
         "prefix": str(prefix) if prefix else None,
+        "owner_pid": os.getpid(),
         "proxy_pid": None,
         "gdb_pid": None,
         "display": None,
@@ -251,11 +261,39 @@ def list_sessions() -> list[DebugSession]:
 
 
 def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    # A zombie still accepts signal 0, but it no longer owns a live session.
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        state = stat.rsplit(") ", 1)[1][0]
+    except (FileNotFoundError, OSError, IndexError):
+        state = None
+    return state != "Z"
+
+
+def _session_pid_alive(pid: int, session_id: str) -> bool:
+    """Return whether *pid* is alive and still belongs to this session.
+
+    Linux exposes the inherited ``TONY_SESSION_ID`` in /proc.  Checking it
+    prevents a stale PID that has since been reused by an unrelated process
+    from making a session appear active or being terminated by ``sessions
+    stop``.  If /proc is unavailable, the liveness check remains the safe
+    portable fallback.
+    """
+
+    if not _pid_alive(pid):
+        return False
+    try:
+        environment = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+    except OSError:
+        return True
+    marker = f"TONY_SESSION_ID={session_id}".encode()
+    return marker in environment
 
 
 def _terminate_pid(pid: int, timeout: float = 2.0) -> None:
@@ -289,7 +327,7 @@ def stop_session(session_id: str) -> DebugSession:
     session = load_session(session_id)
     for key in ("gdb_pid", "proxy_pid"):
         value = session.data.get(key)
-        if value:
+        if value and _session_pid_alive(int(value), session.session_id):
             _terminate_pid(int(value))
     cleanup_session_audio(session)
     session.update(status="stopped", stopped_at=_timestamp())
@@ -316,7 +354,10 @@ def sessions_list(_args) -> int:
         return 0
     print("ID                                           STATUS       PORT  PREFIX")
     for session in sessions:
-        status = "running" if session.active else session.data.get("status", "unknown")
+        recorded_status = session.data.get("status", "unknown")
+        status = "running" if session.active else recorded_status
+        if recorded_status in _ACTIVE_STATUSES and not session.active:
+            status = "stale"
         prefix = session.prefix or Path("-")
         print(f"{session.session_id:<44} {status:<12} {session.port:<5} {prefix}")
     return 0
