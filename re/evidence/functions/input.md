@@ -22,9 +22,8 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 
 ## Interpretation
 
-`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll, action-mask construction, and complete movement mapping are now identified. The next step is to correlate held versus edge-triggered bits with the skater state update and follow the movement consumer.
+`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll, action-mask construction, complete movement mapping, and movement-record edge behavior are now identified. The next step is to follow the player-state writer after the action-history copy.
 
 ## Open questions / falsifiers
 
 - Follow the movement consumer that reads these confirmed action-state transitions into acceleration and rotation state.
-- Confirm input transitions dynamically with one held key and one edge-triggered key.
