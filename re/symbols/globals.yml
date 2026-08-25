@@ -41,3 +41,11 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/input.md
+  - address: 0x0056aff8
+    name: InputActionStates
+    gdb_aliases:
+      - input_action_states
+    description: base of the 16-byte per-action input state records
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/input.md

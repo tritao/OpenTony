@@ -25,6 +25,14 @@ THPS2_LEVELS = {
     "warehouse": 12,
 }
 
+ACTION_STATE_BASE = GLOBALS["InputActionStates"]
+ACTION_STATE_RECORDS = {
+    "left": (ACTION_STATE_BASE + 0x80, 0x8000),
+    "right": (ACTION_STATE_BASE + 0x90, 0x2000),
+    "up": (ACTION_STATE_BASE + 0xA0, 0x1000),
+    "down": (ACTION_STATE_BASE + 0xB0, 0x4000),
+}
+
 _trace_writer = None
 
 
@@ -102,6 +110,19 @@ def _watch_address(value: str) -> tuple[int, str]:
             fields = ", ".join(sorted(_PLAYER_WATCH_FIELDS))
             raise gdb.GdbError(f"unknown PlayerView field {field!r}; choose one of: {fields}") from exc
     return _integer(value), value
+
+
+def _action_state(address: int) -> dict:
+    raw = mem.bytes(address, 0x10)
+    return {
+        "address": f"0x{address:08x}",
+        "raw": raw.hex(),
+        "byte0": raw[0],
+        "byte1": raw[1],
+        "u32_4": int.from_bytes(raw[4:8], "little"),
+        "u32_8": int.from_bytes(raw[8:12], "little"),
+        "u32_c": int.from_bytes(raw[12:16], "little"),
+    }
 
 
 class TonyReadInteger(gdb.Command):
@@ -468,6 +489,9 @@ class TonyInputSampleBreakpoint(CountingBreakpoint):
         action_word = mem.u16(GLOBALS["ActionMask"])
         action_words = mem.u32(GLOBALS["ActionMask"])
         keyboard_state = mem.bytes(GLOBALS["KeyboardState"], 0x100)
+        action_states = {
+            name: _action_state(address) for name, (address, _bit) in ACTION_STATE_RECORDS.items()
+        }
         record = {
             "sample": self.sample,
             "eip": ctx.eip,
@@ -477,6 +501,7 @@ class TonyInputSampleBreakpoint(CountingBreakpoint):
             "action_words": action_words,
             "held_keys": [code for code, value in enumerate(keyboard_state) if value & 0x80],
             "keyboard_state": keyboard_state.hex(),
+            "action_states": action_states,
         }
         try:
             with self.path.open("a", encoding="utf-8") as stream:

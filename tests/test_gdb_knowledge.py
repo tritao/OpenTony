@@ -12,6 +12,7 @@ def test_gdb_knowledge_covers_runtime_addresses():
     assert database["GLOBALS"]["CurrentLevel"] == 0x0056A898
     assert database["GLOBALS"]["KeyboardDevice"] == 0x006A43E0
     assert database["GLOBALS"]["KeyboardState"] == 0x006A43E4
+    assert database["GLOBALS"]["InputActionStates"] == 0x0056AFF8
     assert "RawKeyboardMask" not in database["GLOBALS"]
 
 

@@ -24,4 +24,6 @@ until runtime evidence establishes a true rendered-frame boundary.
 Object experiments use in-session snapshots: `tony-snapshot idle PLAYER 0x3200`,
 `tony-snapshot moving PLAYER 0x3200`, then `tony-diff idle moving`. Use
 `tony-trace-open FILE EXPERIMENT` before probes to capture a header, typed probe
-events, and a frame-count footer as JSONL.
+events, watchpoint events, and a frame-count footer as JSONL. `tony-watch
+ADDRESS [SIZE]` logs writes and auto-continues; the input sampler also records
+the four movement action-state records alongside the action mask.
