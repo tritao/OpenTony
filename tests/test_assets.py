@@ -5,17 +5,36 @@ from pathlib import Path
 import pytest
 
 from tony.assets import (
+    HedArchive,
+    HedFormatError,
     PkrArchive,
     PkrFormatError,
     PreArchive,
     TrgArchive,
+    _filename_crc32,
+    extract_hed,
     extract_pkr,
     extract_pre,
+    inspect_hed,
     inspect_pkr,
     inspect_pre,
     inspect_trg,
     inventory_assets,
 )
+
+
+def _write_hed_family(directory: Path, *, wad: bytes = b"abc") -> Path:
+    name = b"hello.bin"
+    het = bytearray(name + b"\0")
+    het.extend(b"\0" * ((-len(het)) & 3))
+    het.extend(struct.pack("<II", 0, len(wad)))
+    het.extend(b"\xff\xff\xff\xff")
+    (directory / "CD.HET").write_bytes(het)
+
+    hed = struct.pack("<III", _filename_crc32(name), 0, len(wad)) + b"\0\0\0\0"
+    (directory / "CD.HED").write_bytes(hed)
+    (directory / "CD.WAD").write_bytes(wad)
+    return directory / "CD.HED"
 
 
 def _write_pkr(path: Path, *, marker: int = 0xFFFFFFFE, size_again: int | None = None) -> None:
@@ -124,6 +143,42 @@ def test_read_trg_header_and_node_table(tmp_path: Path):
     assert result["node_count"] == 2
     assert result["unknown_node_types"] == []
     assert result["nodes"][1]["name"] == "terminator"
+
+
+def test_read_inspect_and_extract_hed_family(tmp_path: Path):
+    source = _write_hed_family(tmp_path)
+
+    archive = HedArchive.read(source)
+    assert archive.entries[0].name == "hello.bin"
+    assert archive.name_matches == 1
+    assert archive.wad_status == "data"
+    assert archive.out_of_bounds_count == 0
+
+    result = inspect_hed(source, include_entries=True)
+    assert result["format"] == "HED/WAD"
+    assert result["file_count"] == 1
+    assert result["name_matches"] == 1
+    assert result["entries"][0]["output_name"] == "hello.bin"
+
+    output = tmp_path / "hed-output"
+    manifest = extract_hed(source, output)
+    assert (output / "files/hello.bin").read_bytes() == b"abc"
+    assert json.loads((output / "manifest.json").read_text()) == manifest
+
+
+def test_extract_hed_rejects_zero_wad(tmp_path: Path):
+    source = _write_hed_family(tmp_path, wad=b"\0\0\0")
+
+    with pytest.raises(SystemExit, match="all-zero WAD"):
+        extract_hed(source, tmp_path / "hed-output")
+
+
+def test_invalid_hed_table_is_rejected(tmp_path: Path):
+    source = tmp_path / "CD.HED"
+    source.write_bytes(b"\0" * 5)
+
+    with pytest.raises(HedFormatError):
+        HedArchive.read(source)
 
 
 @pytest.mark.parametrize(

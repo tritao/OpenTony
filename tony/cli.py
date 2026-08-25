@@ -55,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path")
     p.add_argument("--nodes", action="store_true", help="include every node offset and type")
     p.set_defaults(func=commands.assets_inspect_trg)
+    p = assets_sub.add_parser("inspect-hed", help="inspect a CD.HED hash table and associated HET/WAD files")
+    p.add_argument("path")
+    p.add_argument("--names", help="HET filename table; defaults to the sibling .HET file")
+    p.add_argument("--wad", help="WAD payload file; defaults to the sibling .WAD file")
+    p.add_argument("--entries", action="store_true", help="include every hash/offset/size entry")
+    p.set_defaults(func=commands.assets_inspect_hed)
     p = assets_sub.add_parser("extract-pkr", help="extract a PKR2 asset archive into build/")
     p.add_argument("path")
     p.add_argument("--output", default="build/assets/pkr")
@@ -65,6 +71,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", default="build/assets/pre")
     p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
     p.set_defaults(func=commands.assets_extract_pre)
+    p = assets_sub.add_parser("extract-hed", help="extract a CD.HED/CD.WAD asset table into build/")
+    p.add_argument("path")
+    p.add_argument("--names", help="HET filename table; defaults to the sibling .HET file")
+    p.add_argument("--wad", help="WAD payload file; defaults to the sibling .WAD file")
+    p.add_argument("--output", default="build/assets/cd-wad")
+    p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
+    p.add_argument(
+        "--allow-zero-wad",
+        action="store_true",
+        help="allow extraction from an all-zero WAD for forensic inspection",
+    )
+    p.set_defaults(func=commands.assets_extract_hed)
 
     exe = sub.add_parser("exe", help="inspect installed PE executable")
     exe_sub = exe.add_subparsers(dest="exe_command", required=True)

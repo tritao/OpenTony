@@ -35,8 +35,12 @@ Observed in 32 files extracted from `ALL.PKR`.
 
 `tony assets inspect-trg` reports the node-type histogram; add `--nodes` for offsets and node sizes. `tony assets inventory` summarizes the extracted tree by extension. Full TRG command/script disassembly remains a separate step because node payloads have type-specific structures and known THPS1/THPS2 variants.
 
-## Next format: CD.HET/CD.HEP/CD.HED/CD.WAD
+## CD.HET/CD.HEP/CD.HED/CD.WAD
 
-The extracted PKR contains all four files under `data/`. Initial inspection differs from the simple named HED/WAD layout in the reference tool: `CD.HET` and `CD.HEP` contain fixed-width filename/size records, while `CD.HED` appears to contain 12-byte hash/offset/size records for `CD.WAD`. The name-to-hash correlation and exact table counts remain open. This is now the next concrete container target; no installed-game directory or runtime trace is required to begin.
+The extracted PKR contains all four files under `data/`. The PC variant uses two variable-length filename tables: each record is a NUL-terminated ASCII filename, 4-byte alignment padding, a little-endian `u32` offset, and a little-endian `u32` size. Both tables end with `0xffffffff`; `CD.HET` has 1,531 records and `CD.HEP` has 1,083.
+
+`CD.HED` contains 1,531 little-endian 12-byte records (`filename hash`, `offset`, `size`) followed by four zero bytes. The filename hash matches the non-reflected CRC routine used by [JayFoxRox/thps2-tools' HED/WAD extractor](https://github.com/JayFoxRox/thps2-tools/blob/master/extract-hed-wad.py), and every `CD.HET` name/hash/offset/size tuple correlates in the local extraction. The associated `CD.WAD` is 1,601,840 bytes but is entirely zero-filled; its size is also smaller than the maximum referenced HED end offset (1,609,880). It is therefore a metadata-complete but payload-incomplete extraction and must not be treated as a valid asset archive yet.
+
+`tony assets inspect-hed` records these correlations and bounds. `tony assets extract-hed` deliberately refuses the current WAD until a non-zero, in-bounds payload source is recovered; `--allow-zero-wad` is available only for explicit forensic extraction of synthetic/partial inputs.
 
 Record observations with build identity, addresses, and evidence confidence. Prefer links into `re/evidence/` for claims that should survive refactors.

@@ -19,6 +19,10 @@ _PKR_FILE_MARKER = 0xFFFFFFFE
 _PRE_HEADER = struct.Struct("<I")
 _TRG_HEADER = struct.Struct("<4sII")
 _TRG_MAGIC = b"_TRG"
+_HED_RECORD = struct.Struct("<III")
+_NAMED_TABLE_RECORD = struct.Struct("<II")
+_NAMED_TABLE_TERMINATOR = b"\xff\xff\xff\xff"
+_HED_TERMINATOR = b"\0\0\0\0"
 _TRG_NODE_NAMES = {
     1: "baddy",
     2: "crate",
@@ -41,6 +45,10 @@ _TRG_NODE_NAMES = {
 
 class PkrFormatError(ValueError):
     """The input does not satisfy the observed PKR2 archive layout."""
+
+
+class HedFormatError(ValueError):
+    """The input does not satisfy the observed HET/HED/WAD layout."""
 
 
 @dataclass(frozen=True)
@@ -82,6 +90,25 @@ class TrgNode:
         return _TRG_NODE_NAMES.get(self.node_type, "unknown")
 
 
+@dataclass(frozen=True)
+class HedEntry:
+    name_hash: int
+    offset: int
+    size: int
+    name: str | None
+
+    @property
+    def output_name(self) -> str:
+        return self.name or f"hash_{self.name_hash:08x}.bin"
+
+
+@dataclass(frozen=True)
+class NamedTableEntry:
+    name: str
+    offset: int
+    size: int
+
+
 def _decode_name(raw: bytes, label: str) -> str:
     value = raw.split(b"\0", 1)[0]
     if not value:
@@ -108,6 +135,20 @@ def _safe_archive_path(directory: str, name: str) -> tuple[str, ...]:
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         raise PkrFormatError(f"unsafe archive path: {archive_path!r}")
     return path.parts
+
+
+def _filename_crc32(data: bytes, start: int = 0xFFFFFFFF) -> int:
+    """Match the non-reflected CRC used by the Neversoft filename tables."""
+
+    result = start
+    for byte in data:
+        mask = result ^ byte
+        for _ in range(8):
+            result = ((result << 1) | (result >> 31)) & 0xFFFFFFFF
+            if mask & 1:
+                result ^= 0xEDB88320
+            mask >>= 1
+    return result
 
 
 class PkrArchive:
@@ -342,6 +383,204 @@ class TrgArchive:
         }
 
 
+def _decode_hed_name(raw: bytes, label: str) -> str:
+    if not raw:
+        raise HedFormatError(f"empty {label}")
+    try:
+        return raw.decode("ascii")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def _read_named_table(path: str | Path) -> list[NamedTableEntry]:
+    """Read the variable-length filename/offset/size table used by HET/HEP."""
+
+    source = resolve(path)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    data = source.read_bytes()
+    entries: list[NamedTableEntry] = []
+    position = 0
+    while position < len(data):
+        if data[position : position + 4] == _NAMED_TABLE_TERMINATOR:
+            if position + 4 != len(data):
+                raise HedFormatError(f"trailing bytes after {source.name} terminator")
+            return entries
+
+        name_end = data.find(b"\0", position)
+        if name_end < 0:
+            raise HedFormatError(f"unterminated filename in {source.name} at 0x{position:x}")
+        name = _decode_hed_name(data[position:name_end], f"{source.name} filename")
+        record_position = (name_end + 1 + 3) & ~3
+        if record_position > len(data) or record_position + _NAMED_TABLE_RECORD.size > len(data):
+            raise HedFormatError(f"truncated {source.name} record for {name!r}")
+        if any(data[name_end + 1 : record_position]):
+            raise HedFormatError(f"non-zero alignment padding after {name!r} in {source.name}")
+        offset, size = _NAMED_TABLE_RECORD.unpack_from(data, record_position)
+        entries.append(NamedTableEntry(name, offset, size))
+        position = record_position + _NAMED_TABLE_RECORD.size
+
+    raise HedFormatError(f"missing {source.name} terminator")
+
+
+def _read_hashed_table(path: str | Path) -> list[tuple[int, int, int]]:
+    source = resolve(path)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    data = source.read_bytes()
+    if len(data) < len(_HED_TERMINATOR) or data[-4:] != _HED_TERMINATOR:
+        raise HedFormatError(f"{source.name} is missing its zero terminator")
+    table = data[:-4]
+    if len(table) % _HED_RECORD.size:
+        raise HedFormatError(f"{source.name} has a partial 12-byte record")
+    return [_HED_RECORD.unpack_from(table, offset) for offset in range(0, len(table), _HED_RECORD.size)]
+
+
+def _optional_sidecar(source: Path, requested: str | Path | None, suffix: str) -> Path | None:
+    if requested is not None:
+        candidate = resolve(requested)
+        if not candidate.is_file():
+            raise FileNotFoundError(candidate)
+        return candidate
+    candidate = source.with_suffix(suffix)
+    return candidate if candidate.is_file() else None
+
+
+def _nonzero_bytes(path: Path) -> int:
+    count = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            count += sum(byte != 0 for byte in chunk)
+    return count
+
+
+class HedArchive:
+    """Reader for the PC CD.HED/CD.HET/CD.HEP/CD.WAD asset family."""
+
+    def __init__(
+        self,
+        path: Path,
+        entries: list[HedEntry],
+        named_entries: list[NamedTableEntry],
+        secondary_named_entries: list[NamedTableEntry],
+        names_path: Path | None,
+        secondary_names_path: Path | None,
+        wad_path: Path | None,
+        wad_size: int,
+        wad_nonzero_bytes: int,
+        name_hash_matches: int,
+        name_matches: int,
+    ):
+        self.path = path
+        self.entries = entries
+        self.named_entries = named_entries
+        self.secondary_named_entries = secondary_named_entries
+        self.names_path = names_path
+        self.secondary_names_path = secondary_names_path
+        self.wad_path = wad_path
+        self.wad_size = wad_size
+        self.wad_nonzero_bytes = wad_nonzero_bytes
+        self.name_hash_matches = name_hash_matches
+        self.name_matches = name_matches
+
+    @classmethod
+    def read(
+        cls,
+        path: str | Path,
+        *,
+        names_path: str | Path | None = None,
+        wad_path: str | Path | None = None,
+    ) -> HedArchive:
+        source = resolve(path)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+
+        raw_entries = _read_hashed_table(source)
+        resolved_names = _optional_sidecar(source, names_path, ".HET")
+        resolved_secondary_names = _optional_sidecar(source, None, ".HEP")
+        named_entries = _read_named_table(resolved_names) if resolved_names else []
+        secondary_named_entries = (
+            _read_named_table(resolved_secondary_names) if resolved_secondary_names else []
+        )
+
+        by_hash: dict[int, list[NamedTableEntry]] = {}
+        for named_entry in named_entries:
+            name_hash = _filename_crc32(named_entry.name.encode("latin-1"))
+            by_hash.setdefault(name_hash, []).append(named_entry)
+
+        entries: list[HedEntry] = []
+        name_hash_matches = 0
+        name_matches = 0
+        for name_hash, offset, size in raw_entries:
+            candidates = by_hash.get(name_hash, [])
+            if candidates:
+                name_hash_matches += 1
+            exact = [candidate for candidate in candidates if candidate.offset == offset and candidate.size == size]
+            name = exact[0].name if len(exact) == 1 else None
+            if name is not None:
+                name_matches += 1
+            entries.append(HedEntry(name_hash, offset, size, name))
+
+        resolved_wad = _optional_sidecar(source, wad_path, ".WAD")
+        wad_size = resolved_wad.stat().st_size if resolved_wad else 0
+        wad_nonzero_bytes = _nonzero_bytes(resolved_wad) if resolved_wad else 0
+        return cls(
+            source,
+            entries,
+            named_entries,
+            secondary_named_entries,
+            resolved_names,
+            resolved_secondary_names,
+            resolved_wad,
+            wad_size,
+            wad_nonzero_bytes,
+            name_hash_matches,
+            name_matches,
+        )
+
+    @property
+    def max_referenced_end(self) -> int:
+        return max((entry.offset + entry.size for entry in self.entries), default=0)
+
+    @property
+    def out_of_bounds_count(self) -> int:
+        return sum(entry.offset + entry.size > self.wad_size for entry in self.entries)
+
+    @property
+    def unmatched_hashes(self) -> int:
+        return len(self.entries) - self.name_hash_matches
+
+    @property
+    def metadata_mismatches(self) -> int:
+        return self.name_hash_matches - self.name_matches
+
+    @property
+    def wad_status(self) -> str:
+        if self.wad_path is None:
+            return "unavailable"
+        if self.wad_size == 0:
+            return "empty"
+        return "all_zero" if self.wad_nonzero_bytes == 0 else "data"
+
+    def summary(self) -> dict:
+        return {
+            "format": "HED/WAD",
+            "file_count": len(self.entries),
+            "hed_record_size": _HED_RECORD.size,
+            "named_entry_count": len(self.named_entries),
+            "secondary_named_entry_count": len(self.secondary_named_entries),
+            "name_hash_matches": self.name_hash_matches,
+            "name_matches": self.name_matches,
+            "metadata_mismatches": self.metadata_mismatches,
+            "unmatched_hashes": self.unmatched_hashes,
+            "wad_size": self.wad_size,
+            "wad_nonzero_bytes": self.wad_nonzero_bytes,
+            "wad_status": self.wad_status,
+            "max_referenced_end": self.max_referenced_end,
+            "out_of_bounds_count": self.out_of_bounds_count,
+        }
+
+
 def _display_path(path: Path) -> str:
     try:
         return relative_to_root(path)
@@ -416,6 +655,50 @@ def inspect_trg(path: str | Path, *, include_nodes: bool = False) -> dict:
                 "name": node.type_name,
             }
             for node in archive.nodes
+        ]
+    return result
+
+
+def _asset_source_info(path: Path) -> dict:
+    return {
+        "path": _display_path(path),
+        "size": path.stat().st_size,
+        "sha256": sha256(path),
+    }
+
+
+def inspect_hed(
+    path: str | Path,
+    *,
+    include_entries: bool = False,
+    names_path: str | Path | None = None,
+    wad_path: str | Path | None = None,
+) -> dict:
+    source = resolve(path)
+    archive = HedArchive.read(source, names_path=names_path, wad_path=wad_path)
+    result = {
+        "source": _asset_source_info(source),
+        "associated_files": {
+            "het": _asset_source_info(archive.names_path) if archive.names_path else None,
+            "hep": _asset_source_info(archive.secondary_names_path)
+            if archive.secondary_names_path
+            else None,
+            "wad": _asset_source_info(archive.wad_path) if archive.wad_path else None,
+        },
+        **archive.summary(),
+    }
+    if include_entries:
+        result["entries"] = [
+            {
+                "index": index,
+                "name": entry.name,
+                "output_name": entry.output_name,
+                "name_hash": entry.name_hash,
+                "name_hash_hex": f"0x{entry.name_hash:08x}",
+                "offset": entry.offset,
+                "size": entry.size,
+            }
+            for index, entry in enumerate(archive.entries)
         ]
     return result
 
@@ -563,6 +846,78 @@ def extract_pre(path: str | Path, output: str | Path, *, force: bool = False) ->
     return manifest
 
 
+def extract_hed(
+    path: str | Path,
+    output: str | Path,
+    *,
+    force: bool = False,
+    names_path: str | Path | None = None,
+    wad_path: str | Path | None = None,
+    allow_zero_wad: bool = False,
+) -> dict:
+    source = resolve(path)
+    archive = HedArchive.read(source, names_path=names_path, wad_path=wad_path)
+    if archive.wad_path is None:
+        raise SystemExit("cannot extract HED entries: associated WAD file was not found")
+    if archive.wad_status == "all_zero" and not allow_zero_wad:
+        raise SystemExit(
+            "refusing to extract an all-zero WAD; use --allow-zero-wad only for forensic output"
+        )
+    if archive.out_of_bounds_count:
+        raise SystemExit(
+            f"cannot extract HED entries: {archive.out_of_bounds_count} payloads exceed the WAD size"
+        )
+
+    destination = _prepare_output(output, force)
+    files_output = destination / "files"
+    files_output.mkdir(parents=True, exist_ok=True)
+    manifest_entries = []
+    seen_paths: set[str] = set()
+    with archive.wad_path.open("rb") as stream:
+        for entry in archive.entries:
+            parts = _safe_archive_path("", entry.output_name)
+            archive_path = "/".join(parts)
+            if archive_path in seen_paths:
+                raise HedFormatError(f"duplicate HED output path: {archive_path}")
+            seen_paths.add(archive_path)
+            target = files_output.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            stream.seek(entry.offset)
+            data = _read_exact(stream, entry.size, f"WAD payload {archive_path}")
+            target.write_bytes(data)
+            manifest_entries.append(
+                {
+                    "path": archive_path,
+                    "name_hash": entry.name_hash,
+                    "offset": entry.offset,
+                    "size": entry.size,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
+            )
+
+    manifest = {
+        "version": 1,
+        "tony_version": __version__,
+        "source": {
+            "path": _display_path(source),
+            "size": source.stat().st_size,
+            "sha256": sha256(source),
+        },
+        "associated_files": {
+            "het": _asset_source_info(archive.names_path) if archive.names_path else None,
+            "hep": _asset_source_info(archive.secondary_names_path)
+            if archive.secondary_names_path
+            else None,
+            "wad": _asset_source_info(archive.wad_path),
+        },
+        "format": archive.summary(),
+        "extracted_path": _display_path(files_output),
+        "entries": manifest_entries,
+    }
+    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
 def assets_inspect_pkr(args) -> int:
     result = inspect_pkr(args.path, include_entries=args.entries)
     print(json.dumps(result, indent=2))
@@ -577,6 +932,17 @@ def assets_inspect_pre(args) -> int:
 
 def assets_inspect_trg(args) -> int:
     result = inspect_trg(args.path, include_nodes=args.nodes)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def assets_inspect_hed(args) -> int:
+    result = inspect_hed(
+        args.path,
+        include_entries=args.entries,
+        names_path=args.names,
+        wad_path=args.wad,
+    )
     print(json.dumps(result, indent=2))
     return 0
 
@@ -599,5 +965,20 @@ def assets_extract_pre(args) -> int:
     destination = _build_output(args.output)
     manifest = extract_pre(args.path, destination, force=args.force)
     print(f"Extracted {manifest['format']['file_count']} PRE files into {destination}")
+    print(f"Manifest: {destination / 'manifest.json'}")
+    return 0
+
+
+def assets_extract_hed(args) -> int:
+    destination = _build_output(args.output)
+    manifest = extract_hed(
+        args.path,
+        destination,
+        force=args.force,
+        names_path=args.names,
+        wad_path=args.wad,
+        allow_zero_wad=args.allow_zero_wad,
+    )
+    print(f"Extracted {manifest['format']['file_count']} HED/WAD files into {destination}")
     print(f"Manifest: {destination / 'manifest.json'}")
     return 0
