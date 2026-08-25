@@ -173,6 +173,27 @@ def test_extract_hed_rejects_zero_wad(tmp_path: Path):
         extract_hed(source, tmp_path / "hed-output")
 
 
+def test_extract_hed_rejects_overlapping_ranges(tmp_path: Path):
+    name_a = b"a.bin"
+    name_b = b"b.bin"
+    het = bytearray()
+    for name, size in ((name_a, 3), (name_b, 3)):
+        het.extend(name + b"\0")
+        het.extend(b"\0" * ((-len(het)) & 3))
+        het.extend(struct.pack("<II", 0, size))
+    het.extend(b"\xff\xff\xff\xff")
+    (tmp_path / "CD.HET").write_bytes(het)
+    (tmp_path / "CD.HED").write_bytes(
+        struct.pack("<III", _filename_crc32(name_a), 0, 3)
+        + struct.pack("<III", _filename_crc32(name_b), 1, 3)
+        + b"\0\0\0\0"
+    )
+    (tmp_path / "CD.WAD").write_bytes(b"abcd")
+
+    with pytest.raises(SystemExit, match="ranges overlap"):
+        extract_hed(tmp_path / "CD.HED", tmp_path / "hed-output")
+
+
 def test_invalid_hed_table_is_rejected(tmp_path: Path):
     source = tmp_path / "CD.HED"
     source.write_bytes(b"\0" * 5)

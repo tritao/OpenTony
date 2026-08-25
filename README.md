@@ -93,7 +93,7 @@ tony assets extract-pre build/assets/all-pkr/files/data/LEVEL.PRE --output build
 
 Both commands validate the observed container structure and write manifests under `build/`; the original archives remain untouched.
 
-The extracted PC data also includes a `CD.HED` hash table, a matching `CD.HET` filename table, a separate `CD.HEP` filename table, and a `CD.WAD` payload file. Inspect the metadata with `tony assets inspect-hed`; `tony assets extract-hed` will only write payloads when the WAD contains data and every referenced range is in bounds.
+The extracted PC data also includes a `CD.HED` hash table, a matching `CD.HET` filename table, a separate `CD.HEP` filename table, and a `CD.WAD` payload file. Inspect the metadata with `tony assets inspect-hed`; `tony assets extract-hed` only writes payloads when the WAD contains data and the table describes non-overlapping direct ranges.
 
 `tony wine mount-disc` attaches the generated ISO read-only, maps it as Wine `D:` with CD-ROM semantics, adds the raw-device `D::` mapping, and verifies that Wine can read the volume. A Linux loop device is enough for filesystem access but does not implement optical CD-ROM TOC ioctls; `tony run` and `tony play` use the generated no-CD executable to bypass that retail check. If the command warns that the raw loop device is not readable, grant the current user read-only access using the exact command it prints. Keep it mounted while running the game so disc-hosted assets remain available; clean up afterward with `tony wine unmount-disc`.
 

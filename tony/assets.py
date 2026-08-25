@@ -547,6 +547,20 @@ class HedArchive:
         return sum(entry.offset + entry.size > self.wad_size for entry in self.entries)
 
     @property
+    def range_overlap_count(self) -> int:
+        active_end = 0
+        overlaps = 0
+        for entry in sorted(self.entries, key=lambda item: item.offset):
+            if entry.offset < active_end:
+                overlaps += 1
+            active_end = max(active_end, entry.offset + entry.size)
+        return overlaps
+
+    @property
+    def offsets_monotonic(self) -> bool:
+        return all(left.offset <= right.offset for left, right in zip(self.entries, self.entries[1:]))
+
+    @property
     def unmatched_hashes(self) -> int:
         return len(self.entries) - self.name_hash_matches
 
@@ -578,6 +592,8 @@ class HedArchive:
             "wad_status": self.wad_status,
             "max_referenced_end": self.max_referenced_end,
             "out_of_bounds_count": self.out_of_bounds_count,
+            "offsets_monotonic": self.offsets_monotonic,
+            "range_overlap_count": self.range_overlap_count,
         }
 
 
@@ -862,6 +878,10 @@ def extract_hed(
     if archive.wad_status == "all_zero" and not allow_zero_wad:
         raise SystemExit(
             "refusing to extract an all-zero WAD; use --allow-zero-wad only for forensic output"
+        )
+    if archive.range_overlap_count:
+        raise SystemExit(
+            "cannot extract HED entries: table ranges overlap; direct raw WAD extraction is unsupported"
         )
     if archive.out_of_bounds_count:
         raise SystemExit(
