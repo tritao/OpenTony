@@ -1,0 +1,7 @@
+version: 1
+
+wine:
+  prefix: ".tools/wineprefix"
+  minimum_major: 11
+  debug_port: 31337
+  debug_quiet: true

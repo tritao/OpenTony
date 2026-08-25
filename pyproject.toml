@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opentony"
+version = "0.1.0"
+description = "Linux-first reverse-engineering workspace for Tony Hawk's Pro Skater 2 PC"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "PyYAML>=6,<7",
+  "pefile>=2023.2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+tony = "tony.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tony*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110

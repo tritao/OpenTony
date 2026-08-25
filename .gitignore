@@ -1,0 +1,26 @@
+# Proprietary game inputs
+/game/*
+!/game/README.md
+
+# Tool installations and generated analysis
+/.tools/
+/build/
+
+# Ghidra local projects, if accidentally created elsewhere
+*.gpr
+*.rep/
+*.lock
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

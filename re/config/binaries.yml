@@ -1,0 +1,19 @@
+version: 1
+
+media:
+  thps2_pc_disc:
+    path: "game/THPS2.img"
+    size: null
+    sha256: null
+    file_description: null
+
+executables:
+  thps2_pc:
+    path: null
+    size: null
+    sha256: null
+    machine: null
+    pe_timestamp: null
+    image_base: null
+    entry_point_rva: null
+    entry_point_va: null

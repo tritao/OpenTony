@@ -1,0 +1,20 @@
+version: 1
+
+experiments:
+  - name: warehouse-idle
+    status: planned
+    purpose: Establish stable player object/state while stationary in Warehouse.
+    capture:
+      - frame
+      - player_position
+      - player_velocity
+      - player_state
+      - player_animation
+
+  - name: warehouse-run
+    status: planned
+    purpose: Establish horizontal movement update and acceleration/velocity behavior.
+
+  - name: warehouse-ollie
+    status: planned
+    purpose: Capture crouch, ollie launch, apex, descent, landing, state transitions, and animation.

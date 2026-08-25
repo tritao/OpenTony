@@ -1,0 +1,10 @@
+version: 1
+functions: []
+
+# Example once evidence exists:
+# functions:
+#   - address: 0x00401230
+#     name: Game_MainLoop
+#     confidence: inferred
+#     evidence:
+#       - re/evidence/functions/game-main-loop.md
