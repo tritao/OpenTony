@@ -22,7 +22,7 @@ _INDEX_HTML = r"""<!doctype html>
 <style>
 :root { color-scheme: dark; --bg:#101217; --panel:#171a21; --panel2:#20242d; --line:#303642; --text:#e7eaf0; --muted:#9da6b5; --accent:#77d4c5; --warn:#efbd70; }
 * { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
+body { margin:0; overflow-x:hidden; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
 header { min-height:58px; display:flex; align-items:center; gap:16px; padding:10px 22px; border-bottom:1px solid var(--line); background:#13161c; }
 header h1 { margin:0; font:600 18px/1 system-ui,sans-serif; letter-spacing:.02em; }
 header h1 a { color:var(--text); text-decoration:none; }
@@ -63,15 +63,17 @@ a { color:var(--accent); } .pill { display:inline-block; padding:2px 7px; border
 @media (max-width:1000px) { main { grid-template-columns:220px minmax(0,1fr); } #details { display:none; } }
 @media (max-width:700px) {
   header { align-items:flex-start; flex-wrap:wrap; gap:8px 12px; padding:12px 14px; }
-  header h1 { flex:1 1 190px; line-height:1.2; }
+  header h1 { flex:1 1 100%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; line-height:1.2; }
   header span { order:3; flex-basis:100%; white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
-  .library-link { margin-left:auto; }
+  .library-link { order:2; margin-left:0; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
   .nav-toggle { display:block; order:2; }
   main { display:block; height:auto; }
   #nav { display:none; border:0; }
   main.nav-open #nav { display:block; }
   aside, section { border:0; }
   #nav { max-height:none; }
+  section { width:100%; }
+  .cards { grid-template-columns:1fr; }
   canvas { height:300px; }
 }
 </style>
@@ -235,7 +237,7 @@ _DASHBOARD_HTML = r"""<!doctype html>
 <title>OpenTony Asset Library</title>
 <style>
 :root { color-scheme:dark; --bg:#101217; --panel:#171a21; --panel2:#20242d; --line:#303642; --text:#e7eaf0; --muted:#9da6b5; --accent:#77d4c5; }
-* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
+* { box-sizing:border-box; } body { margin:0; overflow-x:hidden; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
 header { border-bottom:1px solid var(--line); background:#13161c; }
 .header-inner, main { max-width:1200px; margin:0 auto; }
 .header-inner { padding:24px 22px; }
@@ -259,6 +261,7 @@ button:hover { border-color:var(--accent); color:var(--accent); }
 .package.empty-package { opacity:.72; }
 .package-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .package h2 { min-width:0; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:17px; }
+.package-top .pill { max-width:46%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .package p { margin:4px 0 14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 12px; color:var(--muted); }
 .stats span strong { color:var(--accent); font-weight:600; }
@@ -266,7 +269,17 @@ button:hover { border-color:var(--accent); color:var(--accent); }
 .pill { display:inline-block; flex:0 0 auto; padding:3px 8px; border-radius:999px; background:var(--panel2); color:var(--muted); font-size:12px; }
 .empty { padding:24px; border:1px dashed var(--line); border-radius:10px; color:var(--muted); }
 code { color:var(--accent); }
-@media (max-width:700px) { .header-inner, main { padding-left:14px; padding-right:14px; } .toolbar-heading { display:block; } .toolbar-heading button { margin-top:12px; } .grid { grid-template-columns:1fr; } }
+@media (max-width:700px) {
+  .header-inner, main { padding-left:14px; padding-right:14px; }
+  .toolbar-heading { display:block; }
+  .toolbar-heading button { margin-top:12px; }
+  .filter-row { align-items:stretch; }
+  .filter-row label, .filter-row .search-field { flex:1 1 100%; width:100%; }
+  .filter-row input, .filter-row select { width:100%; }
+  .package-top { flex-wrap:wrap; overflow:hidden; }
+  .package-top .pill { max-width:100%; }
+  .grid { grid-template-columns:minmax(0,1fr); }
+}
 </style>
 </head>
 <body><header><div class="header-inner"><h1>OpenTony Asset Library</h1><p>Generated asset packages under <code id="root">build/assets</code></p></div></header>
@@ -289,7 +302,7 @@ function card(item) {
   const stats = item.has_assets
     ? `<div class="stats"><span><strong>${item.models}</strong> models</span><span><strong>${item.objects}</strong> objects</span><span><strong>${item.textures}</strong> textures</span><span><strong>${item.collision_faces}</strong> collision faces</span></div>`
     : '<div class="empty-label">No exported assets · likely an internal/source manifest</div>';
-  return `<a class="package${item.has_assets ? '' : ' empty-package'}" href="/package?path=${encodeURIComponent(item.path)}"><div class="package-top"><h2>${esc(item.name)}</h2><span class="pill">${label}</span></div><p title="${esc(item.source || item.path)}">${esc(item.source || item.path)}</p>${stats}</a>`;
+  return `<a class="package${item.has_assets ? '' : ' empty-package'}" href="/package?path=${encodeURIComponent(item.path)}"><div class="package-top"><h2 title="${esc(item.name)}">${esc(item.name)}</h2><span class="pill">${label}</span></div><p title="${esc(item.source || item.path)}">${esc(item.source || item.path)}</p>${stats}</a>`;
 }
 function render() {
   const target = document.getElementById('packages');
@@ -459,15 +472,20 @@ def _catalog(root: Path) -> list[dict]:
         if package_path == ".":
             package_path = ""
         collision = manifest.get("collision") or {}
+        models = len(manifest.get("models") or [])
+        objects = len(manifest.get("objects") or [])
+        textures = len(manifest.get("textures") or [])
+        collision_faces = collision.get("face_count", 0)
         packages.append(
             {
                 "path": package_path or ".",
                 "name": manifest_path.parent.name,
                 "source": (manifest.get("source") or {}).get("path"),
-                "models": len(manifest.get("models") or []),
-                "objects": len(manifest.get("objects") or []),
-                "textures": len(manifest.get("textures") or []),
-                "collision_faces": collision.get("face_count", 0),
+                "models": models,
+                "objects": objects,
+                "textures": textures,
+                "collision_faces": collision_faces,
+                "has_assets": bool(models or objects or textures or collision_faces),
             }
         )
     return packages

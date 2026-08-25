@@ -75,5 +75,14 @@ def test_catalog_discovers_generated_packages(tmp_path):
             "objects": 2,
             "textures": 1,
             "collision_faces": 12,
+            "has_assets": True,
         }
     ]
+
+
+def test_catalog_marks_empty_manifests(tmp_path):
+    package = tmp_path / "internal-manifest"
+    package.mkdir()
+    (package / "manifest.json").write_text(json.dumps({"source": {"path": "LEVEL.PRE"}}), encoding="utf-8")
+
+    assert _catalog(tmp_path)[0]["has_assets"] is False
