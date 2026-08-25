@@ -150,7 +150,7 @@ def test_read_trg_header_and_node_table(tmp_path: Path):
 
 def _write_psx(path: Path) -> None:
     data = bytearray(b"\0" * 12)
-    data.extend(b"\0" * 36)
+    data.extend(struct.pack("<IiiiIHHhhII", 0, 4096, -8192, 12288, 0, 0, 0, 0, 0, 0, 0))
     data.extend(struct.pack("<I", 1))
     data.extend(struct.pack("<I", 0))
     model_offset = len(data)
@@ -160,10 +160,12 @@ def _write_psx(path: Path) -> None:
     data.extend(struct.pack("<I", 0))
     data.extend(struct.pack("<hhhh", 1, 2, 3, 0))
     data.extend(struct.pack("<hhhh", 0, 1, 0, 0))
-    data.extend(struct.pack("<HH", 0x10, 16))
+    data.extend(struct.pack("<HH", 0x13, 28))
     data.extend(struct.pack("<BBBB", 0, 0, 0, 0))
-    data.extend(struct.pack("<BBBB", 0x20, 0, 0, 0))
+    data.extend(struct.pack("<BBBB", 0, 0, 0, 0x24))
     data.extend(struct.pack("<HH", 0, 0))
+    data.extend(struct.pack("<I", 0))
+    data.extend(bytes((0, 4, 4, 0, 0, 0, 2, 0)))
     tag_offset = len(data)
     data.extend(struct.pack("<II", 0x0000000A, 4))
     data.extend(b"TAG!")
@@ -193,20 +195,37 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
 
     archive = PsxArchive.read(source)
     assert archive.version == 4
+    assert archive.objects[0].position == (4096, -8192, 12288)
+    assert archive.model_names == [0x1111]
     assert archive.models[0].face_count == 1
     assert archive.tags[0].type_name == "blockmap"
     assert archive.textures[0].width == 4
 
-    result = inspect_psx(source, include_models=True, include_textures=True, include_tags=True)
+    result = inspect_psx(
+        source,
+        include_models=True,
+        include_textures=True,
+        include_tags=True,
+        include_objects=True,
+    )
     assert result["model_count"] == 1
     assert result["texture_count"] == 1
     assert result["tags"][0]["name"] == "blockmap"
+    assert result["objects"][0]["model_name"] == 0x1111
 
     output = tmp_path / "psx-output"
     manifest = extract_psx(source, output)
     assert (output / "textures/texture_00002222_0000.ppm").is_file()
     assert (output / "models/model_0000.obj").is_file()
+    assert (output / "scene.obj").is_file()
     assert manifest["textures"][0]["width"] == 4
+    assert manifest["objects"][0]["position"] == [1.0, -2.0, 3.0]
+    assert "object_0000_model_00001111" in (output / "scene.obj").read_text()
+    assert "v 1.000244 -1.999512 3.000732" in (output / "scene.obj").read_text()
+    model_obj = (output / "models/model_0000.obj").read_text()
+    assert "usemtl texture_00002222_0000" in model_obj
+    assert "vt 1.000000 0.000000" in model_obj
+    assert "map_Kd ../textures/texture_00002222_0000.ppm" in (output / "models/materials.mtl").read_text()
     assert json.loads((output / "manifest.json").read_text()) == manifest
 
 

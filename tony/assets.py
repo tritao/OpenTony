@@ -124,6 +124,20 @@ class PsxFace:
 
 
 @dataclass(frozen=True)
+class PsxObject:
+    index: int
+    flags: int
+    position: tuple[int, int, int]
+    unknown_1: int
+    unknown_2: int
+    model_index: int
+    unknown_x: int
+    unknown_y: int
+    unknown_3: int
+    unknown_rgbx: int
+
+
+@dataclass(frozen=True)
 class PsxModel:
     index: int
     offset: int
@@ -501,8 +515,9 @@ class PsxArchive:
         version: int,
         marker: int,
         tag_offset: int,
-        object_model_indices: list[int],
+        objects: list[PsxObject],
         models: list[PsxModel],
+        model_names: list[int],
         tags: list[PsxTag],
         tag_terminated: bool,
         texture_name_count: int,
@@ -519,8 +534,10 @@ class PsxArchive:
         self.version = version
         self.marker = marker
         self.tag_offset = tag_offset
-        self.object_model_indices = object_model_indices
+        self.objects = objects
+        self.object_model_indices = [object_.model_index for object_ in objects]
         self.models = models
+        self.model_names = model_names
         self.tags = tags
         self.tag_terminated = tag_terminated
         self.texture_name_count = texture_name_count
@@ -556,11 +573,33 @@ class PsxArchive:
         if object_count > len(data) // 36:
             raise PsxFormatError(f"PSX object table is unreasonably large: {object_count}")
 
-        object_model_indices: list[int] = []
+        objects: list[PsxObject] = []
         for index in range(object_count):
-            cursor.take(4 + 12 + 4 + 2, f"PSX object {index} header")
-            object_model_indices.append(cursor.u16(f"PSX object {index} model index"))
-            cursor.take(2 + 2 + 4 + 4, f"PSX object {index} tail")
+            flags = cursor.u32(f"PSX object {index} flags")
+            position = tuple(
+                cursor.i32(f"PSX object {index} {axis} position") for axis in ("x", "y", "z")
+            )
+            unknown_1 = cursor.u32(f"PSX object {index} unknown 1")
+            unknown_2 = cursor.u16(f"PSX object {index} unknown 2")
+            model_index = cursor.u16(f"PSX object {index} model index")
+            unknown_x = cursor.i16(f"PSX object {index} unknown x")
+            unknown_y = cursor.i16(f"PSX object {index} unknown y")
+            unknown_3 = cursor.u32(f"PSX object {index} unknown 3")
+            unknown_rgbx = cursor.u32(f"PSX object {index} unknown RGBX")
+            objects.append(
+                PsxObject(
+                    index,
+                    flags,
+                    position,
+                    unknown_1,
+                    unknown_2,
+                    model_index,
+                    unknown_x,
+                    unknown_y,
+                    unknown_3,
+                    unknown_rgbx,
+                )
+            )
 
         model_count = cursor.u32("PSX model count")
         if model_count > len(data) // 4:
@@ -570,7 +609,7 @@ class PsxArchive:
             raise PsxFormatError("PSX model offsets must be strictly increasing")
         if any(offset < cursor.position or offset >= len(data) for offset in model_offsets):
             raise PsxFormatError("PSX model offset is outside the file")
-        if any(index >= model_count for index in object_model_indices):
+        if any(object_.model_index >= model_count for object_ in objects):
             raise PsxFormatError("PSX object references a model outside the model table")
 
         models: list[PsxModel] = []
@@ -704,9 +743,10 @@ class PsxArchive:
         textures: list[PsxTexture] = []
         texture_table_offset: int | None = None
         metadata_end = post_tables_offset
+        model_names: list[int] = []
         if post_tables_offset < len(data) and model_count:
             post = _PsxCursor(data, post_tables_offset)
-            post.take(model_count * 4, "PSX model names")
+            model_names = [post.u32(f"PSX model name {index}") for index in range(model_count)]
             texture_name_count = post.u32("PSX texture name count")
             texture_names = [post.u32(f"PSX texture name {index}") for index in range(texture_name_count)]
             palette4_count = post.u32("PSX 4bpp palette count")
@@ -773,8 +813,9 @@ class PsxArchive:
             version,
             marker,
             tag_offset,
-            object_model_indices,
+            objects,
             models,
+            model_names,
             tags,
             tag_terminated,
             texture_name_count,
@@ -820,6 +861,7 @@ class PsxArchive:
             "unknown_tag_types": sorted(tag.tag_type for tag in self.tags if tag.type_name == "unknown"),
             "object_count": len(self.object_model_indices),
             "model_count": len(self.models),
+            "model_name_count": len(self.model_names),
             "vertex_count": sum(model.vertex_count for model in self.models),
             "normal_count": sum(model.normal_count for model in self.models),
             "face_count": sum(model.face_count for model in self.models),
@@ -1139,6 +1181,7 @@ def inspect_psx(
     include_models: bool = False,
     include_textures: bool = False,
     include_tags: bool = False,
+    include_objects: bool = False,
 ) -> dict:
     source = resolve(path)
     archive = PsxArchive.read(source)
@@ -1154,6 +1197,7 @@ def inspect_psx(
         result["models"] = [
             {
                 "index": model.index,
+                "name": archive.model_names[model.index] if archive.model_names else None,
                 "offset": model.offset,
                 "size": model.size,
                 "flags": model.flags,
@@ -1167,6 +1211,26 @@ def inspect_psx(
                 ],
             }
             for model in archive.models
+        ]
+    if include_objects:
+        result["objects"] = [
+            {
+                "index": object_.index,
+                "flags": object_.flags,
+                "model_index": object_.model_index,
+                "model_name": archive.model_names[object_.model_index]
+                if archive.model_names
+                else None,
+                "position_fixed": object_.position,
+                "position": tuple(round(value / 4096, 6) for value in object_.position),
+                "unknown_1": object_.unknown_1,
+                "unknown_2": object_.unknown_2,
+                "unknown_x": object_.unknown_x,
+                "unknown_y": object_.unknown_y,
+                "unknown_3": object_.unknown_3,
+                "unknown_rgbx": object_.unknown_rgbx,
+            }
+            for object_ in archive.objects
         ]
     if include_textures:
         result["textures"] = [
@@ -1248,19 +1312,37 @@ def _psx_texture_filename(archive: PsxArchive, texture: PsxTexture) -> str:
     return f"texture_{name:08x}_{texture.index:04d}.ppm"
 
 
-def _write_psx_model(path: Path, model: PsxModel, texture_materials: dict[int, str]) -> set[str]:
+@dataclass(frozen=True)
+class _PsxMaterial:
+    name: str
+    texture_filename: str
+    width: int
+    height: int
+
+
+def _psx_model_lines(
+    model: PsxModel,
+    texture_materials: dict[int, _PsxMaterial],
+    *,
+    translation: tuple[int, int, int] = (0, 0, 0),
+    object_name: str | None = None,
+) -> tuple[list[str], set[str]]:
     materials: set[str] = set()
-    lines = ["# OpenTony PSX model export", "mtllib materials.mtl"]
-    lines.extend(f"v {x / 4096:.6f} {y / 4096:.6f} {z / 4096:.6f}" for x, y, z in model.vertices)
+    lines = [f"o {object_name}"] if object_name else []
+    tx, ty, tz = translation
+    lines.extend(
+        f"v {(tx + x) / 4096:.6f} {(ty + y) / 4096:.6f} {(tz + z) / 4096:.6f}"
+        for x, y, z in model.vertices
+    )
     lines.extend(f"vn {x / 4096:.6f} {y / 4096:.6f} {z / 4096:.6f}" for x, y, z in model.normals)
     texture_coordinate_index = 0
     for face in model.faces:
         if face.base_flags & 0x80:
             continue
-        if face.texture_index is not None and face.texture_index in texture_materials:
-            material = texture_materials[face.texture_index]
-            materials.add(material)
-            lines.append(f"usemtl {material}")
+        material_info = texture_materials.get(face.texture_index) if face.texture_index is not None else None
+        material = material_info.name if material_info else "untextured"
+        materials.add(material)
+        lines.append(f"usemtl {material}")
         order = (2, 1, 0) if face.base_flags & 0x10 else (0, 2, 3, 1)
         corners = []
         for corner in order:
@@ -1268,12 +1350,42 @@ def _write_psx_model(path: Path, model: PsxModel, texture_materials: dict[int, s
             normal_index = face.normal_index + 1
             if face.uvs:
                 u, v = face.uvs[corner]
+                width = material_info.width if material_info else 256
+                height = material_info.height if material_info else 256
                 texture_coordinate_index += 1
-                lines.append(f"vt {u / 256:.6f} {v / 256:.6f}")
+                lines.append(f"vt {u / width:.6f} {1 - v / height:.6f}")
                 corners.append(f"{vertex_index}/{texture_coordinate_index}/{normal_index}")
             else:
                 corners.append(f"{vertex_index}//{normal_index}")
         lines.append("f " + " ".join(corners))
+    return lines, materials
+
+
+def _write_psx_model(path: Path, model: PsxModel, texture_materials: dict[int, _PsxMaterial]) -> set[str]:
+    lines, materials = _psx_model_lines(model, texture_materials)
+    path.write_text("\n".join(["# OpenTony PSX model export", "mtllib materials.mtl", *lines]) + "\n", encoding="utf-8")
+    return materials
+
+
+def _write_psx_scene(
+    path: Path,
+    archive: PsxArchive,
+    texture_materials: dict[int, _PsxMaterial],
+) -> set[str]:
+    lines = ["# OpenTony PSX scene export", "mtllib models/materials.mtl"]
+    materials: set[str] = set()
+    for object_ in archive.objects:
+        model = archive.models[object_.model_index]
+        model_name = archive.model_names[object_.model_index] if archive.model_names else model.index
+        object_name = f"object_{object_.index:04d}_model_{model_name:08x}"
+        object_lines, object_materials = _psx_model_lines(
+            model,
+            texture_materials,
+            translation=object_.position,
+            object_name=object_name,
+        )
+        lines.extend(object_lines)
+        materials.update(object_materials)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return materials
 
@@ -1315,7 +1427,7 @@ def extract_psx(
                 continue
             target = textures_output / filename
             _write_ppm(target, texture.aligned_width, texture.aligned_height, pixels)
-            texture_files[texture.name_index] = filename
+            texture_files.setdefault(texture.name_index, filename)
             texture_entries.append(
                 {
                     "index": texture.index,
@@ -1330,41 +1442,63 @@ def extract_psx(
                 }
             )
 
+    texture_materials = {
+        texture.name_index: _PsxMaterial(
+            name=f"texture_{archive.texture_names[texture.name_index]:08x}_{texture.index:04d}",
+            texture_filename=texture_files[texture.name_index],
+            width=texture.width,
+            height=texture.height,
+        )
+        for texture in archive.textures
+        if texture.name_index in texture_files
+    }
     model_entries = []
     model_materials: set[str] = set()
+    scene_entry = None
     if include_models:
         for model in archive.models:
             target = models_output / f"model_{model.index:04d}.obj"
-            materials = _write_psx_model(target, model, {
-                name_index: f"texture_{archive.texture_names[name_index]:08x}_{texture.index:04d}"
-                for texture in archive.textures
-                for name_index in [texture.name_index]
-                if name_index in texture_files
-            })
+            materials = _write_psx_model(target, model, texture_materials)
             model_materials.update(materials)
             model_entries.append(
                 {
                     "index": model.index,
+                    "name": archive.model_names[model.index] if archive.model_names else None,
                     "path": f"models/{target.name}",
                     "vertex_count": model.vertex_count,
                     "normal_count": model.normal_count,
                     "face_count": model.face_count,
                 }
             )
+        scene_materials = _write_psx_scene(destination / "scene.obj", archive, texture_materials)
+        model_materials.update(scene_materials)
+        scene_entry = {"path": "scene.obj", "object_count": len(archive.objects)}
         materials_path = models_output / "materials.mtl"
         material_lines = []
         for material in sorted(model_materials):
-            texture_name = material.removeprefix("texture_")
-            texture_file = next(
-                (entry["path"].removeprefix("textures/") for entry in texture_entries if entry["path"].endswith(f"{texture_name}.ppm")),
+            material_lines.extend([f"newmtl {material}", "Kd 1.0 1.0 1.0"])
+            texture_material = next(
+                (item for item in texture_materials.values() if item.name == material),
                 None,
             )
-            material_lines.extend([f"newmtl {material}", "Kd 1.0 1.0 1.0"])
-            if texture_file:
-                material_lines.append(f"map_Kd ../textures/{texture_file}")
+            if texture_material:
+                material_lines.append(f"map_Kd ../textures/{texture_material.texture_filename}")
             material_lines.append("")
         materials_path.write_text("\n".join(material_lines), encoding="utf-8")
 
+    object_entries = [
+        {
+            "index": object_.index,
+            "flags": object_.flags,
+            "model_index": object_.model_index,
+            "model_name": archive.model_names[object_.model_index]
+            if archive.model_names
+            else None,
+            "position_fixed": list(object_.position),
+            "position": [round(value / 4096, 6) for value in object_.position],
+        }
+        for object_ in archive.objects
+    ]
     manifest = {
         "version": 1,
         "tony_version": __version__,
@@ -1376,6 +1510,8 @@ def extract_psx(
         "format": archive.summary(),
         "extracted_path": _display_path(destination),
         "models": model_entries,
+        "objects": object_entries,
+        "scene": scene_entry,
         "textures": texture_entries,
         "skipped_textures": skipped_textures,
     }
