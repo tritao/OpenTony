@@ -1,7 +1,7 @@
 import json
 
 from tony.cli import build_parser
-from tony.explorer import _catalog, explorer_root, parse_obj, ppm_to_png
+from tony.explorer import _catalog, _package_html, explorer_root, parse_obj, ppm_to_png
 
 
 def test_parse_obj_returns_preview_geometry():
@@ -86,3 +86,11 @@ def test_catalog_marks_empty_manifests(tmp_path):
     (package / "manifest.json").write_text(json.dumps({"source": {"path": "LEVEL.PRE"}}), encoding="utf-8")
 
     assert _catalog(tmp_path)[0]["has_assets"] is False
+
+
+def test_package_page_includes_combined_viewport_controls():
+    html = _package_html("psx-level").decode("utf-8")
+
+    assert "showCombined()" in html
+    assert "data-layer=\"collision\"" in html
+    assert "Shift-drag to pan" in html

@@ -56,6 +56,14 @@ button:hover, .link-button:hover { border-color:var(--accent); color:var(--accen
 input, select { border:1px solid var(--line); border-radius:6px; padding:8px 10px; background:var(--panel2); color:var(--text); font:inherit; }
 input:focus, select:focus, button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 canvas { display:block; width:100%; height:420px; border:1px solid var(--line); border-radius:8px; background:radial-gradient(circle at 50% 40%,#252b35,#0d0f13 75%); }
+canvas.preview-canvas { cursor:grab; touch-action:none; }
+canvas.preview-canvas.dragging { cursor:grabbing; }
+.layer-controls { display:flex; gap:8px 16px; align-items:center; flex-wrap:wrap; margin:12px 0; color:var(--muted); }
+.layer-controls label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+.layer-controls input { accent-color:var(--accent); }
+.legend { display:flex; gap:14px; flex-wrap:wrap; color:var(--muted); font-size:12px; }
+.legend span::before { content:''; display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; background:var(--accent); }
+.legend .collision::before { background:var(--warn); }
 #blockmap-canvas { height:220px; margin-top:12px; }
 pre { max-height:520px; overflow:auto; padding:12px; border:1px solid var(--line); border-radius:8px; background:#0c0e12; color:#c7d0db; white-space:pre-wrap; word-break:break-word; }
 .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
@@ -87,7 +95,7 @@ a { color:var(--accent); } .pill { display:inline-block; padding:2px 7px; border
 </main>
 <script>
 const PACKAGE_PATH = null;
-const state = { manifest:null, object:null, animation:0, paused:false, frame:null };
+const state = { manifest:null, previewObjects:[], paused:false, frame:null, view:{yaw:0.35,pitch:0.15,zoom:1,panX:0,panY:0,drag:null} };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const packageQuery = () => PACKAGE_PATH ? `&package=${encodeURIComponent(PACKAGE_PATH)}` : '';
@@ -114,6 +122,7 @@ function renderNav() {
   const m = state.manifest;
   let html = '<div class="nav-group"><h3>Explore</h3>';
   html += navButton('Overview', 'showOverview()');
+  if (m.scene && m.collision) html += navButton('Scene + collision', 'showCombined()');
   if (m.scene) html += navButton('Placed scene', `showObj('${m.scene.path}', 'Placed scene')`);
   if (m.collision) html += navButton('Collision mesh', `showObj('${m.collision.path}', 'Collision mesh')`);
   if (m.blockmap) html += navButton('Blockmap grid', 'showBlockmap()');
@@ -125,6 +134,7 @@ function renderNav() {
 }
 
 function showOverview() {
+  stopPreview();
   const m = state.manifest, f = m.format || {};
   $('content').innerHTML = `<h2>Asset overview</h2>
     <p class="muted">${esc(m.extracted_path || 'Generated PSX asset package')}</p>
@@ -142,6 +152,7 @@ function showOverview() {
 }
 
 function showModels() {
+  stopPreview();
   const models = state.manifest.models || [];
   $('content').innerHTML = `<h2>Models</h2><p class="muted">Select a model for a rotating preview. Search by index, name, or face count.</p>
     <div class="filter-row"><input id="model-filter" type="search" placeholder="Filter models…" aria-label="Filter models"><span id="model-count" class="pill"></span></div>
@@ -162,48 +173,129 @@ function renderModels(models, query) {
 }
 
 function showTextures() {
+  stopPreview();
   const textures = state.manifest.textures || [];
   $('content').innerHTML = `<h2>Textures</h2><p class="muted">Decoded PPM textures are converted to browser-compatible PNG responses on demand.</p>
     <div class="texture-grid">${textures.map(texture => `<a class="texture" href="${fileUrl(texture.path)}" target="_blank"><img src="${fileUrl(texture.path)}" loading="lazy" alt="texture ${texture.index}"><div>0x${Number(texture.name).toString(16).padStart(8,'0')} · ${texture.width}×${texture.height}</div></a>`).join('')}</div>`;
 }
 
 async function showObj(path, title) {
-  if (state.frame) cancelAnimationFrame(state.frame);
-  state.frame = null;
+  stopPreview();
   $('content').innerHTML = `<h2>${esc(title)}</h2><p class="muted">Parsing ${esc(path)}…</p>`;
   const data = await fetch(apiUrl(path)).then(r => r.json());
-  state.object = data;
+  state.previewObjects = [{id:'object', label:title, kind:'scene', data, visible:true}];
   $('content').innerHTML = `<div class="toolbar"><h2>${esc(title)}</h2><button type="button" onclick="toggleRotation()" id="rotate-toggle">Pause rotation</button><button type="button" onclick="resetObjectView()">Reset view</button><a href="${fileUrl(path)}" target="_blank">open raw OBJ</a></div>
-    <canvas id="preview" width="1000" height="600"></canvas>
+    <canvas id="preview" class="preview-canvas" width="1000" height="600" aria-label="${esc(title)} preview"></canvas>
     <div class="cards">${card('vertices', data.vertex_count)}${card('faces', data.face_count)}${card('materials', data.materials.length)}${card('objects', data.objects.length)}</div>`;
   $('details').innerHTML = `<h3>OBJ metadata</h3><pre>${esc(JSON.stringify({path, bounds:data.bounds, vertex_count:data.vertex_count, face_count:data.face_count, materials:data.materials, objects:data.objects}, null, 2))}</pre>`;
-  drawObject();
+  installPreview();
+  drawPreview();
+}
+
+async function showCombined() {
+  stopPreview();
+  const m = state.manifest;
+  $('content').innerHTML = '<h2>Scene + collision</h2><p class="muted">Parsing placed scene and collision mesh…</p>';
+  const [scene, collision] = await Promise.all([fetch(apiUrl(m.scene.path)).then(r => r.json()), fetch(apiUrl(m.collision.path)).then(r => r.json())]);
+  state.previewObjects = [
+    {id:'scene', label:'Placed scene', kind:'scene', data:scene, visible:true},
+    {id:'collision', label:'Collision mesh', kind:'collision', data:collision, visible:true},
+  ];
+  $('content').innerHTML = `<div class="toolbar"><h2>Scene + collision</h2><button type="button" onclick="toggleRotation()" id="rotate-toggle">Pause rotation</button><button type="button" onclick="resetObjectView()">Reset view</button><a href="${fileUrl(m.scene.path)}" target="_blank">open scene.obj</a><a href="${fileUrl(m.collision.path)}" target="_blank">open collision.obj</a></div>
+    <canvas id="preview" class="preview-canvas" width="1000" height="600" aria-label="Combined scene and collision preview"></canvas>
+    <div class="layer-controls" aria-label="Viewport layers"><strong>Layers</strong><label><input type="checkbox" data-layer="scene" checked> Placed scene</label><label><input type="checkbox" data-layer="collision" checked> Collision mesh</label></div>
+    <div class="legend"><span>Placed scene</span><span class="collision">Collision mesh</span><span>Drag to orbit · Shift-drag to pan · wheel to zoom</span></div>
+    <div class="cards">${card('scene vertices', scene.vertex_count)}${card('scene faces', scene.face_count)}${card('collision vertices', collision.vertex_count)}${card('collision faces', collision.face_count)}</div>`;
+  $('details').innerHTML = `<h3>Combined metadata</h3><pre>${esc(JSON.stringify({scene:{path:m.scene.path,bounds:scene.bounds,vertex_count:scene.vertex_count,face_count:scene.face_count},collision:{path:m.collision.path,bounds:collision.bounds,vertex_count:collision.vertex_count,face_count:collision.face_count}}, null, 2))}</pre>`;
+  installPreview();
+  drawPreview();
 }
 
 function colorFor(name) {
   let h = 0; for (const c of String(name || 'surface')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return `hsl(${h % 360} 55% 62%)`;
 }
-function drawObject() {
-  const canvas = $('preview'); if (!canvas || !state.object) return;
-  const ctx = canvas.getContext('2d'), data = state.object;
-  const bounds = data.bounds, center = [(bounds[0]+bounds[3])/2,(bounds[1]+bounds[4])/2,(bounds[2]+bounds[5])/2];
-  const span = Math.max(bounds[3]-bounds[0], bounds[4]-bounds[1], bounds[5]-bounds[2], 1);
-  const angle = state.animation / 160;
-  if (!state.paused) state.animation++;
-  const projected = data.vertices.map(v => {
-    const x=v[0]-center[0], y=v[1]-center[1], z=v[2]-center[2];
-    const rx=x*Math.cos(angle)-z*Math.sin(angle), rz=x*Math.sin(angle)+z*Math.cos(angle);
-    return [canvas.width/2 + rx/span*canvas.width*.9, canvas.height/2 - y/span*canvas.height*.9, rz];
+
+function stopPreview() {
+  if (state.frame) cancelAnimationFrame(state.frame);
+  state.frame = null;
+  state.previewObjects = [];
+}
+
+function resetObjectView() {
+  state.view = {yaw:0.35,pitch:0.15,zoom:1,panX:0,panY:0,drag:null};
+}
+
+function installPreview() {
+  const canvas = $('preview'); if (!canvas) return;
+  canvas.addEventListener('pointerdown', event => {
+    state.view.drag = {x:event.clientX,y:event.clientY,mode:event.button === 1 || event.shiftKey ? 'pan' : 'orbit'};
+    canvas.classList.add('dragging');
+    canvas.setPointerCapture(event.pointerId);
   });
+  canvas.addEventListener('pointermove', event => {
+    const drag = state.view.drag; if (!drag) return;
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    drag.x = event.clientX; drag.y = event.clientY;
+    if (drag.mode === 'pan') { state.view.panX += dx * 2.2; state.view.panY += dy * 2.2; }
+    else { state.view.yaw += dx * .01; state.view.pitch = Math.max(-1.35, Math.min(1.35, state.view.pitch + dy * .01)); }
+  });
+  const endDrag = () => { state.view.drag = null; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('wheel', event => { event.preventDefault(); state.view.zoom = Math.max(.25, Math.min(4, state.view.zoom * Math.exp(-event.deltaY * .001))); }, {passive:false});
+  document.querySelectorAll('[data-layer]').forEach(input => input.addEventListener('change', event => {
+    const entry = state.previewObjects.find(item => item.id === event.target.dataset.layer);
+    if (entry) entry.visible = event.target.checked;
+  }));
+}
+
+function drawPreview() {
+  const canvas = $('preview'); if (!canvas || !state.previewObjects.length) return;
+  const visible = state.previewObjects.filter(entry => entry.visible);
+  const ctx = canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  const faces = data.faces.flatMap(face => face.vertices.length === 3 ? [face] : face.vertices.slice(1,-1).map((_,i) => ({vertices:[face.vertices[0],face.vertices[i+1],face.vertices[i+2]], material:face.material})));
-  faces.sort((a,b) => ((projected[b.vertices[0]][2]+projected[b.vertices[1]][2]+projected[b.vertices[2]][2]) - (projected[a.vertices[0]][2]+projected[a.vertices[1]][2]+projected[a.vertices[2]][2])));
-  for (const face of faces) {
-    ctx.beginPath(); face.vertices.forEach((index,i) => { const p=projected[index]; i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]); }); ctx.closePath();
-    ctx.fillStyle=colorFor(face.material); ctx.globalAlpha=.36; ctx.fill(); ctx.globalAlpha=.85; ctx.strokeStyle=colorFor(face.material); ctx.stroke();
+  if (!visible.length) {
+    ctx.fillStyle = '#9da6b5'; ctx.font = '18px system-ui'; ctx.textAlign = 'center'; ctx.fillText('Enable a viewport layer', canvas.width / 2, canvas.height / 2); ctx.textAlign = 'start';
+    state.frame = requestAnimationFrame(drawPreview); return;
   }
-  state.frame = requestAnimationFrame(drawObject);
+  const vertices = visible.flatMap(entry => entry.data.vertices);
+  const bounds = [0,1,2].map(axis => Math.min(...vertices.map(vertex => vertex[axis]))).concat([0,1,2].map(axis => Math.max(...vertices.map(vertex => vertex[axis]))));
+  const center = [(bounds[0]+bounds[3])/2,(bounds[1]+bounds[4])/2,(bounds[2]+bounds[5])/2];
+  const span = Math.max(bounds[3]-bounds[0], bounds[4]-bounds[1], bounds[5]-bounds[2], 1);
+  if (!state.paused) state.view.yaw += .004;
+  const cy = Math.cos(state.view.yaw), sy = Math.sin(state.view.yaw), cp = Math.cos(state.view.pitch), sp = Math.sin(state.view.pitch);
+  const projected = visible.map(entry => entry.data.vertices.map(vertex => {
+    const x=vertex[0]-center[0], y=vertex[1]-center[1], z=vertex[2]-center[2];
+    const rx=x*cy-z*sy, rz=x*sy+z*cy, ry=y*cp-rz*sp, depth=y*sp+rz*cp;
+    const scale = canvas.width * .86 / span * state.view.zoom;
+    return [canvas.width/2 + state.view.panX + rx*scale, canvas.height/2 + state.view.panY - ry*scale, depth];
+  }));
+  const faces = [];
+  visible.forEach((entry, objectIndex) => entry.data.faces.forEach(face => {
+    for (let i=1; i<face.vertices.length-1; i++) {
+      const indices = [face.vertices[0], face.vertices[i], face.vertices[i+1]];
+      faces.push({indices, objectIndex, material:face.material, depth:indices.reduce((sum,index) => sum + projected[objectIndex][index][2], 0)});
+    }
+  }));
+  faces.sort((a,b) => b.depth - a.depth);
+  for (const face of faces) {
+    const entry = visible[face.objectIndex], stroke = entry.kind === 'collision' ? '#efbd70' : colorFor(face.material);
+    ctx.beginPath(); face.indices.forEach((index,i) => { const point=projected[face.objectIndex][index]; i ? ctx.lineTo(point[0],point[1]) : ctx.moveTo(point[0],point[1]); }); ctx.closePath();
+    ctx.lineJoin = 'round'; ctx.lineWidth = entry.kind === 'collision' ? 1.8 : 1;
+    ctx.fillStyle = entry.kind === 'collision' ? '#efbd70' : colorFor(face.material); ctx.globalAlpha = entry.kind === 'collision' ? .24 : .34; ctx.fill(); ctx.globalAlpha = entry.kind === 'collision' ? .9 : .82; ctx.strokeStyle = stroke; ctx.stroke();
+  }
+  for (const [objectIndex, entry] of visible.entries()) {
+    if (entry.kind !== 'collision') continue;
+    const indices = new Set(entry.data.faces.flatMap(face => face.vertices));
+    ctx.fillStyle = '#ffe0a8'; ctx.globalAlpha = .78;
+    for (const index of indices) {
+      const point = projected[objectIndex][index];
+      ctx.fillRect(point[0] - 1.2, point[1] - 1.2, 2.4, 2.4);
+    }
+  }
+  ctx.globalAlpha = 1;
+  state.frame = requestAnimationFrame(drawPreview);
 }
 
 function toggleRotation() {
@@ -212,11 +304,8 @@ function toggleRotation() {
   if (button) button.textContent = state.paused ? 'Resume rotation' : 'Pause rotation';
 }
 
-function resetObjectView() {
-  state.animation = 0;
-}
-
 async function showBlockmap() {
+  stopPreview();
   const m=state.manifest; const data=await fetch(fileUrl(m.blockmap.path)).then(r=>r.json()); const b=data.blockmaps[0];
   $('content').innerHTML=`<h2>Blockmap grid</h2><p class="muted">${b.cell_counts[0]}×${b.cell_counts[1]} cells; cell colors indicate referenced object count.</p><canvas id="blockmap-canvas" width="800" height="500"></canvas><p><a href="${fileUrl(m.blockmap.path)}" target="_blank">open blockmap.json</a></p>`;
   $('details').innerHTML=`<h3>Blockmap metadata</h3><pre>${esc(JSON.stringify({bounds:b.bounds, bounds_fixed:b.bounds_fixed, cell_counts:b.cell_counts},null,2))}</pre>`;
