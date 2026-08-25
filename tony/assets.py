@@ -51,6 +51,10 @@ class HedFormatError(ValueError):
     """The input does not satisfy the observed HET/HED/WAD layout."""
 
 
+class PsxFormatError(ValueError):
+    """The input does not satisfy the observed THPS2 PSX asset layout."""
+
+
 @dataclass(frozen=True)
 class PkrDirectory:
     name: str
@@ -107,6 +111,75 @@ class NamedTableEntry:
     name: str
     offset: int
     size: int
+
+
+@dataclass(frozen=True)
+class PsxModel:
+    index: int
+    offset: int
+    size: int
+    flags: int
+    vertex_count: int
+    normal_count: int
+    face_count: int
+    bounds: tuple[int, int, int, int, int, int]
+    face_flags: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class PsxTag:
+    offset: int
+    tag_type: int
+    size: int
+
+    @property
+    def type_name(self) -> str:
+        return {0x0000000A: "blockmap", 0x73424752: "rgbs"}.get(self.tag_type, "unknown")
+
+
+@dataclass(frozen=True)
+class PsxTexture:
+    index: int
+    offset: int
+    flags: int
+    color_count: int
+    palette_name: int
+    name_index: int
+    width: int
+    height: int
+
+
+class _PsxCursor:
+    def __init__(self, data: bytes, position: int = 0):
+        self.data = data
+        self.position = position
+
+    def take(self, size: int, label: str) -> bytes:
+        end = self.position + size
+        if size < 0 or end > len(self.data):
+            raise PsxFormatError(
+                f"truncated {label}: need 0x{size:x} bytes at 0x{self.position:x}"
+            )
+        result = self.data[self.position:end]
+        self.position = end
+        return result
+
+    def u16(self, label: str) -> int:
+        return struct.unpack("<H", self.take(2, label))[0]
+
+    def i16(self, label: str) -> int:
+        return struct.unpack("<h", self.take(2, label))[0]
+
+    def u32(self, label: str) -> int:
+        return struct.unpack("<I", self.take(4, label))[0]
+
+    def i32(self, label: str) -> int:
+        return struct.unpack("<i", self.take(4, label))[0]
+
+    def seek(self, position: int, label: str) -> None:
+        if position < 0 or position > len(self.data):
+            raise PsxFormatError(f"{label} seeks outside the file: 0x{position:x}")
+        self.position = position
 
 
 def _decode_name(raw: bytes, label: str) -> str:
@@ -380,6 +453,272 @@ class TrgArchive:
                 for node_type, count in sorted(counts.items())
             ],
             "unknown_node_types": sorted(node_type for node_type in counts if node_type not in _TRG_NODE_NAMES),
+        }
+
+
+_PSX_TAG_NAMES = {0x0000000A: "blockmap", 0x73424752: "rgbs"}
+
+
+class PsxArchive:
+    """Conservative reader for the THPS2 PSX model/texture container."""
+
+    def __init__(
+        self,
+        path: Path,
+        version: int,
+        marker: int,
+        tag_offset: int,
+        object_model_indices: list[int],
+        models: list[PsxModel],
+        tags: list[PsxTag],
+        tag_terminated: bool,
+        texture_name_count: int,
+        palette4_count: int,
+        palette8_count: int,
+        textures: list[PsxTexture],
+        texture_table_offset: int | None,
+        metadata_end: int,
+    ):
+        self.path = path
+        self.version = version
+        self.marker = marker
+        self.tag_offset = tag_offset
+        self.object_model_indices = object_model_indices
+        self.models = models
+        self.tags = tags
+        self.tag_terminated = tag_terminated
+        self.texture_name_count = texture_name_count
+        self.palette4_count = palette4_count
+        self.palette8_count = palette8_count
+        self.textures = textures
+        self.texture_table_offset = texture_table_offset
+        self.metadata_end = metadata_end
+
+    @classmethod
+    def read(cls, path: str | Path) -> PsxArchive:
+        source = resolve(path)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        data = source.read_bytes()
+        if len(data) < 12:
+            raise PsxFormatError(f"PSX file is shorter than its 12-byte header: {source}")
+
+        cursor = _PsxCursor(data)
+        version = cursor.u16("PSX version")
+        marker = cursor.u16("PSX marker")
+        tag_offset = cursor.u32("PSX tag offset")
+        object_count = cursor.u32("PSX object count")
+        if version not in {3, 4, 6}:
+            raise PsxFormatError(f"unsupported PSX version {version} in {source.name}")
+        if marker != 2:
+            raise PsxFormatError(f"unsupported PSX marker 0x{marker:04x} in {source.name}")
+        if tag_offset > len(data):
+            raise PsxFormatError(f"PSX tag offset is outside the file: 0x{tag_offset:x}")
+        if object_count > len(data) // 36:
+            raise PsxFormatError(f"PSX object table is unreasonably large: {object_count}")
+
+        object_model_indices: list[int] = []
+        for index in range(object_count):
+            cursor.take(4 + 12 + 4 + 2, f"PSX object {index} header")
+            object_model_indices.append(cursor.u16(f"PSX object {index} model index"))
+            cursor.take(2 + 2 + 4 + 4, f"PSX object {index} tail")
+
+        model_count = cursor.u32("PSX model count")
+        if model_count > len(data) // 4:
+            raise PsxFormatError(f"PSX model table is unreasonably large: {model_count}")
+        model_offsets = [cursor.u32(f"PSX model offset {index}") for index in range(model_count)]
+        if model_offsets != sorted(set(model_offsets)):
+            raise PsxFormatError("PSX model offsets must be strictly increasing")
+        if any(offset < cursor.position or offset >= len(data) for offset in model_offsets):
+            raise PsxFormatError("PSX model offset is outside the file")
+        if any(index >= model_count for index in object_model_indices):
+            raise PsxFormatError("PSX object references a model outside the model table")
+
+        models: list[PsxModel] = []
+        for index, offset in enumerate(model_offsets):
+            model_end = model_offsets[index + 1] if index + 1 < len(model_offsets) else tag_offset
+            if model_end <= offset:
+                raise PsxFormatError(f"PSX model {index} has an invalid boundary")
+            cursor.seek(offset, f"PSX model {index}")
+            if version >= 4:
+                flags = cursor.u16(f"PSX model {index} flags")
+                vertex_count = cursor.u16(f"PSX model {index} vertex count")
+                normal_count = cursor.u16(f"PSX model {index} normal count")
+                face_count = cursor.u16(f"PSX model {index} face count")
+            else:
+                flags = cursor.u32(f"PSX model {index} flags")
+                vertex_count = cursor.u32(f"PSX model {index} vertex count")
+                normal_count = cursor.u32(f"PSX model {index} normal count")
+                face_count = cursor.u32(f"PSX model {index} face count")
+            cursor.u32(f"PSX model {index} radius")
+            bounds = tuple(cursor.i16(f"PSX model {index} bound {bound}") for bound in range(6))
+            cursor.u32(f"PSX model {index} unknown header")
+
+            vertex_bytes = vertex_count * 8
+            normal_bytes = normal_count * 8
+            if cursor.position + vertex_bytes + normal_bytes > model_end:
+                raise PsxFormatError(f"PSX model {index} vertex/normal arrays exceed its boundary")
+            cursor.take(vertex_bytes, f"PSX model {index} vertices")
+            cursor.take(normal_bytes, f"PSX model {index} normals")
+
+            face_flags: list[int] = []
+            for face_index in range(face_count):
+                face_start = cursor.position
+                base_flags = cursor.u16(f"PSX model {index} face {face_index} flags")
+                face_length = cursor.u16(f"PSX model {index} face {face_index} length")
+                face_end = face_start + face_length
+                if face_length < 4 or face_end > model_end:
+                    raise PsxFormatError(f"PSX model {index} face {face_index} has an invalid length")
+
+                index_bytes = 4 if version >= 4 else 8
+                cursor.take(index_bytes + 4 + 2 + 2, f"PSX model {index} face {face_index} core")
+                if flags & 1 == 0 and base_flags & 2:
+                    cursor.take(4, f"PSX model {index} face {face_index} texture index")
+                if base_flags & 1:
+                    cursor.take(16 if version >= 6 else 8, f"PSX model {index} face {face_index} UVs")
+                if base_flags & 8:
+                    cursor.take(8, f"PSX model {index} face {face_index} extra data")
+                if flags & 1 == 0 and base_flags & 0x20:
+                    cursor.take(4, f"PSX model {index} face {face_index} trailing data")
+                if cursor.position > face_end:
+                    raise PsxFormatError(f"PSX model {index} face {face_index} fields exceed its length")
+                cursor.seek(face_end, f"PSX model {index} face {face_index} end")
+                face_flags.append(base_flags)
+
+            if cursor.position > model_end:
+                raise PsxFormatError(f"PSX model {index} exceeds its boundary")
+            models.append(
+                PsxModel(
+                    index,
+                    offset,
+                    model_end - offset,
+                    flags,
+                    vertex_count,
+                    normal_count,
+                    face_count,
+                    bounds,
+                    tuple(face_flags),
+                )
+            )
+
+        tags, tag_terminated, post_tables_offset = cls._read_tags(data, tag_offset)
+        texture_name_count = 0
+        palette4_count = 0
+        palette8_count = 0
+        textures: list[PsxTexture] = []
+        texture_table_offset: int | None = None
+        metadata_end = post_tables_offset
+        if post_tables_offset < len(data) and model_count:
+            post = _PsxCursor(data, post_tables_offset)
+            post.take(model_count * 4, "PSX model names")
+            texture_name_count = post.u32("PSX texture name count")
+            post.take(texture_name_count * 4, "PSX texture names")
+            palette4_count = post.u32("PSX 4bpp palette count")
+            post.take(palette4_count * (4 + 16 * 2), "PSX 4bpp palettes")
+            palette8_count = post.u32("PSX 8bpp palette count")
+            post.take(palette8_count * (4 + 256 * 2), "PSX 8bpp palettes")
+            texture_count = post.u32("PSX texture count")
+            if version >= 6 and texture_count == 0xFFFFFFFF:
+                reference_count = post.u32("PSX texture reference count")
+                post.take(reference_count * 36, "PSX texture references")
+                cubemap_count = post.u32("PSX cubemap reference count")
+                post.take(cubemap_count * 36, "PSX cubemap references")
+                texture_count = post.u32("PSX texture count after references")
+            if texture_count > len(data) // 4:
+                raise PsxFormatError(f"PSX texture table is unreasonably large: {texture_count}")
+            texture_table_offset = post.position
+            texture_offsets = [post.u32(f"PSX texture offset {index}") for index in range(texture_count)]
+            if texture_offsets != sorted(set(texture_offsets)):
+                raise PsxFormatError("PSX texture offsets must be strictly increasing")
+            if any(offset + 20 > len(data) for offset in texture_offsets):
+                raise PsxFormatError("PSX texture offset is outside the file")
+            for index, offset in enumerate(texture_offsets):
+                texture_cursor = _PsxCursor(data, offset)
+                flags = texture_cursor.u32(f"PSX texture {index} flags")
+                color_count = texture_cursor.u32(f"PSX texture {index} color count")
+                palette_name = texture_cursor.u32(f"PSX texture {index} palette")
+                name_index = texture_cursor.u32(f"PSX texture {index} name index")
+                width = texture_cursor.u16(f"PSX texture {index} width")
+                height = texture_cursor.u16(f"PSX texture {index} height")
+                if color_count not in {16, 256, 65536}:
+                    raise PsxFormatError(f"PSX texture {index} has unsupported color count {color_count}")
+                if name_index >= texture_name_count:
+                    raise PsxFormatError(f"PSX texture {index} references a missing texture name")
+                textures.append(
+                    PsxTexture(index, offset, flags, color_count, palette_name, name_index, width, height)
+                )
+            metadata_end = max(
+                [post.position, *(texture.offset + 20 for texture in textures)],
+                default=post.position,
+            )
+
+        return cls(
+            source,
+            version,
+            marker,
+            tag_offset,
+            object_model_indices,
+            models,
+            tags,
+            tag_terminated,
+            texture_name_count,
+            palette4_count,
+            palette8_count,
+            textures,
+            texture_table_offset,
+            metadata_end,
+        )
+
+    @staticmethod
+    def _read_tags(data: bytes, offset: int) -> tuple[list[PsxTag], bool, int]:
+        if offset == len(data):
+            return [], False, offset
+        cursor = _PsxCursor(data, offset)
+        tags: list[PsxTag] = []
+        while cursor.position < len(data):
+            tag_offset = cursor.position
+            tag_type = cursor.u32("PSX tag type")
+            if tag_type == 0xFFFFFFFF:
+                return tags, True, cursor.position
+            tag_size = cursor.u32("PSX tag size")
+            tag_end = cursor.position + tag_size
+            if tag_end > len(data):
+                raise PsxFormatError(f"PSX tag at 0x{tag_offset:x} exceeds the file")
+            cursor.seek(tag_end, "PSX tag end")
+            tags.append(PsxTag(tag_offset, tag_type, tag_size))
+        return tags, False, cursor.position
+
+    def summary(self) -> dict:
+        face_counts = Counter(flag for model in self.models for flag in model.face_flags)
+        texture_colors = Counter(texture.color_count for texture in self.textures)
+        return {
+            "format": "PSX",
+            "version": self.version,
+            "marker": self.marker,
+            "tag_offset": self.tag_offset,
+            "tag_count": len(self.tags),
+            "tag_terminated": self.tag_terminated,
+            "unknown_tag_types": sorted(tag.tag_type for tag in self.tags if tag.type_name == "unknown"),
+            "object_count": len(self.object_model_indices),
+            "model_count": len(self.models),
+            "vertex_count": sum(model.vertex_count for model in self.models),
+            "normal_count": sum(model.normal_count for model in self.models),
+            "face_count": sum(model.face_count for model in self.models),
+            "face_flags": [
+                {"flags": flags, "count": count} for flags, count in sorted(face_counts.items())
+            ],
+            "texture_name_count": self.texture_name_count,
+            "palette4_count": self.palette4_count,
+            "palette8_count": self.palette8_count,
+            "texture_count": len(self.textures),
+            "texture_color_counts": [
+                {"colors": colors, "count": count}
+                for colors, count in sorted(texture_colors.items())
+            ],
+            "texture_table_offset": self.texture_table_offset,
+            "metadata_end": self.metadata_end,
+            "metadata_trailing_bytes": max(0, self.path.stat().st_size - self.metadata_end),
+            "texture_payloads": "opaque",
         }
 
 
@@ -675,6 +1014,68 @@ def inspect_trg(path: str | Path, *, include_nodes: bool = False) -> dict:
     return result
 
 
+def inspect_psx(
+    path: str | Path,
+    *,
+    include_models: bool = False,
+    include_textures: bool = False,
+    include_tags: bool = False,
+) -> dict:
+    source = resolve(path)
+    archive = PsxArchive.read(source)
+    result = {
+        "source": {
+            "path": _display_path(source),
+            "size": source.stat().st_size,
+            "sha256": sha256(source),
+        },
+        **archive.summary(),
+    }
+    if include_models:
+        result["models"] = [
+            {
+                "index": model.index,
+                "offset": model.offset,
+                "size": model.size,
+                "flags": model.flags,
+                "vertex_count": model.vertex_count,
+                "normal_count": model.normal_count,
+                "face_count": model.face_count,
+                "bounds": model.bounds,
+                "face_flags": [
+                    {"flags": flags, "count": count}
+                    for flags, count in sorted(Counter(model.face_flags).items())
+                ],
+            }
+            for model in archive.models
+        ]
+    if include_textures:
+        result["textures"] = [
+            {
+                "index": texture.index,
+                "offset": texture.offset,
+                "flags": texture.flags,
+                "color_count": texture.color_count,
+                "palette_name": texture.palette_name,
+                "name_index": texture.name_index,
+                "width": texture.width,
+                "height": texture.height,
+            }
+            for texture in archive.textures
+        ]
+    if include_tags:
+        result["tags"] = [
+            {
+                "offset": tag.offset,
+                "type": tag.tag_type,
+                "name": tag.type_name,
+                "size": tag.size,
+            }
+            for tag in archive.tags
+        ]
+    return result
+
+
 def _asset_source_info(path: Path) -> dict:
     return {
         "path": _display_path(path),
@@ -952,6 +1353,17 @@ def assets_inspect_pre(args) -> int:
 
 def assets_inspect_trg(args) -> int:
     result = inspect_trg(args.path, include_nodes=args.nodes)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def assets_inspect_psx(args) -> int:
+    result = inspect_psx(
+        args.path,
+        include_models=args.models,
+        include_textures=args.textures,
+        include_tags=args.tags,
+    )
     print(json.dumps(result, indent=2))
     return 0
 

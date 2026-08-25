@@ -10,6 +10,7 @@ from tony.assets import (
     PkrArchive,
     PkrFormatError,
     PreArchive,
+    PsxArchive,
     TrgArchive,
     _filename_crc32,
     extract_hed,
@@ -18,6 +19,7 @@ from tony.assets import (
     inspect_hed,
     inspect_pkr,
     inspect_pre,
+    inspect_psx,
     inspect_trg,
     inventory_assets,
 )
@@ -143,6 +145,61 @@ def test_read_trg_header_and_node_table(tmp_path: Path):
     assert result["node_count"] == 2
     assert result["unknown_node_types"] == []
     assert result["nodes"][1]["name"] == "terminator"
+
+
+def _write_psx(path: Path) -> None:
+    data = bytearray(b"\0" * 12)
+    data.extend(b"\0" * 36)
+    data.extend(struct.pack("<I", 1))
+    data.extend(struct.pack("<I", 0))
+    model_offset = len(data)
+    data.extend(struct.pack("<HHHH", 0, 1, 1, 1))
+    data.extend(struct.pack("<I", 1))
+    data.extend(struct.pack("<hhhhhh", 0, 0, 0, 0, 0, 0))
+    data.extend(struct.pack("<I", 0))
+    data.extend(struct.pack("<hhhh", 1, 2, 3, 0))
+    data.extend(struct.pack("<hhhh", 0, 1, 0, 0))
+    data.extend(struct.pack("<HH", 0x10, 16))
+    data.extend(struct.pack("<BBBB", 0, 0, 0, 0))
+    data.extend(struct.pack("<BBBB", 0x20, 0, 0, 0))
+    data.extend(struct.pack("<HH", 0, 0))
+    tag_offset = len(data)
+    data.extend(struct.pack("<II", 0x0000000A, 4))
+    data.extend(b"TAG!")
+    data.extend(struct.pack("<I", 0xFFFFFFFF))
+    data.extend(struct.pack("<I", 0x1111))
+    data.extend(struct.pack("<I", 1))
+    data.extend(struct.pack("<I", 0x2222))
+    data.extend(struct.pack("<I", 0))
+    data.extend(struct.pack("<I", 1))
+    data.extend(struct.pack("<I", 0x3333))
+    data.extend(b"\0" * (256 * 2))
+    data.extend(struct.pack("<I", 1))
+    texture_offset_table = len(data)
+    data.extend(struct.pack("<I", 0))
+    texture_offset = len(data)
+    data.extend(struct.pack("<IIIIHH", 0, 256, 0x3333, 0, 4, 2))
+    data.extend(b"\0" * 8)
+    struct.pack_into("<HHII", data, 0, 4, 2, tag_offset, 1)
+    struct.pack_into("<I", data, 12 + 36 + 4, model_offset)
+    struct.pack_into("<I", data, texture_offset_table, texture_offset)
+    path.write_bytes(data)
+
+
+def test_read_and_inspect_psx_metadata(tmp_path: Path):
+    source = tmp_path / "MODEL.PSX"
+    _write_psx(source)
+
+    archive = PsxArchive.read(source)
+    assert archive.version == 4
+    assert archive.models[0].face_count == 1
+    assert archive.tags[0].type_name == "blockmap"
+    assert archive.textures[0].width == 4
+
+    result = inspect_psx(source, include_models=True, include_textures=True, include_tags=True)
+    assert result["model_count"] == 1
+    assert result["texture_count"] == 1
+    assert result["tags"][0]["name"] == "blockmap"
 
 
 def test_read_inspect_and_extract_hed_family(tmp_path: Path):

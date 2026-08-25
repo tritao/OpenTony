@@ -35,6 +35,12 @@ Observed in 32 files extracted from `ALL.PKR`.
 
 `tony assets inspect-trg` reports the node-type histogram; add `--nodes` for offsets and node sizes. `tony assets inventory` summarizes the extracted tree by extension. Full TRG command/script disassembly remains a separate step because node payloads have type-specific structures and known THPS1/THPS2 variants.
 
+## PSX
+
+The extracted PC PKR contains 282 `.PSX` files, all using the observed version `4` / marker `2` header. The header stores an absolute tag offset and object count; 36-byte object records are followed by a model count and absolute model offsets. Model headers contain 16-bit vertex/normal/face counts, followed by packed 8-byte vertices and normals and variable-length faces. The inspector currently validates these tables, face boundaries, tag records, palette tables, and texture headers without decoding geometry or texture payloads.
+
+Across the local corpus this parses 29,232 models, 1,878 texture headers, and 45 known blockmap tags with no structural failures. Use `tony assets inspect-psx`; add `--models`, `--textures`, or `--tags` for detailed tables. The next PSX step is payload decoding/export, following the model and texture structures documented by [JayFoxRox/thps2-tools' converter](https://github.com/JayFoxRox/thps2-tools/blob/master/convert-psx.py).
+
 ## CD.HET/CD.HEP/CD.HED/CD.WAD
 
 The extracted PKR contains all four files under `data/`. The PC variant uses two variable-length filename tables: each record is a NUL-terminated ASCII filename, 4-byte alignment padding, a little-endian `u32` offset, and a little-endian `u32` size. Both tables end with `0xffffffff`; `CD.HET` has 1,531 records and `CD.HEP` has 1,083.

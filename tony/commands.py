@@ -11,6 +11,7 @@ from .assets import (
     assets_inspect_hed,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_pkr,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_pre,  # noqa: F401 - command handlers are consumed by cli.py
+    assets_inspect_psx,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inspect_trg,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inventory,  # noqa: F401 - command handlers are consumed by cli.py
 )

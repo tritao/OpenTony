@@ -116,6 +116,7 @@ tony assets inspect-pre <path>
 tony assets extract-pre <path> [--output build/assets/pre] [--force]
 tony assets inventory <path>
 tony assets inspect-trg <path> [--nodes]
+tony assets inspect-psx <path> [--models] [--textures] [--tags]
 tony assets inspect-hed <path> [--entries]
 tony assets extract-hed <path> [--output build/assets/cd-wad] [--force]
 
