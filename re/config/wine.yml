@@ -5,3 +5,17 @@ wine:
   minimum_major: 11
   debug_port: 31337
   debug_quiet: true
+  debug_xvfb: true
+  xvfb:
+    depth: 16
+    server_args:
+      - "+extension"
+      - GLX
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+  virtual_desktop:
+    enabled: true
+    name: OpenTony
+    width: 1024
+    height: 768

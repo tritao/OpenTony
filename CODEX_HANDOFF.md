@@ -32,7 +32,20 @@ Milestone 1 is complete. `game/THPS2.img` is recorded as a 2352-byte-sector raw 
 - raw tail beyond the filesystem volume: `36302` sectors / `85382304` bytes
 - raw-tail SHA-256: `0452b0321938bf7da2a52d0540ab9f2030aaac6c230c939ff621e7075eff60bf`
 
-The raw tail is recorded but intentionally unclassified; the normalized ISO contains only the declared ISO-9660 volume. No THPS2 executable identity, addresses, data structures, or gameplay semantics have been confirmed yet.
+The raw tail is recorded but intentionally unclassified; the normalized ISO contains only the declared ISO-9660 volume.
+
+The extracted retail executable is now recorded:
+
+- path: `build/disc/files/SETUP/data/THawk2.exe`
+- size: `1450035` bytes
+- SHA-256: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
+- format: PE32/i386
+- image base: `0x00400000`
+- entry point: `0x00502f74`
+
+The generated `build/patched/THawk2.nocd.exe` bypasses the observed CD audio-TOC gate without changing the recorded retail executable. A runtime smoke run reached DirectDraw and loaded the game paths from Wine `D:`; the generated runtime log is under `build/runtime/`. Isolated `tony debug` launches now use a `1024x768x16` Xvfb screen with Mesa llvmpipe, which reaches the executable entry point and the CD-check helper headlessly.
+
+No main-loop, player-state, or gameplay semantics have yet been confirmed.
 
 ## Baseline checks
 
@@ -45,12 +58,12 @@ pytest -q
 
 ## Intended first milestones
 
-1. Extract/install the PC game without modifying the canonical image.
-2. Identify `Setup.exe` and the installed game layout.
-3. Record the exact retail `THPS2.exe` identity and PE32/i386 metadata.
-4. Confirm the executable runs under the canonical Wine prefix.
-5. Produce a deterministic Ghidra import only after executable identity is recorded.
-6. Locate the main loop / frame boundary and start a first runtime trace.
+1. Extract/install the PC game without modifying the canonical image. **Complete.**
+2. Identify `Setup.exe` and the installed game layout. **Complete.**
+3. Record the exact retail `THawk2.exe` identity and PE32/i386 metadata. **Complete.**
+4. Confirm the executable runs under the canonical Wine prefix. **Smoke run complete; repeatable runtime trace pending.**
+5. Produce a deterministic Ghidra import from the recorded retail executable. **Complete.** Fresh rebuild currently exports `4739` functions.
+6. Locate the startup path and main loop / frame boundary, then capture the first runtime trace. **Startup anchor observed; main loop pending.**
 7. Recover enough player state to define `warehouse-idle`, `warehouse-run`, and `warehouse-ollie` experiments.
 
 Update this file when a milestone materially changes the project's starting assumptions.

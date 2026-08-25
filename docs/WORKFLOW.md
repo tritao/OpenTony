@@ -52,7 +52,40 @@ Start it with:
 tony debug
 ```
 
+For a running game, use the safe virtual-desktop launcher first and attach to its Wine PID:
+
+```bash
+tony run
+tony debug --pid auto
+```
+
+`auto` asks WineDbg for the Windows PID, so it does not confuse the host Linux PID with the PID WineDbg expects. For a manual attach, pass the Windows PID shown by `winedbg --command "info proc"`.
+
+Without `--pid`, `tony debug` launches the target inside Xvfb by default, so the debugger cannot change the host display mode.
+
+For a headless debugger/smoke run, wrap the launch in Xvfb instead:
+
+```bash
+tony play --headless
+```
+
+Use `tony run --headless` when the disc is already mounted. Both commands use the configured 16-bit llvmpipe Xvfb profile; the visible Wine virtual desktop remains the default.
+
 `re/gdb/bootstrap.py` is loaded into GDB and is the place for small interactive helpers. Once a runtime observation becomes repeatable, move the procedure into a `tony` command or an experiment definition.
+
+Useful helpers in the current GDB session:
+
+```text
+tony-thps2                         list known addresses and build identity
+tony-bp-thps2 cd_check             break at the CD-check helper
+tony-bp 0x004bb240 temporary       set a one-shot address breakpoint
+tony-modules                       show loaded Wine module ranges
+tony-read32 0x004bb240             read a little-endian uint32
+tony-hexdump 0x004bb240 32         print a memory region
+tony-dump 0x004bb240 32 build/x.bin save raw memory for later analysis
+```
+
+The THPS2 address table is explicitly tied to the recorded retail executable hash. Do not reuse those addresses for another regional, demo, or patched build without recording the mapping first.
 
 ## 5. Experiments
 

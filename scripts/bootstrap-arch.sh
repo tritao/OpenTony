@@ -23,7 +23,8 @@ sudo pacman -Syu --needed --noconfirm \
   base-devel git ca-certificates curl wget unzip \
   python python-pip \
   jdk21-openjdk \
-  gdb wine p7zip file xorriso libcdio fuseiso \
+  gdb wine p7zip file xorriso libcdio fuseiso xorg-server-xvfb \
+  lib32-libglvnd lib32-mesa lib32-vulkan-icd-loader \
   cmake ninja clang lld pkgconf jq ripgrep
 
 echo "[2/4] OpenTony virtual environment"

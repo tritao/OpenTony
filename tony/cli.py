@@ -107,15 +107,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=commands.wine_unmount_disc)
 
     p = sub.add_parser("run", help="run recorded THPS2 executable under Wine")
+    p.add_argument("--headless", action="store_true", help="run inside the configured Xvfb software-rendering display")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.run_game)
 
     p = sub.add_parser("play", help="mount the disc if needed and run the recorded game under Wine")
+    p.add_argument("--headless", action="store_true", help="run inside the configured Xvfb software-rendering display")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.play_game)
 
     p = sub.add_parser("debug", help="run through WineDbg GDB proxy and interactive GDB")
     p.add_argument("--port", type=int)
+    p.add_argument("--pid", help="attach to a PID, or use 'auto' to find the running game")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.debug_game)
 
@@ -151,6 +154,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     if args.command in {"run", "play"}:
         command_index = raw_argv.index(args.command)
         args.game_args = raw_argv[command_index + 1:]
+        if args.headless and args.game_args[:1] == ["--headless"]:
+            del args.game_args[0]
     if args.command in {"run", "play", "debug"} and args.game_args[:1] == ["--"]:
         del args.game_args[0]
     return args

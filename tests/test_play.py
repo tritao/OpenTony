@@ -1,9 +1,8 @@
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
-from tony import commands
+from tony import commands, wine
 from tony.cli import parse_args
-from tony import wine
 
 
 def test_play_mounts_before_running(monkeypatch):
@@ -43,5 +42,34 @@ def test_run_uses_generated_nocd_executable(monkeypatch, tmp_path: Path):
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"]))
 
     assert result == 7
-    assert calls[0][0] == ["wine", str(executable), "--fullscreen"]
+    assert calls[0][0] == ["wine", "explorer", "/desktop=OpenTony,1024x768", str(executable), "--fullscreen"]
     assert calls[0][1]["cwd"] == tmp_path
+
+
+def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
+    executable = tmp_path / "THawk2.nocd.exe"
+    calls = []
+
+    monkeypatch.setattr(wine, "nocd_executable", lambda: executable)
+    monkeypatch.setattr(wine, "wine_env", lambda: {"WINEPREFIX": str(tmp_path / "prefix")})
+    monkeypatch.setattr(wine, "xvfb_command", lambda cfg, env: ["xvfb-run", "-a", "-s", "headless"])
+    monkeypatch.setattr(
+        wine.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=0),
+    )
+
+    result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"], headless=True))
+
+    assert result == 0
+    assert calls[0][0] == [
+        "xvfb-run",
+        "-a",
+        "-s",
+        "headless",
+        "wine",
+        "explorer",
+        "/desktop=OpenTony,1024x768",
+        str(executable),
+        "--fullscreen",
+    ]

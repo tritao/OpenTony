@@ -28,6 +28,35 @@ Wine itself is installed through the OS package manager because graphics, audio,
 
 OpenTony creates a normal 64-bit prefix at `.tools/wineprefix`. Do not force the legacy `WINEARCH=win32` model; Wine 11's new WoW64 architecture is the intended baseline.
 
+The configured `tony run`/`tony play` path uses a `1024x768` Wine virtual desktop. This keeps old DirectDraw mode changes inside a Wine window and prevents the game from changing the host display mode. The size is configured in `re/config/wine.yml`.
+
+New `tony debug` launches are isolated in Xvfb by default; use `tony debug --pid <pid>` to attach to a visible game launched by `tony run` or `tony play`.
+
+For headless smoke tests, Xvfb provides a completely separate display:
+
+```bash
+tony play --headless
+```
+
+The game will not be visible in this mode; use the Wine virtual desktop for visible gameplay.
+`tony debug` applies this 16-bit llvmpipe profile automatically for isolated launches.
+Use `tony run --headless` when the disc is already mounted. The equivalent manual wrapper is:
+
+```bash
+xvfb-run -a -s "-screen 0 1024x768x16 +extension GLX" \
+  env LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe tony run
+```
+
+The PC executable is 32-bit and needs matching graphics libraries. On Ubuntu/Linux Mint, install them with:
+
+```bash
+sudo dpkg --add-architecture i386
+sudo apt-get update
+sudo apt-get install -y libgl1:i386 libegl1:i386 libgl1-mesa-dri:i386 libvulkan1:i386 mesa-vulkan-drivers:i386
+```
+
+The Ubuntu bootstrap installs these automatically. The Arch bootstrap installs the corresponding `lib32-libglvnd`, `lib32-mesa`, and `lib32-vulkan-icd-loader` packages.
+
 Runtime traces should record the exact `wine --version` because Wine is not byte-pinned by this repository.
 
 ## GDB

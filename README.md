@@ -97,7 +97,7 @@ The extracted PC data also includes a `CD.HED` hash table, a matching `CD.HET` f
 
 `tony wine mount-disc` attaches the generated ISO read-only, maps it as Wine `D:` with CD-ROM semantics, adds the raw-device `D::` mapping, and verifies that Wine can read the volume. A Linux loop device is enough for filesystem access but does not implement optical CD-ROM TOC ioctls; `tony run` and `tony play` use the generated no-CD executable to bypass that retail check. If the command warns that the raw loop device is not readable, grant the current user read-only access using the exact command it prints. Keep it mounted while running the game so disc-hosted assets remain available; clean up afterward with `tony wine unmount-disc`.
 
-`tony exe patch-nocd` creates `THawk2.nocd.exe` beside the recorded executable and leaves the canonical retail executable unchanged. The generated copy bypasses the retail CD audio-TOC check; `tony run` and `tony play` create and use it automatically. The filesystem disc mount is still useful because the game loads data, music, and movies from the disc. Use `tony play` to mount and launch, or `tony run` when the disc is already mounted.
+`tony exe patch-nocd` creates `THawk2.nocd.exe` beside the recorded executable and leaves the canonical retail executable unchanged. The generated copy bypasses the retail CD audio-TOC check; `tony run` and `tony play` create and use it automatically. They also launch inside a `1024x768` Wine virtual desktop, so the game cannot change the host monitor resolution. The filesystem disc mount is still useful because the game loads data, music, and movies from the disc. Use `tony play` to mount and launch, or `tony run` when the disc is already mounted.
 
 ## Useful commands
 

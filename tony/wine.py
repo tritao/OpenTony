@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .common import ROOT, capture, load_yaml, resolve, wine_env
+from .display import xvfb_command
 from .identity import recorded_executable
 from .nocd import nocd_executable
 
@@ -166,9 +167,24 @@ def _recorded_exe():
     return recorded_executable()
 
 
+def _virtual_desktop_command() -> list[str]:
+    config = load_yaml("re/config/wine.yml")["wine"].get("virtual_desktop", {})
+    if not config.get("enabled", True):
+        return []
+    name = str(config.get("name", "OpenTony"))
+    width = int(config.get("width", 1024))
+    height = int(config.get("height", 768))
+    if width < 320 or height < 200:
+        raise SystemExit(f"invalid Wine virtual desktop size: {width}x{height}")
+    return ["explorer", f"/desktop={name},{width}x{height}"]
+
+
 def run_game(args) -> int:
     exe = nocd_executable()
     env = wine_env()
-    command = ["wine", str(exe), *args.game_args]
+    command = ["wine", *_virtual_desktop_command(), str(exe), *args.game_args]
+    if getattr(args, "headless", False):
+        cfg = load_yaml("re/config/wine.yml")["wine"]
+        command = [*xvfb_command(cfg, env), *command]
     print(" ".join(command))
     return subprocess.run(command, cwd=exe.parent, env=env, check=False).returncode

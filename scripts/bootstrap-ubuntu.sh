@@ -25,6 +25,8 @@ if [[ -z "$CODENAME" ]]; then
   exit 1
 fi
 
+sudo dpkg --add-architecture i386
+
 echo "[1/5] Base development and RE packages"
 sudo apt-get update
 sudo apt-get install -y \
@@ -33,10 +35,11 @@ sudo apt-get install -y \
   openjdk-21-jdk \
   gdb file p7zip-full xorriso libcdio-utils fuseiso \
   build-essential cmake ninja-build clang lld pkg-config \
-  jq ripgrep
+  jq ripgrep xvfb \
+  libgl1:i386 libegl1:i386 libgl1-mesa-dri:i386 \
+  libvulkan1:i386 mesa-vulkan-drivers:i386
 
 echo "[2/5] WineHQ stable"
-sudo dpkg --add-architecture i386
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo wget -q -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
 sudo wget -q -O "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \

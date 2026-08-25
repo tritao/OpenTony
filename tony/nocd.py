@@ -4,7 +4,6 @@ from pathlib import Path
 
 from .identity import recorded_executable
 
-
 # These offsets and bytes belong to the recorded THPS2 PC executable build.
 # FUN_004bb240 loads the disc TOC and returns a nonzero error when the CD
 # cannot be opened. Returning zero bypasses only that startup/recheck gate.
