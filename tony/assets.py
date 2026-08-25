@@ -138,6 +138,24 @@ class PsxObject:
 
 
 @dataclass(frozen=True)
+class PsxBlockmapCell:
+    index: int
+    x: int
+    z: int
+    unknown_1: int
+    unknown_2: int
+    object_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class PsxBlockmap:
+    tag_offset: int
+    bounds: tuple[int, int, int, int]
+    cell_counts: tuple[int, int]
+    cells: tuple[PsxBlockmapCell, ...]
+
+
+@dataclass(frozen=True)
 class PsxModel:
     index: int
     offset: int
@@ -519,6 +537,7 @@ class PsxArchive:
         models: list[PsxModel],
         model_names: list[int],
         tags: list[PsxTag],
+        blockmaps: list[PsxBlockmap],
         tag_terminated: bool,
         texture_name_count: int,
         texture_names: list[int],
@@ -539,6 +558,7 @@ class PsxArchive:
         self.models = models
         self.model_names = model_names
         self.tags = tags
+        self.blockmaps = blockmaps
         self.tag_terminated = tag_terminated
         self.texture_name_count = texture_name_count
         self.texture_names = texture_names
@@ -817,6 +837,11 @@ class PsxArchive:
             models,
             model_names,
             tags,
+            [
+                cls._read_blockmap(data, tag, len(objects))
+                for tag in tags
+                if tag.type_name == "blockmap" and tag.size >= 36
+            ],
             tag_terminated,
             texture_name_count,
             texture_names,
@@ -848,6 +873,53 @@ class PsxArchive:
             tags.append(PsxTag(tag_offset, tag_type, tag_size))
         return tags, False, cursor.position
 
+    @staticmethod
+    def _read_blockmap(data: bytes, tag: PsxTag, object_count: int) -> PsxBlockmap:
+        payload_start = tag.offset + 8
+        payload_end = payload_start + tag.size
+        payload = data[payload_start:payload_end]
+        cursor = _PsxCursor(payload)
+        bounds = tuple(cursor.i32(f"PSX blockmap bound {index}") for index in range(4))
+        xcell_count = cursor.u16("PSX blockmap X cell count")
+        zcell_count = cursor.u16("PSX blockmap Z cell count")
+        if not xcell_count or not zcell_count:
+            raise PsxFormatError(f"PSX blockmap at 0x{tag.offset:x} has an empty grid")
+        cell_count = xcell_count * zcell_count
+        if cell_count > len(payload) // 16:
+            raise PsxFormatError(f"PSX blockmap at 0x{tag.offset:x} has an unreasonable cell count")
+
+        cells: list[PsxBlockmapCell] = []
+        for index in range(cell_count):
+            unknown_1 = cursor.u32(f"PSX blockmap cell {index} unknown 1")
+            unknown_2 = cursor.u32(f"PSX blockmap cell {index} unknown 2")
+            reference_count = cursor.u32(f"PSX blockmap cell {index} object count")
+            if reference_count > (len(payload) - cursor.position) // 4:
+                raise PsxFormatError(f"PSX blockmap cell {index} has an unreasonable object count")
+            object_indices = tuple(
+                cursor.u32(f"PSX blockmap cell {index} object {object_index}")
+                for object_index in range(reference_count)
+            )
+            terminator = cursor.u32(f"PSX blockmap cell {index} terminator")
+            if terminator != 0:
+                raise PsxFormatError(f"PSX blockmap cell {index} has a non-zero terminator")
+            if any(object_index >= object_count for object_index in object_indices):
+                raise PsxFormatError(f"PSX blockmap cell {index} references a missing object")
+            cells.append(
+                PsxBlockmapCell(
+                    index,
+                    index % xcell_count,
+                    index // xcell_count,
+                    unknown_1,
+                    unknown_2,
+                    object_indices,
+                )
+            )
+        if cursor.position != len(payload):
+            raise PsxFormatError(
+                f"PSX blockmap at 0x{tag.offset:x} has {len(payload) - cursor.position} trailing bytes"
+            )
+        return PsxBlockmap(tag.offset, bounds, (xcell_count, zcell_count), tuple(cells))
+
     def summary(self) -> dict:
         face_counts = Counter(flag for model in self.models for flag in model.face_flags)
         texture_colors = Counter(texture.color_count for texture in self.textures)
@@ -862,6 +934,13 @@ class PsxArchive:
             "object_count": len(self.object_model_indices),
             "model_count": len(self.models),
             "model_name_count": len(self.model_names),
+            "blockmap_count": len(self.blockmaps),
+            "blockmap_cell_count": sum(
+                blockmap.cell_counts[0] * blockmap.cell_counts[1] for blockmap in self.blockmaps
+            ),
+            "blockmap_object_references": sum(
+                len(cell.object_indices) for blockmap in self.blockmaps for cell in blockmap.cells
+            ),
             "vertex_count": sum(model.vertex_count for model in self.models),
             "normal_count": sum(model.normal_count for model in self.models),
             "face_count": sum(model.face_count for model in self.models),
@@ -1390,6 +1469,91 @@ def _write_psx_scene(
     return materials
 
 
+def _psx_blockmap_object_indices(archive: PsxArchive) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            {
+                object_index
+                for blockmap in archive.blockmaps
+                for cell in blockmap.cells
+                for object_index in cell.object_indices
+            }
+        )
+    )
+
+
+def _write_psx_collision(path: Path, archive: PsxArchive) -> dict:
+    lines = ["# OpenTony PSX collision export", "mtllib collision.mtl"]
+    surface_flags: Counter[int] = Counter()
+    object_indices = _psx_blockmap_object_indices(archive)
+    face_count = 0
+    vertex_offset = 0
+    normal_offset = 0
+    for object_index in object_indices:
+        object_ = archive.objects[object_index]
+        model = archive.models[object_.model_index]
+        model_name = archive.model_names[object_.model_index] if archive.model_names else model.index
+        object_name = f"collision_object_{object_index:04d}_model_{model_name:08x}"
+        lines.append(f"o {object_name}")
+        tx, ty, tz = object_.position
+        lines.extend(
+            f"v {(tx + x) / 4096:.6f} {(ty + y) / 4096:.6f} {(tz + z) / 4096:.6f}"
+            for x, y, z in model.vertices
+        )
+        lines.extend(f"vn {x / 4096:.6f} {y / 4096:.6f} {z / 4096:.6f}" for x, y, z in model.normals)
+        for face in model.faces:
+            if face.base_flags & 0x80:
+                continue
+            material = f"surface_{face.surface_flags:04x}"
+            surface_flags[face.surface_flags] += 1
+            lines.append(f"usemtl {material}")
+            order = (2, 1, 0) if face.base_flags & 0x10 else (0, 2, 3, 1)
+            corners = [
+                f"{vertex_offset + face.vertex_indices[corner] + 1}//"
+                f"{normal_offset + face.normal_index + 1}"
+                for corner in order
+            ]
+            lines.append("f " + " ".join(corners))
+            face_count += 1
+        vertex_offset += len(model.vertices)
+        normal_offset += len(model.normals)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {
+        "object_indices": object_indices,
+        "face_count": face_count,
+        "surface_flags": {
+            f"0x{flags:04x}": count for flags, count in sorted(surface_flags.items())
+        },
+        "materials": {f"surface_{flags:04x}" for flags in surface_flags},
+    }
+
+
+def _psx_blockmap_json(archive: PsxArchive) -> dict:
+    return {
+        "version": 1,
+        "blockmaps": [
+            {
+                "tag_offset": blockmap.tag_offset,
+                "bounds_fixed": list(blockmap.bounds),
+                "bounds": [round(value / 4096, 6) for value in blockmap.bounds],
+                "cell_counts": list(blockmap.cell_counts),
+                "cells": [
+                    {
+                        "index": cell.index,
+                        "x": cell.x,
+                        "z": cell.z,
+                        "unknown_1": cell.unknown_1,
+                        "unknown_2": cell.unknown_2,
+                        "objects": list(cell.object_indices),
+                    }
+                    for cell in blockmap.cells
+                ],
+            }
+            for blockmap in archive.blockmaps
+        ],
+    }
+
+
 def extract_psx(
     path: str | Path,
     output: str | Path,
@@ -1455,6 +1619,8 @@ def extract_psx(
     model_entries = []
     model_materials: set[str] = set()
     scene_entry = None
+    blockmap_entry = None
+    collision_entry = None
     if include_models:
         for model in archive.models:
             target = models_output / f"model_{model.index:04d}.obj"
@@ -1485,6 +1651,41 @@ def extract_psx(
                 material_lines.append(f"map_Kd ../textures/{texture_material.texture_filename}")
             material_lines.append("")
         materials_path.write_text("\n".join(material_lines), encoding="utf-8")
+        if archive.blockmaps:
+            blockmap_path = destination / "blockmap.json"
+            blockmap_path.write_text(
+                json.dumps(_psx_blockmap_json(archive), indent=2) + "\n",
+                encoding="utf-8",
+            )
+            blockmap_entry = {
+                "path": "blockmap.json",
+                "count": len(archive.blockmaps),
+                "cell_count": sum(
+                    blockmap.cell_counts[0] * blockmap.cell_counts[1]
+                    for blockmap in archive.blockmaps
+                ),
+                "object_references": sum(
+                    len(cell.object_indices)
+                    for blockmap in archive.blockmaps
+                    for cell in blockmap.cells
+                ),
+            }
+            collision_data = _write_psx_collision(destination / "collision.obj", archive)
+            collision_material_lines = []
+            for material in sorted(collision_data["materials"]):
+                collision_material_lines.extend(
+                    [f"newmtl {material}", "Kd 0.7 0.7 0.7", ""]
+                )
+            (destination / "collision.mtl").write_text(
+                "\n".join(collision_material_lines), encoding="utf-8"
+            )
+            collision_entry = {
+                "path": "collision.obj",
+                "materials": "collision.mtl",
+                "object_count": len(collision_data["object_indices"]),
+                "face_count": collision_data["face_count"],
+                "surface_flags": collision_data["surface_flags"],
+            }
 
     object_entries = [
         {
@@ -1512,6 +1713,8 @@ def extract_psx(
         "models": model_entries,
         "objects": object_entries,
         "scene": scene_entry,
+        "blockmap": blockmap_entry,
+        "collision": collision_entry,
         "textures": texture_entries,
         "skipped_textures": skipped_textures,
     }

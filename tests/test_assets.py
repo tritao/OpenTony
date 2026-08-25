@@ -167,8 +167,10 @@ def _write_psx(path: Path) -> None:
     data.extend(struct.pack("<I", 0))
     data.extend(bytes((0, 4, 4, 0, 0, 0, 2, 0)))
     tag_offset = len(data)
-    data.extend(struct.pack("<II", 0x0000000A, 4))
-    data.extend(b"TAG!")
+    blockmap = struct.pack("<iiiiHH", 0, 0, 16384, 16384, 1, 1)
+    blockmap += struct.pack("<IIIII", 0, 0, 1, 0, 0)
+    data.extend(struct.pack("<II", 0x0000000A, len(blockmap)))
+    data.extend(blockmap)
     data.extend(struct.pack("<I", 0xFFFFFFFF))
     data.extend(struct.pack("<I", 0x1111))
     data.extend(struct.pack("<I", 1))
@@ -197,6 +199,8 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
     assert archive.version == 4
     assert archive.objects[0].position == (4096, -8192, 12288)
     assert archive.model_names == [0x1111]
+    assert archive.blockmaps[0].cell_counts == (1, 1)
+    assert archive.blockmaps[0].cells[0].object_indices == (0,)
     assert archive.models[0].face_count == 1
     assert archive.tags[0].type_name == "blockmap"
     assert archive.textures[0].width == 4
@@ -210,6 +214,8 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
     )
     assert result["model_count"] == 1
     assert result["texture_count"] == 1
+    assert result["blockmap_count"] == 1
+    assert result["blockmap_object_references"] == 1
     assert result["tags"][0]["name"] == "blockmap"
     assert result["objects"][0]["model_name"] == 0x1111
 
@@ -218,14 +224,20 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
     assert (output / "textures/texture_00002222_0000.ppm").is_file()
     assert (output / "models/model_0000.obj").is_file()
     assert (output / "scene.obj").is_file()
+    assert (output / "blockmap.json").is_file()
+    assert (output / "collision.obj").is_file()
+    assert (output / "collision.mtl").is_file()
     assert manifest["textures"][0]["width"] == 4
     assert manifest["objects"][0]["position"] == [1.0, -2.0, 3.0]
+    assert manifest["blockmap"]["object_references"] == 1
+    assert manifest["collision"]["face_count"] == 1
     assert "object_0000_model_00001111" in (output / "scene.obj").read_text()
     assert "v 1.000244 -1.999512 3.000732" in (output / "scene.obj").read_text()
     model_obj = (output / "models/model_0000.obj").read_text()
     assert "usemtl texture_00002222_0000" in model_obj
     assert "vt 1.000000 0.000000" in model_obj
     assert "map_Kd ../textures/texture_00002222_0000.ppm" in (output / "models/materials.mtl").read_text()
+    assert "usemtl surface_0000" in (output / "collision.obj").read_text()
     assert json.loads((output / "manifest.json").read_text()) == manifest
 
 
