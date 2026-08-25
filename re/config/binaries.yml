@@ -21,11 +21,66 @@ media:
       classification: unclassified
 executables:
   thps2_pc:
-    path: null
-    size: null
-    sha256: null
-    machine: null
-    pe_timestamp: null
-    image_base: null
-    entry_point_rva: null
-    entry_point_va: null
+    path: build/disc/files/SETUP/data/THawk2.exe
+    size: 1450035
+    sha256: f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c
+    machine: '0x014c'
+    pe_timestamp: 978633206
+    image_base: 4194304
+    entry_point_rva: 1060724
+    entry_point_va: 5255028
+    machine_name: i386
+    pe_format: PE32
+    optional_header_magic: '0x010b'
+    section_count: 4
+    sections:
+    - name: .text
+      virtual_address: 4096
+      virtual_size: 1140597
+      raw_size: 1142784
+      raw_offset: 4096
+      characteristics: '0x60000020'
+    - name: .rdata
+      virtual_address: 1146880
+      virtual_size: 47092
+      raw_size: 49152
+      raw_offset: 1146880
+      characteristics: '0x40000040'
+    - name: .data
+      virtual_address: 1196032
+      virtual_size: 38501948
+      raw_size: 245760
+      raw_offset: 1196032
+      characteristics: '0xc0000040'
+    - name: .rsrc
+      virtual_address: 39698432
+      virtual_size: 4344
+      raw_size: 8192
+      raw_offset: 1441792
+      characteristics: '0x40000040'
+    import_dlls:
+    - dll: KERNEL32.dll
+      count: 117
+    - dll: USER32.dll
+      count: 35
+    - dll: GDI32.dll
+      count: 1
+    - dll: ADVAPI32.dll
+      count: 6
+    - dll: SHELL32.dll
+      count: 1
+    - dll: ole32.dll
+      count: 3
+    - dll: DDRAW.dll
+      count: 2
+    - dll: DINPUT.dll
+      count: 1
+    - dll: WINMM.dll
+      count: 13
+    - dll: DSOUND.dll
+      count: 1
+    - dll: DPLAYX.dll
+      count: 1
+    - dll: binkw32.dll
+      count: 18
+    import_count: 199

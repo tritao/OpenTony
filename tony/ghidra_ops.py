@@ -66,7 +66,7 @@ def rebuild() -> None:
 
     pyghidra.start(install_dir=install)
     with pyghidra.open_project(project_parent, project_name, create=True) as project:
-        loader = pyghidra.program_loader().project(project).source(exe)
+        loader = pyghidra.program_loader().project(project).source(str(exe))
         with loader.load() as results:
             results.save(pyghidra.task_monitor())
 

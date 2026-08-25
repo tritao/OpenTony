@@ -4,6 +4,12 @@ import json
 import sys
 
 from . import ghidra_ops
+from .assets import (
+    assets_extract_pkr,  # noqa: F401 - command handlers are consumed by cli.py
+    assets_extract_pre,  # noqa: F401 - command handlers are consumed by cli.py
+    assets_inspect_pkr,  # noqa: F401 - command handlers are consumed by cli.py
+    assets_inspect_pre,  # noqa: F401 - command handlers are consumed by cli.py
+)
 from .common import capture, load_yaml, resolve, sha256
 from .debug import debug_game  # noqa: F401 - command handlers are consumed by cli.py
 from .ghidra_setup import install_ghidra
@@ -15,8 +21,31 @@ from .media import (
     media_list,  # noqa: F401 - command handlers are consumed by cli.py
     media_tracks,  # noqa: F401 - command handlers are consumed by cli.py
 )
+from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
-from .wine import _recorded_exe, run_game, wine_init  # noqa: F401 - public command compatibility
+from .wine import (  # noqa: F401 - public command compatibility
+    _recorded_exe,
+    run_game,
+    wine_init,
+    wine_mount_disc,
+    wine_unmount_disc,
+)
+
+
+def play_game(args) -> int:
+    """Mount the generated disc when needed, then launch the recorded game."""
+
+    _recorded_exe()
+    mount_status = wine_mount_disc(args)
+    if mount_status:
+        return mount_status
+    return run_game(args)
+
+
+def exe_patch_nocd(args) -> int:
+    output = resolve(args.output) if args.output else None
+    patch_nocd_executable(output)
+    return 0
 
 
 def doctor(_args) -> int:

@@ -20,6 +20,8 @@ Do not mix addresses from retail/demo/region/patch builds without explicitly rec
 
 The local Ghidra project is a cache. The real knowledge lives in Git.
 
+The retail executable is also kept canonical. `tony exe patch-nocd` verifies its recorded hash and creates an adjacent `THawk2.nocd.exe` with the known CD audio-TOC gate bypassed. `tony run` and `tony play` use that generated copy automatically; they do not alter the executable used for identity or Ghidra rebuilds.
+
 ## 3. Name conservatively
 
 Prefer:

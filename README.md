@@ -47,6 +47,14 @@ On supported Linux distributions (Ubuntu/Linux Mint and Arch-family in this star
 source .tools/venv/bin/activate
 ```
 
+For a lightweight per-command setup, use the repository wrapper instead:
+
+```bash
+./tony.sh doctor
+```
+
+It creates `.tools/venv` when needed, installs OpenTony in editable mode, and forwards all arguments to `tony`.
+
 Then:
 
 ```bash
@@ -68,12 +76,26 @@ Then initialize Wine and build the Ghidra project:
 
 ```bash
 tony wine init
+tony wine mount-disc
 tony run
 tony ghidra rebuild
 tony ghidra export-functions
 ```
 
 `tony media extract` keeps the original image untouched, converts raw Mode 2/Form 1 CD sectors when needed, writes a normalized ISO and extraction manifest under `build/disc/`, and restores files under `build/disc/files/`. The normalized ISO contains only the declared ISO-9660 volume; use `tony media tracks` to inspect any raw tail beyond it. Generated Ghidra output is under `build/ghidra/`.
+
+Asset extraction is currently two-stage for the PC installer: extract `ALL.PKR` first, then inspect or extract individual `.PRE` resource containers from the generated tree. For example:
+
+```bash
+tony assets extract-pkr build/disc/files/SETUP/data/ALL.PKR --output build/assets/all-pkr
+tony assets extract-pre build/assets/all-pkr/files/data/LEVEL.PRE --output build/assets/level-pre
+```
+
+Both commands validate the observed container structure and write manifests under `build/`; the original archives remain untouched.
+
+`tony wine mount-disc` attaches the generated ISO read-only, maps it as Wine `D:` with CD-ROM semantics, adds the raw-device `D::` mapping, and verifies that Wine can read the volume. A Linux loop device is enough for filesystem access but does not implement optical CD-ROM TOC ioctls; `tony run` and `tony play` use the generated no-CD executable to bypass that retail check. If the command warns that the raw loop device is not readable, grant the current user read-only access using the exact command it prints. Keep it mounted while running the game so disc-hosted assets remain available; clean up afterward with `tony wine unmount-disc`.
+
+`tony exe patch-nocd` creates `THawk2.nocd.exe` beside the recorded executable and leaves the canonical retail executable unchanged. The generated copy bypasses the retail CD audio-TOC check; `tony run` and `tony play` create and use it automatically. The filesystem disc mount is still useful because the game loads data, music, and movies from the disc. Use `tony play` to mount and launch, or `tony run` when the disc is already mounted.
 
 ## Useful commands
 
@@ -86,11 +108,20 @@ tony media tracks [path]
 tony media list [path]
 tony media extract [path] [--output build/disc] [--force]
 
+tony assets inspect-pkr <path>
+tony assets extract-pkr <path> [--output build/assets/pkr] [--force]
+tony assets inspect-pre <path>
+tony assets extract-pre <path> [--output build/assets/pre] [--force]
+
 tony exe identify <path> [--record]
+tony exe patch-nocd
 tony verify
 
 tony wine init
+tony wine mount-disc
+tony wine unmount-disc
 tony run
+tony play
 tony debug
 
 tony ghidra rebuild

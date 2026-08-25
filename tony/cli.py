@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from . import __version__, commands
 
@@ -36,12 +37,36 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
     p.set_defaults(func=commands.media_extract)
 
+    assets = sub.add_parser("assets", help="inspect and extract game asset archives")
+    assets_sub = assets.add_subparsers(dest="assets_command", required=True)
+    p = assets_sub.add_parser("inspect-pkr", help="inspect a PKR2 asset archive")
+    p.add_argument("path")
+    p.add_argument("--entries", action="store_true", help="include every file entry in the JSON output")
+    p.set_defaults(func=commands.assets_inspect_pkr)
+    p = assets_sub.add_parser("inspect-pre", help="inspect a PRE resource archive")
+    p.add_argument("path")
+    p.add_argument("--entries", action="store_true", help="include every file entry in the JSON output")
+    p.set_defaults(func=commands.assets_inspect_pre)
+    p = assets_sub.add_parser("extract-pkr", help="extract a PKR2 asset archive into build/")
+    p.add_argument("path")
+    p.add_argument("--output", default="build/assets/pkr")
+    p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
+    p.set_defaults(func=commands.assets_extract_pkr)
+    p = assets_sub.add_parser("extract-pre", help="extract a PRE resource archive into build/")
+    p.add_argument("path")
+    p.add_argument("--output", default="build/assets/pre")
+    p.add_argument("--force", action="store_true", help="replace an existing generated output directory")
+    p.set_defaults(func=commands.assets_extract_pre)
+
     exe = sub.add_parser("exe", help="inspect installed PE executable")
     exe_sub = exe.add_subparsers(dest="exe_command", required=True)
     p = exe_sub.add_parser("identify", help="record PE identity and entry-point metadata")
     p.add_argument("path")
     p.add_argument("--record", action="store_true")
     p.set_defaults(func=commands.exe_identify)
+    p = exe_sub.add_parser("patch-nocd", help="create an adjacent executable that bypasses the CD TOC check")
+    p.add_argument("--output", help="output path; defaults beside the recorded executable")
+    p.set_defaults(func=commands.exe_patch_nocd)
 
     p = sub.add_parser("verify", help="verify recorded media/executable hashes")
     p.set_defaults(func=commands.verify)
@@ -50,10 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
     wine_sub = wine.add_subparsers(dest="wine_command", required=True)
     p = wine_sub.add_parser("init", help="initialize canonical Wine prefix")
     p.set_defaults(func=commands.wine_init)
+    p = wine_sub.add_parser("mount-disc", help="mount normalized disc and map it as Wine D: CD-ROM")
+    p.set_defaults(func=commands.wine_mount_disc)
+    p = wine_sub.add_parser("unmount-disc", help="unmount normalized disc and remove its loop device")
+    p.set_defaults(func=commands.wine_unmount_disc)
 
     p = sub.add_parser("run", help="run recorded THPS2 executable under Wine")
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.run_game)
+
+    p = sub.add_parser("play", help="mount the disc if needed and run the recorded game under Wine")
+    p.add_argument("game_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=commands.play_game)
 
     p = sub.add_parser("debug", help="run through WineDbg GDB proxy and interactive GDB")
     p.add_argument("--port", type=int)
@@ -81,7 +114,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv=None) -> int:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args, unknown = parser.parse_known_args(argv)
+    if unknown:
+        if args.command not in {"run", "play", "debug"}:
+            parser.error("unrecognized arguments: " + " ".join(unknown))
+        args.game_args.extend(unknown)
+    if args.command in {"run", "play"}:
+        command_index = raw_argv.index(args.command)
+        args.game_args = raw_argv[command_index + 1:]
+    if args.command in {"run", "play", "debug"} and args.game_args[:1] == ["--"]:
+        del args.game_args[0]
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
     return int(args.func(args) or 0)
