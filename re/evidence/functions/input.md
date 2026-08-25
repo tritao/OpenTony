@@ -15,7 +15,7 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 - `0x004699f0` calls the input-history/update chain (`0x00489cd0`, `0x00489a10`, `0x00489e70`) once per level-loop iteration. `0x00469de0` follows it and is a stable post-poll sampling point.
 - The repeatable GDB collector `tony-input-sample COUNT FILE [--force]` records the action mask, raw keyboard mask, and 256-byte keyboard state after the poll.
 - A controlled Warehouse run held Left while sampling 80 post-poll iterations. The companion player trace showed stable player/owner pointers and movement in the position-like 16.16 fields at offsets `0x08/0x0c/0x10`, `0x90/0x94/0x98`, and `0xbc/0xc0/0xc4`.
-- The dynamic input trace now distinguishes idle from held input: 30 idle Warehouse samples had action mask `0x0000`, while 60 samples with Left held had action mask `0x8000`, all at level `12`. This is the first confirmed binding-to-action-bit mapping for the keyboard movement path.
+- The dynamic input trace now distinguishes idle from held input: 30 idle Warehouse samples had action mask `0x0000`, while held-key samples at level `12` produced Left `0x8000` (60/60), Right `0x2000` (20/20), Up `0x1000` (20/20), and Down `0x4000` (20/20). This confirms the complete keyboard movement-to-action-bit mapping.
 
 ## Interpretation
 
@@ -23,5 +23,5 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 
 ## Open questions / falsifiers
 
-- Confirm the corresponding bits for Right, Up, and Down, then distinguish held, pressed, and released transitions.
+- Distinguish held, pressed, and released transitions, then follow the movement consumer that reads these bits into acceleration and rotation state.
 - Confirm input transitions dynamically with one held key and one edge-triggered key.
