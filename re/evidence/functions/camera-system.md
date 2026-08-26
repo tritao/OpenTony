@@ -1,10 +1,10 @@
 # Camera system and rendered-frame boundary
 
-Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, and the gameplay render/present ordering are established; projection scale semantics and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the common projected-vertex completion boundary are established; projection scale semantics and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), and `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture), and `build/debug/camera-transformed-live7.jsonl` (completed common projected-vertex capture)
 
 ## Result
 
@@ -30,6 +30,10 @@ Game_MainLoop 0x0041c2d0
                 -> Render_SetViewProjection 0x0045e8e0
                 -> skater/scene submission 0x0045f530
                 -> object/model list 0x00460a90
+                    -> model submitter 0x004d14d0
+                        -> Render_TransformVertices 0x004d29e0
+                            -> completed records 0x00570878
+                        -> polygon/list assembly 0x004d1d40 / 0x004d20f0
         -> 0x0046a1a0
             -> double-buffer/render-now transition 0x0042ffc0
             -> 0x0042fd20 -> 0x004d0c30
@@ -1510,6 +1514,12 @@ working +0x14  clip flags
 working +0x18  auxiliary/override value
 ```
 
+The common submitter derives the input stream from model packet `+0x1c`; the
+transform loop advances eight bytes per vertex and reads signed 16-bit
+`x/y/z` at offsets `+0/+2/+4` plus the packed source word at `+0x6`. The
+probe now preserves that source block alongside the completed seven-word
+output, which is the required input contract for a native transform replay.
+
 Those records feed polygon creation at `0x004d1d40`, bucket/list ordering at
 `0x004d20f0`, and final list consumption at `0x004d3160`. Therefore
 `0x0057e888` must not be used to calibrate screen X/Y/Z or reciprocal depth;
@@ -1528,6 +1538,40 @@ post-transform record shape and its ordering relative to scene submission,
 but does not yet label the channels as screen X, screen Y, reciprocal depth,
 colour, or clipping flags.
 
+### Live common projected-vertex witness
+
+The corrected `camera-transformed-live7` run paired the arguments captured at
+the `0x004d29e0` entry with the records read at the completion tail
+`0x004d2d9e`. It recorded eight rejected frontend observations followed by
+eight accepted Warehouse observations, all at level `12`, with player
+`0x05f39530`, camera `0x05f40ac8`, and caller `0x004d1854`. The accepted rows
+were all from render frame `1305`; they are eight model submissions within one
+frame, not eight claims about the frame clock.
+
+The paired argument counts were `42, 4, 30, 42, 28, 28, 4, 4`, and every
+record count matched its entry argument. Representative output ranges were:
+
+```text
+vertex count 42: X 130.733..264.360, Y -829.595..285.391,
+                 Z 1298.696..4437.811, reciprocal depth .08653.. .29568,
+                 clip flags {0:32, 4:10}
+vertex count 4:  X 365.175..439.529, Y 241.118..268.749,
+                 Z 4121.638..4177.409, reciprocal depth .09192.. .09317,
+                 clip flags {0:4}
+vertex count 30: X 359.050..403.914, Y 178.206..178.763,
+                  Z 11814.979..11983.982, reciprocal depth .03204.. .03250,
+                  clip flags {0:30}
+```
+
+The output is therefore live, current post-transform data from the common
+model path rather than stale entry scratch. This promotes `0x00570878` as the
+runtime-supported projected-vertex working record and `0x004d2d9e` as the
+usable sampling boundary. The field labels remain based on the static
+consumer contract and are not a claim that this is the final hardware draw
+format. A split-screen/multi-view capture or a common-model call whose
+post-return records are not consumed with these seven fields would falsify
+the current generality, not the observed Warehouse path.
+
 Promotion audit:
 
 | address | exact observed behavior | static/runtime evidence | confidence / falsifier |
@@ -1535,7 +1579,14 @@ Promotion audit:
 | `0x004d11d0` | consumes prepared fixed-point geometry and emits four-byte raster-side records before returning | static constants/stores; 100 active-level returns paired with geometry submissions | high for boundary and raw record shape; a different caller path could use a different packet interpretation |
 | `0x004d14c7` | stable return-tail boundary after the per-vertex byte stores | breakpoint hit on all 100 active-level samples, same frame as the corresponding geometry path | high for tail placement; a compiler/backend variant could move the last game-owned conversion |
 | `0x0057e888` | four-byte-stride indexed/special-packet scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout; renderer path separation from common `0x004d14d0`/`0x004d29e0` | high for record ownership/path; not evidence for projected coordinates; a direct indexed-packet consumer trace is the falsifier |
-| `0x00570878` | seven-word common-model transformed-vertex working record: projected X/Y/Z, reciprocal depth, source flags, clip flags, auxiliary value | static `0x004d14d0` -> `0x004d29e0` contract and renderer polygon-consumer reads | medium-high for field layout; live capture of one stationary model with controlled camera basis is the falsifier |
+| `0x00570878` | seven-word common-model transformed-vertex working record: projected X/Y/Z, reciprocal depth, source flags, clip flags, auxiliary value | static `0x004d14d0` -> `0x004d29e0` contract, renderer polygon-consumer reads, and eight accepted live Warehouse calls with exact entry-count/output-count agreement | high for ownership, stride, and completed common-path output; medium-high for field labels until basis-object calibration; a split-screen/multi-view or alternate consumer capture is the falsifier |
+| `0x004d2d9e` | return-tail boundary after `0x004d29e0` has completed its vertex loop and immediately before `ret` | PE32 disassembly shows the final `pop ecx` at `0x004d2d9d` followed by `ret`; the entry stack arguments are restored and `0x00570878` contains current output | high for probe placement; a compiler/build-specific tail change is the falsifier |
+
+The ordinary projected-vertex probe is armed at `0x004d2d9e`, not at the
+transform entry. A first entry probe showed why this matters: its records were
+read before the current call had written the shared scratch and are retained
+only as a rejected diagnostic experiment. The return-tail probe preserves the
+same call arguments while sampling the completed transform output.
 
 ### Native default smoothing-stage adapter
 

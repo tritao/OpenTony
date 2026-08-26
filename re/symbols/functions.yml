@@ -298,6 +298,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
+  - address: 0x004d29e0
+    name: Render_TransformVertices
+    description: transforms common model-path packed vertices into projected working records
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004d0ca4
     name: Render_Present
     gdb_aliases:

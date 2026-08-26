@@ -722,6 +722,12 @@ def test_transformed_vertex_record_decodes_common_projected_working_records():
     memory.put(0x900, bytes(4))
     memory.put(0x800, bytes(4))
     memory.put(0x900 + 0x29B0, struct.pack("<I", 0x800))
+    memory.put(0x900, struct.pack(
+        "<4H", 1, 2, 3, 0x10
+    ))
+    memory.put(0x900 + 8, struct.pack(
+        "<4H", 4, 5, 6, 0
+    ))
     memory.put(0x00570878, struct.pack(
         "<7I", 0x3F800000, 0x40000000, 0x40400000, 0x3E800000, 0x11, 0x22, 0x33
     ))
@@ -731,16 +737,24 @@ def test_transformed_vertex_record_decodes_common_projected_working_records():
     context = Context(
         CallContext(
             call_memory,
-            registers={"esp": 0x100, "eip": 0x004D29E0},
+            registers={"esp": 0x100, "eip": 0x004D2D9E},
         ),
         memory,
     )
 
-    record = transformed_vertex_record(context)
+    record = transformed_vertex_record(context, {
+        "input_vertices": 0x900,
+        "vertex_count_raw": 2,
+        "state": 0x800,
+    })
 
     assert record["accepted"] is True
     assert record["camera"] == "0x00000800"
     assert record["arguments"]["vertex_count"] == 2
+    assert record["arguments"]["input_vertices"] == "0x00000900"
+    assert record["boundary"] == "0x004d2d9e"
+    assert record["input_vertex_stride"] == 8
+    assert record["input_vertices_raw"]["size"] == 16
     assert record["vertices"][0]["projected_x"] == 1.0
     assert record["vertices"][0]["reciprocal_depth"] == 0.25
     assert record["vertices"][1]["projected_y"] == -2.0

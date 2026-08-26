@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import struct
 
-from .breakpoint import Context, CountingBreakpoint
+from .breakpoint import Context, CountingBreakpoint, TonyBreakpoint
 from .knowledge import GLOBALS, function_address
 
 CAMERA_SIZE = 0x674
@@ -20,6 +20,7 @@ GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
 GEOMETRY_RASTER_RETURN = 0x004D14C7
 VERTEX_TRANSFORM = 0x004D29E0
+VERTEX_TRANSFORM_RETURN = 0x004D2D9E
 TRANSFORMED_VERTEX_SCRATCH = 0x00570878
 CAMERA_COLLISION_QUERY = 0x00466090
 CAMERA_COLLISION_RESULT = 0x0040E790
@@ -561,14 +562,22 @@ def geometry_raster_return_record(ctx: Context) -> dict | None:
     }
 
 
-def transformed_vertex_record(ctx: Context) -> dict | None:
-    """Capture ordinary model-path projected vertices after 0x004d29e0."""
+def transformed_vertex_record(
+    ctx: Context,
+    call_arguments: dict[str, int] | None = None,
+) -> dict | None:
+    """Capture ordinary model-path projected vertices at the return tail."""
 
     memory = ctx.memory
     player = _optional_u32(memory, GLOBALS["Player"]) or 0
     level = _optional_u32(memory, GLOBALS["CurrentLevel"])
-    input_vertices = ctx.arg(0)
-    raw_vertex_count = ctx.arg(1)
+    call_arguments = call_arguments or {
+        "input_vertices": ctx.arg(0),
+        "vertex_count_raw": ctx.arg(1),
+        "state": ctx.arg(2),
+    }
+    input_vertices = call_arguments["input_vertices"]
+    raw_vertex_count = call_arguments["vertex_count_raw"]
     vertex_count = min(raw_vertex_count & 0xffff, 256)
     record_size = 7 * 4
     scratch_size = vertex_count * record_size
@@ -579,13 +588,15 @@ def transformed_vertex_record(ctx: Context) -> dict | None:
         "function": "Render_TransformVertices",
         "eip": f"0x{ctx.eip:08x}",
         "caller": f"0x{ctx.caller():08x}",
+        "transform_entry": f"0x{VERTEX_TRANSFORM:08x}",
+        "boundary": f"0x{VERTEX_TRANSFORM_RETURN:08x}",
         "level": level,
         "player": f"0x{player:08x}" if player else None,
         "arguments": {
             "input_vertices": f"0x{input_vertices:08x}" if input_vertices else None,
             "vertex_count_raw": raw_vertex_count,
             "vertex_count": vertex_count,
-            "state": ctx.arg(2),
+            "state": call_arguments["state"],
         },
         "record_stride": record_size,
         "scratch_address": f"0x{TRANSFORMED_VERTEX_SCRATCH:08x}",
@@ -630,6 +641,15 @@ def transformed_vertex_record(ctx: Context) -> dict | None:
 
     record.update({
         "accepted": True,
+        # 0x004d29e0 advances the source geometry by eight bytes per vertex:
+        # three signed shorts followed by the packed vertex flags. Keeping
+        # this input beside the completed output makes projection calibration
+        # reproducible without guessing the model-space scale.
+        "input_vertex_stride": 8,
+        "input_vertices_raw": _raw_block(
+            memory, input_vertices, vertex_count * 8
+        ) if input_vertices and memory.readable(input_vertices, vertex_count * 8)
+        else None,
         "scratch": _raw_block(memory, TRANSFORMED_VERTEX_SCRATCH, scratch_size),
         "vertices": vertices,
     })
@@ -1263,16 +1283,34 @@ class GeometryRasterReturnProbe(CountingBreakpoint):
         gdb.write(f"geometry raster probe complete: {self.hits} observations\n")
 
 
+class _TransformedVertexEntryProbe(TonyBreakpoint):
+    """Carry entry arguments to the completed-transform return tail."""
+
+    def __init__(self, owner):
+        super().__init__(VERTEX_TRANSFORM, internal=True)
+        self.owner = owner
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.pending_calls.append({
+            "input_vertices": ctx.arg(0),
+            "vertex_count_raw": ctx.arg(1),
+            "state": ctx.arg(2),
+        })
+
+
 class TransformedVertexProbe(CountingBreakpoint):
-    """Sample the common model-path projected-vertex working records."""
+    """Sample common projected vertices after the transform has completed."""
 
     def __init__(self, count: int | None = None, writer=None):
-        super().__init__(VERTEX_TRANSFORM, count=count, internal=True)
+        super().__init__(VERTEX_TRANSFORM_RETURN, count=count, internal=True)
         self.writer = writer
         self.diagnostics = 0
+        self.pending_calls = []
+        self.entry_probe = _TransformedVertexEntryProbe(self)
 
     def on_count(self, ctx: Context) -> bool:
-        record = transformed_vertex_record(ctx)
+        call_arguments = self.pending_calls.pop(0) if self.pending_calls else None
+        record = transformed_vertex_record(ctx, call_arguments)
         if record is None:
             return False
         if not record.get("accepted", False):
@@ -1295,6 +1333,7 @@ class TransformedVertexProbe(CountingBreakpoint):
     def on_complete(self):
         import gdb
 
+        self.entry_probe.enabled = False
         gdb.write(f"transformed vertex probe complete: {self.hits} observations\n")
 
 

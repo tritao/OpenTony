@@ -59,14 +59,17 @@ record the sequence in the trace; this drives the retail action-state
 consumers without relying on synthetic X/DirectInput keyboard events.
 
 For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
-samples `0x004d29e0` and the seven-word records at `0x00570878`. It reports raw
+samples the `0x004d29e0` transform contract at its post-transform return tail
+`0x004d2d9e`, reading the seven-word records at `0x00570878`. It reports raw
 words plus the current projected-X/Y/Z and reciprocal-depth interpretation,
-bounded to 256 vertices per observed call. It also records a rejection reason
-for up to eight pre-level calls when the live player/camera or scratch range is
-not readable; those diagnostics do not consume the requested gameplay count.
-This is the
-preferred calibration probe; `tony-geometry-probe`'s raster-tail records belong
-to the separate indexed/special path.
+bounded to 256 vertices per observed call. For accepted calls it also retains
+the raw eight-byte source-vertex block (three signed shorts plus the packed
+flags word), allowing projection calibration against model-space input. It
+also records a rejection reason for up to eight pre-level calls when the live
+player/camera or scratch range is not readable; those diagnostics do not
+consume the requested gameplay count.
+This is the preferred calibration probe; `tony-geometry-probe`'s raster-tail
+records belong to the separate indexed/special path.
 
 For bounded camera-mode validation, `tony-camera-force-mode MODE [HOLD]`
 writes the raw camera mode at `camera + 0x504` for the requested number of
