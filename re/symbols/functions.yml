@@ -299,7 +299,7 @@ functions:
       calling_convention: cdecl
       return: void
       parameters:
-        - {name: list, type: "pointer<void>"}
+        - {name: list, type: "pointer<pointer<RuntimeCollisionObject>>"}
         - {name: query, type: "pointer<SLineInfo>"}
     description: walk runtime objects and model faces in one blockmap cell
     confidence: confirmed
@@ -312,9 +312,9 @@ functions:
       calling_convention: cdecl
       return: void
       parameters:
-        - {name: model, type: "pointer<void>"}
+        - {name: model, type: "pointer<RuntimeCollisionObject>"}
         - {name: query, type: "pointer<SLineInfo>"}
-        - {name: cache, type: "pointer<void>"}
+        - {name: cache, type: "pointer<SColCache>"}
     description: test cached model faces against a collision query
     confidence: confirmed
     evidence:
@@ -384,7 +384,7 @@ functions:
       calling_convention: cdecl
       return: void
       parameters:
-        - {name: root, type: "pointer<void>"}
+        - {name: root, type: "pointer<RuntimeCollisionObject>"}
         - {name: query, type: "pointer<SLineInfo>"}
     description: prepare collision-query state and walk the attached runtime object list
     confidence: confirmed

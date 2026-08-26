@@ -96,6 +96,7 @@ globals:
       - re/evidence/functions/collision.md
   - address: 0x00567a70
     name: CollisionModelCache
+    type: array<SColCache,20>
     description: twenty-entry rotating object/model face-cache descriptor table
     confidence: observed
     evidence:
@@ -103,12 +104,14 @@ globals:
       - re/evidence/functions/collision.md
   - address: 0x005643b0
     name: CollisionFaceCache
+    type: SFaceCache
     description: shared 0x1c-byte-per-face world-space collision AABB cache
     confidence: observed
     evidence:
       - re/evidence/functions/blockmap-collision.md
   - address: 0x0056af40
     name: GameObjectListHead
+    type: pointer<RuntimeCollisionObject>
     description: head of the separate gameplay-object list visited before static zone collision
     confidence: observed
     evidence:

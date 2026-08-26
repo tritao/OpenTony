@@ -1,6 +1,114 @@
 version: 1
 
 types:
+  - name: RuntimeCollisionObject
+    kind: fixed_layout
+    size: 0x24
+    confidence: observed
+    description: >-
+      Recovered prefix of an object visited by the dynamic and blockmap
+      collision paths; later object state is outside this layout.
+    fields:
+      - offset: 0x06
+        name: query_stamp
+        type: u16
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x08
+        name: position_q12
+        type: array<q12_i32,3>
+        confidence: confirmed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x14
+        name: rotation
+        type: array<i16,3>
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x1a
+        name: model_index
+        type: u16
+        confidence: confirmed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x1f
+        name: model_region_slot
+        type: u8
+        confidence: confirmed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x20
+        name: collision_next
+        type: pointer<RuntimeCollisionObject>
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+
+  - name: SColCache
+    kind: fixed_layout
+    size: 0x10
+    confidence: observed
+    description: One entry in the twenty-entry rotating collision model cache.
+    fields:
+      - offset: 0x00
+        name: item
+        type: pointer<RuntimeCollisionObject>
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x04
+        name: model
+        type: pointer<void>
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x08
+        name: face_count
+        type: u32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x0c
+        name: face_cache_base_index
+        type: u32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+
+  - name: SFaceCache
+    kind: fixed_layout
+    size: 0x1c
+    confidence: observed
+    description: World-space face flags and AABB cached by the collision cell walker.
+    fields:
+      - offset: 0x00
+        name: packed_face_word
+        type: u32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x04
+        name: bounds_min_x
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x08
+        name: bounds_min_y
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x0c
+        name: bounds_min_z
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x10
+        name: bounds_max_x
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x14
+        name: bounds_max_y
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+      - offset: 0x18
+        name: bounds_max_z
+        type: q12_i32
+        confidence: observed
+        evidence: [re/evidence/functions/blockmap-collision.md]
+
   - name: SLineInfo
     kind: fixed_layout
     aliases:
@@ -92,7 +200,7 @@ types:
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x68
         name: hit_body
-        type: pointer<void>
+        type: pointer<RuntimeCollisionObject>
         confidence: observed
         description: null until the nearest accepted candidate is stored
         evidence: [re/evidence/functions/collision.md]
