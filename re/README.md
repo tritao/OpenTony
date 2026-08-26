@@ -58,6 +58,13 @@ writes raw low-word action masks at the post-poll publish boundary
 record the sequence in the trace; this drives the retail action-state
 consumers without relying on synthetic X/DirectInput keyboard events.
 
+For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
+samples `0x004d29e0` and the seven-word records at `0x00570878`. It reports raw
+words plus the current projected-X/Y/Z and reciprocal-depth interpretation,
+bounded to 256 vertices per accepted call. This is the preferred calibration
+probe; `tony-geometry-probe`'s raster-tail records belong to the separate
+indexed/special path.
+
 For bounded camera-mode validation, `tony-camera-force-mode MODE [HOLD]`
 writes the raw camera mode at `camera + 0x504` for the requested number of
 camera updates, records the before/after mode, and restores mode `1` on the

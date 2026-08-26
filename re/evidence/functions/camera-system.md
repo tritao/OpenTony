@@ -1493,9 +1493,30 @@ clamped against the `1.0` constant at `0x00518d70`, multiplied by the raw
 `0.01` constant at `0x00519938`, converted with the shared x87
 round-toward-zero helper, and stored as three byte channels at offsets
 `+0`, `+1`, and `+2` of a four-byte record. The fourth byte is not written by
-this loop and was zero in every captured record. The safe native name is
-therefore `RasterVertexRecordRaw`, with channel semantics still deliberately
-unnamed.
+this loop and was zero in every captured record.
+
+Cross-session renderer analysis now identifies this as the indexed/special
+packet path, not the ordinary projected-vertex path. The common model
+submitter `0x004d14d0` calls `0x004d29e0`, which writes seven-word float
+working records at `0x00570878`:
+
+```text
+working +0x00  projected X
+working +0x04  projected Y
+working +0x08  projected Z
+working +0x0c  reciprocal depth
+working +0x10  source packed-vertex flags
+working +0x14  clip flags
+working +0x18  auxiliary/override value
+```
+
+Those records feed polygon creation at `0x004d1d40`, bucket/list ordering at
+`0x004d20f0`, and final list consumption at `0x004d3160`. Therefore
+`0x0057e888` must not be used to calibrate screen X/Y/Z or reciprocal depth;
+the correct projection-calibration boundary is the common
+`0x004d29e0`/`0x00570878` handoff. The native compatibility name is
+`IndexedPacketByteRecordRaw` (with the older `RasterVertexRecordRaw` alias),
+and its three byte-channel meanings remain intentionally unspecified.
 
 The bounded `camera-raster-live` run captured 100 active-level raster-tail
 returns on frames `2430..2435`. Each return had one same-frame geometry
@@ -1513,7 +1534,8 @@ Promotion audit:
 |---|---|---|---|
 | `0x004d11d0` | consumes prepared fixed-point geometry and emits four-byte raster-side records before returning | static constants/stores; 100 active-level returns paired with geometry submissions | high for boundary and raw record shape; a different caller path could use a different packet interpretation |
 | `0x004d14c7` | stable return-tail boundary after the per-vertex byte stores | breakpoint hit on all 100 active-level samples, same frame as the corresponding geometry path | high for tail placement; a compiler/backend variant could move the last game-owned conversion |
-| `0x0057e888` | four-byte-stride raster scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout | medium for semantic field labels; a stationary basis/clipping experiment is the falsifier |
+| `0x0057e888` | four-byte-stride indexed/special-packet scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout; renderer path separation from common `0x004d14d0`/`0x004d29e0` | high for record ownership/path; not evidence for projected coordinates; a direct indexed-packet consumer trace is the falsifier |
+| `0x00570878` | seven-word common-model transformed-vertex working record: projected X/Y/Z, reciprocal depth, source flags, clip flags, auxiliary value | static `0x004d14d0` -> `0x004d29e0` contract and renderer polygon-consumer reads | medium-high for field layout; live capture of one stationary model with controlled camera basis is the falsifier |
 
 ### Native default smoothing-stage adapter
 

@@ -54,18 +54,32 @@ struct Q12Vec4 {
 using TransformQ12 = Q12Vec4;
 using MatrixQ12 = std::array<std::int16_t, 9>;
 
-// Raw four-byte record emitted by the 0x004d11d0 raster conversion loop at
-// 0x0057e888. The binary writes channel0/1/2 and leaves the fourth byte
-// untouched in that loop. Keep the fields neutral until a stationary basis
-// object and clipping experiment establishes screen/depth semantics.
-struct RasterVertexRecordRaw {
-    std::uint8_t channel0{};
-    std::uint8_t channel1{};
-    std::uint8_t channel2{};
+// Raw four-byte record emitted by the indexed/special 0x004d11d0 path at
+// 0x0057e888. The renderer evidence separates this path from the common model
+// transformer at 0x004d14d0; do not use these bytes as projected screen X/Y/Z.
+// The binary writes byte0/1/2 and leaves the fourth byte untouched.
+struct IndexedPacketByteRecordRaw {
+    std::uint8_t byte0{};
+    std::uint8_t byte1{};
+    std::uint8_t byte2{};
     std::uint8_t untouched{};
 };
 
+// Compatibility name retained for the first camera probe fixtures. It is a
+// packet record, not a claim that 0x0057e888 stores ordinary vertex positions.
+using RasterVertexRecordRaw = IndexedPacketByteRecordRaw;
+
 static_assert(sizeof(RasterVertexRecordRaw) == 4);
+
+// Common model-path working record produced by 0x004d29e0 from
+// Render_SubmitPolygon 0x004d14d0. Keep the words as raw float bits so a
+// native renderer can preserve NaNs, clip flags, and auxiliary overrides
+// without a host-side reinterpretation at the camera boundary.
+struct TransformedVertexWorkingRecordRaw {
+    std::array<std::uint32_t, 7> words{};
+};
+
+static_assert(sizeof(TransformedVertexWorkingRecordRaw) == 7 * sizeof(std::uint32_t));
 
 // Render_SetViewProjection receives a fourteen-short view-input record. The
 // projection formulas consume fields 0..9 and mutate 5, 7, 8, and 9; fields

@@ -19,6 +19,8 @@ VIEWPORT_POINTER = 0x005620E0
 GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
 GEOMETRY_RASTER_RETURN = 0x004D14C7
+VERTEX_TRANSFORM = 0x004D29E0
+TRANSFORMED_VERTEX_SCRATCH = 0x00570878
 CAMERA_COLLISION_QUERY = 0x00466090
 CAMERA_COLLISION_RESULT = 0x0040E790
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
@@ -556,6 +558,67 @@ def geometry_raster_return_record(ctx: Context) -> dict | None:
         "geometry_matrix_s16": _s16_array(memory, GEOMETRY_SCRATCH, 12),
         # The routine advances 4 bytes per submitted vertex at this global.
         "raster_vertex_scratch": _raw_block(memory, 0x0057E888, 0x100),
+    }
+
+
+def transformed_vertex_record(ctx: Context) -> dict | None:
+    """Capture ordinary model-path projected vertices after 0x004d29e0."""
+
+    memory = ctx.memory
+    player = memory.u32(GLOBALS["Player"])
+    level = memory.u32(GLOBALS["CurrentLevel"])
+    if not player or not memory.valid(player) or not level:
+        return None
+    camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+    if not camera or not memory.valid(camera):
+        return None
+
+    input_vertices = ctx.arg(0)
+    vertex_count = min(ctx.arg(1) & 0xffff, 256)
+    record_size = 7 * 4
+    scratch_size = vertex_count * record_size
+    if not vertex_count or not memory.readable(TRANSFORMED_VERTEX_SCRATCH, scratch_size):
+        return None
+
+    words = [
+        list(struct.unpack(
+            "<7I",
+            memory.bytes(TRANSFORMED_VERTEX_SCRATCH + index * record_size, record_size),
+        ))
+        for index in range(vertex_count)
+    ]
+    vertices = []
+    for values in words:
+        x, y, z, depth = struct.unpack(
+            "<4f", struct.pack("<4I", *values[:4]))
+        vertices.append({
+            "raw_words": values,
+            "projected_x": x,
+            "projected_y": y,
+            "projected_z": z,
+            "reciprocal_depth": depth,
+            "source_flags_bits": values[4],
+            "clip_flags_bits": values[5],
+            "auxiliary_bits": values[6],
+        })
+
+    return {
+        "type": "transformed_vertices",
+        "frame": ctx.frame,
+        "function": "Render_TransformVertices",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "level": level,
+        "player": f"0x{player:08x}",
+        "camera": f"0x{camera:08x}",
+        "arguments": {
+            "input_vertices": f"0x{input_vertices:08x}" if input_vertices else None,
+            "vertex_count": vertex_count,
+            "state": ctx.arg(2),
+        },
+        "record_stride": record_size,
+        "scratch": _raw_block(memory, TRANSFORMED_VERTEX_SCRATCH, scratch_size),
+        "vertices": vertices,
     }
 
 
@@ -1184,6 +1247,29 @@ class GeometryRasterReturnProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"geometry raster probe complete: {self.hits} observations\n")
+
+
+class TransformedVertexProbe(CountingBreakpoint):
+    """Sample the common model-path projected-vertex working records."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(VERTEX_TRANSFORM, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = transformed_vertex_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"transformed vertex probe complete: {self.hits} observations\n")
 
 
 class CameraPositionTransformProbe(CountingBreakpoint):
