@@ -220,6 +220,18 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004cabb0
+    name: Math_Vector3AddOut
+    description: add two input vectors into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cabf0
+    name: Math_Vector3SubOut
+    description: subtract two input vectors into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred

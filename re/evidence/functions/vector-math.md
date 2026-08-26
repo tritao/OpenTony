@@ -42,3 +42,13 @@ The next three routines extend the same fixed-layout vector operator family:
 The equality routines retain the retail short conditional branches and their
 exact Boolean return-path encodings. All three complete modules match the
 retail bytes.
+
+Two out-of-place operators follow the comparison helpers:
+
+- `0x004cabb0–0x004cabe1` adds the components of two input vectors and writes
+  the three results through a distinct output pointer. Fifteen NOP bytes pad
+  the module through `0x004cabf0`.
+- `0x004cabf0–0x004cac21` performs the corresponding subtraction and has the
+  same register, output, and padding layout through `0x004cac30`.
+
+Both 64-byte modules reproduce the retail instruction encodings and padding.
