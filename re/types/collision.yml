@@ -589,18 +589,18 @@ types:
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x28
         name: matrix_scale_x_q12
-        type: int16
-        confidence: strong
+        type: i16
+        confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x2a
         name: matrix_scale_y_q12
-        type: int16
-        confidence: strong
+        type: i16
+        confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x2c
         name: matrix_scale_z_q12
-        type: int16
-        confidence: strong
+        type: i16
+        confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x34
         name: previous
