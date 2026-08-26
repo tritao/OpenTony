@@ -62,12 +62,12 @@ user-facing ollie action remains a separate seam.
 | `0` (`PHYSICS_ON_GROUND`) | Normal grounded/standing path; repeated position commits with no state transition. The separate five-sample Warehouse idle baseline is documented in `game-loop.md`; ordinary movement also remains on this raw state. | `0x0049db80` case 0; ground helpers `0x0049dad0`, `0x00496550`, `0x00495cc0`, `0x0049d9c0`; common commit callsite `0x0049f0e5` | Runtime observed; semantic label cross-build corroborated |
 | `1` (`PHYSICS_IN_AIR`) | The airborne interval in the bounded ollie: position advances over several updates, then returns to `0` | `0x0049db80` case 1 → `0x00497f40` (`Skater_DoPhysicsInAir`); static case 3 also calls the same handler | Runtime observed; semantic label cross-build corroborated |
 | `2` (`PHYSICS_ON_INVISIBLE`) | Short transient ground/collision path seen in repeated Warehouse captures; paired with `player+0x30c4` becoming `1`, then returning to `0` | Case 2 sets `+0x30c4=1` and calls `0x00496550` | Raw value runtime observed; semantic label inferred from matching enum order/handler role |
-| `3` (`PHYSICS_IN_AIR_STICK_TO`) | Not reproduced in the bounded sequence; separate alternate in-air value, not collapsed into state 1 | `0x00497f40` (same in-air handler as case 1); after `frame - +0x2da0 > 0x19`, call `0x0049de9e` requests state 1 with reason `0x2bf2` | Static; semantic label cross-build corroborated |
+| `3` (`PHYSICS_IN_AIR_STICK_TO`) | Synthetic `0 → 3` smoke entered the common in-air handler ten times, then timed out to `1` | `0x00497f40`; timeout request callsite `0x0049de9e`, reason `0x2bf2` | Runtime handler/timeout observed synthetically; natural entry predicate open |
 | `4` (`PHYSICS_ON_RAIL`) | Reproduced in the independent frontend probe as a prolonged transient path after the injected edge; rail semantics come from the matching handler slot | `0x0049db80` case 4 → `0x00494210` | Raw value runtime observed; semantic label cross-build inferred |
-| `5` (`PHYSICS_IN_WALLRIDE`) | Not reproduced in the bounded sequence | `0x00499710` | Static; semantic label cross-build inferred |
-| `6` (`PHYSICS_IN_FOOTPLANT`) | Not reproduced in the bounded sequence; static case 6 reaches the common in-air handler and therefore uses the ordinary landing branch (the launch-grace exception is raw 3 only) | `0x004993f0`, then case 1 → `0x00497f40` | Static; semantic label cross-build inferred |
-| `7` (`PHYSICS_STOPPED`) | Not reproduced in the bounded sequence; handler restores live position from `+0xbc/+0xc0/+0xc4` before the final ground helper | Ground helpers, then position copy from `+0xbc/+0xc0/+0xc4` | Static; semantic label cross-build inferred |
-| `8` (`PHYSICS_IN_HANDPLANT`) | Not reproduced in the bounded sequence | `0x004995d0` | Static; semantic label cross-build inferred |
+| `5` (`PHYSICS_IN_WALLRIDE`) | Synthetic entry reached the dedicated handler, which immediately requested `0` with reason `0x2198` under the clean initial context | `0x00499710` | Runtime handler/recovery observed synthetically; natural wall predicate open |
+| `6` (`PHYSICS_IN_FOOTPLANT`) | Synthetic entry reached setup, requested `1` with reason `0x2058`, and then reached common air; the ordinary landing branch remains downstream | `0x004993f0`, then case 1 → `0x00497f40` | Runtime setup/fallthrough observed synthetically; natural footplant predicate open |
+| `7` (`PHYSICS_STOPPED`) | Synthetic entry selected the stopped branch and immediately requested `0` with reason `0x2c21`; the branch has no dedicated handler entry | Ground helpers, then position copy from `+0xbc/+0xc0/+0xc4` | Runtime recovery observed synthetically; natural stopped predicate open |
+| `8` (`PHYSICS_IN_HANDPLANT`) | Synthetic entry held raw `8` across 1200 handler observations with no state request in the sample | `0x004995d0` | Runtime handler/hold observed synthetically; natural handplant predicate and exit open |
 
 The PC executable does not carry a directly usable `EPhysicsState` symbol in
 the current import, so these labels remain a cross-build semantic layer rather
@@ -178,6 +178,60 @@ therefore preserve the exact request and shared off-ground reset boundaries;
 rail geometry,
 collision selection, and the state-4 handler's large orientation/contact body
 remain explicit caller-owned seams.
+
+#### Dedicated special-state runtime probe
+
+The GDB helper `tony-special-physics-probe [COUNT]` now observes entry into
+the four dedicated special handlers without changing `player+0x30b8`:
+
+| Raw-state candidate | Entry probe | Recorded context |
+| ---: | ---: | --- |
+| `4` | `0x00494210` | state, caller, position, velocity/acceleration, basis/orientation, contact fields, bookkeeping, action records |
+| `5` | `0x00499710` | same raw context |
+| `6` | `0x004993f0` | same raw context; the subsequent common `0x00497f40` entry remains a separate event |
+| `8` | `0x004995d0` | same raw context |
+
+Events are emitted as `physics_special_handler` records in the open runtime
+trace. The handler entry probes filter to the live `Player` object and retain
+raw words for unresolved fields, so future rail, wallride, footplant, and
+handplant captures can be correlated with the normal state-request and
+`0x004902bf` writer events. A fresh automated Warehouse baseline
+(`physics-special-rail5`) reproduced only states `0`, `1`, and `2`; it is not
+treated as a special-state capture. The existing `physics-states17` trace
+remains the runtime evidence for the `0 → 2 → 4 → 1 → 0` chain, but predates
+this dedicated entry probe and therefore does not retroactively identify a
+state-4 handler-entry record.
+
+The probe also exposes a bounded smoke-test seam:
+`tony-force-physics-state STATE` arms a one-shot breakpoint at dispatcher entry
+and, on the first live grounded player call, directly writes the requested raw
+value to `player+0x30b8`. It emits a `physics_state_force` event with
+`synthetic: true`, then the ordinary dispatcher, dedicated-handler, state
+request/writer, and position probes observe the resulting retail execution.
+The direct write is intentionally not represented as a canonical transition
+writer. A synthetic handler hit can characterize body side effects and
+fallthrough behavior, but cannot establish the natural collision/action
+predicate that enters the state. State 6 is particularly useful here because
+its handler requests state 1 and falls through into common air; states 5 and 8
+can be smoke-tested similarly, while state 7 has no dedicated entry probe and
+is observed through the dispatcher.
+
+The resulting smoke captures are bounded and reproducible artifacts:
+
+| Capture | Synthetic entry | Runtime result |
+| --- | --- | --- |
+| `build/debug/sessions/physics-special-smoke3b/smoke.trace.ndjson` | `0 → 3` at `0x0049db93` | ten `0x00497f40` entries with raw `3`; timeout request return `0x0049dea3`, exact call `0x0049de9e`, reason `0x2bf2`; canonical writer `0x004902bf` changes `3 → 1` |
+| `build/debug/sessions/physics-special-smoke4b/smoke.trace.ndjson` | `0 → 4` at `0x0049db93` | `0x00494210` entered with caller `0x0049de38`; retail asserts `Node 0 not Raildef` and faults at `0x00490b5f` before a valid rail body can run |
+| `build/debug/sessions/physics-special-smoke5b/smoke.trace.ndjson` | `0 → 5` at the earlier function-entry force point `0x0049db80` | `0x00499710` entered with caller `0x0049de6f`; request return `0x00499f00` (exact call `0x00499efb`) requests `0`, reason `0x2198`; canonical writer `0x004902bf` changes `5 → 0` |
+| `build/debug/sessions/physics-special-smoke6b/smoke.trace.ndjson` | `0 → 6` at the earlier function-entry force point `0x0049db80` | `0x004993f0` entered with caller `0x0049de52`; request return `0x0049944a` (exact call `0x00499445`) requests `1`, reason `0x2058`; canonical writer `0x004902bf` changes `6 → 1`, followed by common air |
+| `build/debug/sessions/physics-special-smoke7c/smoke.trace.ndjson` | `0 → 7` at `0x0049db93` | stopped branch request return `0x0049dfac` (exact call `0x0049dfa7`) requests `0`, reason `0x2c21`; canonical writer `0x004902bf` changes `7 → 0` |
+| `build/debug/sessions/physics-special-smoke8b/smoke.trace.ndjson` | `0 → 8` at `0x0049db93` | `0x004995d0` entered 1200 times; first event has previous state `0`, subsequent events previous state `8`; no canonical state request occurs in the bounded sample |
+
+The state-5 and state-6 traces were collected just before the force probe was
+moved from function entry to the exact state-load instruction. Their handler
+entry, request, and canonical-writer records are unaffected; only the
+synthetic event's injection PC differs. None of these artifacts upgrades the
+natural-entry confidence in the state table.
 
 ### Static case-6 pre-air setup
 

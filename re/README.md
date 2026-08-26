@@ -98,6 +98,22 @@ through `0x0055fc2c` into `0x0056a3d8`, and
 `tony-ground-motion-writers [COUNT] [--correction] [--control]` to capture
 the exact correction/rearm stores and B010 random return sites.
 
+Dedicated state-handler observation uses `tony-special-physics-probe [COUNT]`.
+It arms entry probes for state 4 (`0x00494210`), state 5 (`0x00499710`),
+state 6 (`0x004993f0`), and state 8 (`0x004995d0`). Each event records the
+raw state and caller, motion vectors, basis/orientation words, contact fields,
+state bookkeeping, and the complete action-state bank. The probe is
+observational: it does not force a state or assign a semantic name to a
+handler.
+
+For handler smoke tests, `tony-force-physics-state STATE` performs one
+synthetic `player+0x30b8` write from a grounded dispatcher entry before the
+dispatcher reads the field. It emits a `physics_state_force` trace event and
+then leaves the normal dispatcher and handler probes to observe the retail
+body. This characterizes handler side effects and fallthrough behavior only;
+it does not establish the natural action/collision predicate or a canonical
+gameplay transition writer.
+
 For the in-air landing boundary, `tony-air-collision-probe [COUNT]` samples the
 raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
 in-air-handler, state-request, and state-writer probes to correlate a nonzero

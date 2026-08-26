@@ -47,6 +47,7 @@ from .physics import (
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
     OLLIE_LATCH_WRITERS,
+    SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
     GroundMotionControlWriterProbe,
     GroundMotionProducerProbe,
@@ -59,6 +60,8 @@ from .physics import (
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
     PlayerDiffProbe,
+    SpecialPhysicsHandlerProbe,
+    SyntheticPhysicsStateForceProbe,
 )
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
@@ -1354,6 +1357,27 @@ class TonyPhysicsProbe(gdb.Command):
         _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyForcePhysicsState(gdb.Command):
+    """tony-force-physics-state STATE -- inject one state before dispatch."""
+
+    def __init__(self):
+        super().__init__("tony-force-physics-state", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-force-physics-state STATE")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-force-physics-state STATE")
+        state = _integer(values[0])
+        if state < 0 or state > 8:
+            raise gdb.GdbError("STATE must be between 0 and 8")
+        probe = SyntheticPhysicsStateForceProbe(state, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        _write(
+            "synthetic physics state force armed for one live grounded "
+            f"dispatcher entry: 0 -> {state}"
+        )
+
+
 class TonyCameraProbe(gdb.Command):
     """tony-camera-probe [COUNT] -- sample the per-frame camera update."""
 
@@ -1642,6 +1666,26 @@ class TonyInAirProbe(gdb.Command):
         _runtime_breakpoints.append(probe)
         limit = "until disabled" if count is None else f"for {count} observations"
         _write(f"in-air handler probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonySpecialPhysicsProbe(gdb.Command):
+    """tony-special-physics-probe [COUNT] -- log dedicated state handlers."""
+
+    def __init__(self):
+        super().__init__("tony-special-physics-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-special-physics-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-special-physics-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address in SPECIAL_HANDLER_INFO:
+            probe = SpecialPhysicsHandlerProbe(address, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations per handler"
+        _write(f"special physics handler probes armed {limit}")
 
 
 class TonyAirCollisionProbe(gdb.Command):
@@ -2095,6 +2139,7 @@ def register_commands() -> None:
     TonyTraceClose()
     TonyFrameClock()
     TonyPhysicsProbe()
+    TonyForcePhysicsState()
     TonyCameraProbe()
     TonyCameraForceMode()
     TonyCameraViewportProbe()
@@ -2108,6 +2153,7 @@ def register_commands() -> None:
     TonyGroundMotionWriters()
     TonyGroundMotionProfileProbe()
     TonyInAirProbe()
+    TonySpecialPhysicsProbe()
     TonyAirCollisionProbe()
     TonyPhysicsStateRequestProbe()
     TonyPhysicsStateWriterProbe()
@@ -2139,6 +2185,7 @@ def register_commands() -> None:
         "tony-animation-selector-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
+        "tony-force-physics-state, "
         "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-view-perturb, "
         "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "
         "tony-player-diff, tony-position-commit, "
@@ -2147,6 +2194,7 @@ def register_commands() -> None:
         "tony-ground-motion-probe, tony-ground-motion-writers, "
         "tony-ground-motion-profile-probe, "
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
+        "tony-special-physics-probe, "
         "tony-physics-state-writers, "
         "tony-ollie-latch-probe, "
         "tony-player-diff, tony-position-commit, "
