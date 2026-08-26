@@ -14,6 +14,13 @@ namespace retail {
 constexpr std::uint32_t kMainPhysics = 0x0049e680;
 constexpr std::uint32_t kPrePhysics = 0x0049a280;
 constexpr std::uint32_t kGroundPreparation = 0x00492ea0;
+constexpr std::uint32_t kActionHistoryUpdate = 0x00492190;
+constexpr std::uint32_t kActionHistoryWriter = 0x00491c90;
+constexpr std::uint32_t kActionHistoryRingBaseOffset = 0x2a14;
+constexpr std::uint32_t kActionHistoryPreviousBaseOffset = 0x2b18;
+constexpr std::uint32_t kActionHistoryWriteIndexOffset = 0x2b14;
+constexpr std::size_t kActionHistoryCapacity = 0x20;
+constexpr std::size_t kActionHistoryActionCount = 0x11;
 constexpr std::uint32_t kGroundPhysics = 0x0049df00;
 constexpr std::uint32_t kCollisionPreparation = 0x00490730;
 constexpr std::uint32_t kDispatcher = 0x0049db80;
@@ -86,6 +93,8 @@ constexpr std::uint32_t kGroundAccelerationResetY = 0x0049e999;
 constexpr std::uint32_t kGroundAccelerationResetX = 0x0049e99e;
 constexpr std::uint32_t kGroundSteeringHelper = 0x00492f20;
 constexpr std::uint32_t kLandingRequestCallsite = 0x004991fe;
+constexpr std::uint32_t kLandingCleanup = 0x004914d0;
+constexpr std::uint32_t kLandingCollisionPreparation = 0x004aaf70;
 constexpr std::uint32_t kLandingMovementTargetClear = 0x004991a4;
 constexpr std::uint32_t kLandingAuxiliaryClear = 0x004991b3;
 constexpr std::uint32_t kLandingEffectWriter = 0x004991d4;
@@ -121,6 +130,10 @@ constexpr std::uint32_t kOllieTimestampResetGround = 0x0049f173;
 constexpr std::uint32_t kAlternateLaunchRequestCallsite = 0x0049ac7f;
 constexpr std::uint32_t kOrdinaryLaunchRequestCallsite = 0x0049ac9b;
 constexpr std::uint32_t kGroundLeaveAirRequestCallsite = 0x0049ddcf;
+constexpr std::uint32_t kGroundLeaveAirOffGroundCallsite = 0x0049dde1;
+constexpr std::uint32_t kOffGroundReset = 0x004904d0;
+constexpr std::uint32_t kOffGroundMarkerWriter = 0x0049dde6;
+constexpr std::uint32_t kLandingRecoveryOffGroundCallsite = 0x004916a9;
 constexpr std::uint32_t kAlternateStateTimeoutRequestCallsite = 0x0049de9e;
 constexpr std::uint32_t kVelocityDamping = 0x0049d480;
 constexpr std::uint32_t kOrientationBasisCopy = 0x0049c7d0;
@@ -153,8 +166,11 @@ constexpr std::uint32_t kCollisionTransientExitCallsite = 0x00497479;
 // debugger (0x004913e2 and 0x004905b0 respectively).
 constexpr std::uint32_t kState4EnterReason = 0x0b1c;
 constexpr std::uint32_t kState4EnterRequestCallsite = 0x004913dd;
-constexpr std::uint32_t kState4ExitReason = 0x0715;
-constexpr std::uint32_t kState4ExitRequestCallsite = 0x004905ab;
+constexpr std::uint32_t kOffGroundReason = 0x0715;
+constexpr std::uint32_t kOffGroundStateRequestCallsite = 0x004905ab;
+constexpr std::uint32_t kState4ExitReason = kOffGroundReason;
+constexpr std::uint32_t kState4ExitRequestCallsite =
+    kOffGroundStateRequestCallsite;
 constexpr std::uint32_t kLandingReason = 0x1fd6;
 constexpr std::uint32_t kState6PreAirReason = 0x2058;
 constexpr std::uint32_t kAirCollisionTransientRequestCallsite = 0x00497ad9;
@@ -396,6 +412,59 @@ struct ActionState {
 // JUMP record. Both records share the recovered retail layout.
 using JumpActionState = ActionState;
 
+// FUN_00491c90 stores the action index, pressed byte, and frame timestamp in
+// an eight-byte ring entry. The remaining bytes in the retail entry are not
+// read by this boundary and therefore stay outside the native event shape.
+struct ActionHistoryEvent {
+    std::uint8_t action_index = 0;
+    std::uint8_t pressed = 0;
+    std::int32_t frame = 0;
+
+    friend bool operator==(const ActionHistoryEvent& left,
+                           const ActionHistoryEvent& right) {
+        return left.action_index == right.action_index &&
+               left.pressed == right.pressed && left.frame == right.frame;
+    }
+};
+
+// FUN_004904d0 is shared by the ground leave-ground path, collision/rail
+// exits, and some in-air recovery branches. FUN_004914d0 also consumes a few
+// adjacent landing/recovery markers. These fields intentionally retain raw
+// offsets where the current evidence does not establish a semantic name; the
+// reset/cleanup itself is nevertheless exact and useful to a replay.
+struct OffGroundBookkeeping {
+    std::int16_t word_2c64 = 0;
+    std::int32_t control_argument_2f60 = 0;
+    std::int32_t word_2c8c = 0;
+    std::uint32_t transition_count_302c = 0;
+    std::int32_t word_29e0 = 0;
+    std::int32_t word_2bd8 = 0;
+    std::int32_t word_2ec8 = 0;
+    std::int32_t word_2e90 = 0;
+    std::int32_t word_2e94 = 0;
+    std::int32_t word_2e34 = 0;
+    std::int32_t word_2ec4 = 0;
+    std::int32_t word_29d4 = 0;
+    std::int32_t word_29d0 = 0;
+    std::int16_t word_29f0 = 0;
+    std::int16_t gravity_percent_29f4 = 100;
+    std::int32_t word_2dd0 = 0;
+    std::int32_t word_2c88 = 0;
+    std::int32_t word_2c90 = 0;
+    std::int32_t word_2c6c = 0;
+    std::int32_t word_2c70 = 0;
+    std::int16_t word_29f2 = 0;
+    std::int32_t counter_3034 = 0;
+    std::int32_t word_2e2c = 0;
+    std::int8_t byte_100 = 0;
+    std::int8_t byte_101 = 0;
+    std::int16_t word_f4 = 0;
+    std::int16_t word_82 = 0;
+    std::int32_t word_3064 = 0;
+    std::int32_t word_2f68 = 0;
+    std::int32_t marker_3204 = 0;
+};
+
 // The non-collision action portion of Skater_DoPhysicsInAir (0x00497f40)
 // adds/subtracts orientation axes from acceleration before the position
 // integration. The caller supplies the already-published basis because the
@@ -526,6 +595,15 @@ struct PhysicsState {
     ActionState up{};              // action record at +0xa0, mask bit 0x1000
     ActionState down{};            // action record at +0xb0, mask bit 0x4000
     std::uint32_t frame_counter = 0;  // diagnostic mirror of DAT_005685f4
+    // Previous pressed values used by FUN_00491c90's change filter. Indices
+    // 0..0x10 correspond to the retail action-history pad-button numbers;
+    // FUN_00492190 updates only the documented subset of those indices.
+    std::array<std::uint8_t, retail::kActionHistoryActionCount>
+        action_history_previous{};
+    std::array<ActionHistoryEvent, retail::kActionHistoryCapacity>
+        action_history_events{};
+    std::uint32_t action_history_write_index = 0;
+    OffGroundBookkeeping off_ground{};
 
     struct OllieBookkeeping {
         std::int32_t charge = 0;       // +0x2de8
@@ -576,6 +654,35 @@ struct StateRequest {
     std::uint32_t request_callsite = 0;
 };
 
+struct OffGroundTransitionInput {
+    std::int32_t mode = 0;              // first argument to 0x004904d0
+    std::int32_t control_argument = 0;  // second argument -> +0x2f60
+    std::uint32_t invocation_callsite = 0; // caller of 0x004904d0, if known
+};
+
+struct OffGroundTransitionResult {
+    bool handled = false;
+    bool bookkeeping_reset = false;
+    std::int32_t mode = 0;
+    std::uint32_t invocation_callsite = 0;
+    StateRequest request{};
+};
+
+struct LandingCleanupResult {
+    bool handled = false;
+    bool collision_gate_cleared = false;
+    bool animation_gate_cleared = false;
+    bool timer_decremented = false;
+    bool landing_marker_consumed = false;
+    bool recovery_marker_cleared = false;
+    bool recovery_reset_requested = false;
+    bool trick_scan_requested = false;
+    bool trick_dispatch_requested = false;
+    bool trick_direction_hint = false;
+    bool returned_early = false;
+    OffGroundTransitionResult off_ground{};
+};
+
 // The post-helper case-0 tail in 0x0049db80 can leave a grounded player for
 // raw state 1 without going through the ollie path. Collision/normal
 // selection remains outside this boundary; callers supply the already
@@ -593,6 +700,7 @@ struct GroundAirTransitionResult {
     bool transitioned = false;
     bool vertical_velocity_clamped = false;
     StateRequest request{};
+    OffGroundTransitionResult off_ground{};
 };
 
 struct OlliePrePhysicsInput {
@@ -828,6 +936,10 @@ struct PhysicsFrameCallbacks {
     // still supplies the frame delta and any heading/animation side effects.
     FrameStageCallback movement_action_step = nullptr;
     FrameStageCallback prephysics = nullptr;
+    // FUN_00492ea0 begins with 0x00492190 -> 0x00491c90 action-history
+    // updates. The callback owns the unresolved FUN_00492120 result and may
+    // call update_action_history() before the remaining ground helpers.
+    FrameStageCallback action_history = nullptr;
     FrameStageCallback ground_preparation = nullptr;
     FrameStageCallback collision_preparation = nullptr;
     DispatchCallback dispatcher = nullptr;
@@ -849,6 +961,13 @@ struct PhysicsFrameCallbacks {
     // outer-frame acceleration*dt update. The callback may call
     // apply_blocked_physics_reset() with the runtime decay inputs.
     FrameStageCallback blocked_physics_reset = nullptr;
+    // 0x004914d0 runs after the post-dispatch position handoff and before
+    // final velocity/postphysics work. Its 0x004aaf70 collision query is a
+    // separate caller-owned callback immediately before this one. The
+    // callback may call apply_landing_cleanup(); accepted air contact invokes
+    // the same helper at its in-air landing branch.
+    FrameStageCallback landing_collision_preparation = nullptr;
+    FrameStageCallback landing_cleanup = nullptr;
     PositionCommitCallback position_commit = nullptr;
     // 0x0049e680 integrates acceleration into velocity at 0x0049f206 before
     // entering 0x0049d480. The callback supplies the runtime frame delta.
@@ -891,6 +1010,20 @@ public:
     // recovered request boundaries and metadata.
     StateRequest enter_state4_from_collision();
     StateRequest leave_state4_to_air();
+
+    // Mirror the shared FUN_004904d0 off-ground reset. The mode argument is
+    // retained for the external animation/speed side effects not modeled in
+    // this slice; the deterministic player-field reset and its state-1
+    // request are applied here.
+    OffGroundTransitionResult apply_off_ground_transition(
+        const OffGroundTransitionInput& input = {});
+
+    // Mirror the deterministic cleanup and recovery-reset portion of
+    // FUN_004914d0. Its animation/trick-recognition calls remain external,
+    // but their exact branch conditions are reported in the result. Accepted
+    // air contact invokes this helper at the retail point before the landing
+    // identity and state request.
+    LandingCleanupResult apply_landing_cleanup() noexcept;
 
     // 0x0049e680 writes +0x30c0 = +0x30b8 before entering 0x0049db80.
     void begin_dispatcher_phase() noexcept;
@@ -1050,6 +1183,13 @@ public:
 
     // Apply the outer-frame acceleration*dt velocity update at 0x0049f206.
     FixedVec3 integrate_velocity(std::int32_t frame_delta_fixed) noexcept;
+
+    // Mirror FUN_00492190 -> FUN_00491c90. `physics_action` is the opaque
+    // result of FUN_00492120: values 1..8 select one of those transient
+    // action-history indices. The remaining entries come from the recovered
+    // action bank. Returns the number of changed events written to the ring.
+    std::size_t update_action_history(
+        std::int32_t physics_action, std::int32_t frame = -1) noexcept;
 
     // The in-air handler accepts collision/contact, commits contact position,
     // and only then requests raw state 0. Collision detection is deliberately

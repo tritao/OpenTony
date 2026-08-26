@@ -747,6 +747,50 @@ void PhysicsStateMachine::update_action_mask(std::uint32_t action_mask) noexcept
     state_.down.update((action_mask & retail::kDownActionBit) != 0);
 }
 
+std::size_t PhysicsStateMachine::update_action_history(
+    std::int32_t physics_action, std::int32_t frame) noexcept {
+    const std::int32_t event_frame =
+        frame >= 0 ? frame : static_cast<std::int32_t>(state_.frame_counter);
+    std::size_t changed = 0;
+
+    // This is the call order in FUN_00492190. The first eight calls compare
+    // the opaque FUN_00492120 result; the remaining calls read the recovered
+    // action-record bank directly. FUN_00491c90's change filter and ring
+    // increment are kept in one lambda so every source follows the same
+    // writer semantics.
+    const auto record = [&](std::size_t action_index, bool pressed) {
+        const std::uint8_t value = pressed ? 1 : 0;
+        if (state_.action_history_previous[action_index] == value) {
+            return;
+        }
+
+        state_.action_history_previous[action_index] = value;
+        auto& event = state_.action_history_events[
+            state_.action_history_write_index];
+        event.action_index = static_cast<std::uint8_t>(action_index);
+        event.pressed = value;
+        event.frame = event_frame;
+        ++state_.action_history_write_index;
+        if (state_.action_history_write_index ==
+            retail::kActionHistoryCapacity) {
+            state_.action_history_write_index = 0;
+        }
+        ++changed;
+    };
+
+    for (std::size_t action_index = 1; action_index <= 8; ++action_index) {
+        record(action_index, physics_action ==
+                                  static_cast<std::int32_t>(action_index));
+    }
+    record(9, state_.grab.held != 0);
+    record(10, state_.grind.held != 0);
+    record(11, state_.kick.held != 0);
+    record(12, state_.jump.held != 0);
+    record(14, state_.nollie.held != 0);
+    record(16, state_.switch_stance.held != 0);
+    return changed;
+}
+
 StateRequest PhysicsStateMachine::request_state(std::int32_t next,
                                                 std::uint32_t reason,
                                                 std::uint32_t request_callsite) {
@@ -783,8 +827,185 @@ StateRequest PhysicsStateMachine::enter_state4_from_collision() {
 }
 
 StateRequest PhysicsStateMachine::leave_state4_to_air() {
-    return request_state(1, retail::kState4ExitReason,
-                         retail::kState4ExitRequestCallsite);
+    return apply_off_ground_transition(OffGroundTransitionInput{}).request;
+}
+
+OffGroundTransitionResult PhysicsStateMachine::apply_off_ground_transition(
+    const OffGroundTransitionInput& input) {
+    OffGroundTransitionResult result;
+    result.mode = input.mode;
+    result.invocation_callsite = input.invocation_callsite;
+
+    // FUN_004904d0's deterministic stores. The mode-specific calls to
+    // animation/speed helpers (0x004de010, 0x0048fb20, 0x004904c0,
+    // 0x00491b80, and 0x004be450) remain external side effects; every player
+    // field reset and the state request are retained here.
+    state_.off_ground.word_2c64 = 0;
+    state_.off_ground.control_argument_2f60 = input.control_argument;
+    state_.off_ground.word_2c8c = 0;
+    ++state_.off_ground.transition_count_302c;
+    state_.ollie.landing_contact_auxiliary = 0;
+    state_.off_ground.word_29e0 = 0;
+    state_.off_ground.word_2bd8 = 0;
+    state_.off_ground.word_2ec8 = 0;
+    state_.off_ground.word_2e90 = 0;
+    state_.off_ground.word_29d4 = 0;
+    state_.off_ground.word_29d0 = 0;
+    state_.off_ground.word_29f0 = 0;
+    state_.off_ground.gravity_percent_29f4 = 100;
+    state_.off_ground.word_2dd0 = 0;
+    state_.ollie.special_mode = 0;
+    state_.ollie.action_context = 0;
+    state_.off_ground.word_2f68 = 0;
+    state_.prephysics_blocked = 1;
+    state_.ollie.latched = 0;
+    state_.ollie.charge = 0;
+    state_.ollie.recovery_latch = 0;
+    state_.off_ground.word_2e94 = 0;
+
+    result.request = request_state(
+        retail::kPhysicsInAir, retail::kOffGroundReason,
+        retail::kOffGroundStateRequestCallsite);
+    result.handled = true;
+    result.bookkeeping_reset = true;
+    return result;
+}
+
+LandingCleanupResult PhysicsStateMachine::apply_landing_cleanup() noexcept {
+    LandingCleanupResult result;
+    result.handled = true;
+
+    // FUN_004aaf70, called at the top of FUN_004914d0, clears this collision
+    // gate immediately when the jump record is no longer held. Its geometry
+    // scan and all selected-contact writes remain caller-owned.
+    if (state_.jump.held == 0) {
+        result.collision_gate_cleared = state_.off_ground.word_2e34 != 0;
+        state_.off_ground.word_2e34 = 0;
+    }
+
+    // FUN_004914d0 starts with two independent pieces of landing/animation
+    // housekeeping.  These stores happen before the marker countdown and are
+    // observable even when the helper returns through one of its early exits.
+    if (state_.jump.held == 0 && state_.off_ground.word_2e90 != 0) {
+        state_.ollie.animation_gate = 0;
+        result.animation_gate_cleared = true;
+    }
+    if (state_.off_ground.word_2ec4 != 0) {
+        --state_.off_ground.word_2ec4;
+        result.timer_decremented = true;
+    }
+
+    // An accepted landing enters with +0x2ec0 == 1. Retail decrements that
+    // marker, clears +0x2e90/+0x2e94, and returns before publishing the
+    // deeper recovery/animation state. Keep that deterministic boundary
+    // separate from the still-external animation calls below it.
+    if (state_.ollie.landing_effect_state > 0) {
+        --state_.ollie.landing_effect_state;
+        state_.off_ground.word_2e90 = 0;
+        state_.off_ground.word_2e94 = 0;
+        result.landing_marker_consumed = true;
+        result.recovery_marker_cleared = true;
+        result.returned_early = true;
+        return result;
+    }
+
+    // These are the exact early-return gates after the landing marker has
+    // drained. The deeper recovery/animation dispatch is intentionally not
+    // guessed here; it depends on external animation and trick state.
+    if (state_.jump.held == 0 || state_.prephysics_blocked != 0 ||
+        (state_.raw_state == retail::kPhysicsOnInvisible &&
+         state_.velocity.y > 0) ||
+        state_.off_ground.word_2e34 != 0) {
+        state_.off_ground.word_2e94 = 0;
+        result.recovery_marker_cleared = true;
+        result.returned_early = true;
+        return result;
+    }
+    if (state_.off_ground.word_2e94 == 0) {
+        return result;
+    }
+    if (state_.off_ground.word_2e90 != 0) {
+        state_.off_ground.word_2e94 = 0;
+        result.recovery_marker_cleared = true;
+        result.returned_early = true;
+        return result;
+    }
+
+    // +0x2ec0 is also cleared on the fall-through path. The raw-state-0
+    // angle cleanup is deterministic; the subsequent recovery animation
+    // selection remains outside this native state-machine boundary.
+    state_.ollie.landing_effect_state = 0;
+    if (state_.raw_state == retail::kPhysicsOnGround) {
+        state_.ollie.launch_angle_turns = 0;
+        state_.ollie.launch_angle_accumulator = 0;
+    }
+
+    // The remaining deterministic part of 0x004914d0 decides whether a
+    // recovery condition should invoke FUN_004904d0 again. The first flag is
+    // the angle-window test around +0x2c88/+0x2c90/+0x2c8c; the second is the
+    // recovery-latch test around +0x2c68/+0x2c6c. The mode/animation values
+    // are kept as raw fields because their gameplay names are not established.
+    bool angle_window = false;
+    if (state_.off_ground.word_2c88 != 0) {
+        const std::int32_t angle_remainder =
+            state_.off_ground.word_2c8c & 0xfff;
+        if (state_.off_ground.word_2c90 < 1) {
+            angle_window = angle_remainder > 300;
+        } else {
+            angle_window = angle_remainder < 0xed4;
+        }
+    }
+    const bool recovery_condition =
+        (state_.ollie.recovery_latch != 0 &&
+         state_.off_ground.word_2c6c == 0) ||
+        angle_window;
+    if (recovery_condition) {
+        const std::int32_t recovery_offset = state_.off_ground.word_2e2c;
+        bool reset_requested = recovery_offset == 0;
+        if (!reset_requested && state_.off_ground.byte_100 == 1) {
+            reset_requested =
+                state_.off_ground.word_f4 <
+                static_cast<std::int32_t>(state_.off_ground.byte_101) -
+                    recovery_offset;
+        } else if (!reset_requested) {
+            reset_requested =
+                static_cast<std::int32_t>(state_.off_ground.byte_101) +
+                    recovery_offset < state_.off_ground.word_f4;
+        }
+        if (reset_requested) {
+            result.off_ground = apply_off_ground_transition(
+                OffGroundTransitionInput{
+                    static_cast<std::int32_t>(state_.off_ground.word_29f2),
+                    0, retail::kLandingRecoveryOffGroundCallsite});
+            state_.off_ground.word_29f2 = 0;
+            ++state_.off_ground.counter_3034;
+            result.recovery_reset_requested = true;
+            result.returned_early = true;
+            return result;
+        }
+    }
+
+    if (state_.ollie.recovery_latch != 0) {
+        state_.off_ground.word_2c70 = 1;
+    }
+
+    // FUN_004925e0 recognizes recent action-history/trick sequences. It is
+    // intentionally not reimplemented here, but the native result exposes
+    // that this branch was reached and whether the follow-up FUN_00490ef0
+    // dispatch is required by +0x3064. The exact signed geometry hint is
+    // deterministic and is retained for a future caller-owned recognizer.
+    result.trick_scan_requested = true;
+    bool trick_direction_hint = false;
+    if (state_.velocity.y < 0 &&
+        absolute_value(state_.basis_310c.y) < 3000 &&
+        state_.basis_30f4.y > 0x800 &&
+        absolute_value(state_.off_ground.word_82) < 0x5dc &&
+        absolute_value(state_.basis_3100.y) < 0x800) {
+        trick_direction_hint = true;
+    }
+    result.trick_direction_hint = trick_direction_hint;
+    result.trick_dispatch_requested = state_.off_ground.word_3064 != 0;
+    return result;
 }
 
 void PhysicsStateMachine::begin_dispatcher_phase() noexcept {
@@ -884,6 +1105,9 @@ DispatchResult PhysicsStateMachine::step_frame(
     if (callbacks.prephysics != nullptr) {
         callbacks.prephysics(*this, user);
     }
+    if (callbacks.action_history != nullptr) {
+        callbacks.action_history(*this, user);
+    }
     if (callbacks.ground_preparation != nullptr) {
         callbacks.ground_preparation(*this, user);
     }
@@ -958,6 +1182,19 @@ DispatchResult PhysicsStateMachine::step_frame(
         callbacks.blocked_physics_reset(*this, user);
     }
 
+    // The outer frame calls 0x004914d0 for every state except handplant,
+    // after the dispatch/position work and before final velocity integration.
+    // Accepted common-air contact has already invoked this same helper at its
+    // in-air landing branch, so the normal landing marker is then a no-op.
+    if (state_.raw_state != retail::kPhysicsInHandplant &&
+        callbacks.landing_collision_preparation != nullptr) {
+        callbacks.landing_collision_preparation(*this, user);
+    }
+    if (callbacks.landing_cleanup != nullptr &&
+        state_.raw_state != retail::kPhysicsInHandplant) {
+        callbacks.landing_cleanup(*this, user);
+    }
+
     if (callbacks.velocity_integration != nullptr) {
         callbacks.velocity_integration(*this, user);
     }
@@ -997,6 +1234,7 @@ DispatchResult PhysicsStateMachine::dispatch_impl(
     case 0:
         result.kind = DispatchKind::Ground;
         state_.auxiliary = 0;
+        state_.off_ground.word_2ec8 = 0;
         add_handler(0x0049dad0);
         add_handler(0x00496550);
         add_handler(0x00495cc0);
@@ -1023,6 +1261,7 @@ DispatchResult PhysicsStateMachine::dispatch_impl(
     case 5:
         result.kind = DispatchKind::State5;
         state_.auxiliary = 0;
+        state_.off_ground.word_2ec8 = 0;
         add_handler(0x00499710);
         break;
     case 6:
@@ -1112,6 +1351,9 @@ GroundAirTransitionResult PhysicsStateMachine::try_ground_to_air(
         state_.velocity.y = 0;
         result.vertical_velocity_clamped = true;
     }
+    result.off_ground = apply_off_ground_transition(
+        OffGroundTransitionInput{0x14, 0, retail::kGroundLeaveAirOffGroundCallsite});
+    state_.off_ground.marker_3204 = 0x28;
     return result;
 }
 
@@ -1928,9 +2170,14 @@ bool PhysicsStateMachine::accept_air_contact(const AirContactInput& input,
 
     // Normal accepted contact writes the landing/effect marker, publishes the
     // collision-owned identity, and clears the shared movement target before
-    // requesting raw state 0.
+    // requesting raw state 0. The retail landing helper runs immediately after
+    // setting +0x2ec0, before the identity and request stores.
     state_.ollie.landing_effect_state = 1;
     state_.ollie.landing_contact_auxiliary = 0;
+    apply_landing_cleanup();
+    if (state_.off_ground.word_2e90 != 0) {
+        return true;
+    }
     state_.ollie.landing_contact_identity = input.contact_identity;
     state_.ollie.landing_frame = static_cast<std::int32_t>(state_.frame_counter);
     state_.movement_target_x = 0;

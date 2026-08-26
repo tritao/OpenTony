@@ -310,6 +310,9 @@ void test_observed_state4_transition_path() {
     assert(exited.reason == retail::kState4ExitReason);
     assert(exited.request_callsite == retail::kState4ExitRequestCallsite);
     assert(machine.state().raw_state == retail::kPhysicsInAir);
+    assert(machine.state().prephysics_blocked == 1);
+    assert(machine.state().off_ground.transition_count_302c == 1);
+    assert(machine.state().off_ground.gravity_percent_29f4 == 100);
 
     const auto air = machine.dispatch();
     assert(air.kind == DispatchKind::InAir);
@@ -340,6 +343,18 @@ void test_ground_to_air_leave_ground_transition() {
     assert(transitioned.request.reason == retail::kGroundLeaveAirReason);
     assert(transitioned.request.request_callsite ==
            retail::kGroundLeaveAirRequestCallsite);
+    assert(transitioned.off_ground.handled);
+    assert(transitioned.off_ground.mode == 0x14);
+    assert(transitioned.off_ground.invocation_callsite ==
+           retail::kGroundLeaveAirOffGroundCallsite);
+    assert(transitioned.off_ground.request.from == retail::kPhysicsInAir);
+    assert(transitioned.off_ground.request.to == retail::kPhysicsInAir);
+    assert(transitioned.off_ground.request.reason == retail::kState4ExitReason);
+    assert(transitioned.off_ground.request.request_callsite ==
+           retail::kState4ExitRequestCallsite);
+    assert(machine.state().off_ground.marker_3204 == 0x28);
+    assert(machine.state().phase_state == retail::kPhysicsInAir);
+    assert(machine.requests().size() == 2);
     assert(machine.state().velocity.y == 0);
 
     PhysicsStateMachine recent;
@@ -357,6 +372,148 @@ void test_ground_to_air_leave_ground_transition() {
         GroundAirTransitionInput{100, 0x100, 1000, 0x5001, 0});
     assert(!rejected_result.eligible);
     assert(rejected.state().raw_state == retail::kPhysicsOnGround);
+}
+
+void test_off_ground_reset_boundary() {
+    PhysicsStateMachine machine;
+    machine.state().raw_state = retail::kPhysicsOnRail;
+    machine.state().ollie.landing_contact_auxiliary = 1;
+    machine.state().ollie.special_mode = 2;
+    machine.state().ollie.action_context = 3;
+    machine.state().ollie.latched = 4;
+    machine.state().ollie.charge = 5;
+    machine.state().ollie.recovery_latch = 6;
+    machine.state().off_ground.word_2c64 = 7;
+    machine.state().off_ground.word_2c8c = 8;
+    machine.state().off_ground.word_29e0 = 9;
+    machine.state().off_ground.word_2bd8 = 10;
+    machine.state().off_ground.word_2ec8 = 11;
+    machine.state().off_ground.word_2e90 = 12;
+    machine.state().off_ground.word_29d4 = 13;
+    machine.state().off_ground.word_29d0 = 14;
+    machine.state().off_ground.word_29f0 = 15;
+    machine.state().off_ground.gravity_percent_29f4 = 16;
+    machine.state().off_ground.word_2dd0 = 17;
+    machine.state().off_ground.word_2f68 = 18;
+    machine.state().off_ground.word_2e94 = 19;
+
+    const auto result = machine.apply_off_ground_transition(
+        OffGroundTransitionInput{0x14, 23, 0x00491234});
+    assert(result.handled);
+    assert(result.bookkeeping_reset);
+    assert(result.mode == 0x14);
+    assert(result.invocation_callsite == 0x00491234);
+    assert(result.request.from == retail::kPhysicsOnRail);
+    assert(result.request.to == retail::kPhysicsInAir);
+    assert(result.request.reason == retail::kState4ExitReason);
+    assert(result.request.request_callsite == retail::kState4ExitRequestCallsite);
+    assert(machine.state().prephysics_blocked == 1);
+    assert(machine.state().off_ground.control_argument_2f60 == 23);
+    assert(machine.state().off_ground.transition_count_302c == 1);
+    assert(machine.state().off_ground.gravity_percent_29f4 == 100);
+    assert(machine.state().ollie.landing_contact_auxiliary == 0);
+    assert(machine.state().ollie.special_mode == 0);
+    assert(machine.state().ollie.action_context == 0);
+    assert(machine.state().ollie.latched == 0);
+    assert(machine.state().ollie.charge == 0);
+    assert(machine.state().ollie.recovery_latch == 0);
+    assert(machine.state().off_ground.word_2c64 == 0);
+    assert(machine.state().off_ground.word_2c8c == 0);
+    assert(machine.state().off_ground.word_29e0 == 0);
+    assert(machine.state().off_ground.word_2bd8 == 0);
+    assert(machine.state().off_ground.word_2ec8 == 0);
+    assert(machine.state().off_ground.word_2e90 == 0);
+    assert(machine.state().off_ground.word_29d4 == 0);
+    assert(machine.state().off_ground.word_29d0 == 0);
+    assert(machine.state().off_ground.word_29f0 == 0);
+    assert(machine.state().off_ground.word_2dd0 == 0);
+    assert(machine.state().off_ground.word_2f68 == 0);
+    assert(machine.state().off_ground.word_2e94 == 0);
+}
+
+void test_landing_cleanup_boundary() {
+    PhysicsStateMachine machine;
+    machine.state().raw_state = retail::kPhysicsInAir;
+    machine.state().jump.held = 0;
+    machine.state().ollie.animation_gate = 7;
+    machine.state().ollie.landing_effect_state = 1;
+    machine.state().off_ground.word_2e90 = 1;
+    machine.state().off_ground.word_2e94 = 1;
+    machine.state().off_ground.word_2ec4 = 2;
+
+    const auto landing = machine.apply_landing_cleanup();
+    assert(landing.handled);
+    assert(landing.animation_gate_cleared);
+    assert(landing.timer_decremented);
+    assert(landing.landing_marker_consumed);
+    assert(landing.recovery_marker_cleared);
+    assert(landing.returned_early);
+    assert(machine.state().ollie.animation_gate == 0);
+    assert(machine.state().ollie.landing_effect_state == 0);
+    assert(machine.state().off_ground.word_2e90 == 0);
+    assert(machine.state().off_ground.word_2e94 == 0);
+    assert(machine.state().off_ground.word_2ec4 == 1);
+
+    machine.state().off_ground.word_2e34 = 9;
+    const auto no_jump_collision_gate = machine.apply_landing_cleanup();
+    assert(no_jump_collision_gate.collision_gate_cleared);
+    assert(machine.state().off_ground.word_2e34 == 0);
+
+    // Once the landing marker has drained, the ordinary no-jump gate still
+    // clears a pending recovery marker and returns before deeper animation
+    // selection.
+    machine.state().off_ground.word_2e94 = 1;
+    const auto recovery = machine.apply_landing_cleanup();
+    assert(recovery.handled);
+    assert(!recovery.landing_marker_consumed);
+    assert(recovery.recovery_marker_cleared);
+    assert(recovery.returned_early);
+    assert(machine.state().off_ground.word_2e94 == 0);
+
+    PhysicsStateMachine recovery_reset;
+    recovery_reset.state().raw_state = retail::kPhysicsOnGround;
+    recovery_reset.state().jump.held = 1;
+    recovery_reset.state().off_ground.word_2e94 = 1;
+    recovery_reset.state().off_ground.word_29f2 = 5;
+    recovery_reset.state().off_ground.word_2e2c = 0;
+    recovery_reset.state().ollie.recovery_latch = 1;
+    const auto reset = recovery_reset.apply_landing_cleanup();
+    assert(reset.recovery_reset_requested);
+    assert(reset.off_ground.handled);
+    assert(reset.off_ground.mode == 5);
+    assert(reset.off_ground.invocation_callsite ==
+           retail::kLandingRecoveryOffGroundCallsite);
+    assert(reset.off_ground.request.from == retail::kPhysicsOnGround);
+    assert(reset.off_ground.request.to == retail::kPhysicsInAir);
+    assert(reset.off_ground.request.reason == retail::kOffGroundReason);
+    assert(reset.off_ground.request.request_callsite ==
+           retail::kOffGroundStateRequestCallsite);
+    assert(recovery_reset.state().off_ground.word_29f2 == 0);
+    assert(recovery_reset.state().off_ground.counter_3034 == 1);
+
+    PhysicsStateMachine trick_scan;
+    trick_scan.state().raw_state = retail::kPhysicsOnGround;
+    trick_scan.state().jump.held = 1;
+    trick_scan.state().off_ground.word_2e94 = 1;
+    trick_scan.state().off_ground.word_2c88 = 1;
+    trick_scan.state().off_ground.word_2c90 = 0;
+    trick_scan.state().off_ground.word_2c8c = 500;
+    trick_scan.state().off_ground.word_2c6c = 1;
+    trick_scan.state().ollie.recovery_latch = 1;
+    trick_scan.state().off_ground.word_2e2c = 1;
+    trick_scan.state().off_ground.byte_100 = 1;
+    trick_scan.state().off_ground.byte_101 = 0;
+    trick_scan.state().velocity.y = -1;
+    trick_scan.state().basis_310c.y = 100;
+    trick_scan.state().basis_30f4.y = 0x1000;
+    trick_scan.state().off_ground.word_82 = 0;
+    trick_scan.state().basis_3100.y = 0;
+    const auto scan = trick_scan.apply_landing_cleanup();
+    assert(!scan.recovery_reset_requested);
+    assert(scan.trick_scan_requested);
+    assert(!scan.trick_dispatch_requested);
+    assert(scan.trick_direction_hint);
+    assert(trick_scan.state().off_ground.word_2c70 == 1);
 }
 
 void test_ground_surface_acceleration_contract() {
@@ -593,6 +750,18 @@ void frame_ground_preparation(PhysicsStateMachine& machine, void* opaque) {
     assert(machine.state().raw_state == 1);
 }
 
+void frame_action_history(PhysicsStateMachine& machine, void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(17);
+    assert(machine.state().frame_counter == 0);
+    assert(machine.update_action_history(0, 99) == 1);
+}
+
+void frame_ground_after_action_history(PhysicsStateMachine&, void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(18);
+}
+
 void frame_collision_preparation(PhysicsStateMachine& machine, void* opaque) {
     auto& log = *static_cast<CallbackLog*>(opaque);
     log.frame_stages.push_back(3);
@@ -673,6 +842,21 @@ void frame_blocked_velocity_observer(PhysicsStateMachine& machine,
     log.frame_stages.push_back(14);
     assert((machine.state().velocity == FixedVec3{900, 0, 2700}));
     assert((machine.state().acceleration == FixedVec3{0, 22, 0}));
+}
+
+void frame_landing_cleanup(PhysicsStateMachine& machine, void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(20);
+    assert(machine.state().raw_state == retail::kPhysicsOnGround);
+    const auto result = machine.apply_landing_cleanup();
+    assert(result.handled);
+}
+
+void frame_landing_collision_preparation(PhysicsStateMachine& machine,
+                                         void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(19);
+    assert(machine.state().raw_state == retail::kPhysicsOnGround);
 }
 
 bool frame_air_contact(PhysicsStateMachine& machine, FixedVec3& contact, void* opaque) {
@@ -800,6 +984,52 @@ void test_action_record_bank() {
     assert(machine.state().down.inactive_counter == 1);
 }
 
+void test_action_history_ring() {
+    PhysicsStateMachine machine;
+    machine.update_action_mask(retail::kKickActionBit);
+
+    // FUN_00492190 calls indices 1..8 first, then KICK at index 0xb. Only
+    // changed values reach the FUN_00491c90 ring writer.
+    assert(machine.update_action_history(3, 50) == 2);
+    assert(machine.state().action_history_write_index == 2);
+    assert((machine.state().action_history_events[0] ==
+            ActionHistoryEvent{3, 1, 50}));
+    assert((machine.state().action_history_events[1] ==
+            ActionHistoryEvent{11, 1, 50}));
+    assert(machine.state().action_history_previous[12] == 0);
+
+    // No edge means no new ring entry, even though the producer is called
+    // again every ground-preparation pass.
+    assert(machine.update_action_history(3, 51) == 0);
+    assert(machine.state().action_history_write_index == 2);
+
+    machine.update_action_mask(retail::kJumpActionBit);
+    assert(machine.update_action_history(0, 52) == 3);
+    assert((machine.state().action_history_events[2] ==
+            ActionHistoryEvent{3, 0, 52}));
+    assert((machine.state().action_history_events[3] ==
+            ActionHistoryEvent{11, 0, 52}));
+    assert((machine.state().action_history_events[4] ==
+            ActionHistoryEvent{12, 1, 52}));
+    assert(machine.state().action_history_write_index == 5);
+
+    // The writer wraps exactly at 0x20 entries. Starting at slot five, 27
+    // transient physics-action changes land on slot 31 and wrap the index to
+    // zero; the next release overwrites slot zero.
+    for (int step = 0; step != 13; ++step) {
+        assert(machine.update_action_history(1, 60 + step * 2) == 1);
+        assert(machine.update_action_history(0, 61 + step * 2) == 1);
+    }
+    assert(machine.update_action_history(1, 86) == 1);
+    assert(machine.state().action_history_write_index == 0);
+    assert((machine.state().action_history_events[31] ==
+            ActionHistoryEvent{1, 1, 86}));
+    assert(machine.update_action_history(0, 87) == 1);
+    assert((machine.state().action_history_events[0] ==
+            ActionHistoryEvent{1, 0, 87}));
+    assert(machine.state().action_history_write_index == 1);
+}
+
 void test_clean_ground_air_ground_trace() {
     PhysicsStateMachine machine;
     CallbackLog log;
@@ -843,6 +1073,9 @@ void test_clean_ground_air_ground_trace() {
     assert(machine.requests().back().request_callsite == retail::kLandingRequestCallsite);
     assert(log.launch_calls == 1);
     assert(log.position_calls == 1);
+    assert(machine.state().ollie.landing_effect_state == 0);
+    assert(machine.state().off_ground.word_2e90 == 0);
+    assert(machine.state().off_ground.word_2e94 == 0);
 }
 
 void test_transient_routes_remain_distinct() {
@@ -1186,7 +1419,9 @@ void test_kick_release_is_the_launch_boundary() {
     assert(machine.accept_air_contact(true, FixedVec3{1, 2, 3}));
     assert(machine.state().raw_state == 0);
     assert(machine.requests().back().reason == retail::kLandingReason);
-    assert(machine.state().ollie.landing_effect_state == 1);
+    // The contact branch writes +0x2ec0=1, then immediately calls
+    // FUN_004914d0, which consumes that one-frame marker.
+    assert(machine.state().ollie.landing_effect_state == 0);
     assert(machine.state().ollie.landing_frame ==
            static_cast<std::int32_t>(machine.state().frame_counter));
 
@@ -1315,13 +1550,15 @@ void test_outer_frame_order_and_history() {
     callbacks.air_motion = frame_air_motion;
     callbacks.air_contact = frame_air_contact;
     callbacks.position_commit = frame_position_commit;
+    callbacks.landing_collision_preparation = frame_landing_collision_preparation;
+    callbacks.landing_cleanup = frame_landing_cleanup;
     callbacks.velocity_integration = frame_velocity_integration;
     callbacks.postphysics = frame_postphysics;
 
     const auto result = machine.step_frame(retail::kKickActionBit, callbacks, &log);
     assert(result.raw_state == 1);
     assert((log.frame_stages ==
-            std::vector<int>{1, 2, 3, 4, 11, 5, 6, 7, 12, 8}));
+            std::vector<int>{1, 2, 3, 4, 11, 5, 6, 7, 19, 20, 12, 8}));
     assert(machine.state().frame_counter == 1);
     assert(machine.state().older_position == FixedVec3{});
     assert((machine.state().position_history == FixedVec3{10, 20, 30}));
@@ -1329,6 +1566,16 @@ void test_outer_frame_order_and_history() {
     assert((machine.state().old_position == FixedVec3{10, -100555, 30}));
     assert(machine.state().ollie.in_progress == 1);
     assert(machine.state().acceleration == FixedVec3{});
+
+    PhysicsStateMachine handplant;
+    handplant.state().raw_state = retail::kPhysicsInHandplant;
+    CallbackLog handplant_log;
+    PhysicsFrameCallbacks handplant_callbacks;
+    handplant_callbacks.landing_collision_preparation =
+        frame_landing_collision_preparation;
+    handplant_callbacks.landing_cleanup = frame_landing_cleanup;
+    handplant.step_frame(0, handplant_callbacks, &handplant_log);
+    assert(handplant_log.frame_stages.empty());
 }
 
 void test_state3_timeout_follows_air_handler() {
@@ -1353,6 +1600,20 @@ void test_state3_timeout_follows_air_handler() {
            retail::kAlternateStateTimeoutReason);
     assert(machine.requests().back().request_callsite ==
            retail::kAlternateStateTimeoutRequestCallsite);
+}
+
+void test_action_history_frame_boundary() {
+    PhysicsStateMachine machine;
+    CallbackLog log;
+    PhysicsFrameCallbacks callbacks;
+    callbacks.action_history = frame_action_history;
+    callbacks.ground_preparation = frame_ground_after_action_history;
+
+    const auto result = machine.step_frame(retail::kKickActionBit, callbacks, &log);
+    assert(result.kind == DispatchKind::Ground);
+    assert((log.frame_stages == std::vector<int>{17, 18}));
+    assert((machine.state().action_history_events[0] ==
+            ActionHistoryEvent{11, 1, 99}));
 }
 
 void test_non_air_acceleration_boundary() {
@@ -1433,6 +1694,8 @@ int main() {
     test_cross_build_physics_state_labels();
     test_observed_state4_transition_path();
     test_ground_to_air_leave_ground_transition();
+    test_off_ground_reset_boundary();
+    test_landing_cleanup_boundary();
     test_ground_surface_acceleration_contract();
     test_ground_collision_handoff_contract();
     test_air_landing_predicate_contract();
@@ -1441,6 +1704,7 @@ int main() {
     test_jump_action_record();
     test_in_air_jump_hold_effect();
     test_action_record_bank();
+    test_action_history_ring();
     test_clean_ground_air_ground_trace();
     test_transient_routes_remain_distinct();
     test_ollie_impulse_formula();
@@ -1449,6 +1713,8 @@ int main() {
     test_ground_action_target_step();
     test_kick_release_is_the_launch_boundary();
     test_outer_frame_order_and_history();
+    test_state3_timeout_follows_air_handler();
+    test_action_history_frame_boundary();
     test_non_air_acceleration_boundary();
     test_blocked_physics_frame_boundary();
     test_movement_action_step_boundary();
