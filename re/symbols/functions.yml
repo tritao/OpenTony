@@ -599,18 +599,21 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c8130
     name: TRG_ParseNodes
     description: dispatch relocated TRG nodes into runtime setup paths
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c8650
     name: TRG_DecodeNodePosition
     description: resolve a relocated TRG node position and convert its three coordinates to 12-bit fixed point
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x0045c390
     name: TRG_InitializeExtendedRecord
     description: initialize the 0x58-byte runtime record used by TRG type 500 nodes
@@ -623,6 +626,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c5420
     name: TRG_FindObjectPreambleFlag
     description: scan a type-1 parameter preamble for a flag byte
@@ -731,42 +735,49 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c5ac0
     name: TRG_FindCommandPointLink
     description: find a type-6 command-point link record by source node index
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c58b0
     name: TRG_SendPulse
     description: dispatch a pulse to a trigger node, including command-point lookup
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c5b00
     name: TRG_ExecuteCommandList
     description: execute a counted list of referenced trigger-node indices
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c5dc0
     name: TRG_InterpretCommandStream
     description: interpret the variable-length trigger command stream
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c8550
     name: TRG_GetNodeLinks
     description: look up the link list associated with a TRG node
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004c7a00
     name: TRG_SendKillFromNode
     description: consume TRG links and signal matching runtime objects
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
   - address: 0x004b2b70
     name: PSX_LoadTextureReferences
     description: resolve PSX texture references into PC texture records
@@ -1807,6 +1818,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics-states.md
+  - address: 0x0046d6e0
+    name: Skater_InputProfilePrep
+    description: immediate pre-physics transfer of profile analog/lean fields
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
   - address: 0x004ca9f0
     name: Math_Vector3Add
     description: three-component fixed-point vector addition helper
@@ -2033,3 +2050,45 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004c8050
+    name: Trig_RunAutoexec
+    description: find and execute the level autoexec node
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c77f0
+    name: Trig_SendVisible
+    description: apply a visible-state command to linked level objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4e30
+    name: Trig_ExecuteRestart
+    description: reset players and execute a restart-node command stream
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4c50
+    name: Trig_FindRestartByName
+    description: resolve a restart node by its embedded name
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5b60
+    name: Trig_SendSignal
+    description: send a signal through linked object nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5c70
+    name: Trig_SendSuspendActivate
+    description: suspend or activate linked gameplay objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c7c50
+    name: Trig_SkipCommandBlock
+    description: advance over one trigger command for conditional execution
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
