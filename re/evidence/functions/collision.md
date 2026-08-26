@@ -539,7 +539,11 @@ until `match/original` is available.
     `query_basis * object_rotation * scale`. The ordinary Hangar objects
     sampled so far all carry identity Q12 scale, but the native linked-object
     API accepts non-identity factors directly. The final normal path remains the unscaled
-    `object_rotation * model_normal` transform.
+    `object_rotation * model_normal` transform. A controlled runtime calibration
+    of the scale branch, including signed boundary factors and restoration
+    checks, is recorded in
+    [`collision-transform-mutation.md`](collision-transform-mutation.md); a
+    naturally non-identity linked collision object remains an open target.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at

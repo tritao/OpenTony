@@ -32,6 +32,7 @@ from .camera import (
 from .collision import (
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
+    CollisionDynamicTransformMutationProbe,
     CollisionDynamicTransformProbe,
     CollisionFlagProbe,
     CollisionLoaderProbe,
@@ -2078,6 +2079,39 @@ class TonyCollisionDynamicTransformProbe(gdb.Command):
         _write(f"collision transform probe armed for {count} completed calls")
 
 
+class TonyCollisionDynamicTransformMutationProbe(gdb.Command):
+    """tony-collision-transform-mutate X Y Z [COUNT] -- calibrate Q12 scale."""
+
+    DEFAULT_COUNT = 16
+
+    def __init__(self):
+        super().__init__("tony-collision-transform-mutate", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(
+            arg,
+            "tony-collision-transform-mutate X Y Z [COUNT]",
+        )
+        if len(values) not in (3, 4):
+            raise gdb.GdbError(
+                "usage: tony-collision-transform-mutate X Y Z [COUNT]"
+            )
+        scale = tuple(_integer(value) for value in values[:3])
+        if any(value < -0x8000 or value > 0x7FFF for value in scale):
+            raise gdb.GdbError("X, Y, and Z must fit signed 16-bit Q12 words")
+        count = _integer(values[3]) if len(values) == 4 else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicTransformMutationProbe(
+            scale, count=count, writer=_trace_writer
+        )
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(
+            "collision transform mutation probe armed for "
+            f"{count} completed calls with scale {scale}"
+        )
+
+
 class TonyType192CommandProbe(gdb.Command):
     """tony-trg-type192-probe [COUNT] -- trace type-192 command effects."""
 
@@ -2173,6 +2207,7 @@ def register_commands() -> None:
     TonyCollisionDynamicProbe()
     TonyCollisionDynamicCullProbe()
     TonyCollisionDynamicTransformProbe()
+    TonyCollisionDynamicTransformMutationProbe()
     TonyType192CommandProbe()
     _registered = True
     _write(
@@ -2201,7 +2236,8 @@ def register_commands() -> None:
         "tony-collision-loader-probe, tony-collision-model-kind-probe, "
         "tony-collision-flags-probe, "
         "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
-        "tony-collision-transform-probe, tony-trg-type192-probe"
+        "tony-collision-transform-probe, tony-collision-transform-mutate, "
+        "tony-trg-type192-probe, "
         "tony-skip-movies, tony-force-level, tony-frontend-play, "
         "tony-player-sample, tony-input-sample, "
         "tony-action-sequence, "
