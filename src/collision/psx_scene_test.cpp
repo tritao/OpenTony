@@ -44,8 +44,8 @@ std::vector<std::uint8_t> synthetic_scene() {
     put_u32(bytes, 0x10, 0);
     put_u32(bytes, 0x14, 0);
     put_u32(bytes, 0x18, 0);
-    put_u32(bytes, 0x1c, 0);
-    put_u16(bytes, 0x20, 0);
+    put_u32(bytes, 0x1c, 0xfff01234u);
+    put_u16(bytes, 0x20, 0x8001);
     put_u16(bytes, 0x22, 0);
     put_i16(bytes, 0x24, 0);
     put_i16(bytes, 0x26, 0);
@@ -176,6 +176,8 @@ void check_synthetic_scene() {
     assert(scene && error.empty());
     assert(scene->objects().size() == 1);
     assert(scene->models().size() == 1);
+    assert(scene->objects()[0].collision_angles ==
+           (std::array<std::int16_t, 3>{0x1234, -16, -32767}));
     assert(scene->models()[0].vertices.size() == 4);
     const std::array<std::int16_t, 3> expected_normal{0, 0, 4096};
     assert(scene->models()[0].normals[0] == expected_normal);
@@ -201,6 +203,18 @@ void check_synthetic_scene() {
     assert(decoded_flags.surface_wallrideable);
     assert(decoded_flags.inverse_bit_23);
     assert(decoded_flags.inverse_bit_24);
+
+    const auto linked_source = scene->linked_collision_object_from_source(
+        0, 6, 0x12345678, 0x0110);
+    assert(linked_source.has_value());
+    assert(linked_source->body_id == 0x12345678);
+    assert(linked_source->flags == 0x0110);
+    assert(linked_source->angles ==
+           (std::array<std::int16_t, 3>{0x1234, -16, -32767}));
+    assert(linked_source->model_index == 0);
+    assert(linked_source->model_kind == 6);
+    assert(!scene->linked_collision_object_from_source(
+        scene->objects().size(), 6, 1, 0));
 
     const std::array<std::int16_t, 9> identity{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
@@ -368,18 +382,18 @@ void check_packaged_scene(const char* path) {
     // collision-dynamic-positive5. The PC node used flags 0x0110, zero
     // angles, and the model-171 object origin below; unlike the static path,
     // its contact is reconstructed from q+0x40 rather than q+0x8c.
-    const PsxLinkedCollisionObject linked_model_171{
-        .body_id = 0x05f26c84,
-        .flags = 0x0110,
-        .position = {-4100096, -6782976, 9408512},
-        .angles = {0, 0, 0},
-        .model_index = 171,
-        .model_kind = 6,
-    };
+    const auto linked_model_171 = scene->linked_collision_object_from_source(
+        170, 6, 0x05f26c84, 0x0110);
+    assert(linked_model_171.has_value());
+    assert(linked_model_171->position ==
+           (RawVec3{-4100096, -6782976, 9408512}));
+    assert(linked_model_171->angles == (std::array<std::int16_t, 3>{0, 0, 0}));
+    assert(linked_model_171->model_index == 171);
+    assert(linked_model_171->model_kind == 6);
     const auto dynamic_replay = scene->query_linked_objects(
         {-4100096, -8822784, 11472896},
         {-4100096, 23945216, 11472896},
-        std::span<const PsxLinkedCollisionObject>(&linked_model_171, 1), 1);
+        std::span<const PsxLinkedCollisionObject>(&*linked_model_171, 1), 1);
     assert(dynamic_replay.hit());
     assert(dynamic_replay.query.hit_body == 0x05f26c84);
     assert(dynamic_replay.query.hit_model_index == 171);

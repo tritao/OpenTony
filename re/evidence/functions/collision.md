@@ -217,6 +217,23 @@ the wrapper; the query does not parse a file on each call.
   and `model_kind` are attachment/finalization products. The native linked
   object seam therefore keeps `flags`, `model_kind`, and `body_id` caller-owned
   until this finalizer is reconstructed.
+- The parser copy loop gives those three source shorts an exact byte mapping:
+  disk object `+0x10` low 16 bits -> runtime `+0x14`, disk `+0x10` high 16
+  bits -> runtime `+0x16`, and disk `+0x14` -> runtime `+0x18`. The native
+  `PsxObject::collision_angles` view preserves this order without assigning
+  a stronger asset-level name. `PsxScene::linked_collision_object_from_source`
+  now builds the corresponding collision-facing view while requiring the
+  finalizer's region slot, finalized flags, and attachment body ID explicitly.
+- The finalizer's object loop is more specific than a generic “attachment”
+  step. At `0x00464a15` it enters the first record's `+0x20` link field and
+  advances by `0x4c`; it writes the next record address (or null) at `+0x20`,
+  the region argument's low byte at `+0x1f`, and then resolves the record's
+  `+0x1a` model index through the region-specific model table. If the model
+  header byte has bit `0x10`, it ORs `0x20` into the record's flags; if the
+  selected model in the global region table has bit `0x20`, it ORs `0x1000`
+  into the flags. These are the only per-object flag writes proven in this
+  loop; the live `0x0110` dynamic-node example therefore cannot be explained
+  by this finalizer alone.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are

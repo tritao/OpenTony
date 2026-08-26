@@ -56,6 +56,11 @@ struct PsxModel {
 struct PsxObject {
     std::uint32_t flags = 0;
     RawVec3 position{};
+    // The PSX loader copies disk +0x10 low/high halves and disk +0x14 into
+    // runtime object +0x14/+0x16/+0x18.  Collision treats those words as
+    // signed rotation components, although their original asset names are
+    // not recovered yet.
+    std::array<std::int16_t, 3> collision_angles{};
     std::uint16_t model_index = 0;
     std::size_t source_index = 0;
 };
@@ -181,6 +186,10 @@ public:
             }
             object.flags = *flags;
             object.position = {*x, *y, *z};
+            object.collision_angles = {
+                static_cast<std::int16_t>(*unknown_1 & 0xffffu),
+                static_cast<std::int16_t>((*unknown_1 >> 16u) & 0xffffu),
+                static_cast<std::int16_t>(*unknown_2)};
             object.model_index = *model_index;
             object.source_index = index;
             scene.objects_.push_back(object);
@@ -340,6 +349,30 @@ public:
     const std::vector<PsxObject>& objects() const { return objects_; }
     const std::vector<PsxModel>& models() const { return models_; }
     const std::vector<PsxBlockmap>& blockmaps() const { return blockmaps_; }
+
+    // Construct the collision-facing portion of a linked runtime object from
+    // one parsed PSX object.  The finalizer at 0x004647c0 supplies the model
+    // region slot and augments flags from model metadata; the attachment path
+    // supplies the live body identity.  Keeping both explicit prevents this
+    // source-level constructor from inventing those unresolved values.
+    std::optional<PsxLinkedCollisionObject>
+    linked_collision_object_from_source(std::size_t object_index,
+                                        std::uint8_t model_region_slot,
+                                        std::uint32_t body_id,
+                                        std::uint16_t finalized_flags) const {
+        if (object_index >= objects_.size()) {
+            return std::nullopt;
+        }
+        const auto& source = objects_[object_index];
+        PsxLinkedCollisionObject result;
+        result.body_id = body_id;
+        result.flags = finalized_flags;
+        result.position = source.position;
+        result.angles = source.collision_angles;
+        result.model_index = source.model_index;
+        result.model_kind = model_region_slot;
+        return result;
+    }
 
     // Query using the recovered static level path.  QueryRecord fields are
     // prepared here so this is the native equivalent of InitLineInfo plus

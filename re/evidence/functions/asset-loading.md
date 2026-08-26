@@ -114,7 +114,7 @@ The parser's copy loop makes the source-to-runtime offsets more precise:
 ```text
 disk +0x00 flags       -> runtime +0x04 flags
 disk +0x04/+0x08/+0x0c position -> runtime +0x08/+0x0c/+0x10
-disk +0x10 u32         -> runtime +0x14 u32 (read by collision as two s16 words)
+disk +0x10 low/high 16 bits -> runtime +0x14/+0x16 s16 transform components
 disk +0x14 u16         -> runtime +0x18 s16 transform component
 disk +0x16 u16 model   -> runtime +0x1a model index
 disk +0x18/+0x1a       -> runtime +0x1c four-byte trailing transform/source area
