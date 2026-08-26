@@ -248,6 +248,14 @@ def compare_vc6_module(selector: str, source: Path | None = None, flags: list[st
     if actual == expected:
         print(f"MATCH {module['id']}: {len(actual)} bytes ({' '.join(compile_flags)})")
         return True
+    if len(actual) >= len(expected) and actual[: len(expected)] == expected and all(
+        byte == 0x90 for byte in actual[len(expected) :]
+    ):
+        print(
+            f"MATCH {module['id']}: {len(expected)} bytes plus {len(actual) - len(expected)} "
+            f"COFF alignment NOPs ({' '.join(compile_flags)})"
+        )
+        return True
     common = 0
     for left, right in zip(expected, actual, strict=False):
         if left != right:

@@ -23,6 +23,29 @@ retail `mov eax, ecx` without changing the observed mutations.
 The split manifest retains the reviewed NASM module as the full-image rebuild
 oracle and records the C++ source and `vc6-coff-text` matching strategy.
 
+The adjacent subtraction, scalar multiply, scalar divide, arithmetic shift
+right, and shift left helpers at `0x004caa20`, `0x004caa50`, `0x004caa80`,
+`0x004caab0`, and `0x004caae0` have likewise been reconstructed in
+`match/cpp/`. Each emits its complete 48-byte retail module with VC6 SP3
+`/O2 /GX- /GR-`; the manifest records the five exact COFF matches as `cpp`
+modules while retaining their NASM sources for the full-image oracle.
+
+The decay-shift and equality-family helpers at `0x004cab10`, `0x004cab50`, and
+`0x004cab80` are also exact VC6 C++ matches under the same flags. The
+out-of-place helpers beginning at `0x004cabb0` remain semantic reconstructions
+whose current register allocation differs from the retail bytes; they are not
+marked `cpp` until a byte-identical source form is found.
+
+The fastcall 16-bit helpers at `0x004cad60` and `0x004cad80` also match their
+retail function ranges. VC6 emits extra trailing alignment NOPs in their COFF
+sections, so the comparator verifies the manifest-owned bytes and accepts only
+an all-NOP suffix outside the owned range.
+
+The compact signed-16-bit add/subtract pair at `0x004cae10` and `0x004cae30`
+also matches from the `Vec3s` C++ reconstructions. Ghidra identified the add
+function but missed the adjacent subtract entry; the tracked split boundary
+and byte comparison establish both functions independently.
+
 Four more adjacent leaf helpers use the same three-component layout:
 
 - `0x004caa50–0x004caa72` multiplies every component by the signed scalar
@@ -95,3 +118,32 @@ adjacent subtract function. Those two boundaries were therefore split
 explicitly from their observed instruction/return ranges instead of bypassing
 the safe-proposal policy. All four assembly modules exactly match their retail
 bytes; padding remains in separate raw fragments.
+
+The next compact signed-16-bit leaf functions are now split and matched from
+C++ as well:
+
+- `0x004caef0–0x004caf3f` performs the three-component decay shift using the
+  byte counts at the stack argument.
+- `0x004caf40–0x004caf6f` returns one only when all three signed words match.
+- `0x004caf70–0x004caf9f` returns one when any signed word differs.
+
+VC6 SP3 emits all 176 bytes for these three modules from the corresponding
+`match/cpp/Math_Vector3s*.cpp` sources with `/O2 /GX- /GR-`.
+
+The following signed-16-bit value-returning operators are also exact VC6
+reconstructions:
+
+- `0x004cafa0–0x004cb03f` subtracts two vectors with 12-bit angle wrapping,
+  accepting the inclusive `[-2048, 2048]` correction thresholds.
+- `0x004cb040` and `0x004cb090` return vector addition and subtraction.
+- `0x004cb0e0` and `0x004cb130` multiply a vector by a referenced scalar in
+  either argument order.
+- `0x004cb180` divides a vector by a referenced integer scalar.
+- `0x004cb1d0` and `0x004cb220` shift all three words right or left.
+- `0x004cb270` returns the component-wise negation of the `this` vector.
+
+These nine modules match their full retail ranges from the corresponding
+`Math_Vector3s*.cpp` sources under VC6 SP3 `/O2 /GX- /GR-`. Their value-returning
+signatures are important: VC6 passes the hidden result pointer before the two
+explicit vector/scalar references, which accounts for the stack-local copy
+layout in the retail bytes.

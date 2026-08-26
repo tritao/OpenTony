@@ -244,8 +244,14 @@ modules:
   end_va: 5024336
   file_offset: 829984
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004caa20.asm
+  cpp_source: match/cpp/Math_Vector3Sub.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: eeb45a7e3c8f42c1506a5f1971ba0cfd09eae4dadf897758c3e7778b2dd15764
 - id: text_004caa50
   section: .text
@@ -253,8 +259,14 @@ modules:
   end_va: 5024384
   file_offset: 830032
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004caa50.asm
+  cpp_source: match/cpp/Math_Vector3MulScalar.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 1fa0364a754b003710c39157f53ace5664dbc39ddbf30c63d7e65d07adc2d0df
 - id: text_004caa80
   section: .text
@@ -262,8 +274,14 @@ modules:
   end_va: 5024432
   file_offset: 830080
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004caa80.asm
+  cpp_source: match/cpp/Math_Vector3DivScalar.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 0aee9abf0ce9f720151d1433e25d84d688f13534e54f0732de4d0cb2888a788c
 - id: text_004caab0
   section: .text
@@ -271,8 +289,14 @@ modules:
   end_va: 5024480
   file_offset: 830128
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004caab0.asm
+  cpp_source: match/cpp/Math_Vector3ShiftRight.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 1153518096925e77759b5e3e52301fd5729d0dd243b5c45534bf480785f51346
 - id: text_004caae0
   section: .text
@@ -280,8 +304,14 @@ modules:
   end_va: 5024528
   file_offset: 830176
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004caae0.asm
+  cpp_source: match/cpp/Math_Vector3ShiftLeft.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: a4fbe03c5d3061cfa8d0aedf59808966a159a5e9a18385f8f8886cc07eac8236
 - id: text_004cab10
   section: .text
@@ -289,8 +319,14 @@ modules:
   end_va: 5024592
   file_offset: 830224
   size: 64
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cab10.asm
+  cpp_source: match/cpp/Math_Vector3DecayShift.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: e3e9b31305dd5cbbfba22cdca754cf3aa0d9b893eb9c0ef53f00bd41b7f17688
 - id: text_004cab50
   section: .text
@@ -298,8 +334,14 @@ modules:
   end_va: 5024640
   file_offset: 830288
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cab50.asm
+  cpp_source: match/cpp/Math_Vector3Equal.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 5ef490ed0c0012d11785f2202e2b13f5ac937ffa46caf446e43e9b2fb802f6f2
 - id: text_004cab80
   section: .text
@@ -307,8 +349,14 @@ modules:
   end_va: 5024688
   file_offset: 830336
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cab80.asm
+  cpp_source: match/cpp/Math_Vector3NotEqual.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 0eb7b6a06847dcb0d1ec1bfb73c8fc786aca9d3e9816a86e57396a0a891ca07c
 - id: text_004cabb0
   section: .text
@@ -397,8 +445,14 @@ modules:
   end_va: 5025137
   file_offset: 830816
   size: 17
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cad60.asm
+  cpp_source: match/cpp/Math_Vector3Mask12.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: c60368e6ff5039cc9b42798de12128482134d78c8acff9574a7d0b52ff0364ad
 - id: text_004cad71
   section: .text
@@ -415,8 +469,14 @@ modules:
   end_va: 5025213
   file_offset: 830848
   size: 61
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cad80.asm
+  cpp_source: match/cpp/Math_Vector3SnapNearZero.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: d3b307be3f9fc08e26258e59a19df87ed64c1b16ae8fdd1896f78371fff81061
 - id: text_004cadbd
   section: .text
@@ -433,8 +493,14 @@ modules:
   end_va: 5025327
   file_offset: 830992
   size: 31
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cae10.asm
+  cpp_source: match/cpp/Math_Vector3sAdd.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: eb59955e7c1abe07269ccf346a3895677c757aebd8b5ee2a90ebec4f9a2c5297
 - id: text_004cae2f
   section: .text
@@ -451,18 +517,213 @@ modules:
   end_va: 5025359
   file_offset: 831024
   size: 31
-  status: asm
+  status: cpp
   source: match/modules/text/text_004cae30.asm
+  cpp_source: match/cpp/Math_Vector3sSub.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 0adabf1f16bc81a06280a35ff33164823cbb5c00240fa60e5dc9f3c55933ddff
 - id: text_004cae4f
   section: .text
   start_va: 5025359
-  end_va: 5050368
+  end_va: 5025520
   file_offset: 831055
-  size: 25009
+  size: 161
   status: raw
   source: match/modules/text/text_004cae4f.asm
-  sha256: 26015fab4b57d2cf93596fd9a08c93bd6ecf21941be7e9d25bea5fa922baa8b9
+  sha256: ae59a283b3caffe84aa105389d316322a0a0ab512d55818c07bf7d806bc2d9aa
+- id: text_004caef0
+  section: .text
+  start_va: 5025520
+  end_va: 5025600
+  file_offset: 831216
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004caef0.asm
+  cpp_source: match/cpp/Math_Vector3sDecayShift.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 14aa7d56af8990a004a64cde303aecb64f88223b4f4efa213a7a11e08c5d86e0
+- id: text_004caf40
+  section: .text
+  start_va: 5025600
+  end_va: 5025648
+  file_offset: 831296
+  size: 48
+  status: cpp
+  source: match/modules/text/text_004caf40.asm
+  cpp_source: match/cpp/Math_Vector3sEqual.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 6780c7789b7e8ea255ee76cdbee562f4c9e36f6116699bac11c2eb365fe33fe2
+- id: text_004caf70
+  section: .text
+  start_va: 5025648
+  end_va: 5025696
+  file_offset: 831344
+  size: 48
+  status: cpp
+  source: match/modules/text/text_004caf70.asm
+  cpp_source: match/cpp/Math_Vector3sNotEqual.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 85a06c35699e19275c645b2844491b506d5803a744d64a8866b55b4d9669007d
+- id: text_004cafa0
+  section: .text
+  start_va: 5025696
+  end_va: 5025856
+  file_offset: 831392
+  size: 160
+  status: cpp
+  source: match/modules/text/text_004cafa0.asm
+  cpp_source: match/cpp/Math_Vector3sWrappedSub.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: fd564fc293e7f11dd0a0484611b170f98d480627b0e3d520974c85bef06c89aa
+- id: text_004cb040
+  section: .text
+  start_va: 5025856
+  end_va: 5025936
+  file_offset: 831552
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb040.asm
+  cpp_source: match/cpp/Math_Vector3sAddOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 002696fa45b9048d57734c7b216970349849363f2fe3e7d6649ab4ddeb216331
+- id: text_004cb090
+  section: .text
+  start_va: 5025936
+  end_va: 5026016
+  file_offset: 831632
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb090.asm
+  cpp_source: match/cpp/Math_Vector3sSubOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 93787899e28b5049218394ca732de142eca0722e6af3d3fe2070af4737ec05c2
+- id: text_004cb0e0
+  section: .text
+  start_va: 5026016
+  end_va: 5026096
+  file_offset: 831712
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb0e0.asm
+  cpp_source: match/cpp/Math_Vector3sMulScalarOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 5092cbb805f60969d3f793a3d81fa464f781a97667627660a069f0d11ad71000
+- id: text_004cb130
+  section: .text
+  start_va: 5026096
+  end_va: 5026176
+  file_offset: 831792
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb130.asm
+  cpp_source: match/cpp/Math_Vector3sScalarMulOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: f6a5e20c5a4ae334de0518df9e63ba5b8a9f25173321ea2f22d620b827937918
+- id: text_004cb180
+  section: .text
+  start_va: 5026176
+  end_va: 5026256
+  file_offset: 831872
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb180.asm
+  cpp_source: match/cpp/Math_Vector3sDivScalarOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 07b94d9cb1772ee8d2ed593fde7a26c6ba93fd596d11ad580bb897bf3b55f5a2
+- id: text_004cb1d0
+  section: .text
+  start_va: 5026256
+  end_va: 5026336
+  file_offset: 831952
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb1d0.asm
+  cpp_source: match/cpp/Math_Vector3sShiftRightOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 8edab2acdcc24d7e35dd2deeef693831c0327963599c84c25d9e81e9445e437c
+- id: text_004cb220
+  section: .text
+  start_va: 5026336
+  end_va: 5026416
+  file_offset: 832032
+  size: 80
+  status: cpp
+  source: match/modules/text/text_004cb220.asm
+  cpp_source: match/cpp/Math_Vector3sShiftLeftOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: f9f75e7bd0b73836497617540589f861cfb44ec5f921fa732d05ca32cc30694e
+- id: text_004cb270
+  section: .text
+  start_va: 5026416
+  end_va: 5026480
+  file_offset: 832112
+  size: 64
+  status: cpp
+  source: match/modules/text/text_004cb270.asm
+  cpp_source: match/cpp/Math_Vector3sNegateOut.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: ff87a6b0efcdfe306cbaad94c035989846c77ecdc132617e5687315b5d7c2689
+- id: text_004cb2b0
+  section: .text
+  start_va: 5026480
+  end_va: 5050368
+  file_offset: 832176
+  size: 23888
+  status: raw
+  source: match/modules/text/text_004cb2b0.asm
+  sha256: 267bc1dff457512a3d46bfeb99a7232f2baf72b1dc08c56096870378bb0bb057
 - id: text_004d1000
   section: .text
   start_va: 5050368
