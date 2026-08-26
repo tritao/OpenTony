@@ -10,7 +10,13 @@ import gdb
 
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
 from .camera import CameraProbe, ViewProjectionProbe
-from .collision import CollisionQueryProbe
+from .collision import (
+    CollisionDynamicCullProbe,
+    CollisionDynamicProbe,
+    CollisionFlagProbe,
+    CollisionLoaderProbe,
+    CollisionQueryProbe,
+)
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
@@ -1468,6 +1474,86 @@ class TonyCollisionProbe(gdb.Command):
         _write(f"collision query probe armed for {count} completed calls")
 
 
+class TonyCollisionLoaderProbe(gdb.Command):
+    """tony-collision-loader-probe [COUNT] -- log zone-loader handoffs."""
+
+    DEFAULT_COUNT = 4
+
+    def __init__(self):
+        super().__init__("tony-collision-loader-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-loader-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-loader-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionLoaderProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision loader probe armed for {count} completed calls")
+
+
+class TonyCollisionFlagsProbe(gdb.Command):
+    """tony-collision-flags-probe [COUNT] -- log face flag decoding."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-flags-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-flags-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-flags-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionFlagProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision flag probe armed for {count} completed calls")
+
+
+class TonyCollisionDynamicProbe(gdb.Command):
+    """tony-collision-dynamic-probe [COUNT] -- log linked-object face tests."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-dynamic-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-dynamic-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-dynamic-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision dynamic probe armed for {count} completed calls")
+
+
+class TonyCollisionDynamicCullProbe(gdb.Command):
+    """tony-collision-dynamic-cull-probe [COUNT] -- log linked broad-phase survivors."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-dynamic-cull-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-dynamic-cull-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-dynamic-cull-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicCullProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision dynamic cull probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -1518,6 +1604,10 @@ def register_commands() -> None:
     TonyPlayerDiff()
     TonyPositionCommitProbe()
     TonyCollisionProbe()
+    TonyCollisionLoaderProbe()
+    TonyCollisionFlagsProbe()
+    TonyCollisionDynamicProbe()
+    TonyCollisionDynamicCullProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -1535,5 +1625,7 @@ def register_commands() -> None:
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
         "tony-physics-state-writers, "
         "tony-ollie-latch-probe, "
-        "tony-player-diff, tony-position-commit"
+        "tony-player-diff, tony-position-commit, "
+        "tony-collision-loader-probe, tony-collision-flags-probe, "
+        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe"
     )

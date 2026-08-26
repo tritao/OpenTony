@@ -54,6 +54,13 @@ from opentony import physics
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
+from opentony.collision import (
+    _candidate_source_snapshot,
+    _dynamic_object_snapshot,
+    _dynamic_query_snapshot,
+    _linked_object_snapshots,
+    _zone_entry_snapshot,
+)
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import AirCollisionQueryProbe, MovementPhysicsProbe, PhysicsProbe, PlayerDiffProbe
@@ -106,6 +113,149 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     assert memory.f32(0x34) == 0.25
     assert negative.x.signed == -65536
     assert negative.x.value == -1.0
+
+
+def test_collision_probe_reads_bounded_linked_object_prefix():
+    inferior = FakeInferior()
+    first = 0x500
+    second = 0x600
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        first,
+        0,
+        0x0025,
+        0x1234,
+        4096,
+        -8192,
+        12288,
+        0x0100,
+        -0x0100,
+        0x0200,
+        171,
+        6,
+        second,
+    )
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        second,
+        0,
+        0x0020,
+        0x1235,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        172,
+        6,
+        0,
+    )
+    snapshot = _linked_object_snapshots(first, Memory(inferior))
+
+    assert snapshot["termination"] == "null"
+    assert snapshot["next_unread"] is None
+    assert len(snapshot["nodes"]) == 2
+    assert snapshot["nodes"][0]["position_s32"] == [4096, -8192, 12288]
+    assert snapshot["nodes"][0]["angles_s16"] == [0x100, -0x100, 0x200]
+    assert snapshot["nodes"][0]["model_index"] == 171
+    assert snapshot["nodes"][0]["previous"] is None
+    assert snapshot["nodes"][1]["next"] is None
+
+
+def test_collision_loader_source_snapshot_reads_counted_entries_and_terminator():
+    inferior = FakeInferior()
+    source = 0x700
+    struct.pack_into("<3I", inferior.data, source, 0x10, 0x20, 2)
+    struct.pack_into("<3I", inferior.data, source + 0x0C, 0x1111, 0x2222, 0)
+
+    snapshot = _candidate_source_snapshot(source, Memory(inferior))
+
+    assert snapshot is not None
+    assert snapshot["entry_count"] == 2
+    assert snapshot["entries"] == [0x1111, 0x2222]
+    assert snapshot["terminator"] == 0
+
+
+def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
+    inferior = FakeInferior()
+    zone = 0x1000
+    struct.pack_into(
+        "<I4iI4x2h",
+        inferior.data,
+        zone,
+        1,
+        -10,
+        -20,
+        30,
+        40,
+        5,
+        20,
+        20,
+    )
+
+    snapshot = _zone_entry_snapshot(zone, Memory(inferior))
+
+    assert snapshot == {
+        "address": "0x00001000",
+        "present_word": 1,
+        "min_x": -10,
+        "min_z": -20,
+        "max_x": 30,
+        "max_z": 40,
+        "cell_divisor": 5,
+        "cell_count_x": 20,
+        "cell_count_z": 20,
+    }
+
+
+def test_collision_dynamic_snapshots_keep_object_transform_and_query_outputs():
+    inferior = FakeInferior()
+    object_address = 0x500
+    query = 0x900
+    face = 0xA00
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        object_address,
+        0,
+        0x0025,
+        0x1234,
+        4096,
+        -8192,
+        12288,
+        0x0100,
+        -0x0100,
+        0x0200,
+        171,
+        6,
+        0,
+    )
+    struct.pack_into("<3I", inferior.data, query, 1, 2, 3)
+    struct.pack_into("<3I", inferior.data, query + 0x0C, 4, 5, 6)
+    struct.pack_into("<3I", inferior.data, query + 0x68, object_address, 7, 8)
+    struct.pack_into("<3I", inferior.data, query + 0x6C, 9, 10, 11)
+    struct.pack_into("<3h", inferior.data, query + 0x78, 12, -13, 14)
+    struct.pack_into("<I", inferior.data, query + 0x80, face)
+    struct.pack_into("<H2xBBH", inferior.data, query + 0x84, 171, 2, 1, 0x1234)
+    struct.pack_into("<I", inferior.data, query + 0x8C, 0xFFFFFFF0)
+    struct.pack_into("<4I", inferior.data, face, 0x1C1083, 0, 0, 0x00100020)
+
+    memory = Memory(inferior)
+    object_snapshot = _dynamic_object_snapshot(object_address, memory)
+    query_snapshot = _dynamic_query_snapshot(query, memory)
+
+    assert object_snapshot["angles_s16"] == [0x100, -0x100, 0x200]
+    assert object_snapshot["model_index"] == 171
+    assert object_snapshot["model_kind"] == 6
+    assert query_snapshot["start_raw"] == [1, 2, 3]
+    assert query_snapshot["end_raw"] == [4, 5, 6]
+    assert query_snapshot["hit_body"] == "0x00000500"
+    assert query_snapshot["contact_raw"] == [9, 10, 11]
+    assert query_snapshot["normal_s16"] == [12, -13, 14]
+    assert query_snapshot["hit_parameter"] == -16
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():

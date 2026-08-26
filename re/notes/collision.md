@@ -7,12 +7,15 @@ static call graph, tentative query-record layout, and grounded/airborne
 runtime probes.
 
 The evidence directory also contains a small C++20 reference layer and
-compile-only fixture for the recovered fixed-point query math. It intentionally
-stops before the unresolved level-zone/model implementation.
+compile-only fixture for the recovered fixed-point query math, model-face
+walker, face filtering, and zone-grid traversal. The full level-file loader
+and engine-owned cache allocation remain outside this layer.
 
 The current strongest model is a swept-line query over a level zone/block
-structure. Exact level-file serialization and several field meanings remain
-open; this session deliberately stopped at the query interface and hit result.
+structure, with a linked transformed-model branch for dynamic objects. Exact
+level-file serialization and several field meanings remain open, but the
+query-record ABI, face geometry path, zone DDA, hit interpolation, and normal
+finalization boundary are constrained enough to support the native reference.
 
 The PSX `0x0000000A` blockmap provides fixed-point X/Z bounds, a grid, and
 object references. The native `PsxCollisionWorld` reproduces that selection,

@@ -105,6 +105,12 @@ releases and disables them. For gameplay animation traces, arm the probes
 with `tony-skip-movies` and `tony-force-level warehouse`; the level-force
 breakpoint stops once at launch, so send `continue` again to reach gameplay.
 
+Collision experiments use `tony-collision-probe [COUNT]` for the shared query
+record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
+`tony-collision-dynamic-cull-probe [COUNT]` plus
+`tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
+passes.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`
