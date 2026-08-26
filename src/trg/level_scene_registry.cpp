@@ -176,6 +176,7 @@ void LevelSceneRegistry::copy_source_metadata(
     LevelSceneEntity& entity,
     const TriggerObjectState& source) {
     entity.spawn_options = source.spawn_options;
+    entity.factory_node_bytes = source.factory_node_bytes;
     entity.has_spawn_option_2 = source.has_spawn_option_2;
     entity.has_spawn_option_4 = source.has_spawn_option_4;
     entity.factory_requires_environment_registration =

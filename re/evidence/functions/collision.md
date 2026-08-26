@@ -411,6 +411,17 @@ the wrapper; the query does not parse a file on each call.
     `0x0049f265` and `0x0049f360` call the object initializer and insert into
     `DAT_0056af40`; this establishes list ownership and a backward-link
     offset without claiming the full object allocation size.
+  - The type-192 object vtable at `0x005194f8` has a model-update handler at
+    `0x004a1060`. Its numeric-model case writes a region-local `u16` directly
+    to `+0x1a`; its checksum case aligns the command cursor, calls
+    `0x004b1de0(checksum, +0x1f)`, and writes that returned model index to
+    `+0x1a`. Both cases resolve `DAT_0056d43c[+0x1f * 0x11][+0x1a]` and
+    mirror the selected model header bit `0x10` into object flag `+0x04`
+    bit `0x20`. This explains why `model_kind`/`model_index` are mutable
+    runtime products rather than a sufficient PSX object identity. The
+    separate `0x004a12d0` consumer scans `DAT_0056af40`, performs model-bound
+    overlap against the player's AABB, and calls `0x0049f4c0` for platform/
+    ground response; it should not be mistaken for the line-query wrapper.
   - A separate level-building path around `0x0043d88e` (with the embedded
     source path `H:\\TonyHawk\\Pc2\\LevelGen.cpp`) computes an object
     allocation size of `count*0x4c + 4`, stores the element count in the

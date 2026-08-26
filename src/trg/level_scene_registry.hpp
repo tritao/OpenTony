@@ -33,6 +33,7 @@ struct LevelSceneEntity {
     std::uint32_t factory_model_selector{};
     bool has_factory_model_selector{};
     std::vector<std::uint8_t> spawn_options;
+    std::vector<std::byte> factory_node_bytes;
     bool has_spawn_option_2{};
     bool has_spawn_option_4{};
     bool factory_requires_environment_registration{};

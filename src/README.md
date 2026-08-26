@@ -415,6 +415,13 @@ g++ -std=c++20 -Wall -Wextra -Werror -pedantic -I. \
 /tmp/psx-scene-test /path/to/SKHAN.PSX
 ```
 
+For a bounded TRG-to-PSX position comparison, the TRG inspector accepts
+`--print-position-witnesses`. It reports only type-192 and type-`0xcb` spawn
+records, their exact fixed-point PSX position-match count, and the first
+matching PSX object/model when the count is one. A zero count is meaningful:
+trigger-created object positions are not generally the same records as the PSX
+environment object table.
+
 The ground-movement runtime keeps the older asset-world probe as its default
 comparison path. Set
 `GameplaySessionConfig::use_recovered_collision_scene` to enable

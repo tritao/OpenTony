@@ -258,6 +258,41 @@ trigger-side allocation to the same region/model/position/angle prefix read
 by the dynamic collision path, while leaving the live heap body pointer and
 the later model-index update explicit.
 
+### Type-192 model-selection lifecycle
+
+The type-192 vtable is installed at `0x005194f8`. Its virtual handler at
+`0x004a1060` dispatches a compact object command by the low 16 bits of the
+command word. The model-selection cases are important to collision ownership:
+
+- one case consumes a `u16` model index, stores it at object `+0x1a`, then
+  resolves `DAT_0056d43c[object+0x1f * 0x11]` and tests the selected model
+  header byte for bit `0x10`; it sets or clears object flag `+0x04` bit
+  `0x20` accordingly;
+- another case aligns the command cursor to a four-byte boundary, consumes a
+  `u32` model-name/checksum, calls `0x004b1de0(checksum, object+0x1f)`, and
+  stores the returned model index at `+0x1a`; it performs the same model-header
+  test and also clears object flag `+0x04` bit 0; and
+- the constructor initializes `+0x1a` to zero through the shared
+  `0x0047fe30` helper, while `+0x1f` is the region slot returned by the
+  region-name lookup. Thus the initial model is region-local index zero, not
+  a TRG subtype or source-object index.
+
+The handler's cursor is the post-position/orientation stream pointer stored at
+`+0x17c`; the constructor's `0x00480240`/`0x004802c0` helpers consume the
+three fixed-point position words and three orientation words before saving
+that cursor. This gives a concrete update path from a TRG-created object to the
+same region/model table consumed by collision broad phase, while leaving the
+command opcode names and the heap pointer ownership unresolved.
+
+The adjacent `0x004a12d0` consumer scans `DAT_0056af40` through each object's
+`+0x20` link, requires object flag `0x0100` and object state bit
+`+0x178:0x10`, rejects `+0x178:0x20`, resolves the object's region slot/model
+index through `DAT_0056d43c`, and compares the selected model bounds against
+the player's position/AABB. A qualifying object is passed to `0x0049f4c0`
+with the player response vector. This is a ground/platform response consumer,
+not the skater's line-query primitive, but it proves that the type-192
+object-manager list is a live downstream collision/ground input.
+
 The constructors also expose stable sentinel/header initialization beyond the
 shared position and source-node fields. The `0xcb` constructor stores the
 current runtime context from `DAT_0056a954` at `+0x1d8`, initializes `+0x1ec`

@@ -39,6 +39,11 @@ struct TriggerObjectState {
     bool has_orientation{};
     // Raw option bytes scanned by FUN_004c5460 before factory creation.
     std::vector<std::uint8_t> spawn_options;
+    // Exact node bytes handed to the retail object constructor. The type-192
+    // constructor stores a cursor into this stream at +0x17c; retaining the
+    // bytes keeps later model-selection replay possible without guessing a
+    // second payload schema here.
+    std::vector<std::byte> factory_node_bytes;
     bool has_spawn_option_2{};
     bool has_spawn_option_4{};
     bool factory_requires_environment_registration{};
