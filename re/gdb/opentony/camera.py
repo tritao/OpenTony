@@ -21,6 +21,15 @@ GEOMETRY_SUBMISSION = 0x004D11D0
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
 
 
+def _steady_single_view_input(memory, address: int) -> bool:
+    """Recognize the normalized 640x480 one-player view fixture."""
+
+    if not memory.readable(address, 14 * 2):
+        return False
+    values = [memory.s16(address + index * 2) for index in range(14)]
+    return values[:4] == [640, 480, 0, 0] and values[7:10] == [12, 320, 240]
+
+
 def _words(memory, address: int, count: int = 3) -> dict[str, list[int | float]]:
     """Return raw words plus deliberately uncommitted numeric interpretations."""
 
@@ -514,10 +523,18 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
     changes the prepared basis and packets.
     """
 
-    def __init__(self, count: int | None = None, writer=None):
+    def __init__(
+        self,
+        count: int | None = None,
+        writer=None,
+        *,
+        freeze_input: bool = False,
+    ):
         super().__init__(function_address("view_projection"), count=count, internal=True)
         self.writer = writer
+        self.freeze_input = freeze_input
         self.baseline: int | None = None
+        self.baseline_block: bytes | None = None
 
     def on_count(self, ctx: Context) -> bool:
         memory = ctx.memory
@@ -533,14 +550,20 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
         if not camera or not memory.valid(camera):
             return False
         view_input = ctx.arg(1)
+        if self.freeze_input and self.baseline_block is not None:
+            memory.write(view_input, self.baseline_block)
+        if not _steady_single_view_input(memory, view_input):
+            return False
         address = view_input + VIEW_INPUT_VERTICAL_SCALE_OFFSET
         if not memory.readable(address, 2):
             return False
         before = memory.s16(address)
         if self.baseline is None:
-            if before <= 0:
+            if before <= 0 or not _steady_single_view_input(memory, view_input):
                 return False
             self.baseline = before
+            if self.freeze_input:
+                self.baseline_block = memory.bytes(view_input, 14 * 2)
         mutated = self.hits % 2 == 0
         after = self.baseline // 2 if mutated else self.baseline
         memory.write_u16(address, after & 0xffff)
@@ -552,6 +575,7 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
                 "level": level,
                 "player": f"0x{player:08x}",
                 "camera": f"0x{camera:08x}",
+                "input_frozen": self.freeze_input,
                 "baseline": self.baseline,
                 "before": before,
                 "after": after,

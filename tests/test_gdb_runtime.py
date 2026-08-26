@@ -519,7 +519,9 @@ def test_view_projection_perturb_probe_alternates_vertical_scale_input():
     inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
     inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
     inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
-    inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
+    inferior.data[view_input:view_input + 0x20] = struct.pack(
+        "<14h", 640, 480, 0, 0, 10, 20512, 3413, 12,
+        320, 240, 0, 0, 320, 480) + bytes(4)
     inferior.data[0x100:0x110] = struct.pack(
         "<4I", 0x1234, 0xA00, view_input, 0xC00
     )
@@ -551,6 +553,46 @@ def test_view_projection_perturb_probe_alternates_vertical_scale_input():
     assert events[1]["mutation"]["mutated"] is False
     assert events[1]["mutation"]["after"] == baseline
     assert memory.s16(view_input + 0x0C) == baseline
+
+
+def test_view_projection_perturb_probe_can_freeze_baseline_view_input():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    view_input = 0xB00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    baseline_words = [640, 480, 0, 0, 10, 20512, 3413, 12,
+                      320, 240, 0, 0, 320, 480]
+    inferior.data[view_input:view_input + 0x20] = (
+        struct.pack("<14h", *baseline_words) + bytes(4))
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x1234, 0xA00, view_input, 0xC00)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionPerturbProbe(
+        count=2, writer=Writer(), freeze_input=True)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x360}),
+        memory,
+    )
+    probe.on_hit(context)
+    # Simulate the render path changing the other view fields before the next
+    # call. The freeze mode must restore all 14 shorts before reapplying word6.
+    memory.write(view_input, struct.pack(
+        "<14h", 640, 480, 1, 2, 11, 1234, 999, 13,
+        321, 241, 3, 4, 321, 479) + bytes(4))
+    probe.on_hit(context)
+    assert events[0]["mutation"]["input_frozen"] is True
+    assert events[1]["mutation"]["input_frozen"] is True
+    assert [memory.s16(view_input + index * 2) for index in range(14)] == (
+        baseline_words)
 
 
 def test_geometry_submission_probe_keeps_transform_and_packet_handoff_raw():

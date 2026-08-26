@@ -856,22 +856,28 @@ class TonyViewProjectionProbe(gdb.Command):
 
 
 class TonyViewProjectionPerturb(gdb.Command):
-    """tony-view-perturb [COUNT] -- alternate view input word 6 for calibration."""
+    """tony-view-perturb [COUNT] [--freeze] -- alternate view word 6."""
 
     def __init__(self):
         super().__init__("tony-view-perturb", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        values = _argv(arg, "tony-view-perturb [COUNT]") if arg.strip() else []
+        values = _argv(arg, "tony-view-perturb [COUNT] [--freeze]") if arg.strip() else []
+        freeze = "--freeze" in values
+        values = [value for value in values if value != "--freeze"]
         if len(values) > 1:
-            raise gdb.GdbError("usage: tony-view-perturb [COUNT]")
+            raise gdb.GdbError("usage: tony-view-perturb [COUNT] [--freeze]")
         count = _integer(values[0]) if values else None
         if count is not None and count <= 0:
             raise gdb.GdbError("COUNT must be positive")
-        probe = ViewProjectionPerturbProbe(count, writer=_trace_writer)
+        probe = ViewProjectionPerturbProbe(
+            count, writer=_trace_writer, freeze_input=freeze)
         _runtime_breakpoints.append(probe)
         limit = "until disabled" if count is None else f"for {count} observations"
-        _write(f"view projection perturb probe armed {limit} at 0x{probe.address:08x}")
+        suffix = "; baseline view input frozen" if freeze else ""
+        _write(
+            f"view projection perturb probe armed {limit} at 0x{probe.address:08x}"
+            f"{suffix}")
 
 
 class TonyCameraPositionProbe(gdb.Command):
