@@ -1156,8 +1156,16 @@ DispatchResult PhysicsStateMachine::step_frame(
     // run. Retail's dispatcher performs that check after its direct call to
     // 0x00497f40; dispatch_impl() therefore exposes the same split boundary
     // to this callback-driven native frame.
-    const DispatchResult result = dispatch_impl(
+    DispatchResult result = dispatch_impl(
         callbacks.dispatcher, user, false);
+    if (result.raw_state == retail::kPhysicsOnGround &&
+        state_.raw_state == retail::kPhysicsOnGround &&
+        callbacks.ground_leave_air_input != nullptr) {
+        GroundAirTransitionInput input{};
+        if (callbacks.ground_leave_air_input(*this, input, user)) {
+            result.ground_leave_air = try_ground_to_air(input);
+        }
+    }
     if (result.kind == DispatchKind::State6PreAir &&
         callbacks.state6_preair_setup != nullptr) {
         // Case 6's first callee requests raw state 1 before the switch falls
@@ -1349,8 +1357,11 @@ void PhysicsStateMachine::finalize_dispatch_post_handler(
 GroundAirTransitionResult PhysicsStateMachine::try_ground_to_air(
     const GroundAirTransitionInput& input) {
     GroundAirTransitionResult result;
-    if (state_.raw_state != retail::kPhysicsOnGround ||
-        !ground_leave_air_predicate(input)) {
+    if (state_.raw_state != retail::kPhysicsOnGround) {
+        return result;
+    }
+    result.predicate_evaluated = true;
+    if (!ground_leave_air_predicate(input)) {
         return result;
     }
 

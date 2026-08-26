@@ -136,6 +136,19 @@ stateful test verifies the ordered request records: the case-0 request at
 `0x004905ab`, and the final `+0x3204 = 0x28` marker. Collision/slope
 classification and the helper’s animation/sound consumers remain caller-owned.
 
+The frame-level orchestration now preserves that boundary. In
+`PhysicsStateMachine::step_frame()`, the optional `ground_leave_air_input`
+producer is called only after `0x0049dad0 → 0x00496550 → 0x00495cc0 →
+0x0049d9c0` have been selected by the dispatcher, and only while the raw state
+is still `0`. The producer publishes the already-resolved collision/outer-frame
+values; `try_ground_to_air()` owns evaluation and, on success, the two request
+writes, descending-Y clamp, `0x004904d0` reset, and marker store. The returned
+`DispatchResult` retains entry `raw_state=0`/`kind=Ground` and carries the
+post-handler `ground_leave_air` result, so a successful case-0 tail does not
+fall through into the common air handler in the same frame. The frame fixture
+asserts the callback order, request callsites, phase state, reset marker, and
+the strict-gate rejection path.
+
 ### Shared off-ground reset (`0x004904d0`)
 
 The helper is broader than the state-4 label. Its two arguments are the

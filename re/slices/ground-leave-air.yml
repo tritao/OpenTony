@@ -34,6 +34,8 @@ open_questions:
 
 completion:
   - The case-0 handler order and strict leave-ground predicate are recorded.
+  - The frame dispatcher exposes the post-handler producer seam and preserves
+    the successful transition result without same-frame air fallthrough.
   - The state request, descending-Y clamp, off-ground reset, and marker order have deterministic tests.
   - Frame-counter sign and equality boundaries are covered without host overflow.
   - Caller-owned collision, animation, and scripting producers remain explicit.

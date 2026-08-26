@@ -258,6 +258,19 @@ functions:
       - re/evidence/functions/physics-states.md
     notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate and preserves caller-owned wall/rail classification.
 
+  - address: 0x0049db80
+    name: Skater_PhysicsDispatcher
+    slice: ground-leave-air
+    status: tested
+    sources:
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Dispatcher case routing and the post-case-0 grounded leave-air tail are tested with caller-owned slope/recovery/frame inputs; collision, animation, and sound producers remain explicit seams.
+
   - address: 0x004ed9b0
     name: Audio_LoadWavPcm
     slice: asset-runtime
