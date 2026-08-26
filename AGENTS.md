@@ -2,9 +2,10 @@
 
 ## Matching reconstruction
 
-Before changing `match/`, read and follow `match/POLICY.md`. It is the canonical
-source for module ownership, statuses, promotion criteria, exact encodings, and
-progress reporting; do not redefine those rules elsewhere.
+Before changing `match/`, `re/`, or `src/`, read and follow
+`docs/RECONSTRUCTION_WORKFLOW.md`. For matching work, also read
+`match/POLICY.md`. These are the canonical sources; do not redefine their rules
+elsewhere.
 
 In particular, never mark a naked inline-assembly block as semantic `cpp`; use
 the status required by `match/POLICY.md`.

@@ -1,5 +1,9 @@
 # Recovered types
 
+These files describe retail memory layouts. Native domain types remain C++
+source under `src/` and connect through explicit adapters, as specified by
+`docs/RECONSTRUCTION_WORKFLOW.md`.
+
 Keep type layouts in small YAML files once offsets are evidence-backed. Do not create speculative giant structs just to make the decompiler prettier.
 
 Suggested record:

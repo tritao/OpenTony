@@ -130,3 +130,7 @@ When probing asset or data semantics:
 ## 7. Reconstruction
 
 Do not rush to `src/`. A subsystem should have enough evidence and trace coverage that a replacement can be compared against the original. The first good candidate is player movement/ollie state rather than a complete renderer.
+
+Follow `docs/RECONSTRUCTION_WORKFLOW.md` for the complete process connecting
+exact byte matching, recovered evidence and layouts, portable native code, and
+retail/native parity tests.

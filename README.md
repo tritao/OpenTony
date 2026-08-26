@@ -178,4 +178,5 @@ tony compare <trace-a.jsonl> <trace-b.jsonl>
 
 We intentionally do **not** use Git submodules initially. Ghidra and Wine are provisioned tools, not source dependencies. External THPS/Neversoft projects belong in `references/` as links until we have a concrete reason to pin one as a source dependency.
 
-See `docs/WORKFLOW.md`, `docs/TOOLING.md`, and `CODEX_HANDOFF.md` before doing substantial RE work.
+See `docs/WORKFLOW.md`, `docs/RECONSTRUCTION_WORKFLOW.md`, `docs/TOOLING.md`,
+and `CODEX_HANDOFF.md` before doing substantial RE or reconstruction work.

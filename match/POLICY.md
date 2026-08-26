@@ -3,6 +3,9 @@
 The byte-preserving split is a permanent verification oracle, not the final
 architecture of OpenTony.
 
+See `docs/RECONSTRUCTION_WORKFLOW.md` for how this oracle feeds evidence,
+matching C/C++ attempts, portable native code, and parity tests.
+
 ## Ownership
 
 - A function module owns instruction bytes from its entry through its final
