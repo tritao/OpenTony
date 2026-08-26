@@ -22,6 +22,10 @@ constexpr float kOneOver4096 = 0.000244140625f;
 constexpr float kTwoPi = 6.28318548f;
 constexpr double kRadiansToAngle = 651.89862876367124;
 
+inline Raw wrap_s32(std::int64_t value) {
+    return static_cast<Raw>(static_cast<std::uint32_t>(value));
+}
+
 struct Q16Vec3 {
     Raw x{};
     Raw y{};
@@ -40,6 +44,15 @@ struct Q12Vec4 {
     Raw z{};
     Raw w{};
 };
+
+// The camera embeds these four words behind a small object vtable at +0x444.
+// The three constructors at 0x004a9820/0x004a9870/0x004a98c0 generate
+// half-angle sine/cosine records, and 0x004a9650 composes two records.  Keep
+// the name neutral until the output-matrix convention is independently
+// validated, but model the payload as a rotation transform rather than as a
+// fifth matrix column.
+using TransformQ12 = Q12Vec4;
+using MatrixQ12 = std::array<std::int16_t, 9>;
 
 // Render_SetViewProjection receives a ten-short viewport record. The original
 // routine mutates fields 5, 7, 8, and 9 before building its Q12 basis. Keep
@@ -102,12 +115,29 @@ inline Raw atan_ratio_to_angle(Raw ratio_q12) {
     return truncate_x87_result(std::atan(ratio) * static_cast<long double>(kRadiansToAngle));
 }
 
+inline Raw acos_ratio_to_angle(Raw ratio_q12) {
+    // 0x004ca0a0 -> 0x00500db0: fild(dot), multiply by 1/4096, compute
+    // acos through the x87 atan identity, multiply by 4096/(2*pi), and
+    // truncate toward zero.
+    const long double ratio = static_cast<long double>(ratio_q12)
+        * static_cast<long double>(kOneOver4096);
+    return truncate_x87_result(std::acos(ratio) * static_cast<long double>(kRadiansToAngle));
+}
+
 inline Raw sin_angle_q12(Raw angle) {
     // 0x4f39b0 masks the argument to 12 bits, converts it to radians with
     // (angle / 4096) * 2*pi, scales by 4096, then truncates via 0x5004f4.
     const Raw normalized = static_cast<Raw>(static_cast<std::uint32_t>(angle) & kAngleMask);
     return truncate_x87_result(
         std::sin(static_cast<long double>(normalized) * static_cast<long double>(kOneOver4096)
+            * static_cast<long double>(kTwoPi))
+        * 4096.0L);
+}
+
+inline Raw cos_angle_q12(Raw angle) {
+    const Raw normalized = static_cast<Raw>(static_cast<std::uint32_t>(angle) & kAngleMask);
+    return truncate_x87_result(
+        std::cos(static_cast<long double>(normalized) * static_cast<long double>(kOneOver4096)
             * static_cast<long double>(kTwoPi))
         * 4096.0L);
 }
@@ -134,9 +164,9 @@ inline Raw horizontal_range_q4(const Q16Vec3& delta) {
 // helper shifts their differences right by 12 before deriving angles.
 inline LookAngles build_look_angles(const Q16Vec3& target, const Q16Vec3& origin) {
     const Q16Vec3 delta{
-        static_cast<Raw>(target.x - origin.x),
-        static_cast<Raw>(target.y - origin.y),
-        static_cast<Raw>(target.z - origin.z),
+        wrap_s32(static_cast<std::int64_t>(target.x) - origin.x),
+        wrap_s32(static_cast<std::int64_t>(target.y) - origin.y),
+        wrap_s32(static_cast<std::int64_t>(target.z) - origin.z),
     };
     const Raw x = sar12_world(delta.x);
     const Raw y = sar12_world(delta.y);
@@ -179,21 +209,229 @@ inline Raw sar12(std::int64_t value) {
     return static_cast<Raw>(-((-value + kQ12One - 1) / kQ12One));
 }
 
+inline Raw multiply_s32(Raw left, Raw right) {
+    // The original uses 32-bit IMUL.  Do not let a host compiler promote the
+    // product to a wider value and thereby change overflow-sensitive camera
+    // behavior.
+    return wrap_s32(static_cast<std::int64_t>(left) * right);
+}
+
+inline Raw add_s32(Raw left, Raw right) {
+    return wrap_s32(static_cast<std::int64_t>(left) + right);
+}
+
+inline Raw subtract_s32(Raw left, Raw right) {
+    return wrap_s32(static_cast<std::int64_t>(left) - right);
+}
+
+inline std::int32_t arithmetic_shift_right_one(std::int32_t value);
+
+inline Raw arithmetic_shift_right(Raw value, unsigned bits) {
+    if (bits == 0) {
+        return value;
+    }
+    if (value >= 0) {
+        return static_cast<Raw>(static_cast<std::uint32_t>(value) >> bits);
+    }
+    const auto magnitude = -static_cast<std::int64_t>(value);
+    return wrap_s32(-((magnitude + (static_cast<std::int64_t>(1) << bits) - 1) >> bits));
+}
+
+inline std::int16_t low_s16_raw(Raw value) {
+    return static_cast<std::int16_t>(static_cast<std::uint16_t>(value));
+}
+
+inline std::int16_t q11_product(Raw left, Raw right) {
+    return low_s16_raw(arithmetic_shift_right(multiply_s32(left, right), 11));
+}
+
+inline std::uint32_t isqrt_u32_x87(std::uint32_t value);
+
+// Exact 0x004a9650 payload composition.  The binary is called with the
+// destination first, the second operand second, and the first operand third;
+// this value-oriented form returns the destination result without exposing
+// that calling-convention detail.  All products/adds wrap as PE32 signed
+// operations before the final arithmetic SAR12.
+inline TransformQ12 multiply_transform_q12(
+    const TransformQ12& first,
+    const TransformQ12& second) {
+    const auto product = [](Raw a, Raw b) { return multiply_s32(a, b); };
+    const auto sum3 = [&](Raw a, Raw b, Raw c) {
+        return add_s32(add_s32(a, b), c);
+    };
+    const auto difference = [&](Raw a, Raw b, Raw c) {
+        return subtract_s32(subtract_s32(a, b), c);
+    };
+
+    // Assembly operand order, with `first` corresponding to the third stack
+    // argument and `second` to the second stack argument:
+    //   x = sx*fw + sw*fx + sz*fy - sy*fz
+    //   y = sx*fz + sy*fw + sw*fy - sz*fx
+    //   z = sz*fw + sy*fx + sw*fz - sx*fy
+    //   w = sw*fw - sy*fy - sx*fx - sz*fz
+    const Raw x = sum3(product(second.x, first.w),
+                       product(second.w, first.x),
+                       subtract_s32(product(second.z, first.y),
+                                     product(second.y, first.z)));
+    const Raw y = sum3(product(second.x, first.z),
+                       product(second.y, first.w),
+                       subtract_s32(product(second.w, first.y),
+                                     product(second.z, first.x)));
+    const Raw z = sum3(product(second.z, first.w),
+                       product(second.y, first.x),
+                       subtract_s32(product(second.w, first.z),
+                                     product(second.x, first.y)));
+    const Raw w = difference(product(second.w, first.w),
+                             product(second.y, first.y),
+                             sum3(product(second.x, first.x),
+                                  product(second.z, first.z), 0));
+    return {sar12(x), sar12(y), sar12(z), sar12(w)};
+}
+
+inline TransformQ12 normalize_transform_q12(const TransformQ12& value) {
+    const Raw sum = add_s32(
+        add_s32(multiply_s32(value.x, value.x), multiply_s32(value.y, value.y)),
+        add_s32(multiply_s32(value.z, value.z), multiply_s32(value.w, value.w)));
+    Raw length = static_cast<Raw>(isqrt_u32_x87(static_cast<std::uint32_t>(sum)));
+    if (length == 0) {
+        length = 1;
+    }
+    return {
+        wrap_s32((static_cast<std::int64_t>(value.x) << 12) / length),
+        wrap_s32((static_cast<std::int64_t>(value.y) << 12) / length),
+        wrap_s32((static_cast<std::int64_t>(value.z) << 12) / length),
+        wrap_s32((static_cast<std::int64_t>(value.w) << 12) / length),
+    };
+}
+
+inline TransformQ12 slerp_transform_q12(
+    const TransformQ12& first,
+    const TransformQ12& second,
+    Raw weight_q12) {
+    TransformQ12 normalized_first = normalize_transform_q12(first);
+    const TransformQ12 normalized_second = normalize_transform_q12(second);
+    const Raw dot_sum = add_s32(
+        add_s32(multiply_s32(normalized_first.x, normalized_second.x),
+                multiply_s32(normalized_first.y, normalized_second.y)),
+        add_s32(multiply_s32(normalized_first.z, normalized_second.z),
+                multiply_s32(normalized_first.w, normalized_second.w)));
+    Raw dot = sar12(dot_sum);
+    if (dot < 0) {
+        dot = wrap_s32(-static_cast<std::int64_t>(dot));
+        normalized_first = {
+            wrap_s32(-static_cast<std::int64_t>(normalized_first.x)),
+            wrap_s32(-static_cast<std::int64_t>(normalized_first.y)),
+            wrap_s32(-static_cast<std::int64_t>(normalized_first.z)),
+            wrap_s32(-static_cast<std::int64_t>(normalized_first.w)),
+        };
+    }
+    if (dot > kQ12One) {
+        dot = kQ12One;
+    }
+
+    Raw first_weight = kQ12One - weight_q12;
+    Raw second_weight = weight_q12;
+    if (kQ12One - dot > 0x80) {
+        const Raw angle = acos_ratio_to_angle(dot);
+        const Raw sin_angle = sin_angle_q12(angle);
+        if (sin_angle != 0) {
+            first_weight = wrap_s32(
+                (static_cast<std::int64_t>(sin_angle_q12(
+                    sar12(multiply_s32(kQ12One - weight_q12, angle)))) << 12)
+                / sin_angle);
+            second_weight = wrap_s32(
+                (static_cast<std::int64_t>(sin_angle_q12(
+                    sar12(multiply_s32(weight_q12, angle)))) << 12)
+                / sin_angle);
+        }
+    }
+
+    const auto blend = [&](Raw first_value, Raw second_value) {
+        return sar12(add_s32(multiply_s32(first_weight, first_value),
+                             multiply_s32(second_weight, second_value)));
+    };
+    return normalize_transform_q12({
+        blend(normalized_first.x, normalized_second.x),
+        blend(normalized_first.y, normalized_second.y),
+        blend(normalized_first.z, normalized_second.z),
+        blend(normalized_first.w, normalized_second.w),
+    });
+}
+
+// Exact 0x004a9910 conversion. The four payload words are consumed as
+// (x,y,z,w) at +4,+8,+c,+10. Products use 32-bit IMUL, each product is
+// arithmetically shifted by 11 (the equivalent of multiplying by two in Q12),
+// and each result is narrowed to a signed short at the matrix boundary.
+inline MatrixQ12 transform_to_matrix_q12(const TransformQ12& transform) {
+    const Raw x = transform.x;
+    const Raw y = transform.y;
+    const Raw z = transform.z;
+    const Raw w = transform.w;
+
+    const auto q11 = [](Raw value) { return q11_product(value, value); };
+    const auto add = [](std::int16_t left, std::int16_t right) {
+        return low_s16_raw(add_s32(left, right));
+    };
+    const auto subtract = [](std::int16_t left, std::int16_t right) {
+        return low_s16_raw(subtract_s32(left, right));
+    };
+    const std::int16_t zz = q11(z);
+    const std::int16_t yy = q11(y);
+    const std::int16_t zw = q11_product(z, w);
+    const std::int16_t yx = q11_product(y, x);
+    const std::int16_t yw = q11_product(y, w);
+    const std::int16_t zx = q11_product(z, x);
+    const std::int16_t xx = q11(x);
+    const std::int16_t xw = q11_product(x, w);
+    const std::int16_t zy = q11_product(z, y);
+
+    const std::int16_t one_minus_zz_yy = low_s16_raw(
+        subtract_s32(subtract_s32(kQ12One, zz), yy));
+    const std::int16_t one_minus_xx = low_s16_raw(subtract_s32(kQ12One, xx));
+
+    return {
+        one_minus_zz_yy,
+        add(zw, yx),
+        subtract(zx, yw),
+        subtract(yx, zw),
+        subtract(one_minus_xx, zz),
+        add(xw, zy),
+        add(yw, zx),
+        subtract(zy, xw),
+        subtract(one_minus_xx, yy),
+    };
+}
+
+inline TransformQ12 rotation_x_q12(std::int16_t angle) {
+    const Raw half = arithmetic_shift_right_one(static_cast<Raw>(angle));
+    return {sin_angle_q12(half), 0, 0, cos_angle_q12(half)};
+}
+
+inline TransformQ12 rotation_y_q12(std::int16_t angle) {
+    const Raw half = arithmetic_shift_right_one(static_cast<Raw>(angle));
+    return {0, sin_angle_q12(half), 0, cos_angle_q12(half)};
+}
+
+inline TransformQ12 rotation_z_q12(std::int16_t angle) {
+    const Raw half = arithmetic_shift_right_one(static_cast<Raw>(angle));
+    return {0, 0, sin_angle_q12(half), cos_angle_q12(half)};
+}
+
 // 0x004e39a0: signed 16-bit Q12 matrix, three signed integer vector words,
 // three dot products, arithmetic shift right by 12.
 inline Q12Vec3 multiply_matrix_q12(
     const std::array<std::int16_t, 9>& matrix,
     const std::array<Raw, 3>& vector) {
+    const auto dot = [&](std::size_t row) {
+        return add_s32(
+            add_s32(multiply_s32(matrix[row * 3], vector[0]),
+                    multiply_s32(matrix[row * 3 + 1], vector[1])),
+            multiply_s32(matrix[row * 3 + 2], vector[2]));
+    };
     return {
-        sar12(static_cast<std::int64_t>(matrix[0]) * vector[0]
-            + static_cast<std::int64_t>(matrix[1]) * vector[1]
-            + static_cast<std::int64_t>(matrix[2]) * vector[2]),
-        sar12(static_cast<std::int64_t>(matrix[3]) * vector[0]
-            + static_cast<std::int64_t>(matrix[4]) * vector[1]
-            + static_cast<std::int64_t>(matrix[5]) * vector[2]),
-        sar12(static_cast<std::int64_t>(matrix[6]) * vector[0]
-            + static_cast<std::int64_t>(matrix[7]) * vector[1]
-            + static_cast<std::int64_t>(matrix[8]) * vector[2]),
+        sar12(dot(0)),
+        sar12(dot(1)),
+        sar12(dot(2)),
     };
 }
 

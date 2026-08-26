@@ -84,16 +84,17 @@ fields:
     description: embedded effect/transform object begins here; the four-word transform payload begins at +0x448
   - offset: 0x448
     name: current_transform_q12
-    type: q12_vector4
-    confidence: inferred
+    type: q12_transform_payload4
+    confidence: observed
+    description: four-word half-angle rotation payload composed by 0x004a9650 and converted to signed-short matrix scratch by 0x004a9910
   - offset: 0x45c
     name: target_transform_q12
-    type: q12_vector4
-    confidence: inferred
+    type: q12_transform_payload4
+    confidence: observed
   - offset: 0x470
     name: previous_transform_q12
-    type: q12_vector4
-    confidence: inferred
+    type: q12_transform_payload4
+    confidence: observed
   - offset: 0x4f2
     name: shake_x_s16
     type: s16
@@ -149,12 +150,12 @@ fields:
     description: Camera_ApplyEffects adds these values to the anchor and Camera_PostEffects projects them into viewport state
   - offset: 0x650
     name: cached_render_transform_q12
-    type: q12_vector4
+    type: q12_transform_payload4
     confidence: provisional
     description: Camera_CommitViewportEffects copies current transform words here before viewport submission, or restores them into +0x448 in the special tripod-state path
   - offset: 0x498
     name: saved_transform_q12
-    type: q12_vector4
+    type: q12_transform_payload4
     confidence: provisional
   - offset: 0x4a8
     name: transform_valid

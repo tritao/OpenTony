@@ -289,6 +289,8 @@ Promotion audit for these math helpers:
 | `0x004e8580` | callers include `0x004c9770`; shared x87 return `0x005004f4` | not separately counted | observed from instruction sequence and constants; a non-atan use of the same constants would falsify the semantic label |
 | `0x004e39a0` | callers include `0x0045e8e0` and camera transform paths; callee `0x004e2070` | not separately counted; downstream render setup is reached before present | observed; overflow-sensitive inputs could require modeling 32-bit `IMUL` wrap explicitly |
 | `0x004e85a0` | callers include camera-mode transform paths and render preparation; shared x87 return `0x005004f4` | not separately counted | observed; unusual matrix/vector inputs could expose a different conversion convention |
+| `0x004a9650` | called by `0x00410610`; consumes two embedded four-word transform objects and writes a four-word result | not independently counted; statically reached in normal follow preparation | observed; operand convention is exact, while the final matrix row/column interpretation remains a separate question |
+| `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular fallback helper `0x004ca0a0` remains to be classified |
 
 ### `0x004e39a0` — Q12 matrix multiply
 
@@ -315,8 +317,7 @@ and must remain separate until every callsite is classified.
 
 ### Camera transform/effect records and shake
 
-The raw update path gives a stronger layout for the transform records than a
-quaternion label would:
+The raw update path gives the following embedded transform records:
 
 ```text
 +0x45c..+0x468  target transform record
@@ -325,12 +326,68 @@ quaternion label would:
 ```
 
 `Camera_SmoothAndValidate 0x0040e090` copies current to previous at entry and
-copies target into current during the startup/short-history path. The records
-are then consumed by `0x004e85a0` as nine signed 16-bit Q12 matrix words plus a
-three-word integer vector, and by effect helpers that preserve a fourth
-homogeneous word near `0x1000`. The exact row/column interpretation remains
-unresolved, but treating this as an opaque quaternion is no longer supported
-by the instruction-level evidence.
+copies target into current during the startup/short-history path. The embedded
+object begins at `+0x444`: `+0x444` is its vtable and the payload at
+`+0x448..+0x454` is four signed Q12 words. This is strongly quaternion-like,
+not a fifth matrix column: `0x004a9820`, `0x004a9870`, and `0x004a98c0` build
+the X/Y/Z half-angle sine/cosine records, and `0x004a9650` composes them with
+the following exact result (where `first` is the third stack operand and
+`second` the second):
+
+```text
+out.x = SAR12(second.x*first.w + second.w*first.x
+              + second.z*first.y - second.y*first.z)
+out.y = SAR12(second.x*first.z + second.y*first.w
+              + second.w*first.y - second.z*first.x)
+out.z = SAR12(second.z*first.w + second.y*first.x
+              + second.w*first.z - second.x*first.y)
+out.w = SAR12(second.w*first.w - second.y*first.y
+              - second.x*first.x - second.z*first.z)
+```
+
+Every product/add/subtract is a 32-bit PE32 operation before `SAR 12`. The
+native reference exposes this as `TransformQ12` and
+`multiply_transform_q12`. `0x004a9910` then converts a payload object to nine
+signed short matrix words for the render/effect scratch. Its fixed-point
+products and output locations are now statically recoverable. With
+`q11(a,b) = s16((a*b) >> 11)` and `one = 0x1000`, its row-major output words
+are:
+
+```text
+m0 = one - q11(z,z) - q11(y,y)
+m1 = q11(z,w) + q11(y,x)
+m2 = q11(z,x) - q11(y,w)
+m3 = q11(y,x) - q11(z,w)
+m4 = one - q11(x,x) - q11(z,z)
+m5 = q11(x,w) + q11(z,y)
+m6 = q11(y,w) + q11(z,x)
+m7 = q11(z,y) - q11(x,w)
+m8 = one - q11(x,x) - q11(y,y)
+```
+
+The native reference exposes this as `transform_to_matrix_q12`. A controlled
+dynamic basis check is still useful to validate the renderer’s row/column
+consumption and handedness, but the payload-to-nine-short conversion itself is
+no longer an unresolved gap.
+
+`0x004a9bf0` is the orientation interpolation helper used by
+`Camera_SmoothAndValidate`. Its static contract is:
+
+```text
+normalize(q1), normalize(q2)
+dot = SAR12(q1 dot q2)
+if dot < 0: negate q1 and dot
+choose the near-linear or angular blend weights
+out = (weight1*q1 + weight2*q2) >> 12
+normalize(out)
+```
+
+The normalization path is represented by `normalize_transform_q12`. The
+angular fallback calls `0x004ca0a0`, which converts the Q12 dot product to a
+12-bit turn angle using x87 `acos(dot / 4096) * 4096 / (2*pi)` before the sine
+weights are formed. That operation is represented by
+`acos_ratio_to_angle`; the remaining camera gap is applying this helper in the
+full mode/state update, not recovering the interpolation math itself.
 
 `Camera_CommitViewportEffects 0x0040be70` is the last camera-side commit before
 the view/render path. In the normal tripod path it writes the projected camera
@@ -594,7 +651,7 @@ The names in this contract are reconstruction interfaces, not claims that the or
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
-1. Recover the exact four-word transform layout, including row/column order and sign conventions; Q16.16 world words, Q12 matrix words, and 12-bit angles are now established.
+1. Validate the `0x004a9910` payload-to-matrix row/column and sign convention with controlled X/Y/Z basis inputs; the four-word Q12 transform payload, its half-angle constructors, and composition operation are now established.
 2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; do not call it FOV until a controlled zoom/camera-input experiment proves that.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
@@ -658,5 +715,5 @@ The next highest-value probe is a two-phase trace using `render_present` as the 
 - The raw `tony-view-probe` is implemented and unit-tested, but the two bounded headless retries in this pass did not reach level entry after synthetic frontend input; they produced no dynamic projection samples. Projection claims in this document are therefore static-only until a controlled level-entry run succeeds.
 - `+0x40c` is a strong viewport/framing candidate; a run that changes camera zoom without changing it would falsify the current label.
 - The current Warehouse capture remained in mode `1`, so it does not identify all mode constants or cutscene behavior.
-- The camera object’s embedded vector blocks expose Q12-like arithmetic, but the exact C++ type and whether all four words are a matrix row, quaternion-like vector, or effect basis remain provisional.
+- The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors and composition helper; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910`.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

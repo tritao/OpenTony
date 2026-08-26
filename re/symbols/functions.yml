@@ -164,6 +164,30 @@ functions:
     confidence: provisional
     evidence:
       - re/evidence/functions/camera-system.md
+  - address: 0x004a9650
+    name: Camera_ComposeTransformQ12
+    description: composes two four-word Q12 camera transform payloads with 32-bit integer products and SAR12
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9910
+    name: Camera_TransformToMatrixQ12
+    description: converts an embedded four-word camera transform payload into signed short matrix scratch
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9bf0
+    name: Camera_SlerpTransformQ12
+    description: normalizes and interpolates two four-word camera transforms
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004ca0a0
+    name: Camera_AcosRatioToAngle12
+    description: converts a Q12 cosine ratio to a 12-bit turn angle through x87 acos
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004103b0
     name: Camera_AngleDelta12
     description: returns the shortest signed difference between two 12-bit turn angles

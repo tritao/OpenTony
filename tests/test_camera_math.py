@@ -52,6 +52,44 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (sin_angle_q12(0x400) != 0x0fff) {
                     return 6;
                 }
+                const TransformQ12 identity{0, 0, 0, 0x1000};
+                const TransformQ12 sample{0x0200, -0x0300, 0x0400, 0x0e00};
+                const auto left_identity = multiply_transform_q12(sample, identity);
+                const auto right_identity = multiply_transform_q12(identity, sample);
+                if (left_identity.x != sample.x || left_identity.y != sample.y
+                    || left_identity.z != sample.z || left_identity.w != sample.w
+                    || right_identity.x != sample.x || right_identity.y != sample.y
+                    || right_identity.z != sample.z || right_identity.w != sample.w) {
+                    return 10;
+                }
+                const auto normalized = normalize_transform_q12({0, 0, 0, 0x0800});
+                if (normalized.x != 0 || normalized.y != 0
+                    || normalized.z != 0 || normalized.w != 0x1000) {
+                    return 14;
+                }
+                const auto x_rotation = rotation_x_q12(0x800);
+                const auto slerp_start = slerp_transform_q12(identity, x_rotation, 0);
+                const auto slerp_end = slerp_transform_q12(identity, x_rotation, 0x1000);
+                const auto normalized_rotation = normalize_transform_q12(x_rotation);
+                if (slerp_start.x != identity.x || slerp_start.y != identity.y
+                    || slerp_start.z != identity.z || slerp_start.w != identity.w
+                    || slerp_end.x != normalized_rotation.x || slerp_end.y != normalized_rotation.y
+                    || slerp_end.z != normalized_rotation.z || slerp_end.w != normalized_rotation.w) {
+                    return 15;
+                }
+                if (x_rotation.x != 0x0fff || x_rotation.y != 0
+                    || x_rotation.z != 0 || x_rotation.w != 0) {
+                    return 11;
+                }
+                const auto identity_matrix = transform_to_matrix_q12(identity);
+                if (identity_matrix != MatrixQ12{0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000}) {
+                    return 12;
+                }
+                const auto half_turn_matrix = transform_to_matrix_q12(x_rotation);
+                if (half_turn_matrix[0] != 0x1000 || half_turn_matrix[4] >= 0
+                    || half_turn_matrix[8] >= 0) {
+                    return 13;
+                }
                 ViewportProjectionRaw projection;
                 const ViewportInputRaw viewport{{640, 480, 0, 0, 0x10, 0, 0x100, 0, 0, 0}};
                 if (!build_viewport_projection(viewport, 0x33, 0x1000, 0x1000, projection)) {
