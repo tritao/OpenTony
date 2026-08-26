@@ -34,6 +34,12 @@ globals:
     evidence:
       - re/evidence/functions/game-loop.md
       - re/evidence/functions/player-runtime.md
+  - address: 0x00534620
+    name: PlayerHookPacketTemplates
+    description: Eleven initialized 0x14-byte player hook-packet templates selected by the skater model index
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
   - address: 0x0056a898
     name: CurrentLevel
     gdb_aliases:
@@ -43,6 +49,110 @@ globals:
     evidence:
       - re/evidence/functions/game-loop.md
       - re/evidence/functions/level-load.md
+  - address: 0x00533ab4
+    name: CollisionQueryGeneration
+    gdb_aliases:
+      - collision_query_generation
+    description: 16-bit generation counter used to avoid rebuilding object collision caches during one query
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x0056a840
+    name: GrindTrickScriptOffsets
+    gdb_aliases:
+      - grind_trick_offsets
+    description: loaded TRICKS.BIN section table of signed offsets used to select grind scripts
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x005685f0
+    name: TrickStateScriptOffsets
+    gdb_aliases:
+      - trick_state_script_offsets
+    description: loaded TRICKS.BIN section-2 signed offsets selected by the skater trick/state-start path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0056a894
+    name: TricksBinaryBase
+    gdb_aliases:
+      - tricks_base
+    description: raw TRICKS.BIN buffer base used to resolve signed script offsets
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00568a50
+    name: PlayerOneTrickScriptTable
+    gdb_aliases:
+      - trick_table_p1
+    description: generated zero-terminated per-player trick key/script table for player one
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00568a4c
+    name: PlayerTwoTrickScriptTable
+    gdb_aliases:
+      - trick_table_p2
+    description: generated zero-terminated per-player trick key/script table for player two
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0056b7f8
+    name: ExtraAnimationListCursor
+    gdb_aliases:
+      - extra_animation_cursor
+    description: cursor into the extra-animation list populated while parsing trick scripts
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0056b7bc
+    name: ExtraAnimationCount
+    gdb_aliases:
+      - extra_animation_count
+    description: count of extra animations registered from TRICKS.BIN script command type 1
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0056dcac
+    name: CurrentItemsRegion
+    gdb_aliases:
+      - items_region
+    description: published PSX slot for the ordinary ITEMS region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x0056dcad
+    name: CurrentSkMedalsRegion
+    gdb_aliases:
+      - skmedals_region
+    description: published PSX slot for the optional SKMEDALS region; 0xff means absent
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x0056dd5c
+    name: CurrentBitsRegion
+    gdb_aliases:
+      - bits_region
+    description: published PSX slot for the BITS named-resource region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x0056db38
+    name: BitsResourceListHead
+    gdb_aliases:
+      - bits_resources
+    description: linked-list head of parsed BITS type-0x45 named-group resources
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x0056db90
+    name: TrickObjectListHead
+    gdb_aliases:
+      - trick_objects
+    description: head of the intrusive list of 0x18-byte TRG type-12/14 trick-object records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
   - address: 0x006a3f1c
     name: ActionMask
     gdb_aliases:
@@ -130,6 +240,12 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+  - address: 0x00567cb0
+    name: AnimationTweenPoseBuffer
+    description: global 0x18-byte-per-part pose buffer used by animation interpolation and hook consumers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
   - address: 0x00567f84
     name: ZoneGridBounds
     description: four fixed-point zone bounds with 0x660-byte per-zone storage stride

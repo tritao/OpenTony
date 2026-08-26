@@ -69,7 +69,7 @@ functions:
     description: outer game/session loop
     confidence: inferred
     evidence:
-      - re/evidence/functions/game-main-loop.md
+      - re/evidence/functions/game-loop.md
   - address: 0x004524a0
     name: Front_LoadGame
     gdb_aliases:
@@ -94,6 +94,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/level-load.md
+  - address: 0x0048ad50
+    name: Panel_LoadRuntimeSprites
+    description: load panel fonts and PRE-backed sprite image objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
   - address: 0x00449030
     name: FileIO_OpenResource
     gdb_aliases:
@@ -249,6 +255,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/level-load.md
   - address: 0x004b2450
     name: PSX_ParseEnvironment
     description: parse PSX object/model tables and post-model tags
@@ -256,6 +263,18 @@ functions:
     evidence:
       - re/evidence/functions/asset-loading.md
       - re/evidence/functions/blockmap-collision.md
+  - address: 0x004b34f0
+    name: BITS_ParseNamedResourceTag
+    description: parse PSX type-0x45 named groups and rewrite their runtime resource pointers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x004b3680
+    name: BITS_FindNamedResource
+    description: case-insensitive lookup of a named BITS runtime resource group
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
   - address: 0x004647c0
     name: PSX_FinalizeEnvironment
     description: finalize PSX model packets and link runtime object records
@@ -300,6 +319,12 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x00462490
+    name: M3D_AdvanceCollisionQueryGeneration
+    description: advance the shared collision-query generation and reset per-object collision-cache markers on wraparound
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
   - address: 0x00466090
     name: M3D_QueryZoneCollision
     description: thin wrapper that submits a collision query to the static zone broadphase
@@ -310,7 +335,7 @@ functions:
   - address: 0x0048ea80
     name: M3D_ReadSurfaceFlags
     description: read collision/surface bits from the selected PSX face into physics globals
-    confidence: observed
+    confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
   - address: 0x004cabf0
@@ -325,6 +350,12 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x00496550
+    name: Skater_DoGroundPhysics
+    description: integrate grounded motion, submit PSX collision queries, and branch on selected-face surface flags
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
   - address: 0x004628f0
     name: M3D_PrepareCollisionObjectList
     description: prepare collision-query state and walk the attached runtime object list
@@ -334,7 +365,7 @@ functions:
   - address: 0x00463d50
     name: M3D_CommitCollisionSurface
     description: publish the selected collision surface and normal back to the query record
-    confidence: observed
+    confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
   - address: 0x00467c90
@@ -364,7 +395,7 @@ functions:
   - address: 0x004610f0
     name: M3D_RenderModel
     description: prepare a PSX model packet and submit its geometry
-    confidence: inferred
+    confidence: confirmed
     evidence:
       - re/evidence/functions/renderer.md
   - address: 0x00461a50
@@ -583,6 +614,14 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/level-load.md
+  - address: 0x004c8050
+    name: TRG_ExecuteAutoexec
+    description: select and execute normal or two-player AUTOEXEC trigger command streams
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-load.md
+      - re/evidence/functions/trg-runtime.md
   - address: 0x004c8130
     name: TRG_ParseNodes
     description: dispatch relocated TRG nodes into runtime setup paths
@@ -607,6 +646,85 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004bd700
+    name: TrickObject_DeleteAll
+    description: delete all records in the global TRG type-12/14 trick-object list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bd720
+    name: TrickObject_DeleteAllPreserve
+    description: walk and delete the global trick-object list through its virtual destructor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bd740
+    name: TRG_IsGoalObjectNode
+    description: test whether a relocated TRG node is type 14
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bd760
+    name: TrickObject_Construct
+    description: initialize and link a 0x18-byte TRG type-12/14 trick-object record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bd980
+    name: TrickObject_ActivateForObject
+    description: match a runtime object's model checksum and activate its trick-object record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bdc40
+    name: TrickObject_ActivateGoalObject
+    description: resolve and activate a type-14 goal/trick object by source TRG node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bdd00
+    name: TrickObject_Update
+    description: update active trick-object tint/intensity state each gameplay frame
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004bdea0
+    name: TrickObject_LineRender
+    description: emit a trick-object line/edge command into the per-frame render arena
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
+  - address: 0x004a8e50
+    name: Powerup_CreateFromTrigger
+    description: allocate and construct a 0x100-byte item or medal object from a type-5 TRG node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004a7c50
+    name: Powerup_Construct
+    description: resolve an ITEMS or SKMEDALS model checksum and initialize a powerup runtime object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x004a8ac0
+    name: Powerup_Update
+    description: update item/medal motion and glow state before generic object rendering
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x004b1de0
+    name: PSX_FindModelIndexByChecksum
+    description: scan a published PSX region model-name table and return a matching model index
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/items-runtime.md
+  - address: 0x004b1f40
+    name: PSX_GetModelNameChecksum
+    description: return the model-name checksum selected by a runtime object's PSX region slot and model index
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trick-object-runtime.md
   - address: 0x004c5420
     name: TRG_FindObjectPreambleFlag
     description: scan a type-1 parameter preamble for a flag byte
@@ -655,9 +773,63 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004128a0
+    name: TRG_DeleteTrafficObject
+    description: deleting-destructor wrapper for the 0x1e8-byte traffic object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004128c0
+    name: TRG_DestroyTrafficObject
+    description: unlink and base-clean a traffic object before optional storage release
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00412960
+    name: TRG_UpdateTrafficObject
+    description: update traffic-object sound, source-node target, fixed-point movement, and response state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00413000
+    name: TRG_ProcessTrafficInteraction
+    description: process a traffic object against a player/runtime context and emit subtype-specific interaction effects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004136e0
+    name: TRG_CheckTrafficProximity
+    description: scan active runtime objects for nearby traffic and latch subtype-specific proximity effects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x00402bb0
     name: TRG_GetScriptVariable
     description: expose trigger-object script variables and consume operands from its command cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00401520
+    name: TRG_RunScriptStream
+    description: run a type-1 script stream from object +0x17c through virtual command and variable handlers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004027c0
+    name: TRG_ReadScriptOperand
+    description: consume one script operand and resolve non-immediate values through the object virtual interface
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004027f0
+    name: TRG_ApplyScriptFieldWord
+    description: apply subtype-0xcb field/state words and advance their variable-length payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00403400
+    name: TRG_ApplyScriptFieldWordThunk
+    description: virtual thunk forwarding subtype-0xcb field words to the script field handler
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
@@ -667,12 +839,36 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004015e0
+    name: TRG_ExecuteBaddyScriptOpcode
+    description: execute the base baddy/trigger script bytecode against the object cursor and runtime state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0040bd40
+    name: Camera_ApplyShake
+    description: apply a selected shake profile to the active camera and object lists
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004014a0
+    name: TRG_SkipConditionalBlock
+    description: scan nested conditional script opcodes until the matching 0x4100 terminator
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x0047fe30
     name: Object_SelectNamedPsxRegion
     description: resolve a case-insensitive named PSX region and store its slot/model selection in an object
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x0046d940
+    name: Player_BindHookPacket
+    description: select a named player PSX region and bind its static hook packet using object +0x2cc0
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
   - address: 0x004b3230
     name: PSX_FindLoadedRegionByName
     description: scan the 20-entry named PSX region table for a case-insensitive match
@@ -703,10 +899,34 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004801f0
+    name: ObjectList_Remove
+    description: unlink an object from its intrusive list and update the supplied head
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x004802f0
     name: Object_ActivateAndRelink
     description: invoke an object activation hook, update its state argument, and relink it into the active-object list
     confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5c00
+    name: TRG_ActivateObjectByNode
+    description: scan an intrusive TRG object list for a source-node index and activate the matching object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5c70
+    name: TRG_ApplyActivationOrSuspendList
+    description: consume a counted TRG node-index list and activate or suspend eligible type-1/type-7 objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5d70
+    name: TRG_SkipAlignedCString
+    description: skip a NUL-terminated command string and return the next even-aligned address
+    confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
   - address: 0x004c84d0
@@ -733,9 +953,28 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5b60
+    name: TRG_SendSignalToNodes
+    description: dispatch a counted node-index signal through the traffic and baddy object lists
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c77f0
+    name: TRG_SendVisible
+    description: apply visibility state to linked trigger targets, including crate and runtime-object nodes
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x004c5dc0
     name: TRG_InterpretCommandStream
     description: interpret the variable-length trigger command stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/level-load.md
+  - address: 0x004c7c50
+    name: TRG_SkipCommandPayload
+    description: skip one trigger command and its variable-length payload for conditional scanning
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
@@ -748,6 +987,30 @@ functions:
   - address: 0x004c7a00
     name: TRG_SendKillFromNode
     description: consume TRG links and signal matching runtime objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004b3270
+    name: PSX_ClearNamedRegion
+    description: resolve a named loaded PSX region and clear its region resources through the spool manager
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00464710
+    name: M3D_SetFogRange
+    description: validate and publish fog-range parameters used by the 0x0068 trigger command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004ca270
+    name: RuntimeObject_ApplyBoundsToLists
+    description: test fixed-point bounds against traffic, baddy, powerup, and auxiliary runtime-object lists
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004ca2d0
+    name: RuntimeObject_UpdateVisibilityBounds
+    description: update visibility flags for runtime objects inside or outside command-supplied fixed-point bounds
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
@@ -819,6 +1082,45 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/texture-runtime.md
+  - address: 0x004d8b50
+    name: D3DTex_DestroyRecord
+    description: release a PC texture resource, detach its material, and free the 0x2c-byte record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004da400
+    name: D3DTex_ReleaseMaterialTexture
+    description: release the PC texture attached to one zero-reference scene material
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004b2390
+    name: PSX_FreeUnusedMaterials
+    description: sweep checksum buckets and destroy zero-reference scene materials and PC textures
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004b1fd0
+    name: PSX_UnlinkMaterial
+    description: unlink and free one zero-reference scene-material record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0048a420
+    name: Palette_ClearSourceLookup
+    description: release source-palette lookup nodes and their converted cache records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004da4d0
+    name: Palette_FreeCacheRecord
+    description: unlink and free one converted-palette cache record and its owned buffers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+      - re/evidence/functions/psx-lifecycle.md
   - address: 0x004d8c60
     name: D3DTex_LoadBitmap
     description: decode a bitmap resource into a PC texture record and attach it to a scene material
@@ -995,6 +1297,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/level-load.md
   - address: 0x004a6bf0
     name: PlayerSpool_LoadResources
     description: select active players and queue PSH, PSX, and face-image resources
@@ -1207,6 +1510,18 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/font-runtime.md
+  - address: 0x00456d10
+    name: FontGlyph_ConstructImage
+    description: initialize one 0x5c-byte glyph image object from decoded FNT pixels and dimensions
+    confidence: observed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+  - address: 0x00456e10
+    name: FontGlyph_SetImageFormat
+    description: store glyph image dimensions, bpp mode, and atlas-format fields
+    confidence: observed
+    evidence:
+      - re/evidence/functions/font-runtime.md
   - address: 0x0044b000
     name: Font_Find
     description: find a loaded font by its bounded eight-slot name table
@@ -1247,6 +1562,180 @@ functions:
     name: TrickDatabase_FindBySourceOffset
     description: find a runtime trick record by its 16-bit source data offset
     confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bc330
+    name: TrickDatabase_FindBySecondaryKey
+    description: resolve the secondary runtime trick key used while populating character configuration
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bc7e0
+    name: TrickDatabase_FindButtonCombination
+    description: find an ordinary button sequence in the built-in trick-combination table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bc900
+    name: TrickDatabase_FindSpecialCombination
+    description: find a special button sequence in the parallel built-in combination table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bbd70
+    name: TrickDatabase_ApplyUnlockState
+    description: consume a trick-key section and update per-character unlock bits
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bbf00
+    name: TrickDatabase_ApplyCharacterBindings
+    description: map TRICKS.BIN button-key records into a character assignment configuration
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bc3a0
+    name: TrickTable_BuildPlayerReturnCombos
+    description: copy player-return trick key entries into an intermediate six-word combo list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bcb70
+    name: TrickTable_AppendFilteredEntries
+    description: append trick key entries selected by table-class mask into a runtime script table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bcc90
+    name: TrickTable_AppendBuiltInCombos
+    description: append built-in button combinations whose character assignments resolve to trick records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bcdd0
+    name: TrickTable_AppendSpecialCombos
+    description: append assigned special trick combinations into a runtime script table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bcf00
+    name: TrickTable_BuildForPlayer
+    description: materialize one player-specific variable-length trick key/script table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bd160
+    name: TrickDatabase_GetCount
+    description: return the fixed trick-record count from the runtime database manager
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bd170
+    name: TrickDatabase_GetRecord
+    description: return one 0x28-byte runtime trick record by index
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bd1e0
+    name: TrickRuntime_BuildPlayerTables
+    description: initialize the trick database and build one or two per-player runtime script tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492de0
+    name: TrickScript_Initialize
+    description: load TRICKS.BIN, build player trick tables, and parse their script streams
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492d50
+    name: TrickScript_ParseTable
+    description: walk a generated trick key table and resolve each signed source offset into script data
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492d10
+    name: TrickScript_ParseStream
+    description: parse one TRICKS.BIN script stream and register its extra animations
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492ba0
+    name: TrickScript_RegisterAnimation
+    description: validate and append one script-referenced animation to the extra-animation list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00491b80
+    name: TrickScript_Start
+    description: initialize skater trick state and install a selected TRICKS.BIN script cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004be450
+    name: TrickScript_Execute
+    description: execute the selected skater trick-script bytecode from the +0x29cc cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004be3b0
+    name: TrickScript_ReadByte
+    description: read one byte from the TRICKS.BIN script cursor and advance it
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004be3c0
+    name: TrickScript_ReadWord
+    description: read one little-endian 16-bit script operand and advance the cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004be3e0
+    name: TrickScript_ResolveFrameOperand
+    description: resolve a signed or sentinel animation-frame operand against the skater playback range
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bf6c0
+    name: TrickScript_CommandSize
+    description: validate one trick-script command and return its variable cursor advance
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00416050
+    name: TrickConfig_FindByCharacter
+    description: map a character index to its fixed 0x104-byte trick configuration record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00416140
+    name: TrickConfig_ConsumePointsAndSetBit
+    description: consume an optional trick cost and set a runtime trick bit
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00416230
+    name: TrickConfig_AssignButtonSlot
+    description: write one ordinary button-combination assignment into the character config
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00416380
+    name: TrickConfig_AssignSpecialSlot
+    description: clear or assign one of five special trick combination slots
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004170d0
+    name: TrickConfig_InitializeCharacter
+    description: initialize one character trick configuration from static metadata and TRICKS.BIN
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004c0430
+    name: TrickMenu_InitializeRuntime
+    description: initialize the trick manager and route the active character through trick configuration setup
+    confidence: observed
     evidence:
       - re/evidence/functions/bin-runtime.md
   - address: 0x004ac020
@@ -1303,9 +1792,69 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+  - address: 0x0041fe50
+    name: TextureSet_FindBodyGroup
+    description: resolve a source body-part label against the global create part-name table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00421910
+    name: CreatePart_SelectMaterialChecksum
+    description: select a source-region material checksum for one create part name, using palette-area ranking
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00421ba0
+    name: CreatePart_FindMaterialChecksum
+    description: resolve one or more named create part entries to a non-duplicate source-region material checksum
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00422020
+    name: CreatePart_SelectSlotChecksum
+    description: map a create appearance slot to fixed model-part names and resolve its material checksum
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004221a0
+    name: CreatePart_ApplyTexture
+    description: apply a CRETEX texture name to one create appearance part and publish its runtime palette state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00422340
+    name: CreatePart_ApplyPreviewTexture
+    description: apply the preview texture path for create appearance part 8
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00422460
+    name: CreatePart_SetPaletteHandle
+    description: resolve and publish a material palette handle into the create context's per-part array
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004214f0
+    name: CreatePart_UpdateTextureAnimation
+    description: update per-part texture animation state after a create appearance texture is applied
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
   - address: 0x0041ef50
     name: TextureSet_Commit
     description: commit one parsed CRETEX texture set into the runtime manager
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004208a0
+    name: TextureSet_ApplyBodyGroup
+    description: resolve a CRETEX set/body-group combination and feed its texture records to appearance helpers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00422d80
+    name: TextureSet_ApplyPreviewGroups
+    description: apply the create/customization preview texture groups selected from the CRETEX database
     confidence: observed
     evidence:
       - re/evidence/functions/bin-runtime.md
@@ -1477,12 +2026,90 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+  - address: 0x004305f0
+    name: Animation_DecompressStream
+    description: decode one compressed animation channel stream with nibble-selected packed-delta and interpolation formats
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00430920
+    name: Animation_GetDecompressedPose
+    description: decompress one selected animation frame, build hierarchy order, and return per-part pose records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
   - address: 0x00452390
     name: PSX_ShareAnimationRegion
     description: share animation and hierarchy tables between loaded regions
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+  - address: 0x00464b90
+    name: M3D_ReadHooksPacket
+    description: bind a region hook/part packet to an animation-capable runtime object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00464bb0
+    name: M3D_ClearPoseStuff
+    description: release and clear the per-part pose and hook-link buffers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00464c00
+    name: M3D_ReadLinksPacket
+    description: bind a link packet and allocate per-part pose and hook-link buffers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00464d10
+    name: M3D_GetPartPosition
+    description: resolve one animated part to a fixed-point world-space position
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00464e90
+    name: M3D_GetHookPosition
+    description: resolve one animated hook to a fixed-point world-space position
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x004f5160
+    name: M3D_ApplyHookTransform
+    description: apply a hook record, pose joint, and object transform block to lower world-position state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00465060
+    name: M3D_InterpolateAnimationPose
+    description: prepare the alternate animation interpolation path for a runtime object
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00465110
+    name: M3D_TweenAnimationBuffer
+    description: interpolate adjacent animation frames into the global pose buffer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00465300
+    name: M3D_BuildPose
+    description: compose packet-provided part transforms with decompressed animation pose records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00480f50
+    name: Animation_UpdatePoseFrame
+    description: initialize pose buffers, update animation interpolation, and optionally build the object pose
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00480890
+    name: Animation_Cycle
+    description: reset a runtime animation and select its cycle/direction byte
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x00480730
     name: Animation_Start
     description: select and start an animation on a runtime object
@@ -1850,6 +2477,30 @@ functions:
   - address: 0x004b32f0
     name: PSX_ClearRegion
     description: release one PSX region slot, its published tables, material references, and raw buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0043e080
+    name: PSX_DestroyObjectRecordArray
+    description: destroy the count-prefixed 0x4c-stride PSX object-record array according to teardown flags
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0047fdb0
+    name: PSX_InitObjectRecord
+    description: initialize one relocated 0x4c-byte PSX object record and install its vtable
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0047fe20
+    name: PSX_DestroyObjectRecord
+    description: reset one PSX object record's vtable during object-array teardown
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0047fda0
+    name: PSX_FreeObjectRecordArray
+    description: free a count-prefixed PSX object-record allocation
     confidence: confirmed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
