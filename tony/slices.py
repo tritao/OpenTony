@@ -12,7 +12,10 @@ from .native_progress import load_native_progress
 from .recovered_types import load_type_definitions
 
 SLICE_ROOT = ROOT / "re/slices"
-LEASE_ROOT = ROOT / "build/slices/leases"
+# Tests and embedding callers may override this. Production claims live in the
+# Git common directory so every worktree sees the same leases.
+LEASE_ROOT: Path | None = None
+LEGACY_LEASE_ROOT = ROOT / "build/slices/leases"
 STATUSES = {"planned", "active", "paused", "complete"}
 
 
@@ -149,6 +152,41 @@ def slice_show(args) -> int:
     return 0
 
 
+def slice_prompt(args) -> int:
+    document = _require_slice(args.slice_id)
+    returncode, branch = capture(["git", "branch", "--show-current"])
+    if returncode:
+        raise SystemExit("could not determine current Git branch")
+    branch = branch.strip()
+    if not branch:
+        returncode, branch = capture(["git", "rev-parse", "--short", "HEAD"])
+        if returncode:
+            raise SystemExit("could not determine current Git revision")
+        branch = f"detached@{branch.strip()}"
+
+    questions = document.get("open_questions", [])
+    priorities = "\n".join(f"- {question}" for question in questions[:3]) or "- Follow the slice completion criteria."
+    print(
+        f"""Work on the OpenTony reconstruction slice `{args.slice_id}`.
+
+Repository: {ROOT}
+Branch: {branch}
+
+Read `AGENTS.md` and `docs/SLICE_WORKFLOW.md`. Claim the slice with
+`tony slice claim {args.slice_id}`, inspect it with `tony slice show {args.slice_id}`,
+then select one scoped target with `tony ghidra gaps --slice {args.slice_id}`.
+
+Current priorities:
+{priorities}
+
+Complete one coherent evidence, ABI/type, semantic model/test, matching, and
+native-progress unit. Do not guess semantics or classify naked assembly as C++.
+Before finishing, run `tony verify --all` and `pytest -q`, commit only coherent
+slice changes on this branch, then run `tony slice release {args.slice_id}`."""
+    )
+    return 0
+
+
 def _owner(explicit: str | None) -> str:
     owner = explicit or os.environ.get("CODEX_SESSION_ID") or os.environ.get("TONY_SLICE_OWNER")
     if not owner:
@@ -156,12 +194,28 @@ def _owner(explicit: str | None) -> str:
     return owner
 
 
+def _lease_root() -> Path:
+    if LEASE_ROOT is not None:
+        return LEASE_ROOT
+    returncode, git_common_dir = capture(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    if returncode:
+        raise SystemExit("could not determine Git common directory for slice claims")
+    path = Path(git_common_dir.strip())
+    if not path.is_absolute():
+        path = (ROOT / path).resolve()
+    return path / "opentony/slice-leases"
+
+
 def _lease_path(slice_id: str) -> Path:
-    return LEASE_ROOT / f"{slice_id}.json"
+    return _lease_root() / f"{slice_id}.json"
 
 
 def _read_lease(slice_id: str) -> dict | None:
     path = _lease_path(slice_id)
+    legacy = LEGACY_LEASE_ROOT / f"{slice_id}.json"
+    if not path.is_file() and legacy.is_file() and path != legacy:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        legacy.replace(path)
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
@@ -189,7 +243,7 @@ def slice_claim(args) -> int:
         "host": socket.gethostname(),
         "pid": os.getpid(),
     }
-    LEASE_ROOT.mkdir(parents=True, exist_ok=True)
+    _lease_root().mkdir(parents=True, exist_ok=True)
     _lease_path(args.slice_id).write_text(json.dumps(lease, indent=2) + "\n", encoding="utf-8")
     owned = {
         path

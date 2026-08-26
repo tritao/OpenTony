@@ -44,6 +44,7 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
 from .slices import (  # noqa: F401 - command handlers are consumed by cli.py
     slice_claim,
     slice_list,
+    slice_prompt,
     slice_release,
     slice_show,
     slice_verify,

@@ -91,6 +91,7 @@ def test_native_verify_parse():
 def test_slice_commands_parse():
     assert callable(build_parser().parse_args(["slice", "list"]).func)
     assert callable(build_parser().parse_args(["slice", "show", "collision-query"]).func)
+    assert callable(build_parser().parse_args(["slice", "prompt", "collision-query"]).func)
     assert callable(build_parser().parse_args(["slice", "verify"]).func)
     claim = build_parser().parse_args(["slice", "claim", "collision-query", "--owner", "worker-a"])
     release = build_parser().parse_args(["slice", "release", "collision-query", "--force"])

@@ -14,6 +14,7 @@ Detailed policy lives in `docs/RECONSTRUCTION_WORKFLOW.md` and
 ```bash
 tony verify
 tony slice list
+tony slice prompt ID
 tony slice claim ID
 tony slice show ID
 tony ghidra gaps --slice ID
@@ -53,3 +54,21 @@ tony slice release ID
 
 Commit coherent evidence, matching, and native changes. A local claim
 coordinates parallel sessions; it is not evidence and is never committed.
+
+## Parallel agents
+
+Use one Git worktree and branch per agent. Multiple read-only sessions may use
+one tree, but do not run concurrent agents that edit or commit in the same
+working directory.
+
+```bash
+git worktree add ../opentony-camera -b re/camera-update
+cd ../opentony-camera
+tony slice prompt camera-update
+```
+
+Slice claims are stored in Git's shared administrative directory, so every
+worktree sees the same owner. Each worktree should use its own editable Python
+environment and writable Ghidra project; do not point several agents at one
+writable project. Provision ignored inputs and generated analysis in each
+worktree as needed.

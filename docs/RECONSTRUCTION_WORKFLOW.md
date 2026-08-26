@@ -60,9 +60,11 @@ tony slice show ID
 tony ghidra gaps --slice ID
 ```
 
-Release the claim when the session ends. Claims under `build/slices/leases/`
-coordinate parallel sessions only; committed manifests remain the reviewable
-scope and completion contract.
+Release the claim when the session ends. Claims under
+`<git-common-dir>/opentony/slice-leases/` coordinate all worktrees only;
+committed manifests remain the reviewable scope and completion contract. Use
+one worktree and branch per concurrent editing agent. `tony slice prompt ID`
+prints the compact handoff prompt for a new or continuing agent.
 
 ## Reconstruction stages
 
