@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+from copy import deepcopy
 from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
@@ -443,6 +444,129 @@ def split_propose_modules(args) -> int:
     save_yaml(PROPOSALS, output)
     print(f"Proposed {len(proposals)} non-mutating function splits: {PROPOSALS}")
     return 0
+
+
+def _proposal_address_range(proposal: dict) -> tuple[int, int]:
+    return int(proposal["start_va"]), int(proposal["end_va"])
+
+
+def _preflight_proposals(manifest: dict, proposals: list[dict]) -> None:
+    simulated = deepcopy(manifest)
+    for proposal in proposals:
+        start_va, end_va = _proposal_address_range(proposal)
+        owners = [
+            module
+            for module in simulated["modules"]
+            if int(module["start_va"]) <= start_va and end_va <= int(module["end_va"])
+        ]
+        if len(owners) != 1:
+            raise SystemExit(f"proposal is not contained in exactly one module: 0x{start_va:08x}–0x{end_va:08x}")
+        owner = owners[0]
+        if owner.get("status") != "raw":
+            raise SystemExit(f"proposal would split non-raw module: {owner['id']}")
+        boundaries = [int(owner["start_va"]), start_va, end_va, int(owner["end_va"])]
+        children = []
+        for child_start, child_end in pairwise(boundaries):
+            if child_start == child_end:
+                continue
+            delta = child_start - int(owner["start_va"])
+            module_id = _module_id(owner["section"], child_start)
+            children.append(
+                {
+                    **owner,
+                    "id": module_id,
+                    "start_va": child_start,
+                    "end_va": child_end,
+                    "file_offset": int(owner["file_offset"]) + delta,
+                    "size": child_end - child_start,
+                    "source": f"match/modules/{owner['section'].lstrip('.') or 'section'}/{module_id}.asm",
+                }
+            )
+        owner_index = simulated["modules"].index(owner)
+        simulated["modules"][owner_index : owner_index + 1] = children
+    _require_valid_coverage(simulated)
+
+
+def _proposal_snapshots() -> tuple[dict[Path, bytes], set[Path]]:
+    roots = (ROOT / "match/modules", ROOT / "match/original/modules", ROOT / "match/generated/modules")
+    files = {path for root in roots if root.exists() for path in root.rglob("*") if path.is_file()}
+    files.add(MANIFEST)
+    return ({path: path.read_bytes() for path in files if path.exists()}, files)
+
+
+def _restore_proposal_snapshots(snapshots: dict[Path, bytes], original_files: set[Path]) -> None:
+    roots = (ROOT / "match/modules", ROOT / "match/original/modules", ROOT / "match/generated/modules")
+    current_files = {path for root in roots if root.exists() for path in root.rglob("*") if path.is_file()}
+    for path in current_files - original_files:
+        path.unlink(missing_ok=True)
+    for path, data in snapshots.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def _accept_proposals(proposals: list[dict], *, dry_run: bool) -> int:
+    if not proposals:
+        raise SystemExit("no matching safe proposals")
+    unsafe = [proposal for proposal in proposals if proposal.get("status") != "safe"]
+    if unsafe:
+        names = ", ".join(str(proposal.get("name") or hex(int(proposal["start_va"]))) for proposal in unsafe)
+        raise SystemExit(f"refusing non-safe proposals: {names}")
+    manifest = _load_manifest()
+    proposal_document = load_yaml(PROPOSALS)
+    if proposal_document.get("source_sha256") != manifest.get("source_sha256"):
+        raise SystemExit("proposal source hash does not match the split manifest")
+    _preflight_proposals(manifest, proposals)
+    print(f"Proposal batch: {len(proposals)} safe split(s){' (dry run)' if dry_run else ''}")
+    for proposal in proposals:
+        start_va, end_va = _proposal_address_range(proposal)
+        print(f"  {proposal.get('name', '<unnamed>')}: 0x{start_va:08x}–0x{end_va:08x}")
+    if dry_run:
+        return 0
+
+    snapshots, original_files = _proposal_snapshots()
+    try:
+        for proposal in proposals:
+            start_va, end_va = _proposal_address_range(proposal)
+            split_module(SimpleNamespace(start_va=hex(start_va), end_va=hex(end_va)))
+        _require_valid_coverage(_load_manifest())
+    except BaseException:
+        _restore_proposal_snapshots(snapshots, original_files)
+        raise
+    print("Proposal batch applied transactionally")
+    return 0
+
+
+def split_accept_proposal(args) -> int:
+    if not PROPOSALS.is_file():
+        raise SystemExit("module proposals not found; run: tony split propose-modules")
+    proposals = load_yaml(PROPOSALS).get("proposals", [])
+    matches = [proposal for proposal in proposals if proposal.get("name") == args.selector]
+    if not matches:
+        address = _address(args.selector)
+        matches = [proposal for proposal in proposals if int(proposal["start_va"]) == address]
+    if len(matches) != 1:
+        raise SystemExit(f"proposal selector must resolve uniquely: {args.selector}")
+    return _accept_proposals(matches, dry_run=args.dry_run)
+
+
+def split_accept_proposals(args) -> int:
+    if not PROPOSALS.is_file():
+        raise SystemExit("module proposals not found; run: tony split propose-modules")
+    if not args.tracked_only and not args.address_range:
+        raise SystemExit("batch acceptance requires --tracked-only, --range, or both")
+    proposals = load_yaml(PROPOSALS).get("proposals", [])
+    if args.tracked_only:
+        tracked = {int(item["address"]) for item in load_yaml("re/symbols/functions.yml").get("functions", [])}
+        proposals = [proposal for proposal in proposals if int(proposal["start_va"]) in tracked]
+    address_range = _parse_address_range(args.address_range)
+    if address_range:
+        proposals = [
+            proposal
+            for proposal in proposals
+            if address_range[0] <= int(proposal["start_va"])
+            and int(proposal["end_va"]) <= address_range[1]
+        ]
+    return _accept_proposals(proposals, dry_run=args.dry_run)
 
 
 def split_init(args) -> int:

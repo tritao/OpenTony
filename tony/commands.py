@@ -38,6 +38,8 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_stop,
 )
 from .split import (  # noqa: F401 - command handlers are consumed by cli.py
+    split_accept_proposal,
+    split_accept_proposals,
     split_build,
     split_compare,
     split_coverage,

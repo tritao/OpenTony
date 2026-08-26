@@ -39,6 +39,8 @@ def test_split_commands_parse():
         "compare": ["0x401000"],
         "coverage": [],
         "propose-modules": [],
+        "accept-proposal": ["0x401000"],
+        "accept-proposals": ["--tracked-only", "--dry-run"],
         "rebuild": [],
         "verify": [],
     }

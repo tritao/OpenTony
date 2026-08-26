@@ -142,6 +142,8 @@ tony split module <start-va> <end-va>
 tony split compare <module-id-or-va>
 tony split coverage
 tony split propose-modules
+tony split accept-proposal <name-or-address> [--dry-run]
+tony split accept-proposals --tracked-only [--range START:END] [--dry-run]
 tony split rebuild
 tony split verify
 

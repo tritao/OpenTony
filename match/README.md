@@ -31,4 +31,6 @@ function-aware split proposals with:
 tony split coverage
 tony split propose-modules
 tony split propose-modules --safe-only --range 0x004c0000:0x004d0000
+tony split accept-proposal Math_Vector3Add --dry-run
+tony split accept-proposals --tracked-only --range 0x004c0000:0x004d0000 --dry-run
 ```

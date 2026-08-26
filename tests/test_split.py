@@ -197,3 +197,61 @@ def test_propose_modules_does_not_mutate_manifest(tmp_path: Path, monkeypatch):
 def test_parse_address_range_rejects_backwards_range():
     with pytest.raises(SystemExit, match="greater than"):
         split._parse_address_range("0x402000:0x401000")
+
+
+def test_accept_proposal_dry_run_and_apply(tmp_path: Path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=10))
+    monkeypatch.setattr(split, "PROPOSALS", tmp_path / "match/generated/module-proposals.yml")
+    manifest = split._load_manifest()
+    split.save_yaml(
+        split.PROPOSALS,
+        {
+            "source_sha256": manifest["source_sha256"],
+            "proposals": [
+                {
+                    "name": "helper",
+                    "start_va": 0x401003,
+                    "end_va": 0x401007,
+                    "status": "safe",
+                }
+            ],
+        },
+    )
+    before = split.MANIFEST.read_bytes()
+
+    assert split.split_accept_proposal(SimpleNamespace(selector="helper", dry_run=True)) == 0
+    assert split.MANIFEST.read_bytes() == before
+    assert split.split_accept_proposal(SimpleNamespace(selector="helper", dry_run=False)) == 0
+    text_modules = [module for module in split._load_manifest()["modules"] if module["section"] == ".text"]
+    assert len(text_modules) == 3
+
+
+def test_accept_proposals_rolls_back_failed_batch(tmp_path: Path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=10))
+    monkeypatch.setattr(split, "PROPOSALS", tmp_path / "match/generated/module-proposals.yml")
+    manifest = split._load_manifest()
+    proposals = [
+        {"name": "first", "start_va": 0x401001, "end_va": 0x401003, "status": "safe"},
+        {"name": "second", "start_va": 0x401005, "end_va": 0x401007, "status": "safe"},
+    ]
+    split.save_yaml(split.PROPOSALS, {"source_sha256": manifest["source_sha256"], "proposals": proposals})
+    before_manifest = split.MANIFEST.read_bytes()
+    before_sources = {path: path.read_bytes() for path in (tmp_path / "match/modules").rglob("*.asm")}
+    original_split_module = split.split_module
+    calls = 0
+
+    def fail_second(args):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected failure")
+        return original_split_module(args)
+
+    monkeypatch.setattr(split, "split_module", fail_second)
+    with pytest.raises(RuntimeError, match="injected"):
+        split._accept_proposals(proposals, dry_run=False)
+
+    assert split.MANIFEST.read_bytes() == before_manifest
+    assert {path: path.read_bytes() for path in (tmp_path / "match/modules").rglob("*.asm")} == before_sources
