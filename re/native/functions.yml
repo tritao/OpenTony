@@ -54,14 +54,16 @@ functions:
     status: tested
     sources:
       - src/camera/camera_update.hpp
+      - src/camera/camera_system.hpp
       - src/camera/camera_runtime.cpp
       - src/camera/camera_runtime.hpp
     tests:
       - tests/test_camera_update.py
+      - tests/test_camera_system.py
       - src/camera/camera_runtime_test.cpp
     evidence:
       - re/evidence/functions/camera-system.md
-    notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, and normal-follow tick increment; smoothing, effects, and mode semantics remain separate exclusions.
+    notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, normal-follow tick increment, and the mode-25 scalar/shared-angle producer boundary; transformed-vector producer inputs and live mode-25 scalar coverage remain excluded.
 
   - address: 0x00496060
     name: Skater_PositionWritePath

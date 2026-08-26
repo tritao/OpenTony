@@ -205,6 +205,32 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 44;
                 }
 
+                // Camera_Update must run the scalar producer after the first
+                // smoothing pass and before the alternate path's second
+                // follow call. This mirrors camera +0x5ec/+0x5f0 and the
+                // shared DAT_00524a94 angle without turning the latter into a
+                // camera-object field.
+                CameraStateRaw alternate_update;
+                alternate_update.mode = 25;
+                alternate_update.alternate_counter_raw = 1;
+                alternate_update.alternate_phase_a_raw = 5;
+                alternate_update.alternate_phase_b_raw = 3;
+                alternate_update.alternate_shared_angle_raw = 0x1200;
+                alternate_update.anchor_target.y = 1000;
+                const CameraTargetRaw alternate_target{
+                    {}, {0, -0x1000, 0}, {}, 1, 0, false};
+                const CameraAlternateFollowInputRaw alternate_input{
+                    true, 1, 0, 0x65, true, 0x2000, false, {}};
+                update_camera(
+                    alternate_update, alternate_target, {}, {}, {}, {}, {},
+                    alternate_input);
+                if (alternate_update.alternate_counter_raw != 2
+                    || alternate_update.alternate_integrator_raw != -6
+                    || alternate_update.alternate_shared_angle_raw != 0x1fe
+                    || alternate_update.anchor_target.y != 994) {
+                    return 54;
+                }
+
                 // The retail producer changes mode only after the current
                 // normal-follow update has completed. It must not cause the
                 // same call to use the mode-25 offset during preparation.

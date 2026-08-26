@@ -76,6 +76,10 @@ struct CameraStateRaw {
     Raw alternate_counter_raw{};    // camera +0x5f0
     std::int16_t alternate_phase_a_raw{}; // camera +0x434
     std::int16_t alternate_phase_b_raw{}; // camera +0x436
+    // Replay mirror of DAT_00524a94. The mode-25 handler updates this shared
+    // angle between its first smoothing pass and its second follow call; it
+    // is not a field in the retail camera object.
+    Raw alternate_shared_angle_raw{};
     Raw distance_q4{};            // camera +0x5d0
     Raw distance_step_q4{};       // camera +0x61c
     std::array<Raw, 6> distance_history{}; // camera +0x620..+0x634
@@ -1842,9 +1846,13 @@ inline CameraViewportCommitRaw update_camera(
 
     // The mode-25 handler at 0x0040feef performs the alternate producer
     // between its first smoothing pass and a second Camera_FollowTarget call.
-    // There is no second smoothing pass here: the common tail consumes the
-    // second target on the next update, matching the retail call order.
+    // The scalar state and shared angle are updated at that same boundary, so
+    // the second follow call observes any anchor-Y adjustment in this update.
     if (alternate_follow) {
+        camera.alternate_shared_angle_raw = advance_camera_mode25_state(
+            camera,
+            alternate_follow_input,
+            camera.alternate_shared_angle_raw).shared_angle_raw;
         (void)apply_camera_mode25_alternate(
             camera, alternate_follow_input);
         const auto second_snapshot = prepare_follow_target(

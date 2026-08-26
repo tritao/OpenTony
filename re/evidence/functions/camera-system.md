@@ -286,6 +286,14 @@ Static behavior from the raw dispatch target is:
 - join the common camera tail at `0x00410064`, which ultimately commits through
   `0x0040be70`.
 
+The native update now places the scalar producer at the same boundary: after
+the first smoothing pass and before the alternate path's second
+`Camera_FollowTarget` call. Its shared angle is carried as a replay mirror of
+`DAT_00524a94`, separate from camera `+0x5b4`; any anchor-Y adjustment is
+therefore visible to the second follow preparation in the same update. This
+closes the static ordering seam without claiming ownership of the linked
+tripod or the transformed-vector producer.
+
 Static callers/callees: caller `0x0040fed0` via the six-target jump table;
 callees `0x00410610`, `0x0040e090`, `0x004e85a0`, `0x004cad00`, and the common
 commit path. Runtime evidence: `camera-zoom-probe.jsonl` recorded intervals
@@ -294,7 +302,9 @@ observations), with mode `1` before, between, and after. Confidence is high
 for dispatch and branch predicates, medium for the transformed-vector
 producer because the `+0x4a9` branch has not yet been live-sampled. A runtime
 mode-25 trace that bypasses the second follow call or uses a different local
-vector would falsify the remaining producer details.
+vector would falsify the remaining producer details. The existing probe also
+predates the scalar-field capture, so it validates the mode interval and
+follow path, not live values for `+0x5ec`/`+0x5f0` or `DAT_00524a94`.
 
 One mode-25 producer is visible at the gameplay boundary in
 `Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
