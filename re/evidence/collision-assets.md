@@ -119,6 +119,17 @@ The heap addresses are allocation-specific. The stable result is the field
 layout and the agreement between the node, model table, face geometry and
 query result.
 
+The controlled `collision-dynamic-positive5` run supplied that model-171
+origin to the first live linked node for one query, then restored the node
+prefix before rendering resumed. The node survived `0x004f43e0`, and the
+dynamic path produced a positive result through `0x00463e50`,
+`0x004f4b00`, and `0x004f4c50`: body `0x05f26c84`, face `0x05db87e4`, model
+171, traveled distance 29, and contact `[-4100096, -8710784, 11472896]`.
+The dynamic path left `q+0x8c` at its sentinel and derived contact from
+`q+0x40`, unlike the static path's `0x4000` parameter. This is the positive
+runtime linkage from a live linked node through transformed model vertices and
+faces to a hit result.
+
 Static loader ownership is now partly separated as well. `0x004667e0`, called
 from `0x0043e03c` and `0x004b29e6` and carrying `m3dzone.cpp` diagnostics,
 initializes the live zone record and fills the per-cell candidate-pointer

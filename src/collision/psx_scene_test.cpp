@@ -286,6 +286,31 @@ void check_packaged_scene(const char* path) {
     assert(trace_with_metadata.base_flags == 0x1003);
     assert(trace_with_metadata.surface_flags == 0x10);
     assert(trace_with_metadata.surface_word == 0x00100020u);
+
+    // Controlled replay of the live linked-object face path captured by
+    // collision-dynamic-positive5. The PC node used flags 0x0110, zero
+    // angles, and the model-171 object origin below; unlike the static path,
+    // its contact is reconstructed from q+0x40 rather than q+0x8c.
+    const PsxLinkedCollisionObject linked_model_171{
+        .body_id = 0x05f26c84,
+        .flags = 0x0110,
+        .position = {-4100096, -6782976, 9408512},
+        .angles = {0, 0, 0},
+        .model_index = 171,
+        .model_kind = 6,
+    };
+    const auto dynamic_replay = scene->query_linked_objects(
+        {-4100096, -8822784, 11472896},
+        {-4100096, 23945216, 11472896},
+        std::span<const PsxLinkedCollisionObject>(&linked_model_171, 1), 1);
+    assert(dynamic_replay.hit());
+    assert(dynamic_replay.query.hit_body == 0x05f26c84);
+    assert(dynamic_replay.query.hit_model_index == 171);
+    assert(dynamic_replay.query.hit_distance == 29);
+    assert(dynamic_replay.query.hit_position ==
+           (RawVec3{-4100096, -8710784, 11472896}));
+    assert(dynamic_replay.query.hit_parameter == 0x7fffffff);
+    assert(dynamic_replay.query.hit_face_record != 0);
 }
 
 }  // namespace

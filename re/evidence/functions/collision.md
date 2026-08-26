@@ -67,7 +67,7 @@ schema; the original PC code uses caller-local storage.
 | `0x004f43e0` | linked traversal `0x004628f0` | `void CullLinkedObjects(void* root, ..., SLineInfo*, uint16 stamp)` | walks `node+0x20`, applies object bounds/cross tests, and marks tested nodes |
 | `0x004f4940` | candidate traversal `0x004638d0` | `void CullCandidateObjectLists(void* head_array, ..., SLineInfo*, uint16 stamp)` | walks the selected null-terminated head array and applies the same object broad phase |
 | `0x004f4b00` | oriented-object path `0x00463e50` | `uint16_t TransformModelVertices(Model*, DynamicVertex*, uint32 line_length, const int32 origin[3])` | transforms each model vertex through the prepared Q12 matrix, writes 8-byte `{x,y,z,clip}` records, and returns their AND clip mask |
-| `0x004f4c50` | oriented-object path `0x00463e50` | `void ScanDynamicFaces(Model*, DynamicVertex*, SLineInfo*, ...)` | applies face masks, selects the projected triangle, and writes the winning dynamic distance/body/face/model fields; special `0x20000` faces update a sideband model selector instead |
+| `0x004f4c50` | oriented-object path `0x00463e50` | `void ScanDynamicFaces(Model*, DynamicVertex*, SLineInfo*, LinkedObject*)` | applies face masks, selects the projected triangle, and writes the winning dynamic distance/body/face/model fields; special `0x20000` faces update a sideband model selector instead |
 | `0x004f5540` | direct calls `0x0045fcbc`, `0x0045fd9c`, `0x00460dce`, `0x00460eaf`, `0x00461c5f`, `0x00464062`, `0x00464095` | `void ScaleObjectMatrix(void* object, int16_t matrix[9])` | scales matrix columns from signed Q12 tail words; writes the matrix in place and has no consumed return value |
 | `0x004e24b0` | dynamic face pass `0x004f4c50` | `void TransformNormalQ12(const int16_t basis[9], const int16_t normal[3])` | multiplies the model normal by the composed query/object matrix, shifts by 12, and saturates to signed shorts |
 | `0x004e2930` | dynamic face pass `0x004f4c50` | `void ProjectCandidate(...)` | combines the selected transformed vertex and transformed normal into the signed dot/line-limit values consumed by the dynamic distance test |
@@ -439,8 +439,8 @@ the wrapper; the query does not parse a file on each call.
     shared signed-short saturation helper: it obtains `2^15`, converts with
     the game's truncate-toward-zero x87 helper at `0x005004f4`, and clamps each
     integer component to `[-32768, 32767]`. This closes the arithmetic gap;
-    dynamic-object runtime execution is still needed to validate the outer
-    linked-list and broad-phase data path.
+    The controlled `collision-dynamic-positive5` run now validates the outer
+    linked-list handoff and the complete transformed-face path as well.
   - The `0x0200` matrix-transform branch has one more recoverable input boundary:
     `0x00463e50` calls `0x004f5540` with the object record and the temporary
     3x3 short matrix. That helper reads object tail words `+0x28`, `+0x2a`,
@@ -453,9 +453,9 @@ the wrapper; the query does not parse a file on each call.
     each product is SAR 12 and passed through the signed-short saturation
     helper. `0x004f5780` then left-composes that scaled object matrix with
     the query basis, so the dynamic vertex and candidate-normal basis is
-    `query_basis * object_rotation * scale`. The loader's runtime values
-    remain unresolved, but the native linked-object API now accepts these
-    factors directly. The final normal path remains the unscaled
+    `query_basis * object_rotation * scale`. The ordinary Hangar objects
+    sampled so far all carry identity Q12 scale, but the native linked-object
+    API accepts non-identity factors directly. The final normal path remains the unscaled
     `object_rotation * model_normal` transform.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
@@ -700,6 +700,38 @@ and `0x111`, and each call returned zero face-test survivors. This confirms the
 live tail values are Q12 identity for this ordinary level-object chain, while
 leaving the non-identity `0x0200` asset case unobserved.
 
+The controlled `collision-dynamic-positive5` capture then changed only the
+first live linked node during one collision call, restoring every changed
+prefix field when `0x00463e50` returned. It supplied the known model-171
+Hangar origin `[-4100096, -6782976, 9408512]`, zero angles, model index 171,
+model kind 6, and flags `0x0110`. The query was the same vertical line used by
+the static and airborne captures:
+
+```text
+start = [-4100096, -8822784, 11472896]
+end   = [-4100096,  23945216, 11472896]
+```
+
+The cull marked the node as a face-test survivor. The dynamic query then
+entered `0x00463e50`, and its two lower calls were observed with these live
+argument roles:
+
+```text
+0x004f4b00(model_data, transformed_vertices, 8000, transformed_origin)
+0x004f4c50(model_data, transformed_vertices, query, linked_object)
+```
+
+The transformed-vertex pass returned a zero `0x60f` clip mask, allowing the
+face walker to run. It published `q+0x68 = linked_object`,
+`q+0x80 = 0x05db87e4`, `q+0x84 = 171`, and `q+0x40 = 29`. The dynamic contact
+was `[-4100096, -8710784, 11472896]`; `q+0x8c` remained its initialized
+`0x7fffffff` sentinel because this path orders candidates by traveled distance
+and reconstructs contact from `q+0x40`. The face pointer matched the model-171
+face used by the static result. This is a positive end-to-end runtime
+confirmation of the linked dynamic primitive; the temporary field mutation is
+why it is labeled controlled rather than a claim about ordinary gameplay
+objects at every position.
+
 The executable's direct cull disassembly sharpens the flag interpretation:
 both `0x004f43e0` (linked objects) and `0x004f4940` (static candidates) test
 only the low byte. They reject low-byte bit `0x20` and reject the case where
@@ -821,9 +853,9 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
 - The bounded airborne run confirms the first in-air sweep and its hit result;
   distinguish the later in-air sweeps (ground versus wall/rail) with a longer
   run that deliberately holds a jump and moves across multiple surfaces. A
-  linked-object cull run is now confirmed, but a positive dynamic linked-face
-  hit remains unobserved; it will require a sweep through an object that
-  survives `0x004f43e0`.
+  linked-object cull and a positive transformed dynamic linked-face hit are
+  now confirmed. A natural, non-injected gameplay capture through a moving
+  prop remains useful but is not required to identify the primitive.
 - Resolve the face-record flag bits before assigning material names, and map
   the PC globals onto the original `COLRESULT_*` concepts where possible.
 - Map the complete caller-specific stack protocol around the two loader
