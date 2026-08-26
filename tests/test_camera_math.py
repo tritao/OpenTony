@@ -38,6 +38,14 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (sar_fraction.x != -1 || x87_fraction.x != 0) {
                     return 3;
                 }
+                const auto camera_tail_transform = camera_transform_matrix_q12_trunc(
+                    {1, 2, 3, 4, 5, 6, 7, 8, 9},
+                    {0x1000, 0x2000, 0x3000});
+                if (camera_tail_transform.x != 32
+                    || camera_tail_transform.y != 50
+                    || camera_tail_transform.z != 14) {
+                    return 21;
+                }
                 if (angle_delta12(0x0000, 0x0fff) != -1
                     || angle_delta12(0x0fff, 0x0000) != 1
                     || angle_delta12(0x0000, 0x0800) != 0x0800) {

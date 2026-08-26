@@ -252,6 +252,38 @@ def actor_submission_record(ctx: Context) -> dict:
     return record
 
 
+def camera_position_transform_record(ctx: Context) -> dict | None:
+    """Capture one exact 0x004e85a0 camera-tail input triplet."""
+
+    caller = ctx.caller()
+    if caller not in {0x0040ECB8, 0x0040ECEE}:
+        return None
+    matrix = ctx.arg(0)
+    vector = ctx.arg(1)
+    output = ctx.arg(2)
+    camera = ctx.register("ebp")
+    return {
+        "type": "camera_position_transform",
+        "frame": ctx.frame,
+        "function": "Fixed_MatrixConvertQ12",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{caller:08x}",
+        "camera": f"0x{camera:08x}" if ctx.memory.valid(camera) else None,
+        "arguments": {
+            "matrix": f"0x{matrix:08x}",
+            "vector": f"0x{vector:08x}",
+            "output": f"0x{output:08x}",
+        },
+        "matrix_s16": _s16_array(ctx.memory, matrix, 9),
+        "vector_q16": _words(ctx.memory, vector, 3)
+        if ctx.memory.readable(vector, 0x0C)
+        else None,
+        "output_before": _words(ctx.memory, output, 3)
+        if ctx.memory.readable(output, 0x0C)
+        else None,
+    }
+
+
 class CameraProbe(CountingBreakpoint):
     """Sample the actual camera-update entry, before mode-specific work runs."""
 
@@ -317,3 +349,26 @@ class ActorSubmissionProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"actor submission probe complete: {self.hits} observations\n")
+
+
+class CameraPositionTransformProbe(CountingBreakpoint):
+    """Sample the local/effect inputs at the final camera matrix conversion."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(0x004E85A0, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_position_transform_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera position transform probe complete: {self.hits} observations\n")

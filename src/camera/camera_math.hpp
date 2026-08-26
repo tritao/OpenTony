@@ -558,9 +558,9 @@ inline Q12Vec3 multiply_matrix_q12(
     };
 }
 
-// 0x004e85a0: the related camera/effect conversion path. The binary performs
-// each dot product through x87, multiplies by 1/4096, and converts with the
-// shared round-toward-zero helper. This intentionally differs from
+// 0x004e85a0's row-ordered integer form. The binary performs each dot product
+// through x87, multiplies by 1/4096, and converts with the shared
+// round-toward-zero helper. This intentionally differs from
 // multiply_matrix_q12 for negative fractional results: SAR(-2048, 12) is -1,
 // while x87 truncation of -0.5 is 0.
 inline Q12Vec3 transform_matrix_q12_trunc(
@@ -575,6 +575,26 @@ inline Q12Vec3 transform_matrix_q12_trunc(
         truncate_x87_result(dot(0) * static_cast<long double>(kOneOver4096)),
         truncate_x87_result(dot(1) * static_cast<long double>(kOneOver4096)),
         truncate_x87_result(dot(2) * static_cast<long double>(kOneOver4096)),
+    };
+}
+
+// Exact output ordering used by 0x004e85a0. Its three results are generated
+// from matrix rows 1, 2, and 0 in that order. The rotation records passed by
+// the camera tail are laid out so this cyclic order is part of the observable
+// helper contract; do not silently replace it with a conventional row-0/1/2
+// vector multiply when recreating the position/effect stage.
+inline Q12Vec3 camera_transform_matrix_q12_trunc(
+    const std::array<std::int16_t, 9>& matrix,
+    const std::array<Raw, 3>& vector) {
+    const auto dot = [&](std::size_t row) {
+        return static_cast<long double>(matrix[row * 3]) * vector[0]
+            + static_cast<long double>(matrix[row * 3 + 1]) * vector[1]
+            + static_cast<long double>(matrix[row * 3 + 2]) * vector[2];
+    };
+    return {
+        truncate_x87_result(dot(1) * static_cast<long double>(kOneOver4096)),
+        truncate_x87_result(dot(2) * static_cast<long double>(kOneOver4096)),
+        truncate_x87_result(dot(0) * static_cast<long double>(kOneOver4096)),
     };
 }
 

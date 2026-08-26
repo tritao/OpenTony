@@ -46,7 +46,14 @@ sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
-from opentony.camera import CameraProbe, ViewProjectionProbe, actor_submission_record, camera_record
+from opentony.camera import (
+    CameraPositionTransformProbe,
+    CameraProbe,
+    ViewProjectionProbe,
+    actor_submission_record,
+    camera_position_transform_record,
+    camera_record,
+)
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -329,6 +336,50 @@ def test_camera_probe_samples_this_pointer_and_writes_trace_event():
     assert probe.enabled is False
     assert events[0]["type"] == "camera"
     assert events[0]["function"] == "Camera_Update"
+
+
+def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    matrix = 0x500
+    vector = 0x520
+    output = 0x540
+    camera = 0x800
+    inferior.data[matrix:matrix + 0x12] = struct.pack(
+        "<9h", 1, 2, 3, 4, 5, 6, 7, 8, 9
+    )
+    inferior.data[vector:vector + 0x0C] = struct.pack("<3I", 0x1000, 0x2000, 0x3000)
+    inferior.data[output:output + 0x0C] = struct.pack("<3I", 0xAA, 0xBB, 0xCC)
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x0040ECB8, matrix, vector, output
+    )
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CameraPositionTransformProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ebp": camera, "eip": 0x4E85A0},
+        ),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert events[0]["type"] == "camera_position_transform"
+    assert events[0]["camera"] == "0x00000800"
+    assert events[0]["matrix_s16"][0]["signed_s16"] == 1
+    assert events[0]["matrix_s16"][-1]["signed_s16"] == 9
+    assert events[0]["vector_q16"]["raw"] == [0x1000, 0x2000, 0x3000]
+    assert events[0]["output_before"]["raw"] == [0xAA, 0xBB, 0xCC]
+
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E705)
+    ignored = camera_position_transform_record(context)
+    assert ignored is None
 
 
 def test_actor_submission_record_keeps_object_prefix_raw():

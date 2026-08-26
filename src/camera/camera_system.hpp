@@ -87,6 +87,20 @@ struct CameraFollowSnapshot {
     Raw offset_dot_raw{};
 };
 
+// The final tail of Camera_SmoothAndValidate receives these vectors from
+// gameplay/effect state, not from the follow-basis builder. They remain raw
+// Q16 world words until 0x004e85a0 applies the current Q12 matrix.
+struct CameraPositionStageInput {
+    Q16Vec3 local_offset{};
+    Q16Vec3 effect_vector{};
+    bool valid{};
+};
+
+struct CameraPositionStageOutput {
+    Q16Vec3 position{};
+    Q16Vec3 effect_vector{};
+};
+
 // The fields below correspond to the operations that are visible in
 // Camera_FollowTarget 0x00410610.  Collision/action-state producers are passed
 // in by the caller because they belong to gameplay, not camera semantics.
@@ -111,6 +125,13 @@ struct CameraUpdateHooks {
     // Camera_SmoothAndValidate contains gameplay-state-dependent branches. A
     // hook can replace the conservative startup/history implementation below.
     void (*smooth_transform)(CameraStateRaw&){};
+
+    // Build the local camera/effect vectors consumed by the post-smoothing
+    // 0x004e85a0 tail. Their producers depend on gameplay collision/effect
+    // state, so the native camera owns the transform and anchor composition
+    // while the caller owns this input boundary.
+    void (*prepare_position_stage)(
+        CameraStateRaw&, const CameraTargetRaw&, CameraPositionStageInput&){};
 
     // Global DAT_0056a8d4 in the retail update. Keep it configurable until
     // its producer is promoted from the runtime global set.
@@ -215,6 +236,34 @@ inline CameraFollowSnapshot prepare_follow_target(
     }
     camera.transform_fallback = input.transform_fallback ? 1 : 0;
     return snapshot;
+}
+
+inline CameraPositionStageOutput transform_position_stage(
+    const CameraStateRaw& camera,
+    const CameraPositionStageInput& input) {
+    const auto matrix = transform_to_matrix_q12(camera.current_transform);
+    const auto transform = [](const MatrixQ12& source, const Q16Vec3& value) {
+        return camera_transform_matrix_q12_trunc(
+            source, {value.x, value.y, value.z});
+    };
+    const auto local_offset = transform(matrix, input.local_offset);
+    const auto effect_vector = transform(matrix, input.effect_vector);
+    return {
+        add_q16(camera.anchor_target,
+                {local_offset.x, local_offset.y, local_offset.z}),
+        {effect_vector.x, effect_vector.y, effect_vector.z},
+    };
+}
+
+inline void apply_position_stage(
+    CameraStateRaw& camera,
+    const CameraPositionStageInput& input) {
+    if (!input.valid) {
+        return;
+    }
+    const auto output = transform_position_stage(camera, input);
+    camera.position = output.position;
+    camera.screen_effect_offset = output.effect_vector;
 }
 
 inline std::int16_t negate_s16_raw(Raw value) {
@@ -396,6 +445,11 @@ inline CameraViewportCommitRaw update_camera(
         hooks.smooth_transform(camera);
     } else if (camera.update_tick < 12) {
         camera.current_transform = camera.target_transform;
+    }
+    if (hooks.prepare_position_stage != nullptr) {
+        CameraPositionStageInput position_input;
+        hooks.prepare_position_stage(camera, target, position_input);
+        apply_position_stage(camera, position_input);
     }
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
     apply_camera_shake(camera, hooks.shake_phase_multiplier);

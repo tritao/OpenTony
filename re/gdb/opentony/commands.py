@@ -9,7 +9,12 @@ from pathlib import Path
 import gdb
 
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
-from .camera import ActorSubmissionProbe, CameraProbe, ViewProjectionProbe
+from .camera import (
+    ActorSubmissionProbe,
+    CameraPositionTransformProbe,
+    CameraProbe,
+    ViewProjectionProbe,
+)
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
@@ -827,6 +832,25 @@ class TonyViewProjectionProbe(gdb.Command):
         _write(f"view projection probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyCameraPositionProbe(gdb.Command):
+    """tony-camera-position-probe [COUNT] -- sample final camera transform inputs."""
+
+    def __init__(self):
+        super().__init__("tony-camera-position-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-camera-position-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-camera-position-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CameraPositionTransformProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"camera position transform probe armed {limit} at 0x{probe.address:08x}")
+
+
 class TonyActorSubmissionProbe(gdb.Command):
     """tony-actor-probe [COUNT] -- sample the actor/model submission pointer."""
 
@@ -923,6 +947,7 @@ def register_commands() -> None:
     TonyPhysicsProbe()
     TonyCameraProbe()
     TonyViewProjectionProbe()
+    TonyCameraPositionProbe()
     TonyActorSubmissionProbe()
     TonyPlayerDiff()
     TonyPositionCommitProbe()
@@ -934,5 +959,6 @@ def register_commands() -> None:
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
-        "tony-camera-probe, tony-view-probe, tony-actor-probe, tony-player-diff, tony-position-commit"
+        "tony-camera-probe, tony-view-probe, tony-camera-position-probe, "
+        "tony-actor-probe, tony-player-diff, tony-position-commit"
     )

@@ -318,6 +318,13 @@ becomes `-1` through `SAR 12`, but `0` through the x87 conversion. These are
 separate operations in [camera_math.hpp](../../../src/camera/camera_math.hpp)
 and must remain separate until every callsite is classified.
 
+The camera/effect callsite is now classified more precisely: the three x87
+dot products are written in the order matrix row 1, row 2, row 0. The native
+reference exposes that exact cyclic result as
+`camera_transform_matrix_q12_trunc`; the conventional row-0/1/2 helper remains
+separate for ordinary matrix consumers. This ordering is required by the
+post-smoothing camera tail and is covered by a non-diagonal fixture.
+
 ### Camera transform/effect records and shake
 
 The raw update path gives the following embedded transform records:
@@ -518,8 +525,48 @@ The position write is therefore not a direct tripod copy and must remain a
 distinct native stage. The local-offset producer, collision-dependent
 branches, and second effect vector are not yet promoted into the default C++
 contract; they should enter through an explicit position/effect hook until
-their gameplay inputs are captured. This is the main remaining normal-mode
-camera gap after the follow basis recovery.
+their gameplay inputs are captured. The C++ reference now exposes that
+boundary as `CameraPositionStageInput` → `transform_position_stage` →
+`apply_position_stage`; it uses the exact cyclic row order of `0x004e85a0`
+and writes the transformed local offset relative to `anchor_target`. This is
+the main remaining normal-mode camera gap after the follow basis recovery:
+the transform and normal-path input shapes are recovered, but the exact
+collision/effect producer logic is still outside the camera contract.
+
+The live tail probe closes the transform-side part of that gap. In a headless
+Warehouse run, a raw breakpoint at `0x004e85a0` filtered to the two
+`Camera_SmoothAndValidate` return sites produced a repeated pair on each
+settled camera pass:
+
+```text
+return 0x0040ecb8: vector = (0, 0, -distance_q16)
+return 0x0040ecee: vector = (0, -effect_q16, 0)
+```
+
+The first call writes the local-offset result used by the subsequent
+`anchor_target + result` position assignment; the second writes the camera
+effect block at `+0x4c..+0x54`. For example, the stationary/early Warehouse
+path supplied `-806912` for the first Z word and `-573440` for the second Y
+word, while the first vector's Z word changed continuously as the camera
+distance changed. The nine matrix words were signed 16-bit Q12 values and
+changed with camera rotation, confirming that this is a live camera transform
+tail rather than a one-time setup conversion.
+
+Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
+`0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
+matrix-row order `1,2,0`. Runtime hit frequency: one position/effect pair per
+observed settled camera update; the camera entry probe independently recorded
+one update per rendered frame after the 11-call level-entry startup. The C++
+position-stage hook now matches the recovered transform and anchor writes, but
+the code that chooses distance/effect magnitudes remains a gameplay/effect
+producer boundary.
+
+Confidence: high for the two tail callsites, raw input scales, output ordering,
+and position/effect destinations; medium for the semantic source of the two
+input vectors because collision and effect branches can replace them.
+Possible falsifier: a mode-21/22/23 or split-screen trace that reaches
+`0x004e85a0` through another caller and uses a different vector layout; those
+callers should be probed separately before making the hook inputs universal.
 
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:

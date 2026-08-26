@@ -105,6 +105,15 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
             """
             #include "src/camera/camera_system.hpp"
 
+            void prepare_position(
+                opentony::camera::CameraStateRaw&,
+                const opentony::camera::CameraTargetRaw&,
+                opentony::camera::CameraPositionStageInput& input) {
+                input.local_offset = {0x1000, 0x2000, 0x3000};
+                input.effect_vector = {0x4000, 0x5000, 0x6000};
+                input.valid = true;
+            }
+
             int main() {
                 using namespace opentony::camera;
                 const Q16Vec3 follow_offset{0, -0x1000, 0};
@@ -180,6 +189,20 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || second.current_transform.z != second_expected.z
                     || second.current_transform.w != second_expected.w) {
                     return 5;
+                }
+
+                CameraStateRaw positioned;
+                positioned.anchor_target = {0x10000, 0x20000, 0x30000};
+                CameraUpdateHooks stage_hooks{};
+                stage_hooks.prepare_position_stage = prepare_position;
+                update_camera(positioned, {}, {}, {}, stage_hooks);
+                if (positioned.position.x != 0x12000
+                    || positioned.position.y != 0x23000
+                    || positioned.position.z != 0x31000
+                    || positioned.screen_effect_offset.x != 0x5000
+                    || positioned.screen_effect_offset.y != 0x6000
+                    || positioned.screen_effect_offset.z != 0x4000) {
+                    return 6;
                 }
                 return 0;
             }
