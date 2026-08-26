@@ -48,6 +48,10 @@ struct GameplaySessionConfig {
     std::array<std::uint8_t, 5> tricks_mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
     assets::PsxCollisionQueryOptions collision_query_options{};
+    // Use the recovered fixed-point PsxScene query at the physics boundary.
+    // Leave this opt-in until frame-by-frame parity against the legacy asset
+    // wrapper is measured.
+    bool use_recovered_collision_scene{false};
     bool apply_collision_response_bias{false};
     std::int32_t collision_response_bias_q12{0xcd};
 };
@@ -167,6 +171,7 @@ private:
     PlayerState player_;
     GameplayFrame gameplay_;
     GameplaySessionConfig config_;
+    std::optional<collision::PsxScene> collision_scene_;
     std::optional<assets::TricksBinArchive> tricks_archive_;
     std::optional<assets::TricksBinView> tricks_view_;
     std::vector<std::uint8_t> tricks_sequence_table_{};

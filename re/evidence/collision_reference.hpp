@@ -1979,8 +1979,15 @@ struct CollisionFaceFilter {
     std::uint32_t reject_mask = 0;       // DAT_00567a60
     std::uint32_t required_bits = 0xffffffffu;  // DAT_00567a68
     bool query_mask_mode = false;        // q+0x88
+    // The retail query always evaluates these predicates. Native callers
+    // that are comparing against an unfiltered geometry pass can disable the
+    // policy while retaining the same candidate/plane arithmetic.
+    bool apply_retail_face_filter = true;
 
     bool accepts(std::uint32_t surface_word) const {
+        if (!apply_retail_face_filter) {
+            return true;
+        }
         return (surface_word & reject_mask) == 0 &&
                (surface_word | required_bits) == 0xffffffffu &&
                ((surface_word ^ 0x10000u) & 0x30000u) != 0 &&

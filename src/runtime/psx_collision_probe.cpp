@@ -43,4 +43,41 @@ std::optional<PositionCollisionHit> PsxPositionCollisionProbe::query(
     return mapped;
 }
 
+bool PsxScenePositionCollisionProbe::operator()(
+    const FixedPosition& candidate) const {
+    return query(candidate).has_value();
+}
+
+std::optional<PositionCollisionHit> PsxScenePositionCollisionProbe::query(
+    const FixedPosition& candidate) const {
+    const collision::PsxCollisionResult result = scene_.query_with_metadata(
+        start_, candidate, 0, filter_);
+    if (!result.hit()) {
+        return std::nullopt;
+    }
+    const collision::reference::FaceFlagView flags = result.decoded_flags();
+    const FixedPosition normal{
+        result.query.hit_normal[0],
+        result.query.hit_normal[1],
+        result.query.hit_normal[2],
+    };
+    return PositionCollisionHit{
+        result.face_index,
+        result.object_index,
+        result.query.hit_model_index,
+        result.face_index,
+        static_cast<std::uint32_t>(result.query.hit_parameter),
+        result.query.hit_position,
+        normal,
+        result.base_flags,
+        result.surface_flags,
+        result.surface_word,
+        flags.surface_large_polygon,
+        (result.surface_flags & 0x0080u) == 0,
+        flags.surface_skateable,
+        static_cast<std::uint8_t>((result.surface_flags >> 9u) & 0x0fu),
+        flags.face_bit_80,
+    };
+}
+
 } // namespace opentony::runtime

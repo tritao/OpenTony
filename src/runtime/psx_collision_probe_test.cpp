@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <vector>
 
 namespace {
@@ -94,11 +95,33 @@ std::vector<std::byte> synthetic_archive() {
     return bytes;
 }
 
+void check_packaged_scene(const char* path) {
+    const opentony::assets::PsxArchive archive =
+        opentony::assets::PsxArchive::load(path);
+    const auto scene = opentony::collision::PsxScene::parse(
+        std::span<const std::byte>(
+            archive.bytes().data(), archive.bytes().size()));
+    assert(scene.has_value());
+
+    const opentony::runtime::PsxScenePositionCollisionProbe probe(
+        *scene, {-4100096, -8822784, 11472896});
+    const auto hit = probe.query({-4100096, 23945216, 11472896});
+    assert(hit.has_value());
+    assert(hit->object_index == 170);
+    assert(hit->model_index == 171);
+    assert(hit->hit_parameter_q14 == 61);
+    assert(hit->position == (opentony::runtime::FixedPosition{
+        -4100096, -8700784, 11472896}));
+    assert(hit->normal == (opentony::runtime::FixedPosition{
+        1, -3867, -1351}));
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const std::vector<std::byte> bytes = synthetic_archive();
     const opentony::assets::PsxArchive archive =
-        opentony::assets::PsxArchive::parse(synthetic_archive(), "probe.psx");
+        opentony::assets::PsxArchive::parse(bytes, "probe.psx");
     const opentony::assets::PsxCollisionWorld world =
         opentony::assets::PsxCollisionWorld::build(archive);
     const opentony::runtime::PsxPositionCollisionProbe probe(world, {0, 4096, 0});
@@ -128,5 +151,25 @@ int main() {
     assert(result.collided);
     assert(!result.blocked);
     assert(result.probes == 4);
+
+    const auto recovered_scene = opentony::collision::PsxScene::parse(
+        std::span<const std::byte>(bytes.data(), bytes.size()));
+    assert(recovered_scene.has_value());
+    const opentony::runtime::PsxScenePositionCollisionProbe recovered_probe(
+        *recovered_scene, {0, 4096, 0});
+    const auto recovered_hit = recovered_probe.query({0, -4096, 0});
+    assert(recovered_hit.has_value());
+    assert(recovered_hit->object_index == 0);
+    assert(recovered_hit->model_index == 0);
+    assert(recovered_hit->model_face_index == 0);
+    assert(recovered_hit->normal[1] == 4096);
+    assert(recovered_hit->surface_flags == 0x1234);
+    assert(recovered_hit->hit_parameter_q14 == 0x2000);
+    assert(recovered_hit->position[1] == 0);
+
+    if (argc > 1) {
+        check_packaged_scene(argv[1]);
+    }
+
     std::cout << "PSX collision probe tests passed\n";
 }

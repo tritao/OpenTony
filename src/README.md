@@ -414,3 +414,11 @@ g++ -std=c++20 -Wall -Wextra -Werror -pedantic -I. \
   src/collision/psx_scene_test.cpp -o /tmp/psx-scene-test
 /tmp/psx-scene-test /path/to/SKHAN.PSX
 ```
+
+The ground-movement runtime keeps the older asset-world probe as its default
+comparison path. Set
+`GameplaySessionConfig::use_recovered_collision_scene` to enable
+`PsxScenePositionCollisionProbe`, which parses the same PSX bytes and maps
+the recovered fixed-point contact, normal, parameter, and surface metadata
+into the existing physics collision hook. This is intentionally opt-in until
+frame-by-frame gameplay parity is established.

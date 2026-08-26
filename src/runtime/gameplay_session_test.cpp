@@ -47,6 +47,16 @@ int main() {
     assert(session.physics_hooks().collision_query);
     assert(session.physics_hooks().air_gravity_input);
 
+    opentony::runtime::GameplaySessionConfig recovered_config = config;
+    recovered_config.use_recovered_collision_scene = true;
+    opentony::runtime::GameplaySession recovered_session(
+        trg,
+        psx,
+        asset_path(""),
+        opentony::runtime::PlayerState{},
+        recovered_config);
+    assert(recovered_session.physics_hooks().collision_query);
+
     opentony::runtime::GameplaySessionConfig tricks_config{};
     tricks_config.tricks_path = asset_path("TRICKS.BIN");
     tricks_config.use_tricks_retail_builder = true;

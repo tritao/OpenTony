@@ -328,6 +328,15 @@ public:
         return scene;
     }
 
+    static std::optional<PsxScene> parse(std::span<const std::byte> bytes,
+                                          std::string* error = nullptr) {
+        return parse(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(bytes.data()),
+                bytes.size()),
+            error);
+    }
+
     const std::vector<PsxObject>& objects() const { return objects_; }
     const std::vector<PsxModel>& models() const { return models_; }
     const std::vector<PsxBlockmap>& blockmaps() const { return blockmaps_; }

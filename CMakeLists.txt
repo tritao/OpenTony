@@ -89,6 +89,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_collision_reference_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_collision_reference_test COMMAND opentony_collision_reference_test)
 
+    add_executable(opentony_psx_scene_test
+        src/collision/psx_scene_test.cpp
+    )
+    target_include_directories(opentony_psx_scene_test PRIVATE src re/evidence)
+    target_compile_features(opentony_psx_scene_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psx_scene_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_psx_scene_test COMMAND opentony_psx_scene_test)
+
     add_executable(opentony_trg_test
         src/trg/trg_runtime_test.cpp
     )
