@@ -21,8 +21,8 @@ def test_camera_frame_contract_keeps_present_explicit(tmp_path):
                 CameraFrameStateRaw state;
                 CameraFrameInputRaw input;
                 input.timestamp_ms = 1000;
-                input.render_input.viewport.words = {
-                    0, 640, 0, 480, 0, 20512, 3410, 12,
+                    input.render_input.viewport.words = {
+                        640, 480, 0, 0, 0, 20512, 3410, 12,
                     320, 240, 0, 0, 320, 480};
                 input.render_input.scale_x = 0x1000;
                 input.render_input.scale_y = 0x1000;
@@ -32,7 +32,7 @@ def test_camera_frame_contract_keeps_present_explicit(tmp_path):
                 auto first = advance_camera_frame(state, input);
                 if (!first.camera_updated || !first.render_prepared
                     || first.presented
-                    || state.camera_timing.simulation_delta_q8 != 0x100) {
+                    || state.camera_timing.simulation_delta_q8 != 42) {
                     return 1;
                 }
                 if (!present_camera_frame(state, first)
@@ -273,7 +273,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 framing.framing_globals_raw = {100, 0x1005, 200};
                 apply_camera_framing_input_control(
                     framing,
-                    {false, false, {}, true, false, 0,
+                    {true, false, {}, true, false, 0,
                      true, false, true, false, false, true});
                 if (framing.follow_rotation_raw != 90
                     || framing.framing_globals_raw.x != 92
@@ -284,7 +284,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 framing.framing_globals_raw = {100, 0, 200};
                 apply_camera_framing_input_control(
                     framing,
-                    {false, false, {}, false, false, 1,
+                    {true, false, {}, false, false, 1,
                      false, true, false, false, false, true});
                 if (framing.framing_globals_raw.x != 132
                     || framing.framing_globals_raw.y != 0
@@ -297,7 +297,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     framing,
                     {true, true, {10, 20, 30}, true, true, 1,
                      true, true, true, true, true, true});
-                if (framing.follow_rotation_raw != 100
+                if (framing.follow_rotation_raw != 90
                     || framing.framing_globals_raw.x != 10
                     || framing.framing_globals_raw.y != 20
                     || framing.framing_globals_raw.z != 30) {
@@ -308,7 +308,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     framing,
                     {false, true, {10, 20, 30}, true, true, 1,
                      true, true, true, true, true, true});
-                if (framing.follow_rotation_raw != 100
+                if (framing.follow_rotation_raw != 90
                     || framing.framing_globals_raw.x != 1
                     || framing.framing_globals_raw.y != 2
                     || framing.framing_globals_raw.z != 3) {

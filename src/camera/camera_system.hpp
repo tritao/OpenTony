@@ -3,8 +3,8 @@
 // Replayable native camera contract. This intentionally models the raw state
 // and the recovered stage ordering; it is not a gameplay replacement yet.
 
-#include "src/camera/camera_math.hpp"
-#include "src/camera/camera_timing.hpp"
+#include "camera_math.hpp"
+#include "camera_timing.hpp"
 
 #include <cstdint>
 
@@ -1682,8 +1682,8 @@ inline CameraViewportCommitRaw update_camera(
     // particular, the restore/decrement/increment/reset operations must also
     // occur for modes 2, 23, and 24; placing this at the old common-tail
     // location silently skipped those paths.
+    apply_viewport_parameter_control(camera, viewport_control);
     if (framing_control.global_override) {
-        apply_viewport_parameter_control(camera, viewport_control);
         apply_camera_framing_input_control(camera, framing_control);
     }
 

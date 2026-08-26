@@ -625,6 +625,8 @@ functions:
       - re/evidence/functions/renderer.md
   - address: 0x004d11d0
     name: M3D_SubmitGeometryPackets
+    gdb_aliases:
+      - render_convert_submit_geometry
     description: lower-level model geometry packet submission helper
     confidence: inferred
     evidence:
@@ -661,6 +663,8 @@ functions:
       - re/evidence/functions/renderer.md
   - address: 0x004d29e0
     name: M3D_TransformVertices
+    gdb_aliases:
+      - render_transform_vertices
     description: transform packed PSX vertex records into projected seven-float working records
     confidence: confirmed
     evidence:
@@ -852,12 +856,16 @@ functions:
       - re/evidence/functions/trg-runtime.md
   - address: 0x00411f30
     name: TRG_RegisterCameraPoint
+    gdb_aliases:
+      - camera_register_point
     description: decode a type-13 TRG node and append its node index to the bounded camera-point registry
     confidence: observed
     evidence:
       - re/evidence/functions/trg-runtime.md
   - address: 0x00411fc0
     name: Camera_SelectNearestTriggerPoint
+    gdb_aliases:
+      - camera_point_select
     description: select an eligible registered TRG camera point and arm the skater camera transition state
     confidence: observed
     evidence:
@@ -1196,6 +1204,8 @@ functions:
       - re/evidence/functions/trg-runtime.md
   - address: 0x0040bd40
     name: Camera_ApplyShake
+    gdb_aliases:
+      - camera_shake
     description: apply a selected shake profile to the active camera and object lists
     confidence: observed
     evidence:
@@ -2675,26 +2685,6 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
-  - address: 0x00411fc0
-    name: Camera_PointSelect
-    gdb_aliases:
-      - camera_point_select
-    description: selects/interpolates a registered camera point for a player object
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x00411f30
-    name: Camera_RegisterPoint
-    description: appends a camera point identifier to the runtime camera-point table
-    confidence: observed
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x0040bd40
-    name: Camera_Shake
-    description: selects camera shake parameters by EShakeType and applies them to camera state
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
   - address: 0x0040be70
     name: Camera_CommitViewportEffects
     description: commits camera screen/effect offsets and cached transform words into the active viewport state
@@ -2800,18 +2790,6 @@ functions:
   - address: 0x00460a90
     name: Render_SubmitObjectList
     description: adjacent scene/object-list submission helper reached by the render traversal
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x004d11d0
-    name: Render_ConvertSubmitGeometry
-    description: converts prepared signed fixed-point geometry into backend-ready values
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x004d29e0
-    name: Render_TransformVertices
-    description: transforms common model-path packed vertices into projected working records
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
