@@ -1,6 +1,6 @@
 # Camera system and rendered-frame boundary
 
-Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the ordinary common-vertex projection contract are established; projection producers, special vertex paths, and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the ordinary common-vertex projection contract plus its static per-object producer are established; dynamic axis calibration, special vertex paths, and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -1800,11 +1800,11 @@ The names in this contract are reconstruction interfaces, not claims that the or
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
-1. Validate the renderer’s per-object production of the recovered
+1. Dynamically calibrate the renderer’s per-object production of the recovered
    `0x0056e84c` rows and `0x0058f318` biases with controlled X/Y/Z basis
-   inputs; the final ordinary projection math is now numerically closed, but
-   the producer’s object/view composition and world-axis handedness remain to
-   be separated.
+   inputs. The static producer contract is now closed, but the live
+   object/view pairing, world-axis handedness, and screen-axis signs still need
+   separation.
 2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates; the newly decoded framing globals and rotation/axis controls likewise need a gameplay run that exercises their flags. Their relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
