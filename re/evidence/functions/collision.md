@@ -816,12 +816,12 @@ of that API without fabricating the unresolved zone/model format. It provides:
 
 The asset-facing native layer at
 [`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
-version-4 PSX model/object/blockmap decoder, a conservative blockmap broad
-phase, the static scene query, stable scene handles, raw base/surface metadata,
-and direct wrappers for the dynamic transformed-vertex preprocessing and
-projected-face candidate arithmetic. It deliberately does not claim that the
-PC heap linked-list serialization or its broad-phase object records have been
-reproduced.
+version-4 PSX model/object/blockmap decoder, the recovered line/grid walk over
+the blockmap's spatial cells, the static scene query, stable scene handles,
+raw base/surface metadata, and direct wrappers for the dynamic
+transformed-vertex preprocessing and projected-face candidate arithmetic. It
+deliberately does not claim that the PC heap linked-list serialization or its
+broad-phase object records have been reproduced.
 
 The asset-facing API also exposes `PsxLinkedCollisionObject` and
 `PsxScene::query_linked_objects`. This is the native equivalent of the
