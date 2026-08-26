@@ -1269,10 +1269,22 @@ class TransformedVertexProbe(CountingBreakpoint):
     def __init__(self, count: int | None = None, writer=None):
         super().__init__(VERTEX_TRANSFORM, count=count, internal=True)
         self.writer = writer
+        self.diagnostics = 0
 
     def on_count(self, ctx: Context) -> bool:
         record = transformed_vertex_record(ctx)
         if record is None:
+            return False
+        if not record.get("accepted", False):
+            # Frontend/menu model transforms are common before level entry.
+            # Retain a small diagnostic sample without consuming the requested
+            # gameplay observations.
+            if self.diagnostics < 8:
+                if self.writer is None:
+                    self.emit(record)
+                else:
+                    self.writer.event(record)
+                self.diagnostics += 1
             return False
         if self.writer is None:
             self.emit(record)

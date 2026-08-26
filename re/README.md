@@ -62,7 +62,9 @@ For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
 samples `0x004d29e0` and the seven-word records at `0x00570878`. It reports raw
 words plus the current projected-X/Y/Z and reciprocal-depth interpretation,
 bounded to 256 vertices per observed call. It also records a rejection reason
-when the live player/camera or scratch range is not readable. This is the
+for up to eight pre-level calls when the live player/camera or scratch range is
+not readable; those diagnostics do not consume the requested gameplay count.
+This is the
 preferred calibration probe; `tony-geometry-probe`'s raster-tail records belong
 to the separate indexed/special path.
 
