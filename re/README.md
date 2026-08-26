@@ -37,6 +37,12 @@ breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records
 the four movement action-state records alongside the action mask.
 
+Collision experiments use `tony-collision-probe [COUNT]` for the shared query
+record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
+`tony-collision-dynamic-cull-probe [COUNT]` plus
+`tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
+passes.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`

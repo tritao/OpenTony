@@ -40,6 +40,8 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.collision import (
     _candidate_source_snapshot,
+    _dynamic_object_snapshot,
+    _dynamic_query_snapshot,
     _linked_object_snapshots,
     _zone_entry_snapshot,
 )
@@ -191,6 +193,53 @@ def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
         "cell_count_x": 20,
         "cell_count_z": 20,
     }
+
+
+def test_collision_dynamic_snapshots_keep_object_transform_and_query_outputs():
+    inferior = FakeInferior()
+    object_address = 0x500
+    query = 0x900
+    face = 0xA00
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        object_address,
+        0,
+        0x0025,
+        0x1234,
+        4096,
+        -8192,
+        12288,
+        0x0100,
+        -0x0100,
+        0x0200,
+        171,
+        6,
+        0,
+    )
+    struct.pack_into("<3I", inferior.data, query, 1, 2, 3)
+    struct.pack_into("<3I", inferior.data, query + 0x0C, 4, 5, 6)
+    struct.pack_into("<3I", inferior.data, query + 0x68, object_address, 7, 8)
+    struct.pack_into("<3I", inferior.data, query + 0x6C, 9, 10, 11)
+    struct.pack_into("<3h", inferior.data, query + 0x78, 12, -13, 14)
+    struct.pack_into("<I", inferior.data, query + 0x80, face)
+    struct.pack_into("<H2xBBH", inferior.data, query + 0x84, 171, 2, 1, 0x1234)
+    struct.pack_into("<I", inferior.data, query + 0x8C, 0xFFFFFFF0)
+    struct.pack_into("<4I", inferior.data, face, 0x1C1083, 0, 0, 0x00100020)
+
+    memory = Memory(inferior)
+    object_snapshot = _dynamic_object_snapshot(object_address, memory)
+    query_snapshot = _dynamic_query_snapshot(query, memory)
+
+    assert object_snapshot["angles_s16"] == [0x100, -0x100, 0x200]
+    assert object_snapshot["model_index"] == 171
+    assert object_snapshot["model_kind"] == 6
+    assert query_snapshot["start_raw"] == [1, 2, 3]
+    assert query_snapshot["end_raw"] == [4, 5, 6]
+    assert query_snapshot["hit_body"] == "0x00000500"
+    assert query_snapshot["contact_raw"] == [9, 10, 11]
+    assert query_snapshot["normal_s16"] == [12, -13, 14]
+    assert query_snapshot["hit_parameter"] == -16
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():

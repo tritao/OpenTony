@@ -50,6 +50,10 @@ int main() {
     assert(linked->model_index == 171);
     assert(linked->model_kind == 6);
     assert(linked->next == 0x12345678);
+    assert(linked_object_flag_gate(0x0110));
+    assert(linked_object_flag_gate(0x8110));
+    assert(!linked_object_flag_gate(0x0130));
+    assert(!linked_object_flag_gate(0x8171));
 
     assert(candidate_cell_source_bytes(0) == 0x10);
     assert(candidate_cell_source_bytes(2) == 0x18);

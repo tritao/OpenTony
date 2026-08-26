@@ -9,7 +9,13 @@ from pathlib import Path
 import gdb
 
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
-from .collision import CollisionLoaderProbe, CollisionQueryProbe
+from .collision import (
+    CollisionDynamicCullProbe,
+    CollisionDynamicProbe,
+    CollisionFlagProbe,
+    CollisionLoaderProbe,
+    CollisionQueryProbe,
+)
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
@@ -335,7 +341,7 @@ class TonyTHPS2Breakpoint(gdb.Command):
         _set_breakpoint(address, len(values) == 2)
 
 
-MOVIE_ENTRY_POINTS = (0x004e7090, 0x004e70e0)
+MOVIE_ENTRY_POINTS = (0x004e5ec0, 0x004e7090, 0x004e70e0)
 
 
 class TonySkipMovieBreakpoint(TonyBreakpoint):
@@ -878,6 +884,66 @@ class TonyCollisionLoaderProbe(gdb.Command):
         _write(f"collision loader probe armed for {count} completed calls")
 
 
+class TonyCollisionFlagsProbe(gdb.Command):
+    """tony-collision-flags-probe [COUNT] -- log face flag decoding."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-flags-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-flags-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-flags-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionFlagProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision flag probe armed for {count} completed calls")
+
+
+class TonyCollisionDynamicProbe(gdb.Command):
+    """tony-collision-dynamic-probe [COUNT] -- log linked-object face tests."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-dynamic-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-dynamic-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-dynamic-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision dynamic probe armed for {count} completed calls")
+
+
+class TonyCollisionDynamicCullProbe(gdb.Command):
+    """tony-collision-dynamic-cull-probe [COUNT] -- log linked broad-phase survivors."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-dynamic-cull-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-dynamic-cull-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-dynamic-cull-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicCullProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision dynamic cull probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -914,6 +980,9 @@ def register_commands() -> None:
     TonyPositionCommitProbe()
     TonyCollisionProbe()
     TonyCollisionLoaderProbe()
+    TonyCollisionFlagsProbe()
+    TonyCollisionDynamicProbe()
+    TonyCollisionDynamicCullProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -923,5 +992,6 @@ def register_commands() -> None:
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-player-diff, tony-position-commit, tony-collision-probe, "
-        "tony-collision-loader-probe"
+        "tony-collision-loader-probe, tony-collision-flags-probe, "
+        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe"
     )

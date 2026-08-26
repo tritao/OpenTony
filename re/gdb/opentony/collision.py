@@ -21,6 +21,20 @@ ZONE_LOADER = 0x004667E0
 ZONE_LOADER_AFTER_ARGS = 0x0046682E
 ZONE_LOADER_FIRST_CELL = 0x0046697A
 ZONE_LOADER_RETURN_SITES = (0x0043E041, 0x004B29EB)
+COLLISION_FLAG_CONSUMER = 0x0048EA80
+COLLISION_FLAG_RETURN = 0x0048EB02
+COLLISION_DYNAMIC_QUERY = 0x00463E50
+COLLISION_DYNAMIC_RETURN = 0x004641F2
+COLLISION_DYNAMIC_CULL = 0x004F43E0
+COLLISION_DYNAMIC_CULL_RETURN = 0x004F492C
+COLLISION_FLAG_GLOBALS = {
+    "surface_bit_40": 0x0056B768,
+    "inverse_bit_24": 0x0056B7B8,
+    "inverse_bit_23": 0x0056B7A8,
+    "face_bit_80": 0x0056B7AC,
+    "surface_class": 0x0056B7E8,
+    "face_pointer": 0x0056B77C,
+}
 
 
 def _signed16(value: int) -> int:
@@ -51,6 +65,13 @@ def _u32_words(address: int, count: int, memory) -> list[int] | None:
 
 def _global_u32(address: int, memory) -> int | None:
     return memory.u32(address) if memory.valid(address + 3) else None
+
+
+def _collision_flag_snapshot(memory) -> dict[str, int | None]:
+    return {
+        name: _global_u32(address, memory)
+        for name, address in COLLISION_FLAG_GLOBALS.items()
+    }
 
 
 def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
@@ -527,3 +548,321 @@ class _CollisionLoaderReturn(TonyBreakpoint):
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx, self.return_site)
+
+
+class CollisionFlagProbe:
+    """Pair the face-flag consumer with its exact derived global outputs."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionFlagEntry(self)
+        self._return = _CollisionFlagReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return (self._entry, self._return)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        query = ctx.arg(0)
+        if not query or not ctx.memory.valid(query + 0x80 + 3):
+            return
+        face = ctx.memory.u32(query + 0x80)
+        self._active = {
+            "query": query,
+            "caller": ctx.caller(),
+            "caller_function": function_name_at(ctx.caller()),
+            "query_hit_body": ctx.memory.u32(query + 0x68)
+            if ctx.memory.valid(query + 0x68 + 3)
+            else None,
+            "face_before": f"0x{face:08x}" if face else None,
+            "flags_before": _collision_flag_snapshot(ctx.memory),
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        query = int(active["query"])
+        if not ctx.memory.valid(query + 0x80 + 3):
+            return
+        face = ctx.memory.u32(query + 0x80)
+        face_words = _u32_words(face, 4, ctx.memory) if face else None
+        record = {
+            "type": "collision_flag_consumer",
+            "function": "Collision_ConsumeHitFlags",
+            "address": f"0x{COLLISION_FLAG_CONSUMER:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "caller": f"0x{int(active['caller']):08x}",
+            "caller_function": active["caller_function"],
+            "query": f"0x{query:08x}",
+            "query_hit_body": (
+                f"0x{int(active['query_hit_body']):08x}"
+                if active["query_hit_body"]
+                else None
+            ),
+            "face": f"0x{face:08x}" if face else None,
+            "face_words": face_words,
+            "face_base_flags": face_words[0] & 0xffff if face_words else None,
+            "face_surface_flags": (face_words[3] >> 16) & 0xffff
+            if face_words
+            else None,
+            "flags_before": active["flags_before"],
+            "flags_after": _collision_flag_snapshot(ctx.memory),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionFlagEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionFlagProbe):
+        self.owner = owner
+        super().__init__(COLLISION_FLAG_CONSUMER, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionFlagReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionFlagProbe):
+        self.owner = owner
+        super().__init__(COLLISION_FLAG_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
+def _dynamic_object_snapshot(address: int | None, memory) -> dict | None:
+    if not address or not memory.readable(address, 0x24):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "flags": memory.u16(address + 0x04),
+        "query_stamp": memory.u16(address + 0x06),
+        "position_raw": _vec_words(address + 0x08, memory),
+        "position_s32": [
+            _signed32(value) for value in _vec_words(address + 0x08, memory)
+        ],
+        "angles_s16": _short_vec(address + 0x14, memory),
+        "model_index": memory.u16(address + 0x1A),
+        "model_kind": memory.u8(address + 0x1F),
+        "next": (
+            f"0x{memory.u32(address + 0x20):08x}"
+            if memory.u32(address + 0x20)
+            else None
+        ),
+    }
+
+
+def _dynamic_query_snapshot(query: int | None, memory) -> dict | None:
+    if not query or not memory.readable(query, 0x90):
+        return None
+    body = memory.u32(query + 0x68)
+    face = memory.u32(query + 0x80)
+    return {
+        "address": f"0x{query:08x}",
+        "start_raw": _vec_words(query, memory),
+        "end_raw": _vec_words(query + 0x0C, memory),
+        "hit_body": f"0x{body:08x}" if body else None,
+        "contact_raw": _vec_words(query + 0x6C, memory),
+        "normal_s16": _short_vec(query + 0x78, memory),
+        "face": f"0x{face:08x}" if face else None,
+        "model_index": memory.u16(query + 0x84),
+        "query_flags": memory.u8(query + 0x88),
+        "direction_flag": memory.u8(query + 0x89),
+        "query_stamp": memory.u16(query + 0x8A),
+        "hit_parameter": _signed32(memory.u32(query + 0x8C)),
+        "hit_distance": _signed32(memory.u32(query + 0x40)),
+        "line_length": _signed32(memory.u32(query + 0x44)),
+    }
+
+
+class CollisionDynamicProbe:
+    """Capture the linked-object face tester and its shared query record."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionDynamicEntry(self)
+        self._return = _CollisionDynamicReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return (self._entry, self._return)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.arg(0)
+        query = ctx.arg(1)
+        if not object_address or not query:
+            return
+        self._active = {
+            "object": object_address,
+            "query": query,
+            "caller": ctx.caller(),
+            "caller_function": function_name_at(ctx.caller()),
+            "object_before": _dynamic_object_snapshot(object_address, ctx.memory),
+            "query_before": _dynamic_query_snapshot(query, ctx.memory),
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        object_address = int(active["object"])
+        query = int(active["query"])
+        record = {
+            "type": "collision_dynamic_object_query",
+            "function": "Collision_TestLinkedObjectFaces",
+            "address": f"0x{COLLISION_DYNAMIC_QUERY:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "return_value": ctx.register("eax"),
+            "caller": f"0x{int(active['caller']):08x}",
+            "caller_function": active["caller_function"],
+            "object": f"0x{object_address:08x}",
+            "object_before": active["object_before"],
+            "object_after": _dynamic_object_snapshot(object_address, ctx.memory),
+            "query": f"0x{query:08x}",
+            "query_before": active["query_before"],
+            "query_after": _dynamic_query_snapshot(query, ctx.memory),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionDynamicEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_QUERY, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionDynamicReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
+class CollisionDynamicCullProbe:
+    """Capture linked-list broad-phase survivors before face testing."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionDynamicCullEntry(self)
+        self._return = _CollisionDynamicCullReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._pending: list[dict] = []
+
+    @property
+    def breakpoints(self):
+        return (self._entry, self._return)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        root = ctx.arg(0)
+        query = ctx.arg(2)
+        stamp = ctx.arg(3)
+        if not root or not query:
+            return
+        self._pending.append(
+            {
+                "root": root,
+                "query": query,
+                "stamp": stamp & 0xffff,
+                "caller": ctx.caller(),
+                "caller_function": function_name_at(ctx.caller()),
+                "objects_before": _linked_object_snapshots(root, ctx.memory),
+            }
+        )
+
+    def finish(self, ctx: Context) -> None:
+        if not self._pending:
+            return
+        active = self._pending.pop(0)
+        root = int(active["root"])
+        stamp = int(active["stamp"])
+        objects_after = _linked_object_snapshots(root, ctx.memory)
+        survivors = [
+            node["address"]
+            for node in objects_after["nodes"]
+            if node["query_stamp"] != stamp
+        ]
+        self._emit(
+            {
+                "type": "collision_dynamic_cull",
+                "function": "Collision_CullLinkedObjects",
+                "address": f"0x{COLLISION_DYNAMIC_CULL:08x}",
+                "return_pc": f"0x{ctx.eip:08x}",
+                "caller": f"0x{int(active['caller']):08x}",
+                "caller_function": active["caller_function"],
+                "root": f"0x{root:08x}",
+                "query": f"0x{int(active['query']):08x}",
+                "stamp": stamp,
+                "objects_before": active["objects_before"],
+                "objects_after": objects_after,
+                "face_test_survivors": survivors,
+                "return_value": ctx.register("eax"),
+            }
+        )
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionDynamicCullEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicCullProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_CULL, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionDynamicCullReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicCullProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_CULL_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)

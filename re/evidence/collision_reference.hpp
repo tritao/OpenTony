@@ -875,6 +875,17 @@ static_assert(offsetof(LinkedCollisionObjectLayout, model_index) == 0x1a);
 static_assert(offsetof(LinkedCollisionObjectLayout, model_kind) == 0x1f);
 static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
 
+// Exact flag gate at 0x004f43e0 before the object-space broad phase. The
+// low byte must not contain bit 0x20, the high byte must not contain bit
+// 0x02 (full-word mask 0x400), and the low-byte pair 0x41 must not both be
+// set. Objects failing this gate are stamped as tested and never reach the
+// transformed-face routine at 0x00463e50.
+inline constexpr bool linked_object_flag_gate(std::uint16_t flags) {
+    const auto low = static_cast<std::uint8_t>(flags);
+    return (static_cast<std::uint16_t>(flags) & 0x0400u) == 0 &&
+           (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
+}
+
 // The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
 // the reciprocal link at +0x34.  The bytes between the collision prefix and
 // that link are not recovered, so this is a partial link view rather than a

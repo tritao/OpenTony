@@ -1,8 +1,8 @@
 # Collision/query subsystem
 
 Status: confirmed interface and static/dynamic hit arithmetic; native PSX scene
-replay matches live PC results; linked-object prefix and winning-object pointer
-are runtime-confirmed
+replay matches live PC results; linked-object prefix, winning-object pointer,
+and linked broad-phase handoff are runtime-confirmed
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -491,8 +491,10 @@ ordinary motion sweeps and post-hit follow-up probes.
 
 ## Runtime confirmation
 
-Experiment traces: `build/debug/collision.trace.ndjson` and
-`build/debug/collision-air4.trace.ndjson` (generated in the isolated
+Experiment traces: `build/debug/collision.trace.ndjson`,
+`build/debug/collision-air4.trace.ndjson`,
+`build/debug/collision-flags1.trace.ndjson`, and
+`build/debug/collision-cull.trace.ndjson` (generated in the isolated
 `re/collision` worktree; each header contains the build hash above).
 
 The bounded probe breaks at wrapper entry `0x00466090` and at the post-query
@@ -586,6 +588,13 @@ from `q+0x68`, the pointer consumed by `0x00463d50`, so the result pointer and
 its neighbors can be compared with the linked-node ABI without an unbounded
 memory walk.
 
+The companion bounded probes are registered as
+`tony-collision-flags-probe`, `tony-collision-dynamic-probe`, and
+`tony-collision-dynamic-cull-probe`. The last one pairs entry/return at
+`0x004f43e0`/`0x004f492c`, snapshots the linked prefix, and reports which
+nodes still have a stale query stamp and therefore proceed to
+`0x00463e50`.
+
 The `collision-chain` Hangar capture armed 20 completed wrapper calls after
 the frontend was advanced into `PLAY_GAME`. It produced 8 hits, all from mode
 1 and all for model kind 6/index 171. Every hit had the same direct result
@@ -623,6 +632,32 @@ result's model index/kind on all eight hits. This directly confirms that
 `q+0x68` is the linked collision object record consumed by the normal
 finalizer, not merely an unrelated model-data pointer. The runtime addresses
 are allocation-specific; the offsets and field agreement are the evidence.
+
+A separate bounded linked-cull capture confirmed the negative dynamic result
+at the current Hangar start position. Forty calls entered `0x004f43e0` from
+`0x0046297e` with the same root `DAT_0056af40 = 0x05f26c84`; the first 32
+nodes of each walk were readable, and the cull return was followed by the
+outer `0x004628f0` pass. In the first capture all sampled nodes had flags
+`0x110` or `0x111`, which pass the linked-object flag gate in
+`0x004f43e0`; after culling, every sampled node had its `+0x06` query stamp
+set to the current stamp, leaving zero face-test survivors. A later movement
+sample saw additional flag values (`0x130`, `0x8110`, `0x8130`, `0x8171`),
+but still left zero survivors in the bounded prefix. The companion
+`0x00463e50` probe recorded no calls in this run. This is useful negative
+evidence: the missing dynamic-face events are explained by the linked
+object-space broad phase rejecting the sampled objects, not by the probe
+missing the mode-1 query path. It does not claim that every node beyond the
+bounded prefix was absent or rejected.
+
+The face-flag consumer was also observed directly. A 32-call capture at
+`0x0048ea80` contained eight non-null hit bodies, all from the ground caller
+`0x00496fe1`. The winning face records used base word `0x001c1083` and
+surface/normal word `0x00100020` or `0x00100028`. The post-call globals were
+exactly `face_bit_80=128`, `inverse_bit_23=1`, `inverse_bit_24=1`,
+`surface_bit_40=0`, and `surface_class=0`; the face pointer matched the
+winning `q+0x80` record. Calls with a null hit body left these globals
+unchanged. This runtime sample confirms the bit extraction and stale-global
+behavior, while still leaving the higher-level material names unresolved.
 
 ## Interpretation
 
@@ -671,7 +706,8 @@ of that API without fabricating the unresolved zone/model format. It provides:
 - the projected dynamic-face winding gate, candidate distance, nearest-hit
   update, and the dynamic contact fallback arithmetic.
 - the recovered linked-object prefix view, model-bound expansion/reflection,
-  and the complete short-arithmetic object broad-phase prefilter.
+  the exact linked-object flag gate, and the complete short-arithmetic
+  object broad-phase prefilter.
 
 The asset-facing native layer at
 [`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
@@ -703,7 +739,10 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
   point or a post-normalized/padded point in a branch with nonzero penetration.
 - The bounded airborne run confirms the first in-air sweep and its hit result;
   distinguish the later in-air sweeps (ground versus wall/rail) with a longer
-  run that deliberately holds a jump and moves across multiple surfaces.
+  run that deliberately holds a jump and moves across multiple surfaces. A
+  linked-object cull run is now confirmed, but a positive dynamic linked-face
+  hit remains unobserved; it will require a sweep through an object that
+  survives `0x004f43e0`.
 - Resolve the face-record flag bits before assigning material names, and map
   the PC globals onto the original `COLRESULT_*` concepts where possible.
 - Map the complete caller-specific stack protocol around the two loader

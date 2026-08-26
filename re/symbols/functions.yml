@@ -235,6 +235,30 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md
+  - address: 0x004f43e0
+    name: Collision_CullLinkedObjects
+    description: linked-object flag and object-space broad-phase cull
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00463e50
+    name: Collision_TestLinkedObjectFaces
+    description: transform and test faces for one linked collision object
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004f4b00
+    name: Collision_TransformLinkedModelVertices
+    description: transform linked model vertices and produce clip masks
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004f4c50
+    name: Collision_TestLinkedModelFaces
+    description: projected face test and nearest dynamic hit update
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
   - address: 0x0048ea80
     name: Collision_ConsumeHitFlags
     description: consume query face metadata into collision/surface flags
