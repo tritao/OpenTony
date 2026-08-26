@@ -50,6 +50,7 @@ add_library(opentony_trg STATIC
     src/trg/level_scene_registry.cpp
     src/trg/level_render_snapshot.cpp
     src/trg/render_packet_builder.cpp
+    src/trg/render_command_dispatch.cpp
     src/trg/level_runtime.cpp
 )
 target_compile_features(opentony_trg PUBLIC cxx_std_20)
@@ -208,6 +209,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_render_packet_builder_test PRIVATE cxx_std_20)
     target_compile_options(opentony_render_packet_builder_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_render_packet_builder_test COMMAND opentony_render_packet_builder_test)
+
+    add_executable(opentony_render_command_dispatch_test
+        src/trg/render_command_dispatch_test.cpp
+    )
+    target_link_libraries(opentony_render_command_dispatch_test PRIVATE opentony_trg)
+    target_compile_features(opentony_render_command_dispatch_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_render_command_dispatch_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_render_command_dispatch_test COMMAND opentony_render_command_dispatch_test)
 
     add_executable(opentony_input_state_test
         src/runtime/input_state_test.cpp

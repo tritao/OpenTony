@@ -39,6 +39,20 @@ functions:
       - re/evidence/functions/render-packet-submission.md
     notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, and half-texel UV normalization; raw arena allocation is not represented as a host pointer layout.
 
+  - address: 0x004d3160
+    name: D3D_DrawPolygonList
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_command_dispatch.hpp
+      - src/trg/render_command_dispatch.cpp
+    tests:
+      - src/trg/render_command_dispatch_test.cpp
+    evidence:
+      - re/evidence/functions/render-command-dispatch.md
+      - re/evidence/functions/renderer.md
+    notes: Native backend-neutral consumer preserves one-for-one linked-list order, opcode-base handler selection, fixed primitive counts, variable 0xb0 counts, and low opcode state bits; Direct3D calls and upstream bucket ordering remain adapter seams.
+
   - address: 0x004d29e0
     name: M3D_TransformVertices
     slice: render-packet-submission

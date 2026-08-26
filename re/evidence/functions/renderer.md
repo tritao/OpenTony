@@ -169,6 +169,11 @@ ownership that feeds the `0x004d3160` Direct3D command consumer.
 
 ## Polygon-list consumer and hardware state
 
+The backend-neutral native reconstruction of the command consumer is recorded
+in [render-command-dispatch.md](render-command-dispatch.md). It preserves the
+one-for-one list order, opcode-base handler table, fixed primitive counts, and
+separate `Flip` presentation boundary described below.
+
 The later draw loop is now identified as `0x004d3160`. It receives the head
 of the current linked polygon/command list, begins the render-state bracket
 with `0x20000/0x30000`, and follows each record through its `+0x00` next link.

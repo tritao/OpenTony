@@ -14,6 +14,10 @@ The native boundary now has three separate layers:
   returns the raw viewport commit. The normal level path starts in mode `1`;
   camera state remains fixed-point and no host-unit conversion is hidden in
   this boundary.
+- `trg::RenderCommandDispatcher` consumes a preordered command span using the
+  recovered `0x004d3160` opcode table and emits backend-neutral primitive
+  records. It does not claim the unresolved bucket classifier or a native
+  Direct3D device call.
 
 The camera facts used by the native model are the retail constructor/allocation
 at `0x0040b650`/`0x004691e0`, player link at `+0x29b0`, update at
