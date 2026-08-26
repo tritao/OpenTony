@@ -188,6 +188,37 @@ def _select_module(manifest: dict, selector: str) -> dict:
     return matches[0]
 
 
+def _disassembly(path: Path, module: dict, mismatch_va: int) -> str | None:
+    if not shutil.which("objdump"):
+        return None
+    module_start = int(module["start_va"])
+    module_end = int(module["end_va"])
+    result = subprocess.run(
+        [
+            "objdump",
+            "-D",
+            "-b",
+            "binary",
+            "-m",
+            "i386",
+            "-M",
+            "intel",
+            f"--adjust-vma=0x{module_start:x}",
+            f"--start-address=0x{max(module_start, mismatch_va - 8):x}",
+            f"--stop-address=0x{min(module_end, mismatch_va + 16):x}",
+            str(path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    lines = result.stdout.splitlines()
+    instructions = [line for line in lines if line.lstrip().startswith(tuple("0123456789abcdef"))]
+    return "\n".join(instructions) or None
+
+
 def split_compare(args) -> int:
     module = _select_module(_load_manifest(), args.module)
     original = _original_path(module)
@@ -212,6 +243,11 @@ def split_compare(args) -> int:
     print(f"first mismatch VA: 0x{mismatch_va:08x}")
     print(f"expected: {expected[prefix:prefix + 8].hex(' ')}")
     print(f"actual:   {actual[prefix:prefix + 8].hex(' ')}")
+    expected_disassembly = _disassembly(original, module, mismatch_va)
+    actual_disassembly = _disassembly(built, module, mismatch_va)
+    if expected_disassembly and actual_disassembly:
+        print(f"expected disassembly:\n{expected_disassembly}")
+        print(f"actual disassembly:\n{actual_disassembly}")
     return 1
 
 
@@ -383,7 +419,14 @@ def split_verify(_args) -> int:
     errors = _validate_coverage(manifest)
     matching = 0
     reconstructed = 0
+    section_status: dict[str, dict[str, int]] = {}
     for module in manifest.get("modules", []):
+        status = str(module.get("status", "raw"))
+        if status not in {"raw", "asm", "cpp"}:
+            errors.append(f"unknown module status {status!r}: {module['id']}")
+        totals = section_status.setdefault(module["section"], {"raw": 0, "asm": 0, "cpp": 0})
+        if status in totals:
+            totals[status] += int(module["size"])
         built = _built_path(module)
         original = _original_path(module)
         if not original.is_file():
@@ -401,7 +444,7 @@ def split_verify(_args) -> int:
             errors.append(f"module bytes differ: {module['id']}")
         else:
             matching += 1
-        if module.get("status") != "raw":
+        if status != "raw":
             reconstructed += int(module["size"])
 
     source = _source_executable()
@@ -411,6 +454,15 @@ def split_verify(_args) -> int:
         errors.append("rebuilt executable is missing or differs from the recorded executable")
     total = sum(int(module["size"]) for module in manifest.get("modules", []))
     print(f"coverage: {total} file bytes across {len(manifest.get('sections', []))} sections")
+    for section in manifest.get("sections", []):
+        statuses = section_status.get(section["name"], {"raw": 0, "asm": 0, "cpp": 0})
+        raw_size = int(section["raw_size"])
+        reconstructed_size = statuses["asm"] + statuses["cpp"]
+        percent = reconstructed_size * 100 / raw_size if raw_size else 0
+        print(
+            f"  {section['name']}: raw={statuses['raw']} asm={statuses['asm']} "
+            f"cpp={statuses['cpp']} reconstructed={percent:.2f}%"
+        )
     print(f"modules: {matching}/{len(manifest.get('modules', []))} byte-identical")
     print(f"reconstructed: {reconstructed}/{total} bytes")
     print(f"rebuilt executable: {'BYTE IDENTICAL' if identical else 'DIFFERS'}")

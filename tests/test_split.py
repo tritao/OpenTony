@@ -121,11 +121,13 @@ def test_compare_reports_first_mismatch(tmp_path: Path, monkeypatch, capsys):
     built = split._built_path(module)
     built.parent.mkdir(parents=True, exist_ok=True)
     built.write_bytes(b"012X456789")
+    monkeypatch.setattr(split, "_disassembly", lambda *_args: "00401003: nop")
 
     assert split.split_compare(SimpleNamespace(module=module["id"])) == 1
     output = capsys.readouterr().out
     assert "matching prefix: 3 bytes" in output
     assert "first mismatch VA: 0x00401003" in output
+    assert "expected disassembly" in output
 
 
 def test_generate_symbols_inc(tmp_path: Path, monkeypatch):
