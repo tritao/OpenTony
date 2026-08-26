@@ -13,3 +13,18 @@ bytes pad it through the next function at `0x004caa50`.
 
 Both matching-assembly modules reproduce their original bytes exactly before
 participating in the full-image rebuild.
+
+Four more adjacent leaf helpers use the same three-component layout:
+
+- `0x004caa50–0x004caa72` multiplies every component by the signed scalar
+  referenced by its stack argument, followed by 14 NOP bytes.
+- `0x004caa80–0x004caaa4` divides every component by the signed scalar
+  referenced by its stack argument, followed by 12 NOP bytes.
+- `0x004caab0–0x004caad7` arithmetic-right-shifts every component by the count
+  referenced by its stack argument, followed by nine NOP bytes.
+- `0x004caae0–0x004cab07` left-shifts every component by the same form of shift
+  count, followed by nine NOP bytes.
+
+Their explicit module ranges extend through the padding to `0x004caa80`,
+`0x004caab0`, `0x004caae0`, and `0x004cab10`, respectively. All four assembled
+modules are byte-identical to the retail ranges.

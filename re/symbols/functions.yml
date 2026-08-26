@@ -178,6 +178,30 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004caa50
+    name: Math_Vector3MulScalar
+    description: multiply three signed vector components by a scalar
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004caa80
+    name: Math_Vector3DivScalar
+    description: divide three signed vector components by a scalar
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004caab0
+    name: Math_Vector3ShiftRight
+    description: arithmetic-right-shift three signed vector components
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004caae0
+    name: Math_Vector3ShiftLeft
+    description: left-shift three vector components
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred
