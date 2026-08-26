@@ -453,6 +453,8 @@ functions:
       - re/evidence/functions/camera-system.md
   - address: 0x0045f530
     name: M3D_RenderObjects
+    gdb_aliases:
+      - render_actor
     description: cull and render a runtime object list
     confidence: confirmed
     evidence:
@@ -2277,7 +2279,7 @@ functions:
     name: Camera_SmoothAndValidate
     gdb_aliases:
       - camera_smooth
-    description: camera target/position smoothing and final position write helper
+    description: camera target/position smoothing, base distance/effect-vector production, and final position write helper
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
@@ -2297,7 +2299,7 @@ functions:
     name: Camera_ApplyEffects
     gdb_aliases:
       - camera_effects
-    description: camera follow/death/effect and smoothing state helper
+    description: camera follow/death/effect and smoothing state helper; can modify the shared vertical effect input before the final camera tail
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
@@ -2323,6 +2325,90 @@ functions:
     name: Camera_Shake
     description: selects camera shake parameters by EShakeType and applies them to camera state
     confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040be70
+    name: Camera_CommitViewportEffects
+    description: commits camera screen/effect offsets and cached transform words into the active viewport state
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9650
+    name: Camera_ComposeTransformQ12
+    description: composes two four-word Q12 camera transform payloads with 32-bit integer products and SAR12
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9910
+    name: Camera_TransformToMatrixQ12
+    description: converts an embedded four-word camera transform payload into signed short matrix scratch
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9a00
+    name: Camera_MatrixToTransformQ12
+    description: converts the signed-short follow basis back into a four-word Q12 camera transform payload
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004a9bf0
+    name: Camera_SlerpTransformQ12
+    description: normalizes and interpolates two four-word camera transforms
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004ca0a0
+    name: Camera_AcosRatioToAngle12
+    description: converts a Q12 cosine ratio to a 12-bit turn angle through x87 acos
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004f5f90
+    name: Fixed_DotProductQ12
+    description: computes an x87 three-vector dot product scaled by 1/4096
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e2f80
+    name: Fixed_CrossProductS16
+    description: computes a signed-short cross product and saturates each result to s16
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004c9500
+    name: Camera_DirectionFromAnglesRaw
+    description: builds the mixed-scale follow direction record from two 12-bit angles
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004f53e0
+    name: Render_TransposeMatrixQ12
+    description: transposes nine prepared signed-short view matrix words
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004103b0
+    name: Camera_AngleDelta12
+    description: returns the shortest signed difference between two 12-bit turn angles
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410610
+    name: Camera_FollowTarget
+    description: normal follow-target orientation/offset preparation used by the mode dispatcher
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410f70
+    name: Camera_PointMode
+    description: camera-point/sequence mode handler selected by the camera mode table
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004113f0
+    name: Camera_Mode2
+    description: separate camera mode handler reached from dispatch value 2
+    confidence: provisional
     evidence:
       - re/evidence/functions/camera-system.md
   - address: 0x004c9770

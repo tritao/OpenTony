@@ -53,3 +53,19 @@ types:
       - {offset: 0x5f0, name: field_5f0, type: i32, confidence: observed}
       - {offset: 0x610, name: field_610, type: "array<i32,3>", confidence: observed}
       - {offset: 0x61c, name: field_61c, type: u32, confidence: observed}
+      - {offset: 0x418, name: follow_state_flag, type: u8, confidence: observed}
+      - {offset: 0x498, name: saved_transform_q12, type: "array<q12_i32,4>", confidence: provisional}
+      - {offset: 0x4a8, name: transform_valid, type: u8, confidence: observed}
+      - {offset: 0x500, name: shake_phase_raw, type: u16, confidence: observed}
+      - {offset: 0x55c, name: point_sequence_tick, type: u32, confidence: observed}
+      - {offset: 0x560, name: point_acceleration_flag, type: u8, confidence: observed}
+      - {offset: 0x564, name: point_start_position_q16, type: "array<q16_i32,3>", confidence: provisional}
+      - {offset: 0x574, name: death_target_position_q16, type: "array<q16_i32,3>", confidence: provisional}
+      - {offset: 0x594, name: death_start_position_q16, type: "array<q16_i32,3>", confidence: provisional}
+      - {offset: 0x5d0, name: camera_distance_q4, type: i32, confidence: inferred}
+      - {offset: 0x5d4, name: follow_transition_active, type: u8, confidence: observed}
+      - {offset: 0x5e8, name: follow_distance_counter, type: u32, confidence: observed}
+      - {offset: 0x60c, name: follow_preparation_counter, type: u32, confidence: observed}
+      - {offset: 0x620, name: distance_history_q4_words, type: "array<i32,6>", confidence: provisional}
+      - {offset: 0x63c, name: screen_offset_q12, type: "array<q12_i32,3>", confidence: provisional}
+      - {offset: 0x650, name: cached_render_transform_q12, type: "array<q12_i32,4>", confidence: provisional}

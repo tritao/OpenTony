@@ -9,7 +9,15 @@ from pathlib import Path
 import gdb
 
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
-from .camera import CameraProbe, ViewProjectionProbe
+from .camera import (
+    ActorSubmissionProbe,
+    CameraEffectProbe,
+    CameraPositionTransformProbe,
+    CameraProbe,
+    GeometrySubmissionProbe,
+    ViewProjectionPerturbProbe,
+    ViewProjectionProbe,
+)
 from .collision import (
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
@@ -1230,7 +1238,8 @@ class TonyFrameClock(gdb.Command):
             raise gdb.GdbError("usage: tony-frame-clock FUNCTION")
         frame_clock.reset()
         try:
-            breakpoint = FrameBreakpoint(values[0], internal=True)
+            breakpoint = FrameBreakpoint(
+                values[0], internal=True, writer=_trace_writer)
         except KeyError as exc:
             raise gdb.GdbError(f"unknown function {values[0]!r}; run tony-thps2") from exc
         _runtime_breakpoints.append(breakpoint)
@@ -1276,6 +1285,25 @@ class TonyCameraProbe(gdb.Command):
         _runtime_breakpoints.append(probe)
         limit = "until disabled" if count is None else f"for {count} observations"
         _write(f"camera probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyCameraEffectsProbe(gdb.Command):
+    """tony-camera-effects-probe [COUNT] -- sample the effect producer boundary."""
+
+    def __init__(self):
+        super().__init__("tony-camera-effects-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-camera-effects-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-camera-effects-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CameraEffectProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"camera effects probe armed {limit} at 0x{probe.address:08x}")
 
 
 class TonyViewProjectionProbe(gdb.Command):
@@ -1409,6 +1437,88 @@ class TonyOllieLatchProbe(gdb.Command):
         pcs = ", ".join(f"0x{address:08x}" for address in OLLIE_LATCH_WRITERS)
         limit = "until disabled" if count is None else f"for {count} hits per PC"
         _write(f"ollie latch probes armed {limit}: {pcs}")
+
+
+class TonyViewProjectionPerturb(gdb.Command):
+    """tony-view-perturb [COUNT] [--freeze] -- alternate view word 6."""
+
+    def __init__(self):
+        super().__init__("tony-view-perturb", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-view-perturb [COUNT] [--freeze]") if arg.strip() else []
+        freeze = "--freeze" in values
+        values = [value for value in values if value != "--freeze"]
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-view-perturb [COUNT] [--freeze]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = ViewProjectionPerturbProbe(
+            count, writer=_trace_writer, freeze_input=freeze)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        suffix = "; baseline view input frozen" if freeze else ""
+        _write(
+            f"view projection perturb probe armed {limit} at 0x{probe.address:08x}"
+            f"{suffix}")
+
+
+class TonyCameraPositionProbe(gdb.Command):
+    """tony-camera-position-probe [COUNT] -- sample final camera transform inputs."""
+
+    def __init__(self):
+        super().__init__("tony-camera-position-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-camera-position-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-camera-position-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CameraPositionTransformProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"camera position transform probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyActorSubmissionProbe(gdb.Command):
+    """tony-actor-probe [COUNT] -- sample the actor/model submission pointer."""
+
+    def __init__(self):
+        super().__init__("tony-actor-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-actor-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-actor-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = ActorSubmissionProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"actor submission probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyGeometrySubmissionProbe(gdb.Command):
+    """tony-geometry-probe [COUNT] -- sample the raw geometry handoff."""
+
+    def __init__(self):
+        super().__init__("tony-geometry-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-geometry-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-geometry-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = GeometrySubmissionProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"geometry submission probe armed {limit} at 0x{probe.address:08x}")
 
 
 class TonyPlayerDiff(gdb.Command):
@@ -1594,6 +1704,7 @@ def register_commands() -> None:
     TonyFrameClock()
     TonyPhysicsProbe()
     TonyCameraProbe()
+    TonyCameraEffectsProbe()
     TonyViewProjectionProbe()
     TonyMovementPhysicsProbe()
     TonyInAirProbe()
@@ -1601,6 +1712,10 @@ def register_commands() -> None:
     TonyPhysicsStateRequestProbe()
     TonyPhysicsStateWriterProbe()
     TonyOllieLatchProbe()
+    TonyViewProjectionPerturb()
+    TonyCameraPositionProbe()
+    TonyActorSubmissionProbe()
+    TonyGeometrySubmissionProbe()
     TonyPlayerDiff()
     TonyPositionCommitProbe()
     TonyCollisionProbe()
@@ -1619,7 +1734,9 @@ def register_commands() -> None:
         "tony-animation-selector-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
-        "tony-camera-probe, tony-view-probe, tony-player-diff, tony-position-commit, "
+        "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-view-perturb, "
+        "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "
+        "tony-player-diff, tony-position-commit, "
         "tony-collision-probe, "
         "tony-movement-physics-probe, "
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "

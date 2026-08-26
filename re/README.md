@@ -111,6 +111,18 @@ record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
 `tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
 passes.
 
+Camera/render traces can additionally use `tony-camera-probe`,
+`tony-view-probe`, `tony-actor-probe`, and the deliberately raw
+`tony-geometry-probe [COUNT]`. For projection calibration,
+`tony-view-perturb [COUNT]` alternates view-input word 6 between its observed
+baseline and half-scale and records the mutation before downstream probes. It
+accepts only the normalized single-player view fixture; add `--freeze` to
+restore the complete baseline view-input record on every hit and isolate the
+projection response from camera motion. The geometry probe accepts only submissions
+The geometry probe accepts only submissions
+with a live player-owned camera, so frontend/menu geometry does not consume
+the bounded level observation count.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`
