@@ -19,6 +19,10 @@ VIEWPORT_POINTER = 0x005620E0
 GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
+CAMERA_POINT_TABLE = 0x0055FA58
+CAMERA_POINT_COUNT = 0x0055FAE4
+CAMERA_POINT_STATE_MAIN = 0x0056E5D8
+CAMERA_POINT_STATE_SECONDARY = 0x0056E450
 
 
 def _steady_single_view_input(memory, address: int) -> bool:
@@ -56,6 +60,11 @@ def _optional_u32(memory, address: int) -> int | None:
 
 def _optional_s32(memory, address: int) -> int | None:
     return memory.s32(address) if memory.readable(address, 4) else None
+
+
+def _wrap_s32(value: int) -> int:
+    value &= 0xFFFFFFFF
+    return value - (1 << 32) if value & 0x80000000 else value
 
 
 def _raw_block(memory, address: int, size: int) -> dict | None:
@@ -394,6 +403,79 @@ def geometry_submission_record(ctx: Context) -> dict:
     }
 
 
+def camera_point_select_record(ctx: Context) -> dict | None:
+    """Capture the gameplay-owned point-selection producer at 0x00411fc0.
+
+    The selector is called with a skater/object pointer in ECX. It constructs
+    a candidate from the object's world position and +0x310c camera offset,
+    searches the registered point IDs, and may rewrite the linked camera's
+    mode/target fields. Only the producer inputs and pre-call camera state are
+    recorded here; the selected point is committed later in the same call.
+    """
+
+    memory = ctx.memory
+    player = ctx.this_ptr()
+    if not player or not memory.valid(player):
+        return None
+    camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+    if not camera or not memory.valid(camera):
+        return None
+
+    position = _words(memory, player + 0x08, 3)
+    offset = _words(memory, player + 0x310C, 3)
+    candidate_raw = [
+        _wrap_s32(
+            position["raw"][index]
+            + (_wrap_s32(offset["raw"][index]) * 0x6E)
+        )
+        for index in range(3)
+    ]
+
+    point_count = _optional_u32(memory, CAMERA_POINT_COUNT)
+    point_count = max(0, min(point_count or 0, 0x46))
+    record = {
+        "type": "camera_point_select",
+        "frame": ctx.frame,
+        "function": "Camera_PointSelect",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "level": (
+            _optional_u32(memory, GLOBALS["CurrentLevel"])
+            if "CurrentLevel" in GLOBALS
+            else None
+        ),
+        "player": f"0x{player:08x}",
+        "camera": f"0x{camera:08x}",
+        "player_position": position,
+        "player_camera_offset": offset,
+        "candidate_position_raw": candidate_raw,
+        "registered_point_count": point_count,
+        "registered_point_ids": (
+            _s16_array(memory, CAMERA_POINT_TABLE, point_count)
+            if point_count and memory.readable(CAMERA_POINT_TABLE, point_count * 2)
+            else []
+        ),
+        "point_state": {
+            "main": _raw_block(memory, CAMERA_POINT_STATE_MAIN, 0x50),
+            "secondary": _raw_block(memory, CAMERA_POINT_STATE_SECONDARY, 0x50),
+        },
+        "camera_before": {
+            "mode": _optional_u32(memory, camera + 0x504),
+            "target_valid": _optional_u32(memory, camera + 0x3E0),
+            "primary_link": _optional_u32(memory, camera + 0x3A4),
+            "secondary_link": _optional_u32(memory, camera + 0x3DC),
+            "anchor_flag": memory.u8(camera + 0x3AC)
+            if memory.readable(camera + 0x3AC, 1)
+            else None,
+            "target_initialized": memory.u8(camera + 0x3BC)
+            if memory.readable(camera + 0x3BC, 1)
+            else None,
+            "anchor_target": _field_words(memory, camera, 0x3C0, 3),
+        },
+    }
+    return record
+
+
 def camera_position_transform_record(ctx: Context) -> dict | None:
     """Capture one exact 0x004e85a0 camera-tail input triplet."""
 
@@ -469,6 +551,29 @@ class CameraProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"camera probe complete: {self.hits} observations\n")
+
+
+class CameraPointSelectProbe(CountingBreakpoint):
+    """Sample the player-owned camera-point selection producer."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("camera_point_select"), count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_point_select_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera point-select probe complete: {self.hits} observations\n")
 
 
 class CameraEffectProbe(CountingBreakpoint):

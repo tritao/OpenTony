@@ -215,6 +215,43 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 16;
                 }
 
+                CameraStateRaw point_selected;
+                const CameraPointSelectionInputRaw mode2_point{
+                    true, 0x400, {0x10000, -0x2000, 0x30000}, 0x12345678, 5};
+                const auto mode2_point_result = apply_camera_point_selection(
+                    point_selected, mode2_point);
+                if (!mode2_point_result.applied
+                    || mode2_point_result.kind != CameraDispatchKind::mode2
+                    || point_selected.mode != 2
+                    || point_selected.target_valid_raw != 1
+                    || point_selected.secondary_target_link_raw != 0x12345678
+                    || point_selected.primary_tripod_link_raw != 0
+                    || point_selected.anchor_update_flag != 0
+                    || point_selected.tripod_anchor_flag != 1
+                    || point_selected.anchor_target.y != -0x2000
+                    || mode2_point_result.camera_action_variant_raw != 5) {
+                    return 30;
+                }
+                CameraStateRaw normal_point;
+                const CameraPointSelectionInputRaw normal_point_input{
+                    true, 0xc00, {1, 2, 3}, 0x87654321, 4};
+                const auto normal_point_result = apply_camera_point_selection(
+                    normal_point, normal_point_input);
+                if (!normal_point_result.applied
+                    || normal_point_result.kind != CameraDispatchKind::normal_follow
+                    || normal_point.mode != 1
+                    || normal_point.primary_tripod_link_raw != 0x87654321
+                    || normal_point.anchor_update_flag != 1) {
+                    return 31;
+                }
+                const auto candidate = build_camera_point_candidate_q16(
+                    {0x10000, 0x20000, 0x30000}, {0x400, -0x800, 0x120});
+                if (candidate.x != 0x2b800
+                    || candidate.y != -0x17000
+                    || candidate.z != 0x37bc0) {
+                    return 32;
+                }
+
                 CameraStateRaw death;
                 death.mode = 24;
                 const Q16Vec3 death_start{0x2e000, 0, 0};

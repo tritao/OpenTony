@@ -69,6 +69,11 @@ struct CameraStateRaw {
     Raw distance_q4{};            // camera +0x5d0
     Raw distance_step_q4{};       // camera +0x61c
     std::array<Raw, 6> distance_history{}; // camera +0x620..+0x634
+    // PE32 links/control words written by the gameplay camera-point
+    // producer. Keep pointers as raw 32-bit values in the replay contract.
+    std::uint32_t primary_tripod_link_raw{}; // camera +0x3a4
+    std::uint32_t secondary_target_link_raw{}; // camera +0x3dc
+    std::uint8_t target_valid_raw{}; // camera +0x3e0
     // Signed short read at camera +0x5b4 before the mode-1 target transform
     // is composed with the recovered basis.
     std::int16_t follow_rotation_raw{};
@@ -664,6 +669,18 @@ struct CameraModeInputRaw {
     TransformQ12 death_transform_target{};
 };
 
+// Output of Camera_PointSelect 0x00411fc0. The point-table lookup itself is
+// owned by gameplay; this boundary is the exact camera-state handoff after a
+// point has been selected. Registry bit 0x800 has precedence over 0x400, as
+// in the retail branch structure.
+struct CameraPointSelectionInputRaw {
+    bool selected{};
+    std::uint32_t registry_flags{}; // DAT_00524cb8[selected_index]
+    Q16Vec3 selected_point{};
+    std::uint32_t player_link_raw{};
+    std::int32_t camera_action_variant_raw{};
+};
+
 // Exact selector mapping recovered from the byte table at 0x00410390 and
 // the target table at 0x00410378.  Values not listed here enter the retail
 // diagnostic/default path at 0x00410027; they are not aliases for normal
@@ -676,6 +693,12 @@ enum class CameraDispatchKind : std::uint8_t {
     point,               // mode 23 -> 0x00410f70
     death,               // mode 24 -> 0x00410c90
     alternate_follow,    // mode 25 -> 0x0040feef
+};
+
+struct CameraPointSelectionResultRaw {
+    bool applied{};
+    CameraDispatchKind kind{};
+    std::int32_t camera_action_variant_raw{};
 };
 
 constexpr CameraDispatchKind camera_dispatch_kind(std::uint32_t mode) {
@@ -693,6 +716,58 @@ constexpr CameraDispatchKind camera_dispatch_kind(std::uint32_t mode) {
     default:
         return CameraDispatchKind::default_path;
     }
+}
+
+// Exact camera-side writes made by Camera_PointSelect after its gameplay
+// point search succeeds. This does not search asset/runtime point tables; it
+// makes that ownership explicit while preserving the mode/anchor/link
+// contract needed by the subsequent Camera_Update call.
+inline CameraPointSelectionResultRaw apply_camera_point_selection(
+    CameraStateRaw& camera,
+    const CameraPointSelectionInputRaw& input) {
+    CameraPointSelectionResultRaw result{
+        false, CameraDispatchKind::default_path, 0};
+    if (!input.selected) {
+        return result;
+    }
+
+    if ((input.registry_flags & 0x800U) != 0) {
+        camera.target_valid_raw = 1;
+        camera.secondary_target_link_raw = input.player_link_raw;
+        camera.tripod_anchor_flag = 1;
+        camera.mode = 1;
+        camera.anchor_update_flag = 1;
+        camera.primary_tripod_link_raw = input.player_link_raw;
+        result.camera_action_variant_raw = input.camera_action_variant_raw;
+        result.kind = CameraDispatchKind::normal_follow;
+        result.applied = true;
+        return result;
+    }
+    if ((input.registry_flags & 0x400U) != 0) {
+        camera.target_valid_raw = 1;
+        camera.secondary_target_link_raw = input.player_link_raw;
+        camera.tripod_anchor_flag = 1;
+        camera.mode = 2;
+        camera.anchor_update_flag = 0;
+        camera.primary_tripod_link_raw = 0;
+        camera.anchor_target = input.selected_point;
+        result.kind = CameraDispatchKind::mode2;
+        result.applied = true;
+    }
+    return result;
+}
+
+// The selector's candidate arithmetic is integer Q16 world arithmetic, not a
+// normalized offset or a float position.  0x00411fc0 multiplies each raw
+// +0x310c word by 0x6e and adds it to the player position with PE32 wrap.
+inline Q16Vec3 build_camera_point_candidate_q16(
+    const Q16Vec3& player_position,
+    const Q16Vec3& camera_offset) {
+    return {
+        add_s32(player_position.x, multiply_s32(camera_offset.x, 0x6e)),
+        add_s32(player_position.y, multiply_s32(camera_offset.y, 0x6e)),
+        add_s32(player_position.z, multiply_s32(camera_offset.z, 0x6e)),
+    };
 }
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {

@@ -142,6 +142,8 @@ functions:
       - re/evidence/functions/camera-system.md
   - address: 0x00411fc0
     name: Camera_PointSelect
+    gdb_aliases:
+      - camera_point_select
     description: selects/interpolates a registered camera point for a player object
     confidence: inferred
     evidence:

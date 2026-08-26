@@ -30,6 +30,7 @@ generated_knowledge.FUNCTIONS = {
     "Skater_PhysicsDispatcher": 0x300,
     "Camera_Update": 0x350,
     "Render_SetViewProjection": 0x360,
+    "Camera_PointSelect": 0x370,
 }
 generated_knowledge.GLOBALS = {"Player": 0x200, "CurrentLevel": 0x204}
 generated_knowledge.DATA = {}
@@ -39,6 +40,7 @@ generated_knowledge.GLOBALS_METADATA = {}
 generated_knowledge.FUNCTIONS_ALIASES = {
     "physics_dispatch": "Skater_PhysicsDispatcher",
     "camera_update": "Camera_Update",
+    "camera_point_select": "Camera_PointSelect",
     "view_projection": "Render_SetViewProjection",
 }
 generated_knowledge.GLOBALS_ALIASES = {}
@@ -48,6 +50,8 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import (
     camera_effect_record,
+    camera_point_select_record,
+    CameraPointSelectProbe,
     CameraPositionTransformProbe,
     CameraProbe,
     GeometrySubmissionProbe,
@@ -404,6 +408,42 @@ def test_camera_probe_samples_this_pointer_and_writes_trace_event():
     assert probe.enabled is False
     assert events[0]["type"] == "camera"
     assert events[0]["function"] == "Camera_Update"
+
+
+def test_camera_point_select_record_preserves_gameplay_producer_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x3C0:camera + 0x3CC] = struct.pack(
+        "<3I", 0x1000, 0x2000, 0x3000
+    )
+    inferior.data[player + 0x08:player + 0x14] = struct.pack(
+        "<3I", 0x10000, 0x20000, 0x30000
+    )
+    inferior.data[player + 0x310C:player + 0x3118] = struct.pack(
+        "<3I", 0x400, 0xFFFFF800, 0x120
+    )
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x004CD750)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": player, "eip": 0x370}),
+        memory,
+    )
+
+    record = camera_point_select_record(context)
+
+    assert record["function"] == "Camera_PointSelect"
+    assert record["caller"] == "0x004cd750"
+    assert record["player_position"]["raw"] == [0x10000, 0x20000, 0x30000]
+    assert record["player_camera_offset"]["s32"] == [0x400, -0x800, 0x120]
+    assert record["candidate_position_raw"] == [0x2b800, -0x17000, 0x37bc0]
+    assert record["camera_before"]["mode"] == 1
+    assert record["camera_before"]["anchor_target"]["raw"] == [0x1000, 0x2000, 0x3000]
 
 
 def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inputs():

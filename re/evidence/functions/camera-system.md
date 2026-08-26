@@ -19,6 +19,8 @@ Game_MainLoop 0x0041c2d0
         -> message/timing/input
         -> Game_GameplayUpdate 0x00469de0
             -> object scheduler 0x00480ff0 / 0x00480fa0
+            -> player prephysics camera-point producer 0x004cd750
+                -> Camera_PointSelect 0x00411fc0
             -> camera vtable update 0x0040f850
                 -> Camera_SmoothAndValidate 0x0040e090
                 -> mode-specific camera handler
@@ -322,6 +324,52 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
 | `0x00411f30` | `Camera_RegisterPoint` | Appends a point ID to `DAT_0055fa58`, with a maximum of `0x46` entries. | observed |
 | `0x0040bd40` | `Camera_Shake` | Selects shake parameter sets by `EShakeType` and applies them to camera effect objects. | inferred |
+
+### Gameplay-owned camera-point producer: `0x004cd750 -> 0x00411fc0`
+
+The point selector is called from the player prephysics path at `0x004cd750`,
+before the per-frame camera vtable update. It receives the player/object in
+`ECX`, forms a candidate position from:
+
+```text
+candidate = player.position + player.camera_offset[+0x310c] * 0x6e
+```
+
+It compares that candidate against the registered point IDs at
+`DAT_0055fa58`, using the runtime count at `DAT_0055fae4`, and resolves the
+selected point through the point registry. The selected registry flags at
+`DAT_00524cb8[index]` choose the camera handoff:
+
+```text
+flags & 0x400 (without 0x800): mode 2,
+    target valid = 1, secondary link = player,
+    primary tripod link = 0, anchor source flag = 0,
+    anchor target = selected point
+
+flags & 0x800: mode 1,
+    target valid = 1, secondary link = player,
+    primary tripod link = player, anchor source flag = 1,
+    camera action variant = resolved point record word 1
+```
+
+This is the missing producer boundary behind the native `CameraModeInputRaw`
+hooks: the camera handlers consume the resulting mode/target state, but the
+point table and registry ownership belong to gameplay/player code. The new
+`tony-camera-point-probe` records the player position, `+0x310c` offset,
+candidate position, registered point IDs, point-state blocks, and the linked
+camera's pre-call mode/target fields. It deliberately does not infer which
+point was selected from a pre-call snapshot.
+
+Confidence: high for the static call and output writes; runtime promotion is
+pending a point-selection transition capture. Possible falsifier: a live hit
+at `0x00411fc0` that is only table maintenance or a path whose registry flags
+do not produce the documented mode/target writes.
+
+The native side now contains the same narrow boundary as
+`apply_camera_point_selection` and `build_camera_point_candidate_q16` in
+`src/camera/camera_system.hpp`: point-table search remains an injected
+gameplay producer, while the PE32 candidate arithmetic and mode-1/mode-2
+camera link/anchor writes are directly testable.
 
 The death-position sub-contract is now represented by
 `advance_camera_death_position`. Static dataflow gives:
