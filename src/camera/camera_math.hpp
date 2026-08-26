@@ -76,6 +76,28 @@ struct ViewportProjectionRaw {
     ProjectionBasisQ12 basis{};
 };
 
+// FUN_004e87f0's render-state payload. The caller owns the first word; the
+// helper writes the header at record+0x04 and the four following shorts at
+// +0x08..+0x0e.
+struct NormalizedViewportRecordRaw {
+    std::uint32_t caller_word{};
+    std::uint32_t header{0xe3000000U};
+    std::int16_t origin_x{};
+    std::int16_t origin_y{};
+    std::int16_t extent_x{};
+    std::int16_t extent_y{};
+};
+
+struct DisplayViewportNormalizationInputRaw {
+    // DAT_029da3a0 selects the live viewport rectangle when nonzero.
+    bool active_display_rect{};
+    std::uint32_t display_width{};  // DAT_029da394
+    std::uint32_t display_height{}; // DAT_029da398
+    // DAT_005620a0 / DAT_005620b8, used when the live rectangle is disabled.
+    std::int16_t default_extent_x{};
+    std::int16_t default_extent_y{};
+};
+
 // The binary stores +0x14, +0x16, +0x18 as three 16-bit angle fields. The
 // first two are produced by Camera_BuildLookAngles; the third is always zero
 // in that helper. Their semantic pitch/yaw labels remain renderer-convention
@@ -714,6 +736,62 @@ inline std::int32_t arithmetic_shift_right_one(std::int32_t value) {
 
 inline std::int16_t low_s16(std::uint32_t value) {
     return static_cast<std::int16_t>(static_cast<std::uint16_t>(value));
+}
+
+// Exact display-rectangle normalization at 0x0045e93e..0x0045e9d6. The
+// original uses zero-extended DIV after sign-extending each source short;
+// the low sixteen bits are then copied into the render record. Valid game
+// rectangles are positive, but keeping the register-width behavior here
+// avoids silently turning this into a float/normalized-device-coordinate API.
+inline bool normalize_viewport_record(
+    const ViewportInputRaw& viewport,
+    const DisplayViewportNormalizationInputRaw& config,
+    NormalizedViewportRecordRaw& out) {
+    if (config.display_width == 0 || config.display_height == 0) {
+        return false;
+    }
+
+    std::uint16_t source_x = 0;
+    std::uint16_t source_y = 0;
+    std::int16_t source_extent_x = config.default_extent_x;
+    std::int16_t source_extent_y = config.default_extent_y;
+    if (config.active_display_rect) {
+        source_x = viewport.words[2];
+        source_y = viewport.words[3];
+        source_extent_x = low_s16(
+            static_cast<std::uint32_t>(viewport.words[0]) - viewport.words[2]);
+        source_extent_y = low_s16(
+            static_cast<std::uint32_t>(viewport.words[1]) - viewport.words[3]);
+    }
+
+    const auto unsigned_divide = [](std::int32_t numerator,
+                                    std::uint32_t denominator) {
+        return static_cast<std::uint32_t>(numerator) / denominator;
+    };
+    out = {};
+    out.header = 0xe3000000U;
+    out.origin_x = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(static_cast<std::int16_t>(source_x)) << 9,
+        config.display_width));
+    out.origin_y = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(static_cast<std::int16_t>(source_y)) * 0xf0,
+        config.display_height));
+    out.extent_x = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(source_extent_x) << 9,
+        config.display_width));
+    out.extent_y = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(source_extent_y) * 0xf0,
+        config.display_height));
+
+    // FUN_004e87f0 replaces zero extents with one so later raster operations
+    // never receive a zero-sized rectangle.
+    if (out.extent_x == 0) {
+        out.extent_x = 1;
+    }
+    if (out.extent_y == 0) {
+        out.extent_y = 1;
+    }
+    return true;
 }
 
 inline std::uint32_t viewport_extent_token(

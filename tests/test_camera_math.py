@@ -180,6 +180,40 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                             25, 26, 27, 29, 30, 31}) {
                     return 25;
                 }
+                NormalizedViewportRecordRaw display_record;
+                const DisplayViewportNormalizationInputRaw display_config{
+                    true, 640, 480, 0, 0};
+                if (!normalize_viewport_record(
+                        viewport, display_config, display_record)) {
+                    return 26;
+                }
+                if (display_record.header != 0xe3000000U
+                    || display_record.origin_x != 0
+                    || display_record.origin_y != 0
+                    || display_record.extent_x != 0x200
+                    || display_record.extent_y != 0xf0) {
+                    return 27;
+                }
+                NormalizedViewportRecordRaw default_display_record;
+                const DisplayViewportNormalizationInputRaw default_display_config{
+                    false, 640, 480, 640, 480};
+                if (!normalize_viewport_record(
+                        viewport, default_display_config, default_display_record)
+                    || default_display_record.origin_x != 0
+                    || default_display_record.origin_y != 0
+                    || default_display_record.extent_x != 0x200
+                    || default_display_record.extent_y != 0xf0) {
+                    return 28;
+                }
+                const ViewportInputRaw tiny_viewport{{1, 1, 0, 0, 0, 0, 1, 0, 0, 0,
+                                                       0, 0, 0, 0}};
+                NormalizedViewportRecordRaw clamped_display_record;
+                if (!normalize_viewport_record(
+                        tiny_viewport, display_config, clamped_display_record)
+                    || clamped_display_record.extent_x != 1
+                    || clamped_display_record.extent_y != 1) {
+                    return 29;
+                }
                 return 0;
             }
             """

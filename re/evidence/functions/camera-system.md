@@ -1183,7 +1183,10 @@ reference contract, not a claim that the result is a conventional FOV matrix.
 
 It also normalizes the viewport rectangle against the display dimensions,
 using `<< 9 / DAT_029da394` horizontally and `* 0xf0 / DAT_029da398`
-vertically, then passes those four shorts to `0x004e87f0`. The Q12 basis
+vertically, then passes those four shorts to `0x004e87f0`. That helper writes
+the `0xe3000000` render-state header, copies the four shorts, and replaces a
+zero width or height with `1`; this is now modeled by
+`normalize_viewport_record` in `src/camera/camera_math.hpp`. The Q12 basis
 blocks at `DAT_00563a90..0x563ade` are built from normalized half-extents,
 `viewport[6]`, `viewport[7]`, and `viewport[4]`; each row is consumed by
 `Fixed_MatrixMultiplyQ12`. This establishes the integer projection setup and
