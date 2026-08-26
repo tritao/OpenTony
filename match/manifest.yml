@@ -3235,8 +3235,14 @@ modules:
   end_va: 5128643
   file_offset: 934320
   size: 19
-  status: raw
+  status: cpp
   source: match/modules/text/text_004e41b0.asm
+  cpp_source: match/cpp/FUN_004e41b0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: f13e78ab650d8dda69672f24c251213b8d7f499b2e81badd4d8bce9dca921130
 - id: text_004e41c3
   section: .text
@@ -3385,8 +3391,14 @@ modules:
   end_va: 5128890
   file_offset: 934576
   size: 10
-  status: raw
+  status: cpp
   source: match/modules/text/text_004e42b0.asm
+  cpp_source: match/cpp/FUN_004e42b0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: be7ee07cadf542c1d62652026f01c6a4c09b8f9ae83804f461cd562511d2a571
 - id: text_004e42ba
   section: .text
