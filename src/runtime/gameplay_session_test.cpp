@@ -57,6 +57,26 @@ int main() {
         recovered_config);
     assert(recovered_session.physics_hooks().collision_query);
 
+    const std::string hangar_trg = asset_path("SKHAN_T.TRG");
+    const std::string hangar_psx = asset_path("SKHAN.PSX");
+    if (std::filesystem::is_regular_file(hangar_trg) &&
+        std::filesystem::is_regular_file(hangar_psx)) {
+        opentony::runtime::GameplaySession hangar_session(
+            hangar_trg,
+            hangar_psx,
+            asset_path(""),
+            opentony::runtime::PlayerState{},
+            recovered_config);
+        const auto hangar_hit = hangar_session.physics_hooks().collision_query(
+            {-4100096, -8822784, 11472896},
+            {-4100096, 23945216, 11472896});
+        assert(hangar_hit.has_value());
+        assert(hangar_hit->model_index == 171);
+        assert(hangar_hit->hit_parameter_q14 == 61);
+        assert(hangar_hit->position == (opentony::runtime::FixedPosition{
+            -4100096, -8700784, 11472896}));
+    }
+
     opentony::runtime::GameplaySessionConfig tricks_config{};
     tricks_config.tricks_path = asset_path("TRICKS.BIN");
     tricks_config.use_tricks_retail_builder = true;
