@@ -36,7 +36,7 @@ paths:
 calls:
   - {address: 0x004624d0, role: initialize collision query from segment endpoints, confidence: observed, status: asm}
   - {address: 0x00466090, role: collision-query forwarding wrapper, confidence: observed, status: asm}
-  - {address: 0x004660b0, role: collision-query implementation, confidence: observed, status: raw}
+  - {address: 0x004660b0, role: partitioned collision-query implementation, confidence: observed, status: asm}
 candidate_order:
   - proposed_xyz
   - current_x_proposed_yz

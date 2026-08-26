@@ -21,3 +21,15 @@ two arguments unchanged to `0x004660b0`, repairs the caller stack, clears EAX,
 and returns. Its complete 21 bytes are matching assembly. Consequently, the
 position path's acceptance field is populated through the query object by
 `0x004660b0`; it is not the wrapper's return value.
+
+`0x004660b0–0x004667d3` is the complete collision-query engine. Static control
+flow shows it initializing collision masks, then walking 0x660-byte partition
+descriptors rooted at `0x00567f80` until a null pointer slot. It rejects
+partitions against the query bounds, handles a degenerate point query directly,
+and otherwise clips/rasterizes the segment into spatial cells. The repeated
+calls to `0x004f5f10` perform the integer interpolation used during clipping;
+selected cell entries are dispatched through `0x004638d0`. After the partition
+sentinel, `0x00463d50` finalizes the query object. Exact semantic names for the
+partition and cell structures still require dynamic confirmation.
+
+The complete 1,827-byte engine is matching assembly with no `incbin`.

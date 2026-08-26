@@ -158,6 +158,24 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x004624d0
+    name: CollisionQuery_Initialize
+    description: initialize collision query bounds and fixed-point basis
+    confidence: observed
+    evidence:
+      - re/evidence/functions/collision-query.md
+  - address: 0x00466090
+    name: CollisionQuery_ExecuteWrapper
+    description: forwarding wrapper for the collision-query engine
+    confidence: observed
+    evidence:
+      - re/evidence/functions/collision-query.md
+  - address: 0x004660b0
+    name: CollisionQuery_Execute
+    description: partitioned collision-query engine
+    confidence: observed
+    evidence:
+      - re/evidence/functions/collision-query.md
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     gdb_aliases:
