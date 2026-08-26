@@ -1,10 +1,10 @@
 # Camera system and rendered-frame boundary
 
-Status: camera update ownership, fixed-point camera math, shake composition, and the gameplay render/present ordering are established; projection semantics and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, shake composition, and the gameplay render/present ordering are established; projection semantics and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), and `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), and `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment)
 
 ## Result
 
@@ -853,10 +853,51 @@ Camera_Update 0x0040f850
 ```
 
 to high confidence for normal Warehouse gameplay. It does not yet identify
-which camera input or gameplay producer caused each turn phase, because this
-capture did not arm an input-state probe. The controlled motion therefore
-validates camera-to-render propagation, not the complete input-to-camera
-contract.
+which internal gameplay field implements every camera behavior outside the
+normal follow path, but the paired input/player trace now closes the
+normal-mode timing chain. In `camera-input-motion2.jsonl`, the input sampler
+at the post-poll gameplay boundary, the physics/player-diff probe, and
+`Camera_Update` all record the same present-clock frame. The event ordering is
+stable:
+
+```text
+Render_Present frame N
+    -> input/action state
+    -> physics/player writes
+    -> Camera_Update
+    -> Render_SetViewProjection / world traversal
+Render_Present frame N+1
+```
+
+The controlled phases were idle `5760..6249`, Left `6250..6340`, idle
+`6341..6365`, Right `6366..6455`, then idle. Left was action mask `0x8000`
+with held DirectInput key `203`; Right was `0x2000` with key `205`. The Left
+phase changed player position fields at `+0x08/+0x10` and the physics response
+fields at `+0x4c/+0x54`; the Right phase changed the same position fields and
+the full response triplet at `+0x4c/+0x50/+0x54`. Camera position, anchor, and
+angle fields changed on those same frames, and the world view matrix changed
+before the following present. This is high-confidence evidence for the
+normal-mode input/player/camera/render ordering, not a claim that the camera
+reads the keyboard directly.
+
+### Dedicated camera-action experiment and `+0x40c`
+
+The runtime configuration maps the keyboard camera action to `O`. A separate
+Warehouse capture (`camera-zoom-probe.jsonl`) recorded 1,800 input samples
+and 1,800 camera updates, including two held-camera phases. The action sampler
+recorded `O` as DirectInput key `24` with action mask `0x0100` on frames
+`3585..3674` and `3735..3795`; idle frames before, between, and after those
+phases had mask `0`. Throughout all 1,800 camera records, including both
+held-camera phases, camera `+0x40c` remained raw `12`. Camera mode remained
+`1` during the held phases while position, anchor, and orientation continued
+to update.
+
+This falsifies the convenient interpretation that `+0x40c` is directly
+changed by the normal camera key, and weakens its promotion as a FOV/zoom
+scalar. The strongest current label is a viewport/framing selector or a
+camera parameter copied from another producer. It remains part of the raw
+projection contract until an aspect/display-mode or camera-state experiment
+changes it and the resulting basis scale is measured.
 
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
@@ -1130,10 +1171,10 @@ The names in this contract are reconstruction interfaces, not claims that the or
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
 1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
-2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; do not call it FOV until a controlled zoom/camera-input experiment proves that.
+2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; the dedicated camera-key experiment left it at raw `12`, so do not call it FOV or zoom without an aspect/display-mode or producer trace that changes it.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
-5. Add input/player-state fields to the controlled turn/move trace, then compare the exact input-to-camera latency and target/position/orientation changes against the same present frame IDs. The first motion trace already confirmed the camera-to-view half of this chain; it did not identify the input producer.
+5. Use the now-established input/player/camera frame contract as the fixture for projection calibration: vary one camera/viewport input at a time and compare the resulting basis rows, transformed object coordinates, and present-to-present output.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
 
@@ -1188,11 +1229,13 @@ The remaining engineering gates are therefore:
    a confidence level, and a falsifier; screenshots alone cannot identify
    whether a mismatch came from timing, camera state, or rasterization.
 
-The next highest-value probe is now a paired input/player/camera trace using
-`render_present` as the clock: record raw input, player pose/physics state,
-camera fields, viewport records, and one actor packet during stationary,
-turning, and moving phases. The camera-to-world half is already validated;
-the missing evidence is the producer and latency chain before camera update.
+The next highest-value probe is now a controlled projection calibration using
+the established frame fixture: hold the player stationary, vary the camera
+viewport/zoom input or aspect state, and submit known basis objects while
+recording `Render_SetViewProjection`, transformed geometry, and
+`Render_Present`. This should resolve matrix row/column order, handedness,
+scale, and the semantic role of camera `+0x40c` without expanding into the
+whole DirectDraw backend.
 
 ## Open questions and falsifiers
 
@@ -1202,7 +1245,7 @@ the missing evidence is the producer and latency chain before camera update.
   view/object observations; projection claims are still raw fixed-point
   records until a controlled movement/viewport experiment identifies the
   final matrix convention and any zoom parameter.
-- `+0x40c` is a strong viewport/framing candidate; a run that changes camera zoom without changing it would falsify the current label.
+- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). A run that changes actual projection scale without changing it would falsify the current viewport/framing label and move the parameter search to another viewport/global field.
 - The current Warehouse capture remained in mode `1`, so it does not identify all mode constants or cutscene behavior.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910` to establish renderer row/column and handedness.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.
