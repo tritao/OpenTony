@@ -17,12 +17,14 @@ Left/Right action record
     -> 0x00493370
     -> signed turn-angle accumulator player+0x3144
        (Left decreases, Right increases; player+0x3148 mirrors it)
+    -> 0x0049b010 prephysics correction using the basis copied from the prior matrix
+    -> 0x004967b6: position += velocity*dt + correction*dt^2/2
     -> 0x00496360 in grounded state 0x00496550
     -> 0x0049b500(angle & 0xfff, 1, 0)
     -> 0x004e80e0 / 0x004e7de0 fixed-point Y rotation and 0x004e3130 matrix multiply
     -> player+0x2e58..+0x2e68 orientation matrix
-    -> 0x0049c7d0 integer basis player+0x30f4..+0x3114
-    -> grounded correction/projection using that basis
+    -> 0x0049c7d0 refreshes integer basis player+0x30f4..+0x3114
+    -> later grounded correction/projection and collision fallbacks
     -> live X/Y/Z candidate
     -> 0x0049f0e5
     -> 0x00496060
@@ -56,6 +58,19 @@ if (grounded) {
     turn_mirror = turn_accum;
 }
 
+// The frame wrapper first copied the old matrix into the basis.  The
+// pre-physics correction after the turn update therefore still uses that
+// old basis.  The ordinary state-0 dispatcher then integrates position:
+//
+//   correction_58 = prephysics_correction(old_basis)
+//   position     += velocity_4c * dt + correction_58 * dt^2 / 2
+//
+// followed by the turn-derived matrix refresh below.  Collision and
+// surface passes can subsequently alter the candidate and correction.
+integrate_ground_candidate(position, velocity_4c, correction_58,
+                           frame_scale_q8,
+                           (frame_scale_q8 * frame_scale_q8) >> 8);
+
 int32_t angle12 = (frame_scale_q8 * (turn_accum >> 12)) >> 8;
 angle12 &= 0xfff;
 rotate_short_matrix_about_y(matrix, angle12); // Q12 sin/cos, M <- M * R_y
@@ -64,6 +79,14 @@ basis = {
     matrix.column(0), // player +0x3100..+0x3108
     matrix.column(1), // player +0x310c..+0x3114
 };
+// Ordinary state 0 passes param_3 == 1 to 0x0049b500.  That second phase
+// transforms velocity through the saved pre-frame matrix and rescales it to
+// the old integer magnitude; state-2/special state-1 passes zero.
+if (ordinary_state0)
+    velocity_4c = rotate_and_rescale_velocity(velocity_4c,
+                                               saved_old_matrix,
+                                               angle12,
+                                               0);
 correction = grounded_projection_and_collision(velocity_4c, basis, surface);
 position = commit_candidate(position, history, correction);
 ```
@@ -143,11 +166,38 @@ The `0x0049b500` writer is the strongest orientation evidence:
    basis_2 = matrix column 1 -> player+0x310c/+0x3110/+0x3114
    ```
 
-The normal grounded call passes `param_3 == 0`, so this call is primarily the orientation/basis rotation. The optional velocity rotation in `0x0049b500` is behind the `param_3 != 0` branch and is not part of this normal call.
+For ordinary grounded state 0, `0x00496360` passes `param_3 == 1` (`!bVar1`) to `0x0049b500`; the state-2 / special state-1 path passes zero. Therefore the normal grounded call takes the function's second phase as well: after the matrix rotation it transforms `player+0x4c/+0x50/+0x54` through the saved pre-frame matrix and rescales the result using the pre/post vector magnitudes. That velocity update affects the following frame's position add. The first matrix rotation and basis write remain the direct orientation evidence; the velocity phase is kept separate in the C++ core because its saved-matrix transform is not itself the orientation candidate.
+
+The second phase's supported fixed-point shape is:
+
+```text
+phase        = R_y((angle12 - param_4) & 0xfff)
+local_phase  = transpose(saved_old_matrix) * phase
+effective    = saved_old_matrix * local_phase
+rotated_v    = effective * velocity_4c
+
+old_ratio = (sqrt(dot_q12(velocity_4c, velocity_4c)) * 0x40) >> 8
+new_ratio = (sqrt(dot_q12(rotated_v, rotated_v)) * 0x40) >> 8
+if (new_ratio > 0)
+    velocity_4c = rotated_v * old_ratio / new_ratio
+```
+
+The matrix products and vector transforms use the same Q12 short/integer
+helpers as the orientation writer. A first-Left runtime sample with saved
+matrix `[-4096,0,-6; 0,-4096,0; 6,0,-4096]` and velocity `(282,0,192408)`
+therefore yields `(-2066,0,192364)` at this phase boundary; the later ground
+surface/collision code can change that value before the final commit.
 
 ## Basis to grounded movement
 
-The basis is consumed in the same per-frame grounded pipeline rather than being an isolated animation value.
+The basis is consumed in the same per-frame grounded pipeline rather than being an isolated animation value. The ordinary state-0 path has four ordered stages around the turn refresh:
+
+1. `0x0049b010` uses the basis copied at the start of `0x0049e680` to build the temporary correction at `player+0x58/+0x5c/+0x60`.
+2. `0x00496550` integrates the live position at `0x004967b6`.
+3. `0x00496360` then calls `0x0049b500`, rotating the short matrix from the updated turn accumulator.
+4. A later `0x0049c7d0` refreshes the integer basis from that matrix for ground-follow, projection, and collision handling.
+
+This ordering matters: the first position add in a frame uses the basis from before that frame's `0x0049b500` rotation; the refreshed basis controls the subsequent correction/collision work and the next frame's integration.
 
 `0x0049b010`, called before the dispatcher by `0x0049e680`, uses `player+0x30f4/+0x30f8/+0x30fc` to write the temporary correction vector at `player+0x58/+0x5c/+0x60` in grounded branches. `0x00496550` also uses the basis after its collision work. The exact helper arithmetic is:
 
@@ -165,6 +215,40 @@ if (+0x2d94 == 0 && surface_gate != 0)
 ```
 
 The helpers at `0x004f5f90` and `0x004f5fc0` perform the divisions by `4096`; their common `fistp` path sets x87 round-toward-zero. This is the smallest supported movement formula: the current motion vector is projected/scaled against the rotated basis, producing a world-space correction vector. `0x0049bad0` and the surrounding `0x00496550` collision code can additionally project velocity, rotate/normalize the surface basis, and construct collision-adjusted candidates. That is why the final X/Z delta is not a pure `sin/cos` expression of Left/Right.
+
+### Ordinary grounded position integration
+
+The direct position add is in `0x00496550`, at the call to `0x004ca9f0` at `0x004967b6`. At that point `ebx` is `player+0x08`, so the vector helper updates all three live position words. The vector passed to it is assembled from two terms:
+
+```text
+dt      = DAT_0056865c                 // Q8 frame scale
+dt2     = DAT_00568804 = (dt * dt) >> 8
+
+accel0  = wrap32(correction_58 * dt2)
+accel1  = accel0 >> 8
+accel   = accel1 / 2                   // x86 signed idiv, toward zero
+
+vel0    = wrap32(velocity_4c * dt)
+vel     = vel0 >> 8
+
+position += accel + vel
+```
+
+The three helper stages are visible immediately before `0x004967b6`:
+
+```text
+correction_58 -> 0x004cac30(* DAT_00568804)
+               -> 0x004cacd0(>> 8)
+               -> 0x004cac90(/ 2)
+velocity_4c   -> 0x004cac30(* DAT_0056865c)
+               -> 0x004cacd0(>> 8)
+sum           -> 0x004cabb0
+position      -> 0x004ca9f0 at 0x004967b6
+```
+
+`DAT_00568804` is written by the frame-scale update at `0x00468c96` as `(DAT_0056865c * DAT_0056865c) >> 8`. The multiply helpers use the low 32-bit x86 product; the shifts are arithmetic and the divisor stage is signed integer division. In a C++ recreation, use explicit 32-bit wrapping or widened intermediates followed by a defined wrap before shifting so signed-overflow UB does not change the result.
+
+This is the supported grounded X/Y/Z candidate formula before the later collision fallbacks. It also explains why `player+0x4c` is not itself the position delta: it is first scaled by `dt`, while `player+0x58` supplies the acceleration/correction half-step.
 
 `0x00496550` contains direct calls to `0x00496060` for intermediate collision candidates. After the dispatcher returns, the outer wrapper reaches the observed final commit at `0x0049f0e5`.
 
@@ -213,6 +297,19 @@ The short matrix and fixed basis are not merely pose snapshots: the static write
 As a sign/order check, the first Left sample records `turn_accum = -0x7800`. With the ordinary `0x78` turn branch at `DAT_0056865c = 0x100`, `angle12 = -8`; applying the Q12 `R_y(-8)` matrix to the preceding short matrix predicts the observed first-turn entries (`row_0.z = +44`, `row_2.x = -45`). This ties the measured accumulator to the measured basis rotation, rather than only correlating both with the input mask.
 
 The trace footer says `complete: false` because the debugger was stopped after collection, but all 17 controlled position records are present and all are state 0 at the target callsite. The later seven state-2 records were excluded.
+
+## Native reference core
+
+The supported arithmetic is implemented in the focused native reference core:
+[ground_movement.hpp](../../../src/ground_movement.hpp) and
+[ground_movement.cpp](../../../src/ground_movement.cpp). `step_grounded`
+preserves the recovered order through the prephysics correction, initial
+position integration, turn-derived matrix/basis refresh, ordinary velocity
+phase, optional grounded projection, and the candidate resolver standing in
+for the geometry-dependent portion of `0x00496060`. The resolver boundary is
+intentional: the trace and disassembly establish the commit call and its
+component fallbacks, but not one portable Warehouse geometry query that can be
+embedded in this small core.
 
 ## What is and is not established
 
