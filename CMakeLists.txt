@@ -9,6 +9,7 @@ option(OPENTONY_BUILD_TESTS "Build native reconstruction tests" ON)
 add_library(opentony_assets STATIC
     src/assets/pre_catalog.cpp
     src/assets/pre_asset.cpp
+    src/assets/pre_runtime.cpp
     src/assets/pkr_asset.cpp
     src/assets/custom_park_asset.cpp
     src/assets/custom_park_runtime.cpp
@@ -618,6 +619,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_pre_asset_test PRIVATE cxx_std_20)
     target_compile_options(opentony_pre_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_pre_asset_test COMMAND opentony_pre_asset_test)
+
+    add_executable(opentony_pre_runtime_test
+        src/assets/pre_runtime_test.cpp
+    )
+    target_link_libraries(opentony_pre_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_pre_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_pre_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_pre_runtime_test COMMAND opentony_pre_runtime_test)
 
     add_executable(opentony_pre_catalog_test
         src/assets/pre_catalog_test.cpp

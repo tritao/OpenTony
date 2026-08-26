@@ -1,0 +1,46 @@
+version: 1
+id: asset-runtime
+subsystem: asset-runtime
+status: planned
+
+scope:
+  functions:
+    - 0x004b2450
+    - 0x004647c0
+    - 0x004d9880
+    - 0x004d8df0
+    - 0x004d8f10
+    - 0x004c8130
+    - 0x00412640
+    - 0x004c5460
+    - 0x00411f30
+    - 0x00411fc0
+    - 0x004ed9b0
+    - 0x004f2960
+    - 0x004e9730
+    - 0x004b4940
+    - 0x00480cd0
+    - 0x004305f0
+    - 0x00480950
+    - 0x00475700
+    - 0x00474d70
+    - 0x00475840
+    - 0x0043c050
+    - 0x0043d400
+  types: []
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/asset-runtime-audit.md
+  native:
+    - re/native/functions.yml
+  tests:
+    - tests/test_native_progress.py
+
+open_questions:
+  - Select the next coherent asset family for a dedicated active reconstruction slice.
+
+completion:
+  - Existing asset-runtime native mappings have a manifest owner while their individual progress remains tracked in re/native/functions.yml.
+  - Dedicated format and loader work is claimed by focused child slices such as fnt-pre-runtime.

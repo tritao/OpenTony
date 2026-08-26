@@ -1,11 +1,30 @@
 #include "fnt_asset.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <utility>
 
 namespace opentony::assets {
 namespace {
+
+[[nodiscard]] unsigned char lower_ascii(unsigned char value) noexcept {
+    return static_cast<unsigned char>(std::tolower(value));
+}
+
+[[nodiscard]] bool equal_case_insensitive(
+    std::string_view left,
+    std::string_view right) noexcept {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    return std::equal(
+        left.begin(), left.end(), right.begin(),
+        [](char left_character, char right_character) {
+            return lower_ascii(static_cast<unsigned char>(left_character))
+                == lower_ascii(static_cast<unsigned char>(right_character));
+        });
+}
 
 [[nodiscard]] std::uint32_t u32(
     const std::vector<std::byte>& bytes,
@@ -23,7 +42,9 @@ namespace {
 
 } // namespace
 
-FntRuntimeFont FntRuntimeFont::load(const std::string& path) {
+FntRuntimeFont FntRuntimeFont::load(
+    const std::string& path,
+    std::uint32_t atlas_format_word) {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input) {
         throw FntFormatError("cannot open FNT file: " + path);
@@ -40,7 +61,7 @@ FntRuntimeFont FntRuntimeFont::load(const std::string& path) {
             throw FntFormatError("cannot read FNT file: " + path);
         }
     }
-    return parse(std::move(bytes), path);
+    return parse(std::move(bytes), path, atlas_format_word);
 }
 
 FntRuntimeFont FntRuntimeFont::parse(
@@ -99,6 +120,124 @@ FntRuntimeFont FntRuntimeFont::parse(
     result.entries_.push_back(RuntimeFontGlyphEntry{
         0, 0, 0, result.records_.size(), true});
     return result;
+}
+
+void FntRuntimeManager::validate_font_name(std::string_view name) {
+    if (name.empty()) {
+        throw FntFormatError("FNT manager name is empty");
+    }
+    if (name.size() >= kRuntimeFontNameSize) {
+        throw FntFormatError("FNT manager name exceeds the 16-byte slot");
+    }
+}
+
+std::size_t FntRuntimeManager::load(
+    std::string name,
+    std::vector<std::byte> bytes,
+    std::uint32_t atlas_format_word) {
+    validate_font_name(name);
+    std::size_t slot = slots_.size();
+    for (std::size_t index = 0; index < slots_.size(); ++index) {
+        if (!slots_[index].has_value()) {
+            slot = index;
+            break;
+        }
+    }
+    if (slot == slots_.size()) {
+        throw FntFormatError("FNT manager has no free slots");
+    }
+
+    FntRuntimeFont font = FntRuntimeFont::parse(
+        std::move(bytes), name, atlas_format_word);
+    slots_[slot].emplace(Slot{std::move(name), std::move(font)});
+    ++loaded_count_;
+    return slot;
+}
+
+std::size_t FntRuntimeManager::load_file(
+    std::string name,
+    const std::string& path,
+    std::uint32_t atlas_format_word) {
+    validate_font_name(name);
+    std::size_t slot = slots_.size();
+    for (std::size_t index = 0; index < slots_.size(); ++index) {
+        if (!slots_[index].has_value()) {
+            slot = index;
+            break;
+        }
+    }
+    if (slot == slots_.size()) {
+        throw FntFormatError("FNT manager has no free slots");
+    }
+
+    FntRuntimeFont font = FntRuntimeFont::load(path, atlas_format_word);
+    slots_[slot].emplace(Slot{std::move(name), std::move(font)});
+    ++loaded_count_;
+    return slot;
+}
+
+std::size_t FntRuntimeManager::load_embedded(
+    const PreRuntimeManager& pre,
+    std::string name,
+    std::string_view resource_name,
+    std::uint32_t atlas_format_word) {
+    const std::optional<PreEmbeddedResourceView> resource =
+        pre.find_embedded(resource_name);
+    if (!resource.has_value()) {
+        throw FntFormatError(
+            "embedded FNT resource was not found: " + std::string(resource_name));
+    }
+    return load(
+        std::move(name),
+        std::vector<std::byte>(resource->payload.begin(), resource->payload.end()),
+        atlas_format_word);
+}
+
+const FntRuntimeFont* FntRuntimeManager::find(std::string_view name) const noexcept {
+    for (const std::optional<Slot>& slot : slots_) {
+        if (slot.has_value() && equal_case_insensitive(slot->name, name)) {
+            return &slot->font;
+        }
+    }
+    return nullptr;
+}
+
+FntTextRuntimeView FntRuntimeManager::text_view(std::string_view name) const {
+    const FntRuntimeFont* loaded = find(name);
+    if (loaded == nullptr) {
+        throw FntFormatError("FNT font is not loaded: " + std::string(name));
+    }
+    return FntTextRuntimeView{
+        loaded->glyph_count(),
+        loaded->atlas_format_word(),
+        loaded->entries(),
+    };
+}
+
+const FntRuntimeFont& FntRuntimeManager::font(std::size_t slot) const {
+    if (slot >= slots_.size() || !slots_[slot].has_value()) {
+        throw FntFormatError("FNT manager slot is not loaded");
+    }
+    return slots_[slot]->font;
+}
+
+const std::string& FntRuntimeManager::font_name(std::size_t slot) const {
+    if (slot >= slots_.size() || !slots_[slot].has_value()) {
+        throw FntFormatError("FNT manager slot is not loaded");
+    }
+    return slots_[slot]->name;
+}
+
+void FntRuntimeManager::unload(std::string_view name) {
+    for (std::optional<Slot>& slot : slots_) {
+        if (!slot.has_value() || !equal_case_insensitive(slot->name, name)) {
+            continue;
+        }
+        slot.reset();
+        --loaded_count_;
+        return;
+    }
+    throw FntFormatError("FNT font is not loaded: " + std::string(name));
 }
 
 } // namespace opentony::assets
