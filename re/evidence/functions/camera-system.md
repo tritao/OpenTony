@@ -306,6 +306,113 @@ short matrix elements, performs the dot products through x87, multiplies by
 is strong evidence that view/model transform matrices are signed Q12, not
 ordinary float matrices.
 
+The distinction is material for a native recreation. `0x004e39a0` uses an
+integer `SAR 12`, while `0x004e85a0` performs the equivalent scale through
+x87 and truncates toward zero. For example, a negative dot product of `-2048`
+becomes `-1` through `SAR 12`, but `0` through the x87 conversion. These are
+separate operations in [camera_math.hpp](../../../src/camera/camera_math.hpp)
+and must remain separate until every callsite is classified.
+
+### Camera transform/effect records and shake
+
+The raw update path gives a stronger layout for the transform records than a
+quaternion label would:
+
+```text
++0x45c..+0x468  target transform record
++0x448..+0x454  current transform record
++0x470..+0x47c  previous transform record
+```
+
+`Camera_SmoothAndValidate 0x0040e090` copies current to previous at entry and
+copies target into current during the startup/short-history path. The records
+are then consumed by `0x004e85a0` as nine signed 16-bit Q12 matrix words plus a
+three-word integer vector, and by effect helpers that preserve a fourth
+homogeneous word near `0x1000`. The exact row/column interpretation remains
+unresolved, but treating this as an opaque quaternion is no longer supported
+by the instruction-level evidence.
+
+`Camera_CommitViewportEffects 0x0040be70` is the last camera-side commit before
+the view/render path. In the normal tripod path it writes the projected camera
+screen position to the active viewport record, copies the current transform
+record into camera-side cached words at `+0x650..+0x65c`, and derives the
+screen/effect deltas at `+0x660..+0x668`. In the special tripod state `5` path
+it uses the effect-adjusted position and restores the cached transform into
+the payload beginning at `+0x448`. The word at `+0x444` is the vtable/start of
+an embedded effect/transform object; it is not itself a fifth transform word.
+It also commits the look target with global post-render offsets before calling
+the viewport/effect helpers. This makes `+0x63c..+0x668` render-side effect
+state, not a second canonical camera position.
+
+`Camera_Shake 0x0040bd40` selects one of three global parameter sets for
+`EShakeType` values `0`, `1`, and `2`:
+
+```text
+type 0: globals 0x55f792 / 0x55f796
+type 1: globals 0x55f788 / 0x55f78c
+type 2: globals 0x55f990 / 0x55f994
+common: decay word 0x55f9bc, decay byte 0x55f9be,
+        phase/angle dword 0x55f750, phase word 0x55f754
+```
+
+The selected values are stored at `+0x4f2`, `+0x4f6`, `+0x4f8`, `+0x4fa`,
+`+0x4fc`, and `+0x500`. `Camera_Update` rotates the three signed shake axes
+with the global 12-bit phase, applies the resulting effect vectors, then
+decays each axis toward zero using its byte rate. If an axis crosses the
+pre-effect sign, the raw path clears it. The C++ reference exposes this decay
+and sign-crossing behavior, but does not yet claim the complete effect-vector
+composition order.
+
+`Camera_AngleDelta12 0x004103b0` independently confirms shortest-turn angle
+arithmetic: it masks both inputs to 12 bits, returns `(second - first)`, and
+normalizes across the `0x000/0xfff` seam. That helper should be used anywhere
+the recreation interpolates camera yaw/pitch rather than subtracting unsigned
+shorts directly.
+
+### Normal follow preparation
+
+`Camera_FollowTarget 0x00410610` is the normal mode-1 preparation routine, not
+the final smoothing step. Its static contract is now sufficiently clear to
+keep as a separate native stage:
+
+```text
+anchor delta = camera + 0x3c0 - camera + 0x3b0
+follow offset = tripod + 0x310c..+0x3114
+mode 25 offset = (0, -0x1000, 0)
+distance/angle helpers -> target orientation/effect records
+history vectors -> +0x5b8 and +0x5c4
+```
+
+It computes look angles from the anchor delta, builds a Q12 direction using
+the fixed-point vector helpers, and feeds an interpolation/transform chain
+ending at `0x004a9650`; the resulting four words are written into the target
+transform payload at `+0x45c..+0x468`. It also maintains the transition bytes
+at `+0x418` and `+0x5d4`, the distance/preparation counters at `+0x5e8` and
+`+0x60c`, and the Q12 vector records at `+0x5b8/+0x5c4`.
+
+The routine has two important mode/state seams that a faithful C++ camera
+must preserve:
+
+- camera mode `25` uses the hard-coded offset `(0,-0x1000,0)` rather than the
+  tripod follow offset;
+- when the tripod’s state/offset conditions are not eligible, it resets the
+  follow transition state and uses the history vectors rather than applying
+  the normal follow interpolation.
+
+The current Warehouse runtime stayed on mode `1`, so these branches are
+static evidence only. A falsifier would be a mode-1 trace where the target
+transform changes without this routine or where the mode-25 branch is reached
+with a different offset.
+
+Promotion audit for these records:
+
+| address | exact behavior | runtime/static evidence | confidence / falsifier |
+|---|---|---|---|
+| `0x0040be70` | commits screen/effect offsets, cached transform words, and look-target viewport state | static callers from constructor/update; reached in the camera path before world setup | provisional semantic boundary; a runtime write trace showing the renderer bypasses these records would falsify the handoff claim |
+| `0x0040bd40` | selects shake parameter sets and forwards them to effect objects | decompiler + raw field writes; no controlled shake activation yet | observed behavior, effect meaning inferred; activate each shake type and compare the three axes |
+| `0x004103b0` | shortest signed 12-bit angle delta | exact branch structure in raw disassembly | observed; only a caller using reversed argument order would change the API naming |
+| `0x004e85a0` | x87 Q12 matrix conversion with truncation toward zero | exact signed-short loads, `1/4096` scale, and shared `FISTP` helper | observed; unusual overflow inputs could still require explicit x87 precision emulation |
+
 ## View/projection and world handoff
 
 `Render_World 0x00467c90` receives a scene/viewport argument and an integer viewport index. It:
@@ -323,6 +430,69 @@ active viewport record at `+0x0e`, but the current evidence does not identify
 that value as a perspective FOV. A faithful renderer should retain the raw
 viewport record and only promote a projection parameter after a controlled
 zoom/aspect experiment.
+
+Static viewport contract recovered from `0x0045e8e0`:
+
+```text
+viewport[0..3]  = rectangle edges (shorts)
+viewport[4]     = signed depth/axis term (negated into the Q12 basis)
+viewport[5]     = runtime viewport/state selector (overwritten from 0x563a3c)
+viewport[6]     = vertical scale input
+viewport[7]     = derived vertical projection scale
+viewport[8]     = derived horizontal center
+viewport[9]     = derived vertical center
+```
+
+The two display-dimension globals are `DAT_029da394` and `DAT_029da398`.
+The two fixed-point viewport scale globals are `DAT_00563a6c` and
+`DAT_00563a70`. Before matrix preparation, the function computes:
+
+```text
+viewport[7] = (((viewport[0] - viewport[2]) << 11) & 0xfffff000)
+              / ((viewport[6] << 12) / DAT_00563a70)
+viewport[8] = (viewport[0] + viewport[2]) >> 1
+viewport[9] = (viewport[1] + viewport[3]) >> 1
+```
+
+The assembly uses zero-extended 16-bit inputs, 32-bit wraparound for the
+subtract/shift, then a signed `idiv` for `viewport[7]`; this is not a floating
+point width or a guessed aspect ratio. The subsequent basis state can be
+represented as five eight-short blocks, beginning at `DAT_00563a90`:
+
+```text
+A = [ 0,       0,       -4096, selector, 0,        0,        4096, -depth ]
+B = [ 0,       x_axis,  x_edge, 0,       0,       -x_axis,  x_edge, 0      ]
+C = [ y_axis,  0,       y_edge, 0,      -y_axis,  0,        y_edge, 0      ]
+D = [ 0,       v_axis,  v_edge, 0,       0,       -v_axis,  v_edge, 0      ]
+E = [ h_axis,  0,       h_edge, 0,      -h_axis,  0,        h_edge, 0      ]
+```
+
+Here `selector` is the runtime value copied into viewport field 5, and the
+normalization uses the original integer-square-root helper (`FSQRT` followed
+by x87 truncation). For the horizontal/vertical basis terms, the unscaled
+edge token is:
+
+```text
+extent = right * 0x1fffff + left       (32-bit wrap)
+edge_token = extent << 11              (32-bit wrap)
+x_axis = viewport[7] * scale_x /
+         sqrt((edge_token >> 12)^2 + ((viewport[7] * scale_x) >> 12)^2)
+x_edge = edge_token / the same divisor
+y_axis/y_edge = the same construction using scale_y
+```
+
+The remaining terms use `SAR((top - bottom), 1)` and `SAR((left - right), 1)`
+as the vertical/horizontal half-extents. This is now encoded in
+`src/camera/camera_math.hpp` as `build_viewport_projection`; it is a raw
+reference contract, not a claim that the result is a conventional FOV matrix.
+
+It also normalizes the viewport rectangle against the display dimensions,
+using `<< 9 / DAT_029da394` horizontally and `* 0xf0 / DAT_029da398`
+vertically, then passes those four shorts to `0x004e87f0`. The Q12 basis
+blocks at `DAT_00563a90..0x563ade` are built from normalized half-extents,
+`viewport[6]`, `viewport[7]`, and `viewport[4]`; each row is consumed by
+`Fixed_MatrixMultiplyQ12`. This establishes the integer projection setup and
+where aspect/zoom enters, but not a conventional camera FOV scalar.
 
 ### One actor submission path
 
@@ -353,6 +523,12 @@ count this helper; its promotion is therefore static/inferred, not a claim of
 a measured per-frame hit rate. The falsifier would be a runtime path that
 submits the active actor through another game-owned entry without passing
 through this function.
+
+The targeted `tony-actor-probe` now records the stack argument entering this
+function, its raw object prefix, and the five fields visibly consumed by the
+submission routine (`+0x04`, `+0x1a`, `+0x1f`, `+0x24`, and `+0x30`). It keeps
+the object/model ownership provisional until a gameplay run captures those
+records alongside `Render_World` and the present clock.
 
 The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
 
@@ -425,6 +601,54 @@ The camera boundary is now usable, but these items still matter for pixel/behavi
 5. Capture a controlled turn/move trace with the present clock enabled, then compare camera target, position, orientation, and viewport fields against the same frame IDs.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
+
+For the larger faithful C++ engine, the camera work is only one of four
+runtime contracts that must meet at the same frame IDs:
+
+```text
+simulation clock/input
+    -> player/object state
+    -> camera state
+    -> scene snapshot and render packets
+    -> fixed-point view/projection conversion
+    -> material/texture/backend submission
+    -> present
+```
+
+The remaining engineering gates are therefore:
+
+1. **Clock and ownership.** Implement one authoritative simulation/update
+   clock, keep `Game_LevelLoop` ordering distinct from the `Flip` clock, and
+   define pause, menus, level transitions, and split-screen behavior. The
+   native driver must be compared against traces keyed to the confirmed
+   present boundary, not to message-pump frequency.
+2. **Camera completion.** Implement mode-1 follow plus smoothing with the
+   exact integer/x87 operations already identified, then add point mode,
+   death mode, shake/effect composition, and projection calibration as
+   separate replayable stages.
+3. **Scene/render handoff.** Bind runtime scene objects to asset-backed model
+   instances, reproduce traversal/order and object visibility, and validate one
+   actor and one static object from camera state through transformed vertices
+   to a backend draw packet. The current `Render_SubmitActor` promotion is
+   static/inferred until that object pointer is sampled live.
+4. **Renderer fidelity.** Recover the exact matrix convention, viewport
+   normalization, clipping/depth behavior, texture/palette conversion,
+   material flags, transparency, draw ordering, and only then select a native
+   graphics API. DirectDraw itself is an output boundary, not the engine
+   semantics to reproduce.
+5. **Gameplay producers.** Close the already identified physics/collision,
+   animation, trigger/script, and runtime-object lifecycle seams. Camera
+   parity is not visually meaningful if the player pose, object transforms, or
+   collision response diverge before submission.
+6. **Non-render subsystems.** Add UI/menu state, audio/music, save/profile
+   behavior, and platform/input details for a whole-game recreation. These can
+   follow the first playable vertical slice, but they must not be mixed into
+   the camera’s simulation contract.
+7. **Parity harness.** Build a deterministic retail/native trace comparator
+   for input, simulation tick, camera raw fields, viewport records, object
+   packets, and present count. Every promoted semantic should have a fixture,
+   a confidence level, and a falsifier; screenshots alone cannot identify
+   whether a mismatch came from timing, camera state, or rasterization.
 
 The next highest-value probe is a two-phase trace using `render_present` as the clock: stationary Warehouse, then controlled left/right camera movement. It should record only the camera fields above plus the viewport record and one object submission pointer. That will resolve the remaining scale/projection questions without expanding into the full DirectDraw backend.
 

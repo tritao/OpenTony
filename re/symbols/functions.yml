@@ -158,6 +158,36 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
+  - address: 0x0040be70
+    name: Camera_CommitViewportEffects
+    description: commits camera screen/effect offsets and cached transform words into the active viewport state
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004103b0
+    name: Camera_AngleDelta12
+    description: returns the shortest signed difference between two 12-bit turn angles
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410610
+    name: Camera_FollowTarget
+    description: normal follow-target orientation/offset preparation used by the mode dispatcher
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410f70
+    name: Camera_PointMode
+    description: camera-point/sequence mode handler selected by the camera mode table
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004113f0
+    name: Camera_Mode2
+    description: separate camera mode handler reached from dispatch value 2
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004c9770
     name: Camera_BuildLookAngles
     description: builds two 12-bit look-at angles from Q16 camera and target positions
@@ -194,6 +224,8 @@ functions:
       - re/evidence/functions/camera-system.md
   - address: 0x0045f530
     name: Render_SubmitActor
+    gdb_aliases:
+      - render_actor
     description: game-owned actor/skater submission path reached from Render_World
     confidence: inferred
     evidence:

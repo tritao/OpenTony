@@ -62,6 +62,26 @@ fields:
     name: viewport_parameter_raw
     type: u32_raw
     confidence: observed
+    description: low word is copied to the active viewport record at +0x0e; FOV/zoom semantics are not proven
+  - offset: 0x410
+    name: effect_timer_raw
+    type: u32_raw
+    confidence: observed
+    description: decremented by Camera_Update while adding +0x414 into +0x40c
+  - offset: 0x414
+    name: effect_parameter_delta_raw
+    type: u32_raw
+    confidence: observed
+  - offset: 0x418
+    name: follow_state_flag
+    type: u8
+    confidence: observed
+    description: consulted by smoothing/effect branches; semantic enum remains provisional
+  - offset: 0x444
+    name: effect_transform_object_vtable
+    type: ptr32
+    confidence: observed
+    description: embedded effect/transform object begins here; the four-word transform payload begins at +0x448
   - offset: 0x448
     name: current_transform_q12
     type: q12_vector4
@@ -74,6 +94,76 @@ fields:
     name: previous_transform_q12
     type: q12_vector4
     confidence: inferred
+  - offset: 0x4f2
+    name: shake_x_s16
+    type: s16
+    confidence: observed
+  - offset: 0x4f4
+    name: shake_y_s16
+    type: s16
+    confidence: observed
+  - offset: 0x4f6
+    name: shake_z_s16
+    type: s16
+    confidence: observed
+  - offset: 0x4f8
+    name: shake_decay_rate_x_u8
+    type: u8
+    confidence: observed
+    description: low byte of the word initialized by Camera_Shake; Camera_Update uses it as the first per-axis decay rate
+  - offset: 0x4fa
+    name: shake_decay_rate_z_u8
+    type: u8
+    confidence: observed
+    description: Camera_Update uses it as the third per-axis decay rate
+  - offset: 0x4f9
+    name: shake_decay_rate_y_u8
+    type: u8
+    confidence: observed
+    description: high byte of the word initialized at +0x4f8; exact source packing is type-dependent
+  - offset: 0x4fc
+    name: shake_angle_raw
+    type: u32_raw
+    confidence: observed
+    description: effect rotation input used with the global 12-bit angle phase
+  - offset: 0x500
+    name: shake_phase_raw
+    type: u16
+    confidence: observed
+  - offset: 0x5b8
+    name: smoothing_vector_a
+    type: q16_16_vector3_candidate
+    confidence: provisional
+  - offset: 0x5c4
+    name: smoothing_vector_b
+    type: q16_16_vector3_candidate
+    confidence: provisional
+  - offset: 0x610
+    name: camera_history_vector_a
+    type: q16_16_vector3_candidate
+    confidence: provisional
+  - offset: 0x63c
+    name: screen_offset_q12
+    type: q12_vector3_candidate
+    confidence: provisional
+    description: Camera_ApplyEffects adds these values to the anchor and Camera_PostEffects projects them into viewport state
+  - offset: 0x650
+    name: cached_render_transform_q12
+    type: q12_vector4
+    confidence: provisional
+    description: Camera_CommitViewportEffects copies current transform words here before viewport submission, or restores them into +0x448 in the special tripod-state path
+  - offset: 0x498
+    name: saved_transform_q12
+    type: q12_vector4
+    confidence: provisional
+  - offset: 0x4a8
+    name: transform_valid
+    type: u8
+    confidence: observed
+  - offset: 0x4a9
+    name: transform_fallback
+    type: u8
+    confidence: observed
   - offset: 0x504
     name: camera_mode
     type: u32
@@ -101,4 +191,16 @@ fields:
   - offset: 0x5e4
     name: smoothing_counter_d
     type: integer_candidate
+    confidence: observed
+  - offset: 0x5d4
+    name: follow_transition_active
+    type: u8
+    confidence: observed
+  - offset: 0x5e8
+    name: follow_distance_counter
+    type: u32_raw
+    confidence: observed
+  - offset: 0x60c
+    name: follow_preparation_counter
+    type: u32_raw
     confidence: observed

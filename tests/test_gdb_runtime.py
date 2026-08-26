@@ -46,7 +46,7 @@ sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
-from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
+from opentony.camera import CameraProbe, ViewProjectionProbe, actor_submission_record, camera_record
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -323,6 +323,31 @@ def test_camera_probe_samples_this_pointer_and_writes_trace_event():
     assert probe.enabled is False
     assert events[0]["type"] == "camera"
     assert events[0]["function"] == "Camera_Update"
+
+
+def test_actor_submission_record_keeps_object_prefix_raw():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    actor = 0x900
+    inferior.data[actor:actor + 0x40] = bytes(range(0x40))
+    inferior.data[actor + 0x04:actor + 0x06] = struct.pack("<H", 0x1234)
+    inferior.data[actor + 0x1A:actor + 0x1C] = struct.pack("<H", 0x5678)
+    inferior.data[actor + 0x24:actor + 0x28] = struct.pack("<I", 0x89ABCDEF)
+    inferior.data[actor + 0x30:actor + 0x34] = struct.pack("<I", 0x10203040)
+    inferior.data[0x100:0x108] = struct.pack("<2I", 0x1234, actor)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x350}),
+        memory,
+    )
+
+    record = actor_submission_record(context)
+
+    assert record["actor"] == "0x00000900"
+    assert record["raw_fields"]["flags_u16_at_0x04"] == 0x1234
+    assert record["raw_fields"]["material_or_index_u16_at_0x1a"] == 0x5678
+    assert record["raw_fields"]["resource_u32_at_0x24"] == 0x89ABCDEF
+    assert record["raw_fields"]["aux_u32_at_0x30"] == 0x10203040
+    assert record["actor_prefix"]["raw"][:16] == "0001020334120607"
 
 
 def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():

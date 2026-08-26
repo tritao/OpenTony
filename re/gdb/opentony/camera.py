@@ -7,7 +7,6 @@ import struct
 from .breakpoint import Context, CountingBreakpoint
 from .knowledge import GLOBALS, function_address
 
-
 CAMERA_SIZE = 0x674
 PLAYER_CAMERA_OFFSET = 0x29B0
 PLAYER_SECONDARY_LINK_OFFSET = 0x29BC
@@ -86,6 +85,12 @@ def camera_record(ctx: Context, camera: int) -> dict:
         "current_vector": _field_words(memory, camera, 0x448, 4),
         "target_vector": _field_words(memory, camera, 0x45C, 4),
         "previous_vector": _field_words(memory, camera, 0x470, 4),
+        "saved_vector": _field_words(memory, camera, 0x498, 4),
+        "cached_render_vector": _field_words(memory, camera, 0x650, 4),
+        "screen_effect_offset": _field_words(memory, camera, 0x63C, 3),
+        "history_vector_a": _field_words(memory, camera, 0x5B8, 3),
+        "history_vector_b": _field_words(memory, camera, 0x5C4, 3),
+        "mode_vector": _field_words(memory, camera, 0x610, 3),
         "viewport_zoom_candidate": _field_words(memory, camera, 0x40C),
         "time_or_smoothing_a": _field_words(memory, camera, 0x410),
         "time_or_smoothing_b": _field_words(memory, camera, 0x414),
@@ -105,6 +110,14 @@ def camera_record(ctx: Context, camera: int) -> dict:
             "shake_x": _short(memory, camera + 0x4F2),
             "shake_y": _short(memory, camera + 0x4F4),
             "shake_z": _short(memory, camera + 0x4F6),
+            "shake_decay_rate_x": memory.u8(camera + 0x4F8),
+            "shake_decay_rate_y": memory.u8(camera + 0x4F9),
+            "shake_decay_rate_z": memory.u8(camera + 0x4FA),
+            "shake_angle_raw": memory.u32(camera + 0x4FC),
+            "shake_phase_raw": memory.u16(camera + 0x500),
+            "follow_state_flag": memory.u8(camera + 0x418),
+            "transform_valid": memory.u8(camera + 0x4A8),
+            "transform_fallback": memory.u8(camera + 0x4A9),
         }
     )
 
@@ -199,6 +212,39 @@ def view_projection_record(ctx: Context) -> dict:
     return record
 
 
+def actor_submission_record(ctx: Context) -> dict:
+    """Capture the game-owned object pointer entering actor submission.
+
+    The callee receives its render-object argument on the stack. The prefix is
+    intentionally raw: fields at +0x04, +0x1a, +0x1f, +0x24, and +0x30 are
+    consumed by the original submission routine, but their durable C++ type
+    and ownership are not yet proven.
+    """
+
+    memory = ctx.memory
+    actor = ctx.arg(0)
+    record = {
+        "type": "actor_submission",
+        "frame": ctx.frame,
+        "function": "Render_SubmitActor",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "actor": f"0x{actor:08x}" if actor else None,
+        "actor_prefix": _raw_block(memory, actor, 0x40),
+    }
+    if actor and memory.readable(actor, 0x40):
+        record["raw_fields"] = {
+            "flags_u16_at_0x04": memory.u16(actor + 0x04),
+            "material_or_index_u16_at_0x1a": memory.u16(actor + 0x1A),
+            "type_u8_at_0x1f": memory.u8(actor + 0x1F),
+            "resource_u32_at_0x24": memory.u32(actor + 0x24),
+            "aux_u32_at_0x30": memory.u32(actor + 0x30),
+        }
+    else:
+        record["raw_fields"] = None
+    return record
+
+
 class CameraProbe(CountingBreakpoint):
     """Sample the actual camera-update entry, before mode-specific work runs."""
 
@@ -243,3 +289,24 @@ class ViewProjectionProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"view projection probe complete: {self.hits} observations\n")
+
+
+class ActorSubmissionProbe(CountingBreakpoint):
+    """Sample one game-owned object/model pointer entering actor submission."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("render_actor"), count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = actor_submission_record(ctx)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"actor submission probe complete: {self.hits} observations\n")
