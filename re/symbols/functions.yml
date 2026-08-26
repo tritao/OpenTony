@@ -1979,3 +1979,51 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004624d0
+    name: Collision_QueryPrepare
+    description: initialize swept collision query record and bounds
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004628f0
+    name: Collision_VisitLinkedZones
+    description: traverse linked/dynamic collision zones for a query
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00462a20
+    name: Collision_TestFace
+    description: test a candidate collision face and retain the nearest hit
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00463d50
+    name: Collision_FinalizeHit
+    description: finalize hit normal and return whether a query hit exists
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004638d0
+    name: Collision_VisitModelFaces
+    description: traverse zone/model face candidates for a query
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00466090
+    name: Collision_QueryWrapper
+    description: shared swept collision query wrapper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004660b0
+    name: Collision_QueryScene
+    description: zone/block scene traversal underneath the query wrapper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0048ea80
+    name: Collision_ConsumeHitFlags
+    description: consume query face metadata into collision/surface flags
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
