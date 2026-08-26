@@ -7978,12 +7978,84 @@ modules:
 - id: text_004f37b4
   section: .text
   start_va: 5191604
-  end_va: 5193808
+  end_va: 5192000
   file_offset: 997300
-  size: 2204
+  size: 396
   status: raw
   source: match/modules/text/text_004f37b4.asm
-  sha256: 5ab3e3a40461e6b697bf0d0494c91ed3583721cbf39e4163ae5bc6e63b29c510
+  sha256: 9089fb6a8a89c5f604349e0c1c3e4f40ee253548ac6f0ef065e943043911dc4f
+- id: text_004f3940
+  section: .text
+  start_va: 5192000
+  end_va: 5192058
+  file_offset: 997696
+  size: 58
+  status: cpp
+  source: match/modules/text/text_004f3940.asm
+  cpp_source: match/cpp/FUN_004f3940.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 207f7e8ee2366e133489ee571fd18a94c2e2b7d2dc10ca3408274f9b26b67442
+- id: text_004f397a
+  section: .text
+  start_va: 5192058
+  end_va: 5192064
+  file_offset: 997754
+  size: 6
+  status: raw
+  source: match/modules/text/text_004f397a.asm
+  sha256: ff35ffe14925642da6f3a258b35811e08101c03f8b5db346e5afcca448677564
+- id: text_004f3980
+  section: .text
+  start_va: 5192064
+  end_va: 5192106
+  file_offset: 997760
+  size: 42
+  status: cpp
+  source: match/modules/text/text_004f3980.asm
+  cpp_source: match/cpp/FUN_004f3980.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: e2242b64750ec9e9ef9097ce858ee7d34ac17d9a5c40c7f299a20e87aee4ddbb
+- id: text_004f39aa
+  section: .text
+  start_va: 5192106
+  end_va: 5192112
+  file_offset: 997802
+  size: 6
+  status: raw
+  source: match/modules/text/text_004f39aa.asm
+  sha256: ff35ffe14925642da6f3a258b35811e08101c03f8b5db346e5afcca448677564
+- id: text_004f39b0
+  section: .text
+  start_va: 5192112
+  end_va: 5192154
+  file_offset: 997808
+  size: 42
+  status: cpp
+  source: match/modules/text/text_004f39b0.asm
+  cpp_source: match/cpp/FUN_004f39b0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: cef632f4f93984357530abdf2c033a29b62cea88857e909d3f7e02d6c4eb6d7b
+- id: text_004f39da
+  section: .text
+  start_va: 5192154
+  end_va: 5193808
+  file_offset: 997850
+  size: 1654
+  status: raw
+  source: match/modules/text/text_004f39da.asm
+  sha256: 48fd67dc7b3601d9b891d393f4d8f316c7a1542e00c79595888cce950461c7f3
 - id: text_004f4050
   section: .text
   start_va: 5193808
@@ -8002,12 +8074,36 @@ modules:
 - id: text_004f40c4
   section: .text
   start_va: 5193924
-  end_va: 5197792
+  end_va: 5193936
   file_offset: 999620
-  size: 3868
+  size: 12
   status: raw
   source: match/modules/text/text_004f40c4.asm
-  sha256: 7e46efffa44593472d72fb169bdee2ec54d6ad19e4e43c18b666927d02334d3f
+  sha256: ab16a4264a14a2fd326c262e20ab7a8d0e67bc1658371fe45c446f311cdb6dbd
+- id: text_004f40d0
+  section: .text
+  start_va: 5193936
+  end_va: 5194023
+  file_offset: 999632
+  size: 87
+  status: cpp
+  source: match/modules/text/text_004f40d0.asm
+  cpp_source: match/cpp/FUN_004f40d0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: ca9aaae92edf72daf437285634287dcd34198031c76783a0336204162f80b2ec
+- id: text_004f4127
+  section: .text
+  start_va: 5194023
+  end_va: 5197792
+  file_offset: 999719
+  size: 3769
+  status: raw
+  source: match/modules/text/text_004f4127.asm
+  sha256: ce64329ff9beef77a12f9de1ff8088818e8192de236a8cccf968710b0f17540e
 - id: text_004f4fe0
   section: .text
   start_va: 5197792
