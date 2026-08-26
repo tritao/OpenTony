@@ -386,6 +386,8 @@ functions:
       - re/evidence/functions/collision-query.md
   - address: 0x0048ea80
     name: M3D_ReadSurfaceFlags
+    gdb_aliases:
+      - Collision_ConsumeHitFlags
     signature:
       calling_convention: cdecl
       return: void
@@ -3037,12 +3039,6 @@ functions:
   - address: 0x004f5540
     name: Collision_ScaleLinkedObjectMatrix
     description: apply linked-object Q12 scale factors to a 3x3 matrix
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x0048ea80
-    name: Collision_ConsumeHitFlags
-    description: consume query face metadata into collision/surface flags
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md

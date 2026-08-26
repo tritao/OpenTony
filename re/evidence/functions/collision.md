@@ -714,6 +714,18 @@ and `0x111`, and each call returned zero face-test survivors. This confirms the
 live tail values are Q12 identity for this ordinary level-object chain, while
 leaving the non-identity `0x0200` asset case unobserved.
 
+The separate `collision-transform-followup` capture closes the identity case
+for the full-word `0x0200` transform branch. It recorded 500 completed calls
+to `0x004f5540`, all from return site `0x00461c64`, with the live player object
+`0x05f39530` as the object argument. Every object snapshot had flags
+`0x0202`, tail words `+0x28/+0x2a/+0x2c = [4096, 4096, 4096]`, and
+`+0x30 = 0`; the one transient `+0x24` zero was otherwise `0x00403800`.
+The temporary matrix varied across the run with player orientation, including
+flat and ramp-like bases, but the before/after matrices matched for every
+sample. This is runtime confirmation that the high-byte `0x02` branch consumes
+the three signed Q12 scale words and leaves the matrix unchanged for identity
+factors. It does not establish the loader values for a non-identity object.
+
 The controlled `collision-dynamic-positive5` capture then changed only the
 first live linked node during one collision call, restoring every changed
 prefix field when `0x00463e50` returned. It supplied the known model-171
@@ -895,10 +907,9 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
 - Map the complete caller-specific stack protocol around the two loader
   callsites if a drop-in PC loader is required; the collision-facing source
   prefix and table handoff are now runtime-confirmed.
-- Capture a live `0x0200` object through `0x004f5540` and compare its three
-  loader-provided factors and matrix before/after the helper; this is the
-  remaining shortest path to validating the loader values against the now
-  exact matrix-column arithmetic.
+- Capture a live non-identity `0x0200` object through `0x004f5540` and compare
+  its three loader-provided factors and matrix before/after the helper; the
+  identity case is now confirmed against the exact matrix-column arithmetic.
 - Keep the unresolved tail of each 0x660-byte zone record and the allocator
   interface provisional; the runtime loader experiment now ties the active
   zone/table globals to a specific serialized-zone buffer.
