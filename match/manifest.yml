@@ -8482,12 +8482,36 @@ modules:
 - id: text_004f5fd3
   section: .text
   start_va: 5201875
-  end_va: 5246976
+  end_va: 5201904
   file_offset: 1007571
-  size: 45101
+  size: 29
   status: raw
   source: match/modules/text/text_004f5fd3.asm
-  sha256: 0d38f8b47a928d22a91beaaa862e48270ea29288fcbc495ac8cc81b54620f7fc
+  sha256: a827df407d24e8bea71f000dec18e8079cc46cd9091233f7183ee281959cf1a8
+- id: text_004f5ff0
+  section: .text
+  start_va: 5201904
+  end_va: 5202019
+  file_offset: 1007600
+  size: 115
+  status: cpp
+  source: match/modules/text/text_004f5ff0.asm
+  cpp_source: match/cpp/FUN_004f5ff0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: d8a88b5bddbe99ae67e103ec439ca2a4a02927d03008cbc09d9bc2cebff3ba8e
+- id: text_004f6063
+  section: .text
+  start_va: 5202019
+  end_va: 5246976
+  file_offset: 1007715
+  size: 44957
+  status: raw
+  source: match/modules/text/text_004f6063.asm
+  sha256: 91af09fac3611babf0fe75d593b55d76a27fff66dd5bfcd482d2ebb9cb5cf500
 - id: text_00501000
   section: .text
   start_va: 5246976
