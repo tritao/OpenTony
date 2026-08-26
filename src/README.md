@@ -4,6 +4,13 @@ The native reconstruction currently combines a framework-free physics-state
 reference model with a renderer-free Warehouse trigger and gameplay runtime.
 Both remain independently testable before a graphics framework is selected.
 
+The animation cursor is now a standalone renderer-free boundary in
+`runtime/animation_cursor.hpp/.cpp`. It preserves the retail animation ID,
+frame/fraction accumulator, playback rate, endpoint modes, and transition
+queries. `assets/psx_animation.hpp/.cpp` supplies the corresponding type-0x2c
+PSX table view, keeping the 218 animation IDs and source stream ranges opaque
+until pose decoding is integrated.
+
 `physics_state_machine.hpp/.cpp` intentionally models only the recovered
 boundary:
 

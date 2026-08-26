@@ -8,6 +8,7 @@ add_library(opentony_assets STATIC
     src/assets/pre_catalog.cpp
     src/assets/pre_asset.cpp
     src/assets/psx_asset.cpp
+    src/assets/psx_animation.cpp
     src/assets/psx_catalog.cpp
     src/assets/psx_collision.cpp
     src/assets/tricks_bin.cpp
@@ -49,6 +50,7 @@ add_library(opentony_runtime STATIC
     src/runtime/action_sequence_builder.cpp
     src/runtime/input_state.cpp
     src/runtime/input_bindings.cpp
+    src/runtime/animation_cursor.cpp
     src/runtime/level_frame.cpp
     src/runtime/ollie.cpp
     src/runtime/physics_dispatch.cpp
@@ -279,6 +281,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_ground_animation_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_ground_animation_test COMMAND opentony_ground_animation_test)
 
+    add_executable(opentony_animation_cursor_test
+        src/runtime/animation_cursor_test.cpp
+    )
+    target_link_libraries(opentony_animation_cursor_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_animation_cursor_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_animation_cursor_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_animation_cursor_test COMMAND opentony_animation_cursor_test)
+
     add_executable(opentony_ground_motion_threshold_test
         src/runtime/ground_motion_threshold_test.cpp
     )
@@ -326,6 +336,16 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_psx_asset_test PRIVATE cxx_std_20)
     target_compile_options(opentony_psx_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_psx_asset_test COMMAND opentony_psx_asset_test)
+
+    add_executable(opentony_psx_animation_test
+        src/assets/psx_animation_test.cpp
+    )
+    target_link_libraries(opentony_psx_animation_test PRIVATE opentony_assets)
+    target_compile_features(opentony_psx_animation_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psx_animation_test PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_definitions(opentony_psx_animation_test PRIVATE
+        OPENTONY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    add_test(NAME opentony_psx_animation_test COMMAND opentony_psx_animation_test)
 
     add_executable(opentony_psx_texture_test
         src/assets/psx_texture_test.cpp

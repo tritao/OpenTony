@@ -152,7 +152,7 @@ int main() {
         assert(profile.slot_at_offset(0x80));
         assert(!profile.slot_at_offset(0x90));
         assert(player.animation_state() == 7);
-        assert(player.animation_frame() == 4);
+        assert(player.animation_frame() == 5);
         return std::optional<opentony::runtime::GroundMotionInput>{};
     };
     const auto profile_frame = PlayerPhysicsFrame::step(

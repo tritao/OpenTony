@@ -1,10 +1,12 @@
 #pragma once
 
+#include "animation_cursor.hpp"
+
 #include <cstdint>
 
 namespace opentony::runtime {
 
-// State inputs read by retail FUN_00492f20. The animation system consumes
+// State inputs read by retail FUN_00492f20. The animation cursor consumes
 // the resulting state/frame elsewhere; this module only owns the verified
 // steering-to-frame bookkeeping.
 struct GroundAnimationInput final {
@@ -31,12 +33,6 @@ struct GroundAnimationResult final {
     std::int16_t target_frame{};
     GroundAnimationBranch branch = GroundAnimationBranch::None;
 };
-
-// Exact FUN_00492ed0 easing primitive: move toward the target by 4, 2, or 1
-// depending on remaining distance (thresholds 0xc and 3).
-[[nodiscard]] std::int16_t approach_animation_frame(
-    std::int16_t current,
-    std::int16_t target) noexcept;
 
 // Conservative state/frame reconstruction of FUN_00492f20. It intentionally
 // omits FUN_00490450's animation asset/event side effects and FUN_00496280's
