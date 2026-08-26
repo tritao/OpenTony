@@ -532,15 +532,16 @@ def test_view_projection_perturb_probe_alternates_vertical_scale_input():
     baseline = memory.s16(view_input + 0x0C)
     probe.on_hit(context)
     assert probe.hits == 1
-    assert events[0]["word"] == 6
-    assert events[0]["baseline"] == baseline
-    assert events[0]["after"] == baseline // 2
+    assert events[0]["type"] == "view_projection"
+    assert events[0]["mutation"]["word"] == 6
+    assert events[0]["mutation"]["baseline"] == baseline
+    assert events[0]["mutation"]["after"] == baseline // 2
     assert memory.s16(view_input + 0x0C) == baseline // 2
 
     probe.on_hit(context)
     assert probe.hits == 2
-    assert events[1]["mutated"] is False
-    assert events[1]["after"] == baseline
+    assert events[1]["mutation"]["mutated"] is False
+    assert events[1]["mutation"]["after"] == baseline
     assert memory.s16(view_input + 0x0C) == baseline
 
 

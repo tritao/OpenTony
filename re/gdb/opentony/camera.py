@@ -531,22 +531,16 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
         after = self.baseline // 2 if mutated else self.baseline
         memory.write_u16(address, after & 0xffff)
         if self.writer is not None:
-            self.writer.event(
-                {
-                    "type": "view_projection_mutation",
-                    "frame": ctx.frame,
-                    "function": "Render_SetViewProjection",
-                    "eip": f"0x{ctx.eip:08x}",
-                    "caller": f"0x{ctx.caller():08x}",
-                    "view_input": f"0x{view_input:08x}",
-                    "word": 6,
-                    "address": f"0x{address:08x}",
-                    "baseline": self.baseline,
-                    "before": before,
-                    "after": after,
-                    "mutated": mutated,
-                }
-            )
+            record = view_projection_record(ctx)
+            record["mutation"] = {
+                "word": 6,
+                "address": f"0x{address:08x}",
+                "baseline": self.baseline,
+                "before": before,
+                "after": after,
+                "mutated": mutated,
+            }
+            self.writer.event(record)
         return True
 
     def on_complete(self):
