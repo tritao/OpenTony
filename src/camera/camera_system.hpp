@@ -50,6 +50,12 @@ struct CameraStateRaw {
     // Camera +0x5d8. This is an effect-ramp counter, not the follow
     // preparation counter at +0x60c.
     Raw effect_ramp_counter_a{};
+    Raw effect_ramp_counter_b{}; // camera +0x5dc
+    Raw effect_ramp_counter_c{}; // camera +0x5e0
+    Raw effect_ramp_counter_d{}; // camera +0x5e4
+    Raw distance_q4{};            // camera +0x5d0
+    Raw distance_step_q4{};       // camera +0x61c
+    std::array<Raw, 6> distance_history{}; // camera +0x620..+0x634
     // Signed short read at camera +0x5b4 before the mode-1 target transform
     // is composed with the recovered basis.
     std::int16_t follow_rotation_raw{};
@@ -245,6 +251,13 @@ struct CameraDistanceSmoothingRaw {
     Raw bias_q4{};
 };
 
+struct CameraDistanceAdvanceResultRaw {
+    std::array<Raw, 6> history{};
+    Raw distance_step_q4{};
+    Raw distance_q4{};
+    bool history_refreshed{};
+};
+
 inline Raw camera_distance_smoothing_step_q4(
     const std::array<Raw, 6>& history) {
     Raw sum = 0;
@@ -264,6 +277,116 @@ inline Raw advance_camera_distance_q4(
         add_s32(add_s32(smoothing.distance_q4, multiply_s32(step, 4)),
                 smoothing.bias_q4),
         1);
+}
+
+// The retail refresh at 0x0040e1a0..0x0040e1cf shifts the six-word history
+// only for tripod physics states 0 and 4. The opaque vector/collision chain
+// supplies the scalar consumed by FUN_004f53b0; its result is accepted here
+// as a raw producer value and is shifted left by six exactly as the binary
+// does before entering the common distance recurrence.
+inline CameraDistanceAdvanceResultRaw advance_camera_distance_smoothing(
+    const CameraDistanceSmoothingRaw& smoothing,
+    Raw tripod_physics_state,
+    Raw history_sample_raw) {
+    auto history = smoothing.history;
+    const bool refreshed = tripod_physics_state == 0
+        || tripod_physics_state == 4;
+    if (refreshed) {
+        for (std::size_t index = history.size() - 1; index > 0; --index) {
+            history[index] = history[index - 1];
+        }
+        history[0] = wrap_s32(
+            static_cast<std::int64_t>(history_sample_raw) * 0x40);
+    }
+    const Raw step = camera_distance_smoothing_step_q4(history);
+    const Raw distance = arithmetic_shift_right(
+        add_s32(add_s32(smoothing.distance_q4, multiply_s32(step, 4)),
+                smoothing.bias_q4),
+        1);
+    return {history, step, distance, refreshed};
+}
+
+inline CameraDistanceAdvanceResultRaw advance_camera_distance_for_camera(
+    CameraStateRaw& camera,
+    Raw tripod_physics_state,
+    Raw history_sample_raw,
+    Raw bias_q4) {
+    const auto result = advance_camera_distance_smoothing(
+        {camera.distance_history, camera.distance_q4, bias_q4},
+        tripod_physics_state,
+        history_sample_raw);
+    camera.distance_history = result.history;
+    camera.distance_step_q4 = result.distance_step_q4;
+    camera.distance_q4 = result.distance_q4;
+    return result;
+}
+
+// Ordered value-level boundary for the normal tripod portion of
+// Camera_SmoothAndValidate. The distance history and effect envelope are
+// camera-owned state machines; the collision/effect transform producer remains
+// an explicit input/result boundary when the special branch is reported.
+struct CameraSmoothingStageInputRaw {
+    CameraDistanceSmoothingRaw distance{};
+    Raw tripod_physics_state{};
+    Raw history_sample_raw{};
+    CameraEffectRampStateRaw effect{};
+    Raw vertical_effect_q4{};
+};
+
+struct CameraSmoothingStageOutputRaw {
+    CameraDistanceAdvanceResultRaw distance{};
+    CameraEffectRampStateRaw effect{};
+    CameraEffectRampResultRaw effect_result{};
+    CameraPositionStageInput base_position{};
+};
+
+inline CameraPositionStageInput build_base_position_stage_input(
+    const CameraPositionProducerRaw& producer);
+
+inline CameraSmoothingStageOutputRaw advance_camera_smoothing_stage(
+    const CameraSmoothingStageInputRaw& input) {
+    CameraSmoothingStageOutputRaw output;
+    output.distance = advance_camera_distance_smoothing(
+        input.distance, input.tripod_physics_state, input.history_sample_raw);
+    output.effect = input.effect;
+    output.effect.tripod_physics_state = input.tripod_physics_state;
+    output.effect.distance_step_q4 = output.distance.distance_step_q4;
+    output.effect_result = advance_camera_effect_ramp(output.effect);
+    output.base_position = build_base_position_stage_input({
+        output.distance.distance_q4, input.vertical_effect_q4});
+    return output;
+}
+
+// Stateful adapter for the four camera-owned effect counters at
+// +0x5d8..+0x5e4. The vertical effect value is a shared producer/global word
+// in retail, so it is passed by reference rather than mislocated in the
+// camera object.
+inline CameraEffectRampResultRaw advance_camera_effects_for_camera(
+    CameraStateRaw& camera,
+    bool global_override,
+    bool tripod_effect_gate,
+    Raw tripod_physics_state,
+    Raw& vertical_effect_q16) {
+    CameraEffectRampStateRaw state{
+        global_override,
+        camera.follow_transition_active != 0,
+        tripod_effect_gate,
+        camera.follow_state_flag != 0,
+        tripod_physics_state,
+        camera.distance_step_q4,
+        camera.effect_ramp_counter_a,
+        camera.effect_ramp_counter_b,
+        camera.effect_ramp_counter_c,
+        camera.effect_ramp_counter_d,
+        vertical_effect_q16,
+    };
+    const auto result = advance_camera_effect_ramp(state);
+    camera.effect_ramp_counter_a = state.counter_a;
+    camera.effect_ramp_counter_b = state.counter_b;
+    camera.effect_ramp_counter_c = state.counter_c;
+    camera.effect_ramp_counter_d = state.counter_d;
+    vertical_effect_q16 = state.vertical_effect_q16;
+    return result;
 }
 
 inline CameraPositionStageInput build_base_position_stage_input(

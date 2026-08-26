@@ -276,6 +276,63 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     return 9;
                 }
 
+                const auto refreshed_distance =
+                    advance_camera_distance_smoothing(
+                        {history, 197, -3}, 0, 0x2000);
+                if (!refreshed_distance.history_refreshed
+                    || refreshed_distance.history[0] != 0x2000 * 0x40
+                    || refreshed_distance.history[1] != 0x100000
+                    || refreshed_distance.distance_step_q4 != -58
+                    || refreshed_distance.distance_q4 != -19) {
+                    return 19;
+                }
+                const auto retained_distance =
+                    advance_camera_distance_smoothing(
+                        {history, 197, -3}, 2, 0x2000);
+                if (retained_distance.history_refreshed
+                    || retained_distance.history != history
+                    || retained_distance.distance_step_q4 != -45
+                    || retained_distance.distance_q4 != 7) {
+                    return 20;
+                }
+
+                CameraSmoothingStageInputRaw smoothing_stage_input{};
+                smoothing_stage_input.distance = {history, 197, -3};
+                smoothing_stage_input.tripod_physics_state = 2;
+                smoothing_stage_input.history_sample_raw = 0x2000;
+                smoothing_stage_input.effect = {
+                    false, true, true, false, 2, 3,
+                    1, 0, 3, 0, 100};
+                smoothing_stage_input.vertical_effect_q4 = -140;
+                const auto smoothing_stage =
+                    advance_camera_smoothing_stage(smoothing_stage_input);
+                if (smoothing_stage.distance.distance_step_q4 != -45
+                    || smoothing_stage.distance.distance_q4 != 7
+                    || smoothing_stage.effect.distance_step_q4 != -45
+                    || smoothing_stage.effect_result.special_branch
+                    || smoothing_stage.effect.vertical_effect_q16 != 900
+                    || smoothing_stage.base_position.local_offset.z
+                        != -7 * 0x1000
+                    || smoothing_stage.base_position.effect_vector.y
+                        != -140 * 0x1000) {
+                    return 21;
+                }
+
+                CameraStateRaw effect_camera;
+                effect_camera.follow_transition_active = 1;
+                effect_camera.distance_step_q4 = 3;
+                effect_camera.effect_ramp_counter_a = 1;
+                effect_camera.effect_ramp_counter_c = 3;
+                Raw vertical_effect = 100;
+                const auto effect_result = advance_camera_effects_for_camera(
+                    effect_camera, false, true, 2, vertical_effect);
+                if (effect_result.special_branch
+                    || vertical_effect != 900
+                    || effect_camera.effect_ramp_counter_b != 0
+                    || effect_camera.effect_ramp_counter_d != 0) {
+                    return 22;
+                }
+
                 if (camera_transform_smoothing_weight_q12(0x100) != 222) {
                     return 10;
                 }

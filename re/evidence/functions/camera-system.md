@@ -637,8 +637,18 @@ with signed integer division, 32-bit multiply/add behavior, and arithmetic
 right shifts. The result is stored at `+0x61c` and `+0x5d0`, respectively.
 The native reference exposes the value-level contract as
 `camera_distance_smoothing_step_q4` and `advance_camera_distance_q4`; the
-history refresh remains an external tripod/gameplay input until its producer
-is promoted.
+history refresh is now also represented by
+`advance_camera_distance_smoothing`: for physics states `0` and `4`, it shifts
+`+0x620..+0x634`, accepts the scalar result of the opaque vector/collision
+chain, stores `sample << 6` at `+0x620`, and returns the exact updated history,
+step, and distance. Other physics states retain the existing six words.
+`advance_camera_smoothing_stage` then feeds the recovered distance step into
+the effect-envelope state while preserving the unresolved `0x0040c370`
+transform producer as an explicit special-branch result. The C++
+`CameraStateRaw` now carries the corresponding `+0x5d0`, `+0x61c`,
+`+0x620..+0x634`, and `+0x5d8..+0x5e4` words, with stateful adapters for the
+distance and effect stages; the shared vertical-effect word remains an
+explicit reference input.
 
 The orientation smoothing tail is now promoted as well. After its temporary
 effect branches, `0x0040e090` copies `camera +0x458` (target transform) and
