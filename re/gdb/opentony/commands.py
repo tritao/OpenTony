@@ -9,6 +9,7 @@ from pathlib import Path
 import gdb
 
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
+from .collision import CollisionQueryProbe
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
@@ -831,6 +832,26 @@ class TonyPositionCommitProbe(gdb.Command):
         )
 
 
+class TonyCollisionProbe(gdb.Command):
+    """tony-collision-probe [COUNT] -- log shared collision query inputs/results."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionQueryProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend((probe.entry, probe.return_breakpoint))
+        _write(f"collision query probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -865,6 +886,7 @@ def register_commands() -> None:
     TonyPhysicsProbe()
     TonyPlayerDiff()
     TonyPositionCommitProbe()
+    TonyCollisionProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -873,5 +895,5 @@ def register_commands() -> None:
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
-        "tony-player-diff, tony-position-commit"
+        "tony-player-diff, tony-position-commit, tony-collision-probe"
     )
