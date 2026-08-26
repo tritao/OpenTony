@@ -234,6 +234,39 @@ inline Raw subtract_s32(Raw left, Raw right) {
     return wrap_s32(static_cast<std::int64_t>(left) - right);
 }
 
+// 0x004e2070 narrows cross-product results to the signed-short range. The
+// original obtains the limits through x87 2^15 and 2^15-1 constants; express
+// the resulting saturation directly while preserving the preceding 32-bit
+// product/subtract operations.
+inline std::int16_t saturate_s16(Raw value) {
+    if (value < std::numeric_limits<std::int16_t>::min()) {
+        return std::numeric_limits<std::int16_t>::min();
+    }
+    if (value > std::numeric_limits<std::int16_t>::max()) {
+        return std::numeric_limits<std::int16_t>::max();
+    }
+    return static_cast<std::int16_t>(value);
+}
+
+// 0x004e2f80: cross product of two signed-short vectors followed by the
+// saturating short boundary above. The camera follow path uses this twice to
+// complete its orthogonal basis.
+inline Q12Vec3 cross_product_s16(
+    const Q12Vec3& first,
+    const Q12Vec3& second) {
+    return {
+        saturate_s16(subtract_s32(
+            multiply_s32(first.y, second.z),
+            multiply_s32(first.z, second.y))),
+        saturate_s16(subtract_s32(
+            multiply_s32(first.z, second.x),
+            multiply_s32(first.x, second.z))),
+        saturate_s16(subtract_s32(
+            multiply_s32(first.x, second.y),
+            multiply_s32(first.y, second.x))),
+    };
+}
+
 inline std::int32_t arithmetic_shift_right_one(std::int32_t value);
 
 inline Raw arithmetic_shift_right(Raw value, unsigned bits) {
@@ -410,6 +443,76 @@ inline MatrixQ12 transform_to_matrix_q12(const TransformQ12& transform) {
         subtract(zy, xw),
         subtract(one_minus_xx, yy),
     };
+}
+
+// 0x004a9a00: convert the signed-short 3x3 basis used by Camera_FollowTarget
+// back into the four-word transform payload. The positive-trace path is the
+// common normal-follow path. The alternate branch preserves the original
+// largest-diagonal selection and the retail lookup order [1, 2, 0].
+inline TransformQ12 matrix_to_transform_q12(const MatrixQ12& matrix) {
+    const Raw trace = static_cast<Raw>(matrix[0])
+        + static_cast<Raw>(matrix[4])
+        + static_cast<Raw>(matrix[8]);
+    if (trace > 0) {
+        const Raw root_input = wrap_s32(
+            static_cast<std::int64_t>(trace + kQ12One) << 12);
+        const auto root = root_input > 0
+            ? isqrt_u32_x87(static_cast<std::uint32_t>(root_input))
+            : 0U;
+        const Raw scale = root == 0 ? 0 : static_cast<Raw>(0x800000U / root);
+        return {
+            sar12(multiply_s32(
+                static_cast<Raw>(matrix[5]) - static_cast<Raw>(matrix[7]), scale)),
+            sar12(multiply_s32(
+                static_cast<Raw>(matrix[6]) - static_cast<Raw>(matrix[2]), scale)),
+            sar12(multiply_s32(
+                static_cast<Raw>(matrix[1]) - static_cast<Raw>(matrix[3]), scale)),
+            arithmetic_shift_right(static_cast<Raw>(root), 1),
+        };
+    }
+
+    constexpr std::array<std::size_t, 3> next_axis{1, 2, 0};
+    std::size_t pivot = static_cast<std::size_t>(
+        static_cast<Raw>(matrix[0]) < static_cast<Raw>(matrix[4]));
+    if (static_cast<Raw>(matrix[pivot * 4]) < static_cast<Raw>(matrix[8])) {
+        pivot = 2;
+    }
+    const std::size_t first = next_axis[pivot];
+    const std::size_t second = next_axis[first];
+    const Raw diagonal_difference = static_cast<Raw>(matrix[pivot * 4])
+        - static_cast<Raw>(matrix[second * 4])
+        - static_cast<Raw>(matrix[first * 4]);
+    const Raw root_input = wrap_s32(
+        static_cast<std::int64_t>(diagonal_difference + kQ12One) << 12);
+    const auto root = root_input > 0
+        ? isqrt_u32_x87(static_cast<std::uint32_t>(root_input))
+        : 0U;
+    const Raw half_root = arithmetic_shift_right(static_cast<Raw>(root), 1);
+    const Raw scale = root == 0 ? 0 : static_cast<Raw>(0x800000U / root);
+    TransformQ12 result{};
+    const auto set_component = [&](std::size_t index, Raw value) {
+        if (index == 0) {
+            result.x = value;
+        } else if (index == 1) {
+            result.y = value;
+        } else {
+            result.z = value;
+        }
+    };
+    set_component(pivot, half_root);
+    result.w = sar12(multiply_s32(
+        static_cast<Raw>(matrix[first + second * 3])
+            - static_cast<Raw>(matrix[second + first * 3]),
+        scale));
+    set_component(first, sar12(multiply_s32(
+        static_cast<Raw>(matrix[pivot * 3 + first])
+            + static_cast<Raw>(matrix[first * 3 + pivot]),
+        scale)));
+    set_component(second, sar12(multiply_s32(
+        static_cast<Raw>(matrix[pivot * 3 + second])
+            + static_cast<Raw>(matrix[second * 3 + pivot]),
+        scale)));
+    return result;
 }
 
 // 0x004f53e0: the view setup copies the nine prepared shorts into the backend

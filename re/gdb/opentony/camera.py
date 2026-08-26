@@ -91,6 +91,11 @@ def camera_record(ctx: Context, camera: int) -> dict:
         "history_vector_a": _field_words(memory, camera, 0x5B8, 3),
         "history_vector_b": _field_words(memory, camera, 0x5C4, 3),
         "mode_vector": _field_words(memory, camera, 0x610, 3),
+        # Camera_FollowTarget reads the tripod's +0x310c offset and the
+        # camera's +0x5b4 signed angle before constructing the target basis.
+        # Keep both raw so a replay can validate that producer independently
+        # of the camera math.
+        "follow_rotation_raw": _short(memory, camera + 0x5B4),
         "viewport_zoom_candidate": _field_words(memory, camera, 0x40C),
         "time_or_smoothing_a": _field_words(memory, camera, 0x410),
         "time_or_smoothing_b": _field_words(memory, camera, 0x414),
@@ -152,9 +157,11 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["player_unknown_state"] = None
     if tripod and memory.valid(tripod):
         record["tripod_position"] = _words(memory, tripod + 0x08, 3)
+        record["tripod_follow_offset"] = _words(memory, tripod + 0x310C, 3)
         record["tripod_physics_state"] = memory.u32(tripod + 0x30B8)
     else:
         record["tripod_position"] = None
+        record["tripod_follow_offset"] = None
         record["tripod_physics_state"] = None
     return record
 

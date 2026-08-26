@@ -272,6 +272,10 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 0x10000, 0x20000, 0x30000)
     inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
     inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
+    inferior.data[camera + 0x5B4:camera + 0x5B6] = struct.pack("<H", 0x345)
+    inferior.data[player + 0x310C:player + 0x3118] = struct.pack(
+        "<3I", 0x400, 0xFFFFF800, 0x120
+    )
     inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
     context = Context(
         CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
@@ -291,6 +295,8 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert current["q12_candidate"] == [1.0, -1.0, 8.0, 1.0]
     assert record["player_position"]["fixed16"] == [1.0, 2.0, 3.0]
     assert record["player_position"]["fixed16_candidate"] == [1.0, 2.0, 3.0]
+    assert record["camera_fields"]["follow_rotation_raw"]["signed_s16"] == 0x345
+    assert record["tripod_follow_offset"]["s32"] == [0x400, -0x800, 0x120]
 
 
 def test_camera_probe_samples_this_pointer_and_writes_trace_event():

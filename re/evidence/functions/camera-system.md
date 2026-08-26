@@ -368,10 +368,19 @@ m7 = q11(z,y) - q11(x,w)
 m8 = one - q11(x,x) - q11(y,y)
 ```
 
-The native reference exposes this as `transform_to_matrix_q12`. A controlled
-dynamic basis check is still useful to validate the renderer’s row/column
-consumption and handedness, but the payload-to-nine-short conversion itself is
-no longer an unresolved gap.
+The native reference exposes this as `transform_to_matrix_q12`. The inverse
+helper `Camera_MatrixToTransformQ12 0x004a9a00` is also recovered. Its
+positive-trace path computes the root and reciprocal scale through the x87
+integer-square-root helper; its alternate path selects the largest diagonal
+using the embedded lookup order `[1,2,0]`. Both paths use 32-bit products and
+`SAR12` at the payload boundary. Matrix quantization is observable: converting
+the Q12 half-turn X basis to shorts and back produces `0x0ffe` rather than the
+original `0x0fff` component, so the native implementation must preserve the
+short matrix round trip instead of assuming a lossless quaternion conversion.
+
+A controlled dynamic basis check is still useful to validate the renderer’s
+row/column consumption and handedness, but both payload/matrix conversion
+directions are now encoded in [camera_math.hpp](../../../src/camera/camera_math.hpp).
 
 `0x004a9bf0` is the orientation interpolation helper used by
 `Camera_SmoothAndValidate`. Its static contract is:
@@ -462,6 +471,28 @@ ending at `0x004a9650`; the resulting four words are written into the target
 transform payload at `+0x45c..+0x468`. It also maintains the transition bytes
 at `+0x418` and `+0x5d4`, the distance/preparation counters at `+0x5e8` and
 `+0x60c`, and the Q12 vector records at `+0x5b8/+0x5c4`.
+
+The normal-follow basis tail is now explicit. After the history recurrence,
+the routine shifts the history vector right by 12, narrows it to signed
+shorts, negates the signed-short tripod follow offset, and computes:
+
+```text
+side   = saturating_s16(history_q4 × (-follow_offset_s16))
+up     = saturating_s16((-follow_offset_s16) × side)
+basis  = [ side.x, -offset.x, up.x,
+           side.y, -offset.y, up.y,
+           side.z, -offset.z, up.z ]
+target = basis_to_transform(basis) * Y(camera +0x5b4)
+```
+
+`0x004e2f80` performs each cross product with 32-bit `IMUL`/subtract and
+clamps the result to `[-32768,32767]`; `0x004a9a00` converts the resulting
+short basis; and the final `0x004a9650` composition occurs before
+`Camera_SmoothAndValidate`. The native reference exposes these stages as
+`cross_product_s16`, `build_follow_basis_matrix_q12`, and
+`build_follow_target_transform_q12`. The tripod offset and `+0x5b4` angle are
+also captured by the runtime camera probe so the remaining producer-side
+scale can be compared directly.
 
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
@@ -705,7 +736,7 @@ The names in this contract are reconstruction interfaces, not claims that the or
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
-1. Validate the `0x004a9910` payload-to-matrix row/column and sign convention with controlled X/Y/Z basis inputs; the four-word Q12 transform payload, its half-angle constructors, and composition operation are now established.
+1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
 2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; do not call it FOV until a controlled zoom/camera-input experiment proves that.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
@@ -771,5 +802,5 @@ The next highest-value probe is a two-phase trace using `render_present` as the 
 - The raw `tony-view-probe` is implemented and unit-tested, but the two bounded headless retries in this pass did not reach level entry after synthetic frontend input; they produced no dynamic projection samples. Projection claims in this document are therefore static-only until a controlled level-entry run succeeds.
 - `+0x40c` is a strong viewport/framing candidate; a run that changes camera zoom without changing it would falsify the current label.
 - The current Warehouse capture remained in mode `1`, so it does not identify all mode constants or cutscene behavior.
-- The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors and composition helper; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910`.
+- The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910` to establish renderer row/column and handedness.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

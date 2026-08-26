@@ -49,6 +49,13 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                     || zero_shake_on_sign_crossing(1, 2) != 2) {
                     return 5;
                 }
+                const auto saturated_cross = cross_product_s16(
+                    {0x7fff, 0, 0}, {0, 0x7fff, 0});
+                const auto negative_cross = cross_product_s16(
+                    {-0x7fff, 0, 0}, {0, 0x7fff, 0});
+                if (saturated_cross.z != 0x7fff || negative_cross.z != -0x8000) {
+                    return 20;
+                }
                 if (sin_angle_q12(0x400) != 0x0fff) {
                     return 6;
                 }
@@ -89,10 +96,22 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (identity_matrix != MatrixQ12{0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000}) {
                     return 12;
                 }
+                const auto matrix_identity = matrix_to_transform_q12(identity_matrix);
+                if (matrix_identity.x != identity.x || matrix_identity.y != identity.y
+                    || matrix_identity.z != identity.z || matrix_identity.w != identity.w) {
+                    return 18;
+                }
                 const auto half_turn_matrix = transform_to_matrix_q12(x_rotation);
                 if (half_turn_matrix[0] != 0x1000 || half_turn_matrix[4] >= 0
                     || half_turn_matrix[8] >= 0) {
                     return 13;
+                }
+                const auto recovered_half_turn = matrix_to_transform_q12(half_turn_matrix);
+                if (recovered_half_turn.x != 0x0ffe
+                    || recovered_half_turn.y != x_rotation.y
+                    || recovered_half_turn.z != x_rotation.z
+                    || recovered_half_turn.w != x_rotation.w) {
+                    return 19;
                 }
                 const MatrixQ12 ordered_matrix{1, 2, 3, 4, 5, 6, 7, 8, 9};
                 if (transpose_matrix_q12(ordered_matrix) != MatrixQ12{1, 4, 7, 2, 5, 8, 3, 6, 9}) {

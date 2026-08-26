@@ -176,6 +176,12 @@ functions:
     confidence: provisional
     evidence:
       - re/evidence/functions/camera-system.md
+  - address: 0x004a9a00
+    name: Camera_MatrixToTransformQ12
+    description: converts the signed-short follow basis back into a four-word Q12 camera transform payload
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004a9bf0
     name: Camera_SlerpTransformQ12
     description: normalizes and interpolates two four-word camera transforms
@@ -191,6 +197,12 @@ functions:
   - address: 0x004f5f90
     name: Fixed_DotProductQ12
     description: computes an x87 three-vector dot product scaled by 1/4096
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e2f80
+    name: Fixed_CrossProductS16
+    description: computes a signed-short cross product and saturates each result to s16
     confidence: observed
     evidence:
       - re/evidence/functions/camera-system.md

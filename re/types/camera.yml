@@ -173,6 +173,11 @@ fields:
     name: update_tick
     type: u32
     confidence: observed
+  - offset: 0x5b4
+    name: follow_rotation_raw_s16
+    type: s16
+    confidence: observed
+    description: signed angle consumed by the Y half-angle constructor in the normal-follow target-transform tail
   - offset: 0x570
     name: death_camera_tick
     type: u32

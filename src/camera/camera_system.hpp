@@ -44,6 +44,9 @@ struct CameraStateRaw {
     std::uint32_t update_tick{};
     std::uint32_t follow_distance_counter{};
     std::uint32_t follow_preparation_counter{};
+    // Signed short read at camera +0x5b4 before the mode-1 target transform
+    // is composed with the recovered basis.
+    std::int16_t follow_rotation_raw{};
     std::uint8_t follow_state_flag{};
     std::uint8_t follow_transition_active{};
     std::uint8_t transform_fallback{};
@@ -214,6 +217,49 @@ inline CameraFollowSnapshot prepare_follow_target(
     return snapshot;
 }
 
+inline std::int16_t negate_s16_raw(Raw value) {
+    return low_s16_raw(-static_cast<Raw>(low_s16_raw(value)));
+}
+
+// The normal-follow tail of 0x00410610 forms two cross products from the
+// shifted history vector and the signed-short follow offset, lays those three
+// basis vectors into a short 3x3 record, converts that record with 0x004a9a00,
+// and finally composes the Y-axis transform from camera +0x5b4.
+inline MatrixQ12 build_follow_basis_matrix_q12(
+    const Q16Vec3& history,
+    const Q16Vec3& follow_offset) {
+    const Q12Vec3 history_q4{
+        low_s16_raw(arithmetic_shift_right(history.x, 12)),
+        low_s16_raw(arithmetic_shift_right(history.y, 12)),
+        low_s16_raw(arithmetic_shift_right(history.z, 12)),
+    };
+    const Q12Vec3 negative_offset{
+        negate_s16_raw(follow_offset.x),
+        negate_s16_raw(follow_offset.y),
+        negate_s16_raw(follow_offset.z),
+    };
+    const auto first_cross = cross_product_s16(history_q4, negative_offset);
+    const auto second_cross = cross_product_s16(negative_offset, first_cross);
+    return {
+        low_s16_raw(first_cross.x), low_s16_raw(negative_offset.x), low_s16_raw(second_cross.x),
+        low_s16_raw(first_cross.y), low_s16_raw(negative_offset.y), low_s16_raw(second_cross.y),
+        low_s16_raw(first_cross.z), low_s16_raw(negative_offset.z), low_s16_raw(second_cross.z),
+    };
+}
+
+inline TransformQ12 build_follow_target_transform_q12(
+    const Q16Vec3& history,
+    const Q16Vec3& follow_offset,
+    std::int16_t follow_rotation_raw) {
+    const auto basis = build_follow_basis_matrix_q12(history, follow_offset);
+    const auto basis_transform = matrix_to_transform_q12(basis);
+    // 0x004a9650 returns `second * first` for its two stack operands. The
+    // original pushes the Y constructor as the third operand and the matrix
+    // transform as the second operand, hence this argument order.
+    return multiply_transform_q12(
+        rotation_y_q12(follow_rotation_raw), basis_transform);
+}
+
 inline void update_camera_history(
     CameraStateRaw& camera,
     const Q16Vec3& anchor_delta,
@@ -328,18 +374,29 @@ inline CameraViewportCommitRaw update_camera(
     CameraFollowSnapshot snapshot;
     if (camera.mode == 1 || camera.mode == 25) {
         snapshot = prepare_follow_target(camera, target, follow_input);
-        if (hooks.apply_follow_transform != nullptr) {
-            hooks.apply_follow_transform(camera, snapshot);
-        }
     }
 
+    // Camera_FollowTarget updates its history and target transform before
+    // Camera_SmoothAndValidate is entered. Keeping this boundary explicit is
+    // important: the startup path then consumes the newly prepared target,
+    // rather than smoothing one frame behind it.
+    update_camera_history(camera, snapshot.anchor_delta, follow_input.collision_distance_valid);
+    if (camera.mode == 1 || camera.mode == 25) {
+        if (hooks.apply_follow_transform != nullptr) {
+            hooks.apply_follow_transform(camera, snapshot);
+        } else {
+            camera.target_transform = build_follow_target_transform_q12(
+                camera.history_a,
+                snapshot.follow_offset,
+                camera.follow_rotation_raw);
+        }
+    }
     camera.previous_transform = camera.current_transform;
     if (hooks.smooth_transform != nullptr) {
         hooks.smooth_transform(camera);
     } else if (camera.update_tick < 12) {
         camera.current_transform = camera.target_transform;
     }
-    update_camera_history(camera, snapshot.anchor_delta, follow_input.collision_distance_valid);
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
     apply_camera_shake(camera, hooks.shake_phase_multiplier);
     const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
