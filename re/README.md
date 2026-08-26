@@ -97,6 +97,14 @@ state bookkeeping, and the complete action-state bank. The probe is
 observational: it does not force a state or assign a semantic name to a
 handler.
 
+For handler smoke tests, `tony-force-physics-state STATE` performs one
+synthetic `player+0x30b8` write from a grounded dispatcher entry before the
+dispatcher reads the field. It emits a `physics_state_force` trace event and
+then leaves the normal dispatcher and handler probes to observe the retail
+body. This characterizes handler side effects and fallthrough behavior only;
+it does not establish the natural action/collision predicate or a canonical
+gameplay transition writer.
+
 For the in-air landing boundary, `tony-air-collision-probe [COUNT]` samples the
 raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
 in-air-handler, state-request, and state-writer probes to correlate a nonzero

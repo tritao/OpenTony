@@ -69,6 +69,7 @@ from opentony.physics import (
     PhysicsProbe,
     PlayerDiffProbe,
     SpecialPhysicsHandlerProbe,
+    SyntheticPhysicsStateForceProbe,
 )
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
@@ -509,6 +510,50 @@ def test_special_physics_probe_records_raw_handler_context():
     assert event["contact_fields"]["surface_normal_z_raw"] == 0x701
     assert event["state_fields"]["ollie_charge"] == 12
     assert event["action_mask"] == 0x0080
+
+
+def test_synthetic_physics_state_force_writes_once_only_from_ground():
+    inferior = FakeInferior()
+    player = 0x500
+    inferior.data[0x200:0x204] = struct.pack("<I", player)
+    inferior.data[0x108:0x10C] = struct.pack("<I", 0x444)
+    inferior.data[player + 0x30B8:player + 0x30BC] = struct.pack("<I", 0)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    memory = Memory(inferior)
+    probe = SyntheticPhysicsStateForceProbe(5, count=1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "esi": player, "eip": 0x0049DB93}),
+        memory,
+    )
+
+    probe.on_hit(context)
+    assert memory.u32(player + 0x30B8) == 5
+    assert events[0] == {
+        "type": "physics_state_force",
+        "synthetic": True,
+        "function": "Skater_PhysicsDispatcher.state_load",
+        "eip": "0x0049db93",
+        "caller": "0x00000444",
+        "frame": 0,
+        "player": "0x00000500",
+        "physics_state_before": 0,
+        "physics_state_forced": 5,
+        "field": "player+0x30b8",
+    }
+    assert probe.remaining == 0
+    assert probe.enabled is False
+
+    # A second hit cannot overwrite a later gameplay state, even if the
+    # debugger still dispatches the managed breakpoint object.
+    inferior.data[player + 0x30B8:player + 0x30BC] = struct.pack("<I", 1)
+    probe.on_hit(context)
+    assert memory.u32(player + 0x30B8) == 1
+    assert len(events) == 1
 
 
 def test_air_collision_probe_preserves_raw_result_and_cast_window():

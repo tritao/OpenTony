@@ -29,17 +29,18 @@ from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
 from .physics import (
+    OLLIE_LATCH_WRITERS,
+    SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
     InAirHandlerProbe,
     MovementPhysicsProbe,
+    OllieLatchProbe,
     PhysicsProbe,
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
-    SPECIAL_HANDLER_INFO,
-    SpecialPhysicsHandlerProbe,
-    OllieLatchProbe,
-    OLLIE_LATCH_WRITERS,
     PlayerDiffProbe,
+    SpecialPhysicsHandlerProbe,
+    SyntheticPhysicsStateForceProbe,
 )
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .snapshot import format_diff, snapshots
@@ -1270,6 +1271,27 @@ class TonyPhysicsProbe(gdb.Command):
         _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyForcePhysicsState(gdb.Command):
+    """tony-force-physics-state STATE -- inject one state before dispatch."""
+
+    def __init__(self):
+        super().__init__("tony-force-physics-state", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-force-physics-state STATE")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-force-physics-state STATE")
+        state = _integer(values[0])
+        if state < 0 or state > 8:
+            raise gdb.GdbError("STATE must be between 0 and 8")
+        probe = SyntheticPhysicsStateForceProbe(state, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        _write(
+            "synthetic physics state force armed for one live grounded "
+            f"dispatcher entry: 0 -> {state}"
+        )
+
+
 class TonyCameraProbe(gdb.Command):
     """tony-camera-probe [COUNT] -- sample the per-frame camera update."""
 
@@ -1725,6 +1747,7 @@ def register_commands() -> None:
     TonyTraceClose()
     TonyFrameClock()
     TonyPhysicsProbe()
+    TonyForcePhysicsState()
     TonyCameraProbe()
     TonyCameraEffectsProbe()
     TonyViewProjectionProbe()
@@ -1757,6 +1780,7 @@ def register_commands() -> None:
         "tony-animation-selector-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
+        "tony-force-physics-state, "
         "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-view-perturb, "
         "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "
         "tony-player-diff, tony-position-commit, "

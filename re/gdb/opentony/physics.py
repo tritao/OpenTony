@@ -183,6 +183,54 @@ class PhysicsProbe(CountingBreakpoint):
         return True
 
 
+class SyntheticPhysicsStateForceProbe(CountingBreakpoint):
+    """Inject one raw state at a live dispatcher entry for handler smoke tests.
+
+    This is deliberately not a transition writer.  It changes the field
+    directly so a controlled experiment can execute a dispatcher case whose
+    natural collision/action predicate has not yet been reproduced.  The
+    emitted event makes that distinction explicit.
+    """
+
+    ADDRESS = 0x0049DB93
+
+    def __init__(self, state: int, count: int = 1, writer=None):
+        super().__init__(self.ADDRESS, count=count, internal=True)
+        self.state = state
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        # The dispatcher prologue has copied ECX to ESI by this instruction;
+        # the following load is the first read of player+0x30b8.
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        previous = ctx.memory.u32(player + PlayerView.PHYSICS_STATE_OFFSET)
+        if previous != 0:
+            return False
+        ctx.memory.write_u32(player + PlayerView.PHYSICS_STATE_OFFSET, self.state)
+        record = {
+            "type": "physics_state_force",
+            "synthetic": True,
+            "function": "Skater_PhysicsDispatcher.state_load",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.memory.u32(ctx.esp + 8):08x}"
+            if ctx.memory.readable(ctx.esp + 8, 4)
+            else None,
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "physics_state_before": previous,
+            "physics_state_forced": self.state,
+            "field": "player+0x30b8",
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
 class MovementPhysicsProbe(CountingBreakpoint):
     """Observe the action/velocity step before the main physics frame."""
 
