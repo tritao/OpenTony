@@ -118,6 +118,10 @@ public:
     [[nodiscard]] std::uint16_t peek_u16() const;
     [[nodiscard]] std::uint16_t read_u16();
     [[nodiscard]] std::uint32_t read_u32();
+    // Commands 0x0004, 0x0005, and 0x000a carry their own counted node list.
+    // This is intentionally separate from TrgFile::links(): the latter is
+    // the serialized relationship list owned by a type-6 node.
+    [[nodiscard]] std::vector<std::uint16_t> read_node_index_list();
     [[nodiscard]] std::string read_string();
     [[nodiscard]] std::array<std::uint32_t, 3> read_u16_triplet();
     [[nodiscard]] ScriptObjectCommand read_script_object_operands(std::size_t opcode_offset);

@@ -192,6 +192,61 @@ functions:
       - re/evidence/functions/trg-runtime.md
     notes: Native TRG node records and script payload boundaries are exercised by the parser and Warehouse scene path.
 
+  - address: 0x004c5dc0
+    name: TRG_InterpretCommandStream
+    slice: trg-counted-link-commands
+    status: tested
+    sources:
+      - src/trg/trg_runtime.cpp
+      - src/trg/trg_runtime.hpp
+    tests:
+      - src/trg/trg_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/trg-counted-link-commands.md
+    notes: The counted 0x0004/0x0005/0x000a node-index payloads are decoded separately from serialized type-6 links, including bounded conditional skipping and truncation rejection.
+
+  - address: 0x004c5c70
+    name: TRG_ApplyActivationOrSuspendList
+    slice: trg-counted-link-commands
+    status: tested
+    sources:
+      - src/trg/trg_runtime.cpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/trg_runtime_test.cpp
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/trg-counted-link-commands.md
+    notes: Inline counted node-index lists for 0x0004 and 0x0005 reach the service in stream order and mutate only accepted type-1/type-7 targets.
+
+  - address: 0x004c5b60
+    name: TRG_SendSignalToNodes
+    slice: trg-counted-link-commands
+    status: tested
+    sources:
+      - src/trg/trg_runtime.cpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/trg_runtime_test.cpp
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/trg-counted-link-commands.md
+    notes: The 0x000a inline counted node-index list is decoded independently from serialized type-6 links and recorded/applied in order.
+
+  - address: 0x004c7c50
+    name: TRG_SkipCommandPayload
+    slice: trg-counted-link-commands
+    status: tested
+    sources:
+      - src/trg/trg_runtime.cpp
+      - src/trg/trg_runtime.hpp
+    tests:
+      - src/trg/trg_runtime_test.cpp
+      - tests/test_assets.py
+    evidence:
+      - re/evidence/functions/trg-counted-link-commands.md
+    notes: Conditional scanning uses the same bounded counted-list reader and rejects a truncated payload at the containing node boundary.
+
   - address: 0x00412640
     name: TRG_ConstructTrafficObject
     slice: asset-runtime

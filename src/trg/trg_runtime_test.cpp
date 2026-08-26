@@ -100,6 +100,8 @@ struct Recorder final : TriggerServices {
     std::vector<std::tuple<std::size_t, std::uint32_t, std::array<std::uint16_t, 3>>> script_objects;
     std::vector<std::tuple<std::size_t, std::uint16_t, std::uint16_t, std::array<std::int32_t, 3>>> special_states;
     std::vector<std::tuple<std::uint16_t, std::uint32_t, std::size_t>> unknown_commands;
+    std::vector<std::pair<std::uint16_t, std::vector<std::uint16_t>>> suspend_activate_lists;
+    std::vector<std::vector<std::uint16_t>> signal_lists;
 
     void on_object_node(std::size_t) override { ++objects; }
     void on_pickup_node(std::size_t) override { ++pickups; }
@@ -134,6 +136,15 @@ struct Recorder final : TriggerServices {
     void on_visible(std::size_t, std::uint16_t value, std::span<const std::uint16_t> links) override {
         visible_values.push_back(value);
         visible_links.emplace_back(links.begin(), links.end());
+    }
+    void on_suspend_activate(
+        std::size_t,
+        std::uint16_t opcode,
+        std::span<const std::uint16_t> links) override {
+        suspend_activate_lists.emplace_back(opcode, std::vector<std::uint16_t>(links.begin(), links.end()));
+    }
+    void on_signal(std::size_t, std::span<const std::uint16_t> links) override {
+        signal_lists.emplace_back(links.begin(), links.end());
     }
     void on_gap(std::size_t, std::uint32_t checksum, std::uint16_t argument) override {
         gaps.emplace_back(checksum, argument);
@@ -256,6 +267,91 @@ void test_initial_pulses_and_timer() {
     runtime.pulse_node(0);
     assert(recorder.node_pulses == std::vector<std::size_t>{1});
     assert(point->pulse_count == 2);
+}
+
+void test_counted_link_command_payloads_are_not_node_links() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0004);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0x000a);
+    u16(stream, 1);
+    u16(stream, 2);
+    u16(stream, 0x0005);
+    u16(stream, 1);
+    u16(stream, 1);
+    // This command proves the cursor reached the command after all three
+    // counted lists rather than treating their first words as opcodes.
+    u16(stream, 0x0086);
+    u16(stream, 7);
+    u16(stream, 0xffff);
+
+    const std::array<std::uint16_t, 1> serialized_links{2};
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node(serialized_links, 0, stream),
+        object_node(),
+        object_node(),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    const std::vector<std::pair<std::uint16_t, std::vector<std::uint16_t>>> expected_suspend{
+        {0x0004, {1}},
+        {0x0005, {1}},
+    };
+    assert(recorder.suspend_activate_lists == expected_suspend);
+    assert(recorder.signal_lists == std::vector<std::vector<std::uint16_t>>{{2}});
+    assert(runtime.command_point(0)->initialized == 1);
+    assert(runtime.command_point(0)->state == 7);
+}
+
+void test_counted_link_command_skip_and_truncation() {
+    std::vector<std::byte> skipped_stream;
+    u16(skipped_stream, 0x0094);
+    u16(skipped_stream, 0); // pulse count 1 does not enter this block
+    u16(skipped_stream, 0x0004);
+    u16(skipped_stream, 2);
+    u16(skipped_stream, 1);
+    u16(skipped_stream, 2);
+    u16(skipped_stream, 0x000a);
+    u16(skipped_stream, 1);
+    u16(skipped_stream, 2);
+    u16(skipped_stream, 0x0095);
+    u16(skipped_stream, 0x0086);
+    u16(skipped_stream, 9);
+    u16(skipped_stream, 0xffff);
+
+    Recorder skipped_recorder;
+    TriggerRuntime skipped_runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, skipped_stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), skipped_recorder);
+    skipped_runtime.build();
+    skipped_runtime.pulse_node(0);
+    assert(skipped_recorder.suspend_activate_lists.empty());
+    assert(skipped_recorder.signal_lists.empty());
+    assert(skipped_runtime.command_point(0)->state == 9);
+    assert(skipped_recorder.diagnostics.empty());
+
+    std::vector<std::byte> truncated_stream;
+    u16(truncated_stream, 0x0005);
+    u16(truncated_stream, 2);
+    u16(truncated_stream, 1);
+    Recorder truncated_recorder;
+    TriggerRuntime truncated_runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, truncated_stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), truncated_recorder);
+    truncated_runtime.build();
+    bool threw = false;
+    try {
+        truncated_runtime.pulse_node(0);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    assert(threw);
 }
 
 void test_conditional_skip_consumes_music_and_sound_operands() {
@@ -578,6 +674,8 @@ int main() {
     test_visible_pulse_and_record_layout();
     test_c9_alignment_and_gap_dispatch();
     test_initial_pulses_and_timer();
+    test_counted_link_command_payloads_are_not_node_links();
+    test_counted_link_command_skip_and_truncation();
     test_conditional_skip_consumes_music_and_sound_operands();
     test_conditional_skip_consumes_a7_pair();
     test_restart_selection_and_checksum_lookup();

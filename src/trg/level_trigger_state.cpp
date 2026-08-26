@@ -875,11 +875,11 @@ void LevelTriggerState::on_node_pulse(std::size_t node) {
 void LevelTriggerState::on_suspend_activate(
     std::size_t source,
     std::uint16_t opcode,
-    std::span<const std::uint16_t> links) {
+    std::span<const std::uint16_t> targets) {
     const TriggerEvent::Kind kind = opcode == 4
         ? TriggerEvent::Kind::Suspend
         : TriggerEvent::Kind::Activate;
-    for (const std::uint16_t target : links) {
+    for (const std::uint16_t target : targets) {
         TriggerObjectState* current = find_object(target);
         if (current != nullptr && accepts_suspend_or_signal(current->node_type)) {
             current->suspended = opcode == 4;
@@ -892,8 +892,8 @@ void LevelTriggerState::on_suspend_activate(
 
 void LevelTriggerState::on_signal(
     std::size_t source,
-    std::span<const std::uint16_t> links) {
-    for (const std::uint16_t target : links) {
+    std::span<const std::uint16_t> targets) {
+    for (const std::uint16_t target : targets) {
         if (TriggerObjectState* current = find_object(target);
             current != nullptr && accepts_suspend_or_signal(current->node_type)) {
             ++current->signals;

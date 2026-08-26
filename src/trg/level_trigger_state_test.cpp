@@ -145,6 +145,52 @@ void test_stateful_dispatch() {
     assert(state.events().size() == 3);
 }
 
+void test_counted_link_commands_update_only_inline_targets() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0004);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0x000a);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0x0005);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0xffff);
+
+    std::vector<std::byte> object;
+    u16(object, 1);
+    u16(object, 0);
+    u16(object, 0);
+    u16(object, 0);
+    object.push_back(std::byte{2});
+    object.push_back(std::byte{4});
+    object.push_back(std::byte{0xff});
+    object.insert(object.end(), 24, std::byte{0});
+
+    LevelTriggerState state;
+    TriggerRuntime runtime(TrgFile::parse(make_file({
+        // There are no serialized type-6 links. Every target below must
+        // come from the command payload itself.
+        type6_node({}, 0, stream),
+        object,
+        {std::byte{0xff}, std::byte{0}},
+    })), state);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    const TriggerObjectState* target = state.object(1);
+    assert(target != nullptr);
+    assert(target->signals == 1);
+    assert(target->suspend_activate_calls == 2);
+    assert(!target->suspended);
+    assert(target->active);
+    assert(state.events().size() == 3);
+    assert(state.events()[0].target_node == 1);
+    assert(state.events()[1].target_node == 1);
+    assert(state.events()[2].target_node == 1);
+}
+
 void test_retail_link_target_filters() {
     LevelTriggerState state;
     state.on_spawn_node(1, 1, 0xcb, {0, 0, 0}, {});
@@ -658,6 +704,7 @@ void test_scene_registry() {
 
 int main() {
     test_stateful_dispatch();
+    test_counted_link_commands_update_only_inline_targets();
     test_retail_link_target_filters();
     test_script_object_state();
     test_type10_type11_pulse_and_kill_state();

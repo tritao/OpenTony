@@ -539,8 +539,8 @@ public:
     void on_suspend_activate(
         std::size_t source,
         std::uint16_t opcode,
-        std::span<const std::uint16_t> links) override;
-    void on_signal(std::size_t source, std::span<const std::uint16_t> links) override;
+        std::span<const std::uint16_t> targets) override;
+    void on_signal(std::size_t source, std::span<const std::uint16_t> targets) override;
     void on_kill(
         std::size_t source,
         std::uint16_t opcode,

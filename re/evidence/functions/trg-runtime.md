@@ -903,8 +903,8 @@ The command-stream payloads around the link consumer are also recoverable:
 ```text
 u16 command 0x0002  -> read NUL-terminated cheat strings; store up to 20
 u16 command 0x0003  -> execute the source node's counted command list
-u16 command 0x0004  -> activate/suspend the source node's link targets
-u16 command 0x0005  -> activate/suspend the source node's link targets
+u16 command 0x0004  -> read a count and node-index list; activate/suspend those targets
+u16 command 0x0005  -> read a count and node-index list; activate/suspend those targets
 u16 command 0x000a  -> u16 count followed by that many node indices;
                        0x004c5b60 signals linked type-1/type-6 nodes
 u16 command 0x000b  -> send kill/pulse command with mode 0
@@ -980,10 +980,11 @@ aligned 10-byte payload for `0x00ab`, and the aligned 6-byte payload for
 shared by conditional skipping and execution, not just an artifact of one
 decompilation path.
 
-The command interpreter advances by the payload-specific amount: ordinary
-node/list commands consume no inline words, command `0x000a` consumes its
-counted node-index list, command `0x000d` consumes one word, and resource
-commands consume the aligned end of their NUL-terminated string. The `0x000a`
+The command interpreter advances by the payload-specific amount: `0x0004`,
+`0x0005`, and `0x000a` consume their counted node-index lists, ordinary
+opcode-only commands consume no inline words, command `0x000d` consumes one
+word, and resource commands consume the aligned end of their NUL-terminated
+string. The `0x000a`
 signal helper dispatches each referenced type-1/type-6 node through both the
 traffic and baddy object lists. This identifies the link payload as a runtime
 command stream with direct object-manager effects, rather than a passive

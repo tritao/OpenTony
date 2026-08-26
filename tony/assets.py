@@ -638,8 +638,9 @@ def _trg_skip_command(data: bytes, offset: int, end: int, opcode: int) -> int:
             raise ValueError("unterminated string-list operand")
         return cursor + 2
 
+    counted_node_lists = {4, 5, 10}
     one_word = {
-        3, 4, 5, 10, 11, 12, 0x66, 0x67, 0x79, 0x7A,
+        3, 11, 12, 0x66, 0x67, 0x79, 0x7A,
         0x81, 0x88, 0x89, 0x95, 0x98, 0x9E, 0xAD, 0xAF,
     }
     two_words = {
@@ -651,7 +652,12 @@ def _trg_skip_command(data: bytes, offset: int, end: int, opcode: int) -> int:
     strings = {0x73, 0x77, 0x7E, 0x7F, 0x80, 0x8C, 0x8E, 0x9F, 0xA2, 0xB0, 0xB2}
     three_words = {0x82, 0x87, 0x8B, 0x8F, 0x90, 0x91, 0x92, 0xA7, 0xAE, 0xC8, 0xCA}
 
-    if opcode in one_word:
+    if opcode in counted_node_lists:
+        if offset + 4 > end:
+            raise ValueError("truncated counted node-index list")
+        count = struct.unpack_from("<H", data, offset + 2)[0]
+        next_offset = offset + 4 + count * 2
+    elif opcode in one_word:
         next_offset = offset + 2
     elif opcode in two_words:
         next_offset = offset + 4
@@ -703,7 +709,15 @@ def _trg_command_record(data: bytes, offset: int, next_offset: int, opcode: int)
         "size": next_offset - offset,
         "raw": data[offset:next_offset].hex(),
     }
-    if opcode == 0xC9:
+    if opcode in {0x04, 0x05, 0x0A}:
+        count = struct.unpack_from("<H", data, offset + 2)[0]
+        record["count"] = count
+        record["node_indices"] = [
+            struct.unpack_from("<H", data, offset + 4 + cursor * 2)[0]
+            for cursor in range(count)
+        ]
+        record["arguments"] = [count, *record["node_indices"]]
+    elif opcode == 0xC9:
         aligned = _trg_align_down4(offset + 5)
         record["checksum"] = struct.unpack_from("<I", data, aligned)[0]
         record["argument"] = struct.unpack_from("<H", data, aligned + 4)[0]
