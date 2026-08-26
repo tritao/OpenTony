@@ -135,7 +135,6 @@ def _media_layout(path: Path, media_format: dict[str, int | str | None]) -> dict
 
 def _convert_raw_cd(source: Path, destination: Path, media_format: dict[str, int | str | None]) -> None:
     sector_size = int(media_format["sector_size"])
-    user_data_offset = int(media_format["user_data_offset"])
     user_data_size = int(media_format["user_data_size"])
     total_sector_count, remainder = divmod(source.stat().st_size, sector_size)
     if remainder:
@@ -143,8 +142,6 @@ def _convert_raw_cd(source: Path, destination: Path, media_format: dict[str, int
     sector_count = int(media_format.get("data_sectors") or total_sector_count)
     if sector_count > total_sector_count:
         raise RuntimeError(f"ISO volume exceeds raw image: {sector_count} > {total_sector_count} sectors")
-    expected_mode = 1 if media_format["format"] == "raw-cd-mode1" else 2
-
     destination.parent.mkdir(parents=True, exist_ok=True)
     with source.open("rb") as input_stream, destination.open("wb") as output_stream:
         for index in range(sector_count):
@@ -153,8 +150,18 @@ def _convert_raw_cd(source: Path, destination: Path, media_format: dict[str, int
                 raise RuntimeError(f"short raw sector {index} in {source}")
             if sector[:12] != _RAW_CD_SYNC:
                 raise RuntimeError(f"invalid raw CD sync header at sector {index}")
-            if sector[15] != expected_mode:
-                raise RuntimeError(f"unexpected raw CD mode at sector {index}: {sector[15]}")
+            mode = sector[15]
+            if mode == 1:
+                user_data_offset = 16
+            elif mode == 2:
+                # The duplicated XA subheader's submode byte marks Form 2 with
+                # bit 5. Form 2 carries 2324 bytes and cannot be normalized as
+                # an ISO-9660 2048-byte logical sector.
+                if sector[18] & 0x20 or sector[22] & 0x20:
+                    raise RuntimeError(f"unexpected raw CD Mode 2/Form 2 sector at {index}")
+                user_data_offset = 24
+            else:
+                raise RuntimeError(f"unexpected raw CD mode at sector {index}: {mode}")
             payload = sector[user_data_offset:user_data_offset + user_data_size]
             if len(payload) != user_data_size:
                 raise RuntimeError(f"short user-data payload at sector {index}")
