@@ -115,6 +115,37 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     assert negative.x.value == -1.0
 
 
+def test_ground_motion_context_reconstructs_indexed_local_profile_lookup(monkeypatch):
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x100
+    controller = 0x3800
+    mode = 0x3400
+    selector = 0x3404
+    profile_table = 0x3600
+    monkeypatch.setitem(physics.GROUND_MOTION_PROFILE_GLOBALS, "mode", mode)
+    monkeypatch.setitem(
+        physics.GROUND_MOTION_PROFILE_GLOBALS, "player_selector", selector)
+    monkeypatch.setitem(
+        physics.GROUND_MOTION_PROFILE_GLOBALS, "profile_table", profile_table)
+
+    struct.pack_into("<I", inferior.data, generated_knowledge.GLOBALS["Player"], player)
+    struct.pack_into("<I", inferior.data, player + 0x2CCC, controller)
+    struct.pack_into("<I", inferior.data, player + 0x2CC4, 1)
+    struct.pack_into("<I", inferior.data, mode, 7)
+    struct.pack_into("<I", inferior.data, selector, 1)
+    struct.pack_into("<i", inferior.data, profile_table, 0)
+    struct.pack_into("<i", inferior.data, profile_table + 4, 1)
+
+    snapshot = physics._ground_motion_context(player, memory)
+
+    assert snapshot["local_profile_lookup"]["lookup_index"] == 0
+    assert snapshot["local_profile_lookup"]["value"] == 0
+    assert snapshot["profile_slot_0x10_active"] == 0
+    assert snapshot["profile_gate"] is False
+    assert len(snapshot["controller_profile_slots"]) == 16
+
+
 def test_collision_probe_reads_bounded_linked_object_prefix():
     inferior = FakeInferior()
     first = 0x500

@@ -17,8 +17,8 @@ struct GroundMotionInput final {
     bool physics_locked = false;
     // The first branch is guarded by (+0x2e78 == 0 || +0x2e7c == 0).
     bool correction_gate_open = true;
-    // The +0x2ccc + 0x10 slot is the configured GRAB action and selects the
-    // stronger scale for animation states 2/3.
+    // The +0x2ccc + 0x10 slot selects the stronger scale for animation states
+    // 2/3. Its higher-level action/profile name is intentionally unresolved.
     bool strong_profile = false;
     // A nonzero local profile returns after the first branch and skips the
     // later ordinary profile branch.

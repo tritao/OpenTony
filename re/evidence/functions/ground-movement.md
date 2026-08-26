@@ -93,6 +93,79 @@ position = commit_candidate(position, history, correction);
 
 The turn constants and branches above are from `0x00493370`; `frame_scale_q8` is runtime `DAT_0056865c`. The remaining surface/collision decisions are branch-shaped rather than one universal equation, so the recreation should preserve them as explicit data-driven stages.
 
+## B010 producer inputs and profile ownership
+
+The next unresolved boundary is now instrumented rather than represented by a
+single caller-supplied boolean. The new `tony-ground-motion-probe [COUNT]`
+breakpoint enters `0x0049b010` once per selected-player call and records the
+complete raw input set: all sixteen `player+0x2ccc` 16-byte profile slots,
+controller axes, animation state/frame, `+0x2e78/+0x2e7c`,
+`+0x2f2c/+0x2dc8`, `+0x2dd8/+0x2dd4/+0x2df8`, response vector, basis, and the
+`+0x3118/+0x3128/+0x312c` surface-side values. It also evaluates the exact
+indexed lookup used by B010, but labels its result only as a raw local-profile
+lookup.
+
+The lookup is:
+
+```text
+index = player+0x2cc4
+if DAT_00533f38 == 7:
+    index ^= DAT_0056a854
+local_value = *(int *)(0x0056a3d8 + index * 4)
+profile_gate = (controller+0x10 != 0) || (local_value != 0)
+```
+
+This is an outer B010 eligibility gate. The `controller+0x10` byte also
+selects scale `8` instead of `4` in the animation-state `2/3` correction
+branches. A nonzero local value causes B010 to return after its first branch,
+so it suppresses the later ordinary profile branch. Neither the slot nor the
+table has been promoted to a public action/stat name.
+
+Static image cross-references close the local-table writer chain enough to
+target it directly:
+
+```text
+0x00413f30 / store PCs 0x00413f39, 0x00413f40
+    initialize source flags at 0x0055fc2c[index] / 0x0055fc34[index]
+0x00487c30 / store PCs 0x00487d27, 0x00487d45
+    derive those source flags from profile-record +0x24c/+0x248, word +0x10
+0x00413c10 / store PC 0x00413c49
+    copy 0x0055fc2c[index] into 0x0056a3d8[index]
+0x0049b010
+    consume the indexed 0x0056a3d8 value
+```
+
+`tony-ground-motion-profile-probe [COUNT]` records these five store sites,
+including the profile-record object/index and the value about to be written.
+This makes the remaining question empirical: whether the Warehouse player’s
+local value is changed by profile setup, profile selection, or a later runtime
+mode update.
+
+The B010 rearm inputs are similarly explicit. The first random return site at
+`0x0049b1c4` supplies the `+0xaa` threshold seed; the second at `0x0049b416`
+supplies the `+0xdc` seed. The resulting stores are:
+
+```text
+cooldown +0x2f2c = 0x14
+threshold +0x2dc8 = ((roll + bias) * 0x2d000) / 0x118
+animation rate +0x108 = 0x14000
+event pending +0x30a8 = 1
+```
+
+The `0x0049b1c4` path can request animation `1` with reason `0x2570`; the
+later `0x0049b416` path uses reason `0x25e5`. The no-animation side of the
+first gate still rearms only `+0x2f2c`. `tony-ground-motion-writers [COUNT]`
+records both the twelve correction component stores and these cooldown,
+threshold, animation, and event stores; with `--correction` or `--control` it
+can be narrowed to one group. The two random return sites are included in
+the `--control` group.
+
+These probes do not change game state. A deterministic Warehouse replay should
+arm the producer, profile, and writer probes together with the existing frame,
+position-commit, and collision probes. That trace can then distinguish a
+profile/stat eligibility change from a surface/collision modification of the
+candidate without treating the action-script impulse path as ordinary steering.
+
 ## Action handoff
 
 The input mapping is already established in [input.md](../input.md):
