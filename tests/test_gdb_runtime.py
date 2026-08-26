@@ -38,6 +38,7 @@ sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
+from opentony.collision import _linked_object_snapshots
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -90,6 +91,55 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     assert memory.f32(0x34) == 0.25
     assert negative.x.signed == -65536
     assert negative.x.value == -1.0
+
+
+def test_collision_probe_reads_bounded_linked_object_prefix():
+    inferior = FakeInferior()
+    first = 0x500
+    second = 0x600
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        first,
+        0,
+        0x0025,
+        0x1234,
+        4096,
+        -8192,
+        12288,
+        0x0100,
+        -0x0100,
+        0x0200,
+        171,
+        6,
+        second,
+    )
+    struct.pack_into(
+        "<IHH3i3hH3xBI",
+        inferior.data,
+        second,
+        0,
+        0x0020,
+        0x1235,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        172,
+        6,
+        0,
+    )
+    snapshot = _linked_object_snapshots(first, Memory(inferior))
+
+    assert snapshot["termination"] == "null"
+    assert snapshot["next_unread"] is None
+    assert len(snapshot["nodes"]) == 2
+    assert snapshot["nodes"][0]["position_s32"] == [4096, -8192, 12288]
+    assert snapshot["nodes"][0]["angles_s16"] == [0x100, -0x100, 0x200]
+    assert snapshot["nodes"][0]["model_index"] == 171
+    assert snapshot["nodes"][1]["next"] is None
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():

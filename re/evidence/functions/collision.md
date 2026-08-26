@@ -503,7 +503,10 @@ registered as `tony-collision-probe`; it records the wrapper `mode`,
 flags, line length, hit parameter, traveled distance, query stamp, the nine
 short basis values at `q+0x48`, and the query-record mode bytes. The two later
 phase attempts were stopped before level physics settled and are not used as
-evidence.
+evidence. When the linked root is non-null, the probe additionally captures at
+most 32 node prefixes (`+0x04..+0x23`) and reports null, cycle, limit, or
+unreadable termination. This makes the next runtime run capable of resolving
+the remaining heap-linked storage without an unbounded memory walk.
 
 ## Interpretation
 

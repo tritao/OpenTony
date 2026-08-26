@@ -46,6 +46,47 @@ def _global_u32(address: int, memory) -> int | None:
     return memory.u32(address) if memory.valid(address + 3) else None
 
 
+def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
+    """Read a bounded view of the dynamic collision-object linked list."""
+
+    nodes = []
+    address = root or 0
+    visited = set()
+    termination = "null"
+    while address and len(nodes) < limit:
+        if address in visited:
+            termination = "cycle"
+            break
+        if not memory.readable(address, 0x24):
+            termination = "unreadable"
+            break
+        visited.add(address)
+        next_address = memory.u32(address + 0x20)
+        nodes.append(
+            {
+                "address": f"0x{address:08x}",
+                "flags": memory.u16(address + 0x04),
+                "query_stamp": _signed16(memory.u16(address + 0x06)),
+                "position_raw": _vec_words(address + 0x08, memory),
+                "position_s32": [
+                    _signed32(value) for value in _vec_words(address + 0x08, memory)
+                ],
+                "angles_s16": _short_vec(address + 0x14, memory),
+                "model_index": memory.u16(address + 0x1A),
+                "model_kind": memory.u8(address + 0x1F),
+                "next": f"0x{next_address:08x}" if next_address else None,
+            }
+        )
+        address = next_address
+    if address and len(nodes) >= limit:
+        termination = "limit"
+    return {
+        "nodes": nodes,
+        "termination": termination,
+        "next_unread": f"0x{address:08x}" if address else None,
+    }
+
+
 def _zone_entry_snapshot(address: int, memory) -> dict | None:
     if not memory.valid(address + 0x9F):
         return None
@@ -65,8 +106,10 @@ def _zone_entry_snapshot(address: int, memory) -> dict | None:
 def _scene_roots(memory) -> dict:
     """Capture addresses/ownership markers without walking unbounded memory."""
 
+    linked_root = _global_u32(COLLISION_LINKED_ROOT, memory)
     return {
-        "linked_root_value": _global_u32(COLLISION_LINKED_ROOT, memory),
+        "linked_root_value": linked_root,
+        "linked_objects": _linked_object_snapshots(linked_root, memory),
         "zone_table_base": f"0x{COLLISION_ZONE_TABLE:08x}",
         "zone0": _zone_entry_snapshot(COLLISION_ZONE_TABLE, memory),
         "candidate_table_base": f"0x{COLLISION_CANDIDATE_TABLE:08x}",
