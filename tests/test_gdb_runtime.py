@@ -69,6 +69,7 @@ from opentony.camera import (
     geometry_submission_record,
     transformed_vertex_record,
 )
+from opentony.collision import CollisionDynamicTransformMutationProbe
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -524,6 +525,80 @@ def test_camera_collision_record_keeps_world_query_raw_and_camera_inputs():
     assert result["hit_face_raw"] == 1
     assert result["candidate_segment"]["start"]["raw"] == [0x10000, 0, 0]
     assert result["candidate_segment"]["end"]["raw"] == [0x20000, 0, 0]
+
+
+def test_collision_transform_mutation_restores_object_tail_and_matrix():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    object_address = 0x800
+    matrix_address = 0x900
+    inferior.data[object_address + 0x04:object_address + 0x06] = struct.pack(
+        "<H", 0x0202
+    )
+    original_scale = (0x1000, -0x1000, 0x0400)
+    for offset, value in zip((0x28, 0x2A, 0x2C), original_scale):
+        inferior.data[object_address + offset:object_address + offset + 2] = (
+            struct.pack("<h", value)
+        )
+    matrix_before = (0x1000, 0x0200, -0x0300, 0x0400, -0x0800, 0x0600,
+                     -0x0700, 0x0800, 0x0900)
+    for index, value in enumerate(matrix_before):
+        inferior.data[matrix_address + index * 2:matrix_address + index * 2 + 2] = (
+            struct.pack("<h", value)
+        )
+
+    class ContextStub:
+        eip = 0x00464067
+
+        def __init__(self, memory):
+            self.memory = memory
+
+        def arg(self, index):
+            return (object_address, matrix_address)[index]
+
+        def caller(self):
+            return 0x00464062
+
+        def return_address(self):
+            return 0x00464067
+
+    class EventWriter:
+        def __init__(self):
+            self.events = []
+
+        def event(self, record):
+            self.events.append(record)
+
+    writer = EventWriter()
+    probe = CollisionDynamicTransformMutationProbe(
+        (0x1800, -0x0800, 0x2000), count=1, writer=writer
+    )
+    context = ContextStub(memory)
+    probe.begin(context)
+
+    assert [memory.u16(object_address + offset) for offset in (0x28, 0x2A, 0x2C)] == [
+        0x1800, 0xF800, 0x2000
+    ]
+    matrix_after = (0x1800, -0x0100, -0x0600, 0x0600, 0x0400, 0x0C00,
+                    -0x0A80, -0x0400, 0x1200)
+    for index, value in enumerate(matrix_after):
+        inferior.data[matrix_address + index * 2:matrix_address + index * 2 + 2] = (
+            struct.pack("<h", value)
+        )
+    probe.finish(context)
+
+    assert [memory.s16(object_address + offset) for offset in (0x28, 0x2A, 0x2C)] == list(
+        original_scale
+    )
+    assert [memory.s16(matrix_address + index * 2) for index in range(9)] == list(
+        matrix_before
+    )
+    event = writer.events[0]
+    assert event["matrix_after"] == list(matrix_after)
+    assert event["matrix_after_restore"] == list(matrix_before)
+    assert event["object_after_restore"]["tail_28_s16"] == original_scale[0]
+    assert event["object_after_restore"]["tail_2a_s16"] == original_scale[1]
+    assert event["object_after_restore"]["tail_2c_s16"] == original_scale[2]
 
 
 def test_camera_timing_record_preserves_rate_producer_state():
