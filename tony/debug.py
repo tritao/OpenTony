@@ -14,7 +14,7 @@ from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, w
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .gdb_knowledge import generate as generate_gdb_knowledge
 from .nocd import nocd_executable
-from .sessions import _timestamp, cleanup_session_audio, create_session
+from .sessions import _timestamp, cleanup_session_audio, cleanup_session_prefix, create_session
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
 
@@ -263,5 +263,6 @@ def debug_game(args) -> int:
         if display is not None:
             display.close()
         session.update(status="stopped", exit_code=exit_code, stopped_at=_timestamp())
+        cleanup_session_prefix(session)
         for signum, handler in previous_signal_handlers.items():
             signal.signal(signum, handler)

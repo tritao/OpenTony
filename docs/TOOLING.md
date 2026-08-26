@@ -40,6 +40,13 @@ needed. If `pactl` is unavailable, the session continues without the forced mute
 This applies to debugger-launched games; attaching with `--pid` does not change
 audio for an already-running game.
 
+Debug session metadata and disposable Wine prefixes are shared across Git
+worktrees. A normally stopped debugger removes its isolated Wine prefix while
+retaining the small session record and trace outputs. Use `tony sessions prune
+--dry-run` to audit legacy prefixes, then `tony sessions prune` to remove stale
+prefixes across all worktrees; prefixes referenced by live processes are always
+preserved.
+
 For headless smoke tests, Xvfb provides a completely separate display:
 
 ```bash

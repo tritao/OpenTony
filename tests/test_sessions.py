@@ -95,3 +95,33 @@ def test_clean_preserves_session_when_audio_cleanup_fails(monkeypatch, tmp_path:
 
     assert session.path.exists()
     assert sessions.load_session("warehouse").data["audio_cleanup_error"] == "pactl-unavailable"
+
+
+def test_cleanup_prefix_retains_session_metadata(monkeypatch, tmp_path: Path):
+    _use_temp_registry(monkeypatch, tmp_path)
+    session = sessions.create_session("warehouse", None, isolated=True)
+    (session.prefix / "drive_c").mkdir()
+    session.update(status="stopped")
+    monkeypatch.setattr(sessions, "_live_wine_prefixes", lambda: set())
+
+    assert sessions.cleanup_session_prefix(session) is True
+    assert not session.prefix.exists()
+    assert session.path.exists()
+    assert sessions.load_session("warehouse").data["prefix_cleaned_at"]
+
+
+def test_prune_protects_live_prefixes(monkeypatch, tmp_path: Path):
+    _root, prefixes = _use_temp_registry(monkeypatch, tmp_path)
+    stale = prefixes / "stale"
+    live = prefixes / "live"
+    stale.mkdir(parents=True)
+    live.mkdir()
+    monkeypatch.setattr(sessions, "_worktree_prefix_roots", lambda: {prefixes})
+    monkeypatch.setattr(sessions, "_live_wine_prefixes", lambda: {live.resolve()})
+
+    removed, protected = sessions.prune_session_prefixes()
+
+    assert removed == [stale]
+    assert protected == [live]
+    assert not stale.exists()
+    assert live.exists()

@@ -39,6 +39,7 @@ from .recovered_types import types_verify
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_clean,
     sessions_list,
+    sessions_prune,
     sessions_stop,
 )
 from .slices import (  # noqa: F401 - command handlers are consumed by cli.py
