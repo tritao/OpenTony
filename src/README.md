@@ -389,10 +389,17 @@ contact, normal, distance, and parameter fields. The native object and face
 identifiers are stable scene IDs/source offsets; they are not fabricated
 32-bit PC pointers. The dynamic branch's transformed-vertex preprocessing,
 projected-face gate, candidate-distance arithmetic, and signed-short
-saturation are also exposed. The remaining gap is the PC heap-linked object
-list's loader ownership and level-to-heap serialization. The collision-facing
-linked-node element stride, prefix, tail extent, and broad-phase arithmetic
-are documented and tested in `re/evidence/collision_reference.hpp`. The evidence layer also
+saturation are also exposed. `query_linked_objects` accepts a native view of
+the recovered PC heap-node prefix and runs the exact flag gate, object-space
+broad phase, recovered transformed-model pass, and dynamic face scan; callers
+provide the resolved native model index and body identity because the
+original stores a type-table model pair and a live pointer in `q+0x68`. The
+`query_with_linked_objects` entry point composes that branch with the PSX
+zone/blockmap path using the shared traveled-distance field. The
+remaining gap is the PC heap-linked object's loader ownership and
+level-to-heap serialization. The collision-facing linked-node element
+stride, prefix, tail extent, and broad-phase arithmetic are documented and
+tested in `re/evidence/collision_reference.hpp`. The evidence layer also
 models the null-terminated per-cell object-head array and the recovered
 forward/backward list-link offsets; PC loader allocation and serialization
 remain outside this boundary.

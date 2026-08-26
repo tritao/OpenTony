@@ -406,8 +406,8 @@ the wrapper; the query does not parse a file on each call.
     parameter at `q+0x8c`. This is a real behavioral distinction, not just a
     decompiler naming artifact. The decompiled dynamic face-hit branch does
     not itself assign `q+0x6c..0x74`; those contact words are assigned by the
-    static tester and by the dynamic routine's no-face fallback, so dynamic
-    contact ownership remains a targeted runtime question.
+    static tester and by the dynamic routine's post-face-loop contact
+    calculation, using the winning traveled distance.
   - The dynamic helpers are now algebraically constrained at the machine-code
     level. `0x004e2f80` computes the three 2-D determinants from the
     transformed X/Y vertex pairs. For a triangle, a negative determinant for
@@ -649,6 +649,14 @@ object-space broad phase rejecting the sampled objects, not by the probe
 missing the mode-1 query path. It does not claim that every node beyond the
 bounded prefix was absent or rejected.
 
+The executable's direct cull disassembly sharpens the flag interpretation:
+both `0x004f43e0` (linked objects) and `0x004f4940` (static candidates) test
+only the low byte. They reject low-byte bit `0x20` and reject the case where
+low-byte bits `0x01` and `0x40` are both set; the full-word `0x0400` bit is
+not an admission rejection. That bit is instead tested by `0x00463e50` while
+choosing its fast versus alternate/oriented transform setup, so native code
+must preserve the distinction.
+
 The face-flag consumer was also observed directly. A 32-call capture at
 `0x0048ea80` contained eight non-null hit bodies, all from the ground caller
 `0x00496fe1`. The winning face records used base word `0x001c1083` and
@@ -717,6 +725,22 @@ and direct wrappers for the dynamic transformed-vertex preprocessing and
 projected-face candidate arithmetic. It deliberately does not claim that the
 PC heap linked-list serialization or its broad-phase object records have been
 reproduced.
+
+The asset-facing API also exposes `PsxLinkedCollisionObject` and
+`PsxScene::query_linked_objects`. This is the native equivalent of the
+collision-facing portion of `0x004628f0`: each supplied node is checked with
+the exact `0x004f43e0` flag gate and short-arithmetic broad phase, then its
+model is transformed and scanned by the recovered dynamic face path. The
+method returns the nearest dynamic candidate by `q+0x40`, preserves the
+caller-supplied body identity in `q+0x68`, and leaves the unresolved heap
+loader/serialization boundary explicit. Its `model_index` is a caller-
+resolved native scene index; the original PC `model_kind`/index pair still
+selects one of the unresolved type-specific model tables.
+`PsxScene::query_with_linked_objects` composes this dynamic result with the
+PSX zone/blockmap result at the recovered native boundary. It compares the
+shared traveled-distance field `q+0x40` and keeps the static candidate on an
+exact tie, reflecting the executable's dynamic-before-static traversal and
+strict-nearer updates.
 
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact

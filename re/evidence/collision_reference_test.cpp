@@ -52,7 +52,9 @@ int main() {
     assert(linked->next == 0x12345678);
     assert(linked_object_flag_gate(0x0110));
     assert(linked_object_flag_gate(0x8110));
+    assert(linked_object_flag_gate(0x0410));
     assert(!linked_object_flag_gate(0x0130));
+    assert(!linked_object_flag_gate(0x0430));
     assert(!linked_object_flag_gate(0x8171));
 
     assert(candidate_cell_source_bytes(0) == 0x10);
@@ -387,7 +389,7 @@ int main() {
     assert(dynamic_query.hit_distance == 10);
     const auto dynamic_contact = dynamic_contact_at_distance(dynamic_query);
     assert(dynamic_contact);
-    assert(dynamic_contact->at(2) == 163800);
+    assert(dynamic_contact->at(2) == 40900);
 
     QueryRecord dynamic_transform_query;
     dynamic_transform_query.start = {0, 0, 0};

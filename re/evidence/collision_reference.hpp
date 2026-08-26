@@ -855,7 +855,7 @@ inline CandidateHeadArrayRead visit_candidate_head_array(
 #pragma pack(push, 1)
 struct LinkedCollisionObjectLayout {
     std::uint32_t unknown_00 = 0;
-    std::uint16_t flags = 0;          // +0x04; byte +0x05 has a cull bit
+    std::uint16_t flags = 0;          // +0x04; byte +0x05 selects a transform path
     std::uint16_t query_stamp = 0;    // +0x06
     Raw position[3]{};                // +0x08, fixed-point
     std::int16_t angles[3]{};         // +0x14, x/y/z angle units
@@ -876,14 +876,14 @@ static_assert(offsetof(LinkedCollisionObjectLayout, model_kind) == 0x1f);
 static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
 
 // Exact flag gate at 0x004f43e0 before the object-space broad phase. The
-// low byte must not contain bit 0x20, the high byte must not contain bit
-// 0x02 (full-word mask 0x400), and the low-byte pair 0x41 must not both be
-// set. Objects failing this gate are stamped as tested and never reach the
-// transformed-face routine at 0x00463e50.
+// low byte must not contain bit 0x20, and the low-byte pair 0x41 must not
+// both be set. The high byte is ignored by this admission test. Objects
+// failing this gate are stamped as tested and never reach the transformed-
+// face routine at 0x00463e50. The separate 0x0400 transform-path bit is
+// consumed later by 0x00463e50 and is intentionally not part of this gate.
 inline constexpr bool linked_object_flag_gate(std::uint16_t flags) {
     const auto low = static_cast<std::uint8_t>(flags);
-    return (static_cast<std::uint16_t>(flags) & 0x0400u) == 0 &&
-           (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
+    return (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
 }
 
 // The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
@@ -1282,8 +1282,9 @@ inline std::optional<RawVec3> dynamic_contact_at_distance(
     }
     // The dynamic fallback first computes (distance << 12) / line_length,
     // then multiplies that parameter by each endpoint delta after SAR 12.
+    constexpr Raw kCoordinateScale = 0x1000;
     const auto shifted_distance = wrapping_from_i64(
-        static_cast<std::int64_t>(query.hit_distance) * kParameterScale);
+        static_cast<std::int64_t>(query.hit_distance) * kCoordinateScale);
     const auto parameter = trunc_div_checked(
         static_cast<std::int64_t>(shifted_distance), query.line_length);
     if (!parameter) {
