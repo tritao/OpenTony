@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -499,6 +500,212 @@ def verify() -> bool:
         f"{len(report['bindings']['functions'])} signatures, {len(report['bindings']['globals'])} globals)"
     )
     return True
+
+
+def _tracked_function(address: int) -> dict:
+    return next(
+        (item for item in load_yaml("re/symbols/functions.yml").get("functions", []) if int(item["address"]) == address),
+        {},
+    )
+
+
+def _module_for_address(address: int) -> dict | None:
+    for module in load_yaml("match/manifest.yml").get("modules", []):
+        if int(module["start_va"]) <= address < int(module["end_va"]):
+            return {
+                "id": module["id"],
+                "start_va": int(module["start_va"]),
+                "end_va": int(module["end_va"]),
+                "status": module["status"],
+                "source": module["source"],
+            }
+    return None
+
+
+def _subsystem_for_address(address: int) -> dict | None:
+    for path in sorted((ROOT / "re/subsystems").glob("*.yml")):
+        document = load_yaml(str(path.relative_to(ROOT)))
+        focus = document.get("focus", {})
+        if int(focus.get("start_va", -1)) <= address < int(focus.get("end_va", -1)):
+            return {"name": document.get("subsystem"), "manifest": str(path.relative_to(ROOT))}
+    return None
+
+
+def _decompile(program, function) -> str:
+    from ghidra.app.decompiler import DecompInterface
+    from ghidra.util.task import ConsoleTaskMonitor
+
+    decompiler = DecompInterface()
+    decompiler.openProgram(program)
+    result = decompiler.decompileFunction(function, 60, ConsoleTaskMonitor())
+    if not result.decompileCompleted():
+        raise SystemExit(f"could not decompile {function.getEntryPoint()}: {result.getErrorMessage()}")
+    return str(result.getDecompiledFunction().getC())
+
+
+def inspect_function(address: int, output: Path | None = None) -> dict:
+    exe = _exe_path()
+    pyghidra = _require_pyghidra()
+    spec = load_yaml("re/config/ghidra.yml")["ghidra"]
+    pyghidra.start(install_dir=resolve(spec["install_dir"]))
+    with pyghidra.open_project(resolve(spec["project_dir"]), spec["project_name"], create=False) as project, pyghidra.program_context(
+        project, f"/{exe.name}"
+    ) as program:
+        address_space = program.getAddressFactory().getDefaultAddressSpace()
+        function = program.getFunctionManager().getFunctionAt(address_space.getAddress(address))
+        if function is None:
+            raise SystemExit(f"no function starts at 0x{address:08x}")
+        monitor = pyghidra.task_monitor()
+        body = [
+            {"start_va": int(item.getMinAddress().getOffset()), "end_va": int(item.getMaxAddress().getOffset()) + 1}
+            for item in function.getBody().getAddressRanges()
+        ]
+        callers = sorted(
+            ({"address": int(item.getEntryPoint().getOffset()), "name": str(item.getName())}
+             for item in function.getCallingFunctions(monitor)),
+            key=lambda item: item["address"],
+        )
+        callees = sorted(
+            ({"address": int(item.getEntryPoint().getOffset()), "name": str(item.getName())}
+             for item in function.getCalledFunctions(monitor)),
+            key=lambda item: item["address"],
+        )
+        globals_by_address = {}
+        listing = program.getListing()
+        symbols = program.getSymbolTable()
+        for instruction in listing.getInstructions(function.getBody(), True):
+            for reference in instruction.getReferencesFrom():
+                destination = reference.getToAddress()
+                if not destination.isMemoryAddress() or function.getBody().contains(destination):
+                    continue
+                symbol = symbols.getPrimarySymbol(destination)
+                if symbol is not None and str(symbol.getName()) not in {item["name"] for item in callees}:
+                    value = int(destination.getOffset())
+                    globals_by_address[value] = {"address": value, "name": str(symbol.getName())}
+        stack = sorted(
+            ({
+                "name": str(item.getName()), "offset": int(item.getStackOffset()), "size": int(item.getLength()),
+                "type": str(item.getDataType().getDisplayName()),
+            } for item in function.getStackFrame().getStackVariables()),
+            key=lambda item: item["offset"],
+        )
+        decompiled = _decompile(program, function)
+        field_accesses = sorted({f"{base}->{field}" for base, field in re.findall(r"\b(\w+)->(\w+)\b", decompiled)})
+        unresolved_fields = [item for item in field_accesses if "->field_" in item]
+        parameters = [{
+            "name": str(item.getName()), "type": str(item.getDataType().getDisplayName()),
+        } for item in function.getParameters()]
+        tracked = _tracked_function(address)
+        result = {
+            "version": 1,
+            "function": {
+                "address": address,
+                "name": str(function.getName()),
+                "calling_convention": str(function.getCallingConventionName()),
+                "return_type": str(function.getReturnType().getDisplayName()),
+                "parameters": parameters,
+                "body": body,
+            },
+            "callers": callers,
+            "callees": callees,
+            "globals": [globals_by_address[key] for key in sorted(globals_by_address)],
+            "stack_variables": stack,
+            "field_accesses": field_accesses,
+            "unresolved": {
+                "void_pointer_parameters": [item["name"] for item in parameters if item["type"] == "void *"],
+                "fields": unresolved_fields,
+            },
+            "matching": _module_for_address(address),
+            "evidence": tracked.get("evidence", []),
+            "confidence": tracked.get("confidence"),
+            "subsystem": _subsystem_for_address(address),
+            "native_status": "untracked",
+        }
+    text = json.dumps(result, indent=2) + "\n"
+    if output is None:
+        print(text, end="")
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        print(f"Inspected 0x{address:08x}: {output}")
+    return result
+
+
+def gaps(output: Path | None = None, limit: int = 50) -> list[dict]:
+    exe = _exe_path()
+    pyghidra = _require_pyghidra()
+    spec = load_yaml("re/config/ghidra.yml")["ghidra"]
+    tracked = load_yaml("re/symbols/functions.yml").get("functions", [])
+    modules = load_yaml("match/manifest.yml").get("modules", [])
+    subsystem_ranges = []
+    for path in sorted((ROOT / "re/subsystems").glob("*.yml")):
+        document = load_yaml(str(path.relative_to(ROOT)))
+        focus = document.get("focus", {})
+        subsystem_ranges.append((
+            int(focus.get("start_va", -1)), int(focus.get("end_va", -1)),
+            {"name": document.get("subsystem"), "manifest": str(path.relative_to(ROOT))},
+        ))
+
+    def module_at(address: int) -> dict | None:
+        for module in modules:
+            if int(module["start_va"]) <= address < int(module["end_va"]):
+                return {
+                    "id": module["id"], "start_va": int(module["start_va"]), "end_va": int(module["end_va"]),
+                    "status": module["status"], "source": module["source"],
+                }
+        return None
+
+    def subsystem_at(address: int) -> dict | None:
+        return next((item for start, end, item in subsystem_ranges if start <= address < end), None)
+
+    rows = []
+    pyghidra.start(install_dir=resolve(spec["install_dir"]))
+    with pyghidra.open_project(resolve(spec["project_dir"]), spec["project_name"], create=False) as project, pyghidra.program_context(
+        project, f"/{exe.name}"
+    ) as program:
+        address_space = program.getAddressFactory().getDefaultAddressSpace()
+        references = program.getReferenceManager()
+        for item in tracked:
+            address = int(item["address"])
+            ghidra_address = address_space.getAddress(address)
+            function = program.getFunctionManager().getFunctionAt(ghidra_address)
+            reasons = []
+            score = 0
+            reference_count = int(references.getReferenceCountTo(ghidra_address))
+            score += min(reference_count, 20)
+            if function is None:
+                reasons.append("missing Ghidra function")
+                score += 100
+            else:
+                parameter_types = [str(parameter.getDataType().getDisplayName()) for parameter in function.getParameters()]
+                if any(value == "void *" or value.startswith("undefined") for value in parameter_types):
+                    reasons.append("unresolved parameter type")
+                    score += 25
+            if "signature" not in item:
+                reasons.append("missing tracked signature")
+                score += 50
+            module = module_at(address)
+            if module and module["status"] == "raw":
+                reasons.append("raw matching module")
+                score += 15
+            subsystem = subsystem_at(address)
+            if reasons:
+                rows.append({
+                    "address": address, "name": item["name"], "score": score, "reasons": reasons,
+                    "incoming_references": reference_count, "matching": module, "confidence": item.get("confidence"),
+                    "evidence": item.get("evidence", []), "subsystem": subsystem, "native_status": "not_recorded",
+                })
+    rows.sort(key=lambda item: (-item["score"], item["address"]))
+    rows = rows[:limit]
+    document = {"version": 1, "count": len(rows), "gaps": rows}
+    text = json.dumps(document, indent=2) + "\n"
+    if output is None:
+        print(text, end="")
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+        print(f"Exported {len(rows)} reconstruction gaps: {output}")
+    return rows
 
 
 def export_functions(output: Path | None = None) -> Path:

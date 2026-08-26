@@ -28,6 +28,12 @@ def test_ghidra_iteration_commands_parse():
     assert sync.force is True
     assert callable(verify.func)
 
+    inspect = build_parser().parse_args(["ghidra", "inspect", "0x004638d0", "--output", "inspect.json"])
+    gaps = build_parser().parse_args(["ghidra", "gaps", "--limit", "12"])
+    assert inspect.address == 0x004638D0
+    assert inspect.output == "inspect.json"
+    assert gaps.limit == 12
+
 
 def test_gdb_generate_parse():
     args = build_parser().parse_args(["gdb", "generate", "--output", "knowledge.py"])

@@ -85,6 +85,9 @@ During iteration, use `tony ghidra sync` instead of rebuilding the project.
 Pass `--function ADDRESS` to reanalyze that function and its direct callers
 after applying knowledge. Finish reviewed analysis changes with
 `tony ghidra verify`; reserve a complete clean rebuild for milestones.
+Use `tony ghidra inspect ADDRESS` to capture the combined analysis/evidence
+context for a target, and `tony ghidra gaps` to choose the next missing
+signature or function boundary from a deterministic ranked queue.
 
 A structure-using module should not become matching `cpp` while its accessed
 offsets remain undocumented. Retail layouts do not replace native domain types.

@@ -195,6 +195,16 @@ def ghidra_verify(_args) -> int:
     return 0 if ghidra_ops.verify() else 1
 
 
+def ghidra_inspect(args) -> int:
+    ghidra_ops.inspect_function(args.address, resolve(args.output) if args.output else None)
+    return 0
+
+
+def ghidra_gaps(args) -> int:
+    ghidra_ops.gaps(resolve(args.output) if args.output else None, args.limit)
+    return 0
+
+
 def ghidra_export_functions(args) -> int:
     output = resolve(args.output) if args.output else None
     ghidra_ops.export_functions(output)

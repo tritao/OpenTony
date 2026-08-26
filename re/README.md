@@ -37,6 +37,8 @@ tony ghidra rebuild --profile fast     # clean iteration-oriented analysis
 tony ghidra sync                       # apply changed knowledge without reimporting
 tony ghidra sync --function 0x00466090 # also reanalyze the function and direct callers
 tony ghidra verify                     # check fingerprints, layouts, and bindings
+tony ghidra inspect 0x004638d0         # emit one function's reconstruction context
+tony ghidra gaps --limit 25            # rank missing tracked knowledge
 ```
 
 `sync` checks executable, Ghidra-version, profile, knowledge, and importer
@@ -44,6 +46,14 @@ fingerprints before opening the JVM. An unchanged sync is therefore a cheap
 no-op. Use `--force` only to repair or test generated state. The fast profile
 disables Decompiler Parameter ID, Function ID, and discovered non-returning
 function analysis; use the complete profile for milestone evidence.
+
+`inspect` combines live Ghidra structure with tracked evidence, exact matching
+ownership, stack variables, referenced globals, and unresolved pointer/field
+accesses. Use `--output FILE` for stable JSON consumed by scripts or reviews.
+`gaps` ranks tracked functions using missing Ghidra boundaries/signatures,
+unresolved parameter types, incoming-reference relevance, and raw matching
+ownership. Native status is reported as `not_recorded` until an explicit
+function-to-native progress map exists; do not infer completion from filenames.
 
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.
