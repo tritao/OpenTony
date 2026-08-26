@@ -1,0 +1,34 @@
+version: 1
+id: animation-endpoint-transition
+subsystem: animation
+status: complete
+
+scope:
+  functions:
+    - 0x00480730
+    - 0x00480950
+  types:
+    - RuntimeAnimationObjectState
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/animation-runtime.md
+    - re/evidence/functions/animation.md
+    - re/evidence/functions/animation-endpoint-transition.md
+  native:
+    - src/assets/psx_animation_runtime.hpp
+    - src/assets/psx_animation_runtime.cpp
+    - src/runtime/animation_cursor.hpp
+    - src/runtime/animation_cursor.cpp
+  tests:
+    - src/assets/psx_animation_runtime_test.cpp
+    - src/runtime/animation_cursor_test.cpp
+
+open_questions: []
+
+completion:
+  - The signed-byte alternate endpoint sentinel and endpoint-swap ordering are evidence-backed.
+  - The 16.16 crossing behavior has deterministic tests for forward and reverse playback.
+  - The offset-preserving native playback state and standalone cursor agree on the mode-0/2 transition contract.
+  - Mode-3 and mode-4 setup remain explicitly outside this completed transition slice.

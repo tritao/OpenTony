@@ -286,9 +286,10 @@ types:
         evidence:
           - re/evidence/functions/animation-runtime.md
       - offset: 0x102
-        name: playback_start_frame
-        type: u8
-        confidence: observed
+        name: playback_alternate_endpoint
+        type: i8
+        confidence: confirmed
+        description: Signed alternate endpoint. Values >= 1 cause the mode-0/2 endpoint transition to swap endpoints and reverse direction; zero and negative values are finish sentinels.
         evidence:
           - re/evidence/functions/animation-runtime.md
       - offset: 0x104

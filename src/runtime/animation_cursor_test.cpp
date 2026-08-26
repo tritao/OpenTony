@@ -117,7 +117,17 @@ void test_fixed_point_and_modes() {
     assert(cursor.finished);
     assert(cursor.frame == 2);
 
+    (void)cursor.request(table, 0, 0, 2, -2);
+    cursor.rate = 0x18000;
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 1 && cursor.fraction == 0x8000);
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 2 && !cursor.finished);
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 2 && cursor.finished);
+
     (void)cursor.cycle(table, 0, 1);
+    cursor.rate = 0x10000;
     for (int index = 0; index < 11; ++index) {
         (void)cursor.advance(0x100);
     }
@@ -142,6 +152,17 @@ void test_fixed_point_and_modes() {
     assert(cursor.endpoint == 0 && cursor.request_start == 2);
     (void)cursor.advance(0x100);
     assert(cursor.frame == 1);
+
+    (void)cursor.request(table, 0, 0, 2, 1);
+    cursor.rate = 0x10000;
+    (void)cursor.advance(0x100);
+    (void)cursor.advance(0x100);
+    cursor.mode = static_cast<std::uint8_t>(AnimationPlaybackMode::Hold);
+    (void)cursor.advance(0x180);
+    assert(cursor.frame == 2);
+    assert(cursor.endpoint == 1);
+    assert(cursor.alternate_endpoint == 2);
+    assert(cursor.direction == -1);
 }
 
 void test_clock_ping_pong() {

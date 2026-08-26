@@ -1,6 +1,7 @@
 #include "psx_animation_runtime.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 
 namespace opentony::assets {
@@ -32,6 +33,29 @@ namespace {
 
 [[nodiscard]] std::int16_t wrap_s16(std::int32_t value) noexcept {
     return static_cast<std::int16_t>(static_cast<std::uint16_t>(value));
+}
+
+[[nodiscard]] std::int32_t arithmetic_shift_right_8(
+    std::int32_t value) noexcept {
+    if (value >= 0) {
+        return value / 0x100;
+    }
+    // C++ division truncates toward zero; x86 SAR rounds negative values
+    // toward negative infinity.
+    const auto magnitude = -static_cast<std::int64_t>(value);
+    return static_cast<std::int32_t>(-(magnitude + 0xff) / 0x100);
+}
+
+[[nodiscard]] std::int32_t retail_frame_delta(
+    std::int32_t rate,
+    std::int32_t time_scale_q8) noexcept {
+    // The retail IMUL keeps the low 32 bits before SAR. Keep that wrap
+    // explicit instead of widening the product as a host calculation.
+    const std::uint32_t product_bits =
+        static_cast<std::uint32_t>(rate)
+        * static_cast<std::uint32_t>(time_scale_q8);
+    return arithmetic_shift_right_8(
+        std::bit_cast<std::int32_t>(product_bits));
 }
 
 [[nodiscard]] std::int32_t read_signed_bits(
@@ -246,16 +270,16 @@ void PsxAnimationPlaybackState::start(
     std::uint8_t frame_count,
     std::int32_t start_frame,
     std::int32_t end_frame,
-    std::uint8_t alternate_frame) noexcept {
+    std::int32_t alternate_frame) noexcept {
     put16(0x0f6U, animation_index);
     put8(0x106U, frame_count);
     const std::int32_t last = frame_count == 0U
         ? 0
         : static_cast<std::int32_t>(frame_count) - 1;
-    if (start_frame < 0) {
+    if (start_frame == -1) {
         start_frame = last;
     }
-    if (end_frame < 0) {
+    if (end_frame == -1) {
         end_frame = last;
     }
     start_frame = std::clamp(start_frame, 0, last);
@@ -293,14 +317,14 @@ void PsxAnimationPlaybackState::advance(
     const std::int16_t endpoint = static_cast<std::int16_t>(end_frame());
 
     // The shared pre-switch boundary in 0x00480950 handles modes 0 and 2.
-    // A positive alternate frame exchanges the endpoint and reverses; with
-    // no alternate it records completion at the selected endpoint.
+    // A signed positive alternate frame exchanges the endpoint and reverses;
+    // zero and negative bytes record completion at the selected endpoint.
     if (mode_value == 0U || mode_value == 2U) {
         const bool at_endpoint = direction_value == 1
             ? current >= endpoint
             : (direction_value == -1 && current <= endpoint);
         if (at_endpoint) {
-            if (alternate_frame() != 0U) {
+            if (alternate_frame() >= 1) {
                 const std::uint8_t old_endpoint = end_frame();
                 put8(0x101U, alternate_frame());
                 put8(0x102U, old_endpoint);
@@ -313,9 +337,7 @@ void PsxAnimationPlaybackState::advance(
 
     std::int32_t frame_step = 0;
     if (mode_value != 2U && mode_value != 3U) {
-        const std::int64_t scaled = static_cast<std::int64_t>(
-            playback_rate_fixed()) * time_scale_q8;
-        frame_step = static_cast<std::int32_t>(scaled >> 8U);
+        frame_step = retail_frame_delta(playback_rate_fixed(), time_scale_q8);
     }
     std::int32_t accumulator = static_cast<std::int32_t>(
         (static_cast<std::uint32_t>(static_cast<std::uint16_t>(current_frame())) << 16U)
@@ -335,7 +357,7 @@ void PsxAnimationPlaybackState::advance(
     switch (mode_value) {
     case 0U:
         if (direction() == 1 && updated >= static_cast<std::int16_t>(end_frame())) {
-            set_accumulator(static_cast<std::int32_t>(end_frame() - 1U) << 16);
+            set_accumulator(static_cast<std::int32_t>(end_frame()) << 16);
         } else if (direction() == -1 && updated <= static_cast<std::int16_t>(end_frame())) {
             set_accumulator(static_cast<std::int32_t>(end_frame()) << 16);
         }
@@ -423,8 +445,8 @@ std::uint8_t PsxAnimationPlaybackState::end_frame() const noexcept {
     return u8(0x101U);
 }
 
-std::uint8_t PsxAnimationPlaybackState::alternate_frame() const noexcept {
-    return u8(0x102U);
+std::int8_t PsxAnimationPlaybackState::alternate_frame() const noexcept {
+    return static_cast<std::int8_t>(u8(0x102U));
 }
 
 std::int16_t PsxAnimationPlaybackState::original_start_frame() const noexcept {
