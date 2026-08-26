@@ -538,6 +538,20 @@ inline Raw x86_shift_left(Raw value, unsigned count) {
     return static_cast<Raw>(static_cast<std::uint32_t>(value) << (count & 31u));
 }
 
+inline std::int16_t clamp_to_s16(Raw value) {
+    // 0x004e2070 obtains the signed-short endpoints from 2^15 and 2^15-1,
+    // then calls the game's truncate-toward-zero x87 conversion helper
+    // (0x005004f4) before storing each component. The values entering this
+    // helper are integral, so the observable operation is an exact saturate.
+    if (value < std::numeric_limits<std::int16_t>::min()) {
+        return std::numeric_limits<std::int16_t>::min();
+    }
+    if (value > std::numeric_limits<std::int16_t>::max()) {
+        return std::numeric_limits<std::int16_t>::max();
+    }
+    return static_cast<std::int16_t>(value);
+}
+
 struct FaceGeometry {
     // These vertices and the plane normal are in the model-local integer
     // units used by 0x00462a20 after the query coordinates are >> 12.
@@ -753,6 +767,10 @@ struct DynamicProjectedFace {
     bool accepted = false;
 };
 
+inline std::array<std::int16_t, 3> transform_normal_q12(
+    const std::array<std::int16_t, 9>& basis,
+    const std::array<std::int16_t, 3>& model_normal);
+
 inline Raw dynamic_projected_determinant(const DynamicVertexRecord& lhs,
                                          const DynamicVertexRecord& rhs) {
     // The dynamic walker works in the transformed X/Y projection.  Products
@@ -792,6 +810,97 @@ inline DynamicProjectedFace dynamic_projected_face(
     const auto combined = static_cast<std::uint32_t>(result.determinants[1]) |
                           static_cast<std::uint32_t>(result.determinants[2]);
     result.accepted = (combined & 0x80000000u) == 0;
+    return result;
+}
+
+struct DynamicFaceCandidate {
+    Raw distance = 0;
+    std::array<std::int16_t, 3> query_normal{};
+};
+
+inline std::optional<DynamicFaceCandidate> dynamic_face_candidate(
+    const DynamicVertexRecord& vertex0,
+    const DynamicVertexRecord& vertex1,
+    const DynamicVertexRecord& vertex2,
+    const DynamicVertexRecord& vertex3,
+    bool is_triangle,
+    const std::array<std::int16_t, 3>& model_normal,
+    const std::array<std::int16_t, 9>& query_basis,
+    Raw line_length) {
+    const auto projected = dynamic_projected_face(
+        vertex0, vertex1, vertex2, vertex3, is_triangle);
+    if (!projected.accepted) {
+        return std::nullopt;
+    }
+
+    // 0x004f4c50 runs 0x004e24b0 followed by 0x004e2930. The latter has
+    // only its first column populated here, so its three outputs reduce to
+    // dot(v0, transformed_normal), 0, and (line_length + 2) * normal.z.
+    const auto query_normal = transform_normal_q12(query_basis, model_normal);
+    const Raw dot = wrapping_from_i64(
+        static_cast<std::int64_t>(vertex0.x) * query_normal[0] +
+        static_cast<std::int64_t>(vertex0.y) * query_normal[1] +
+        static_cast<std::int64_t>(vertex0.z) * query_normal[2]);
+    const auto line_limit = static_cast<std::int16_t>(static_cast<std::uint16_t>(
+        static_cast<std::uint32_t>(wrapping_add(line_length, 2))));
+    const Raw lower_bound = wrapping_from_i64(
+        static_cast<std::int64_t>(line_limit) * query_normal[2]);
+    if (dot >= 1 || lower_bound > dot) {
+        return std::nullopt;
+    }
+
+    Raw distance = dot;
+    if (query_normal[2] != 0) {
+        const auto quotient = trunc_div_checked(
+            static_cast<std::int64_t>(dot), query_normal[2]);
+        if (!quotient) {
+            return std::nullopt;
+        }
+        distance = *quotient;
+    }
+    return DynamicFaceCandidate{.distance = distance,
+                                .query_normal = query_normal};
+}
+
+inline bool record_nearest_dynamic_candidate(
+    QueryRecord& query,
+    const DynamicFaceCandidate& candidate,
+    std::uint32_t body,
+    std::uint32_t face_record,
+    std::uint16_t model_index) {
+    // The machine code accepts only a strictly nearer q+0x40 candidate.
+    if (candidate.distance >= query.hit_distance) {
+        return false;
+    }
+    query.hit_distance = candidate.distance;
+    query.hit_body = body;
+    query.hit_face_record = face_record;
+    query.hit_model_index = model_index;
+    return true;
+}
+
+inline std::optional<RawVec3> dynamic_contact_at_distance(
+    const QueryRecord& query) {
+    if (query.hit_body == 0 || query.line_length == 0) {
+        return std::nullopt;
+    }
+    // The dynamic fallback first computes (distance << 12) / line_length,
+    // then multiplies that parameter by each endpoint delta after SAR 12.
+    const auto shifted_distance = wrapping_from_i64(
+        static_cast<std::int64_t>(query.hit_distance) * kParameterScale);
+    const auto parameter = trunc_div_checked(
+        static_cast<std::int64_t>(shifted_distance), query.line_length);
+    if (!parameter) {
+        return std::nullopt;
+    }
+    RawVec3 result{};
+    for (std::size_t axis = 0; axis < result.size(); ++axis) {
+        const auto delta = arithmetic_shift_right_12(
+            wrapping_sub(query.end[axis], query.start[axis]));
+        const auto scaled = wrapping_from_i64(
+            static_cast<std::int64_t>(delta) * *parameter);
+        result[axis] = wrapping_add(query.start[axis], scaled);
+    }
     return result;
 }
 
@@ -838,11 +947,11 @@ inline std::uint16_t transform_model_vertices(
         const Raw transformed_z = wrapping_add(
             q12_transform_component_raw(query_basis, 2, x, y, z), 0);
         auto& record = output[index];
-        record.x = static_cast<std::int16_t>(transformed_x);
-        record.y = static_cast<std::int16_t>(transformed_y);
-        record.z = static_cast<std::int16_t>(transformed_z);
-        record.clip_mask = dynamic_clip_mask(transformed_x, transformed_y,
-                                              transformed_z, line_length);
+        record.x = clamp_to_s16(transformed_x);
+        record.y = clamp_to_s16(transformed_y);
+        record.z = clamp_to_s16(transformed_z);
+        record.clip_mask = dynamic_clip_mask(record.x, record.y, record.z,
+                                              line_length);
         mask = static_cast<std::uint16_t>(mask & record.clip_mask);
     }
     return mask;
@@ -955,8 +1064,7 @@ inline std::int16_t q12_matrix_component(std::int16_t a,
     const auto sum = static_cast<std::int64_t>(a) * x +
                      static_cast<std::int64_t>(b) * y +
                      static_cast<std::int64_t>(c) * z;
-    return static_cast<std::int16_t>(arithmetic_shift_right_12(
-        wrapping_from_i64(sum)));
+    return clamp_to_s16(arithmetic_shift_right_12(wrapping_from_i64(sum)));
 }
 
 inline std::int16_t object_angle_cos_q12(std::int16_t angle) {
@@ -1008,6 +1116,81 @@ inline std::array<std::int16_t, 9> build_object_rotation_basis(
     return compose_q12_basis(
         compose_q12_basis(compose_q12_basis(identity, y_rotation), x_rotation),
         z_rotation);
+}
+
+inline std::array<std::int16_t, 9> transpose_q12_basis(
+    const std::array<std::int16_t, 9>& basis) {
+    // 0x004f53e0 transposes the 0x004e80e0 object matrix before it is used to
+    // transform dynamic model vertices. The normal finalizer consumes the
+    // untransposed matrix, so expose both forms explicitly.
+    return {
+        basis[0], basis[3], basis[6],
+        basis[1], basis[4], basis[7],
+        basis[2], basis[5], basis[8],
+    };
+}
+
+inline constexpr std::array<std::int16_t, 9> identity_q12_basis() {
+    return {0x1000, 0, 0,
+            0, 0x1000, 0,
+            0, 0, 0x1000};
+}
+
+struct DynamicObjectTransform {
+    // The fast path feeds the object/query displacement into 0x004f4b00 as
+    // model-origin input. The oriented path instead adds a line-space
+    // translation after rotating each model vertex.
+    RawVec3 model_origin_units{};
+    RawVec3 transformed_translation{};
+    std::array<std::int16_t, 9> vertex_basis = identity_q12_basis();
+    std::array<std::int16_t, 9> normal_basis = identity_q12_basis();
+    std::array<std::int16_t, 9> final_basis = identity_q12_basis();
+};
+
+inline DynamicObjectTransform build_dynamic_object_transform(
+    const QueryRecord& query,
+    const RawVec3& object_position_raw,
+    const std::array<std::int16_t, 3>& object_angles,
+    bool force_oriented_path = false) {
+    DynamicObjectTransform result;
+    RawVec3 displacement{};
+    for (std::size_t axis = 0; axis < displacement.size(); ++axis) {
+        displacement[axis] = arithmetic_shift_right_12(wrapping_sub(
+            object_position_raw[axis], query.start[axis]));
+    }
+    const bool has_rotation = object_angles[0] != 0 || object_angles[1] != 0 ||
+                              object_angles[2] != 0;
+    if (!force_oriented_path && !has_rotation) {
+        result.model_origin_units = displacement;
+        result.vertex_basis = query.line_basis;
+        result.normal_basis = query.line_basis;
+        return result;
+    }
+
+    result.vertex_basis = transpose_q12_basis(
+        build_object_rotation_basis(object_angles));
+    result.normal_basis = result.vertex_basis;
+    result.final_basis = build_object_rotation_basis(object_angles);
+    if (query.direction_flag != 0) {
+        // This is the explicit special-case permutation in 0x00463e50 for a
+        // downward/vertical query. It is equivalent to the prepared vertical
+        // line basis, but retaining the branch makes the ABI contract clear.
+        result.transformed_translation = {
+            displacement[0],
+            arithmetic_shift_right_12(wrapping_sub(
+                query.start[2], object_position_raw[2])),
+            displacement[1],
+        };
+        return result;
+    }
+
+    for (std::size_t row = 0; row < 3; ++row) {
+        const auto transformed = q12_transform_component_raw(
+            query.line_basis, row, displacement[0], displacement[1],
+            displacement[2]);
+        result.transformed_translation[row] = clamp_to_s16(transformed);
+    }
+    return result;
 }
 
 inline std::array<std::int16_t, 9> build_line_basis(std::int16_t x_delta,

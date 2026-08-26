@@ -92,6 +92,14 @@ struct PsxDynamicModelVertices {
     std::uint16_t clip_mask = 0x60f;
 };
 
+struct PsxDynamicObjectPreprocess {
+    PsxDynamicModelVertices vertices;
+    std::array<std::int16_t, 9> query_object_basis =
+        reference::identity_q12_basis();
+    std::array<std::int16_t, 9> final_object_basis =
+        reference::identity_q12_basis();
+};
+
 class PsxScene {
 public:
     // Parse a version-4 PSX scene.  The reader intentionally accepts only
@@ -318,7 +326,8 @@ public:
     // origin minus query start after the original >>12 conversion.
     static PsxDynamicModelVertices transform_dynamic_model(
         const PsxModel& model, const RawVec3& model_origin_units,
-        const std::array<std::int16_t, 9>& query_basis, Raw line_length) {
+        const std::array<std::int16_t, 9>& query_basis, Raw line_length,
+        const RawVec3& transformed_translation = {}) {
         PsxDynamicModelVertices result;
         result.vertices.resize(model.vertices.size());
         for (std::size_t index = 0; index < model.vertices.size(); ++index) {
@@ -333,15 +342,130 @@ public:
             const Raw transformed_z = reference::q12_transform_component_raw(
                 query_basis, 2, x, y, z);
             auto& output = result.vertices[index];
-            output.x = static_cast<std::int16_t>(transformed_x);
-            output.y = static_cast<std::int16_t>(transformed_y);
-            output.z = static_cast<std::int16_t>(transformed_z);
+            output.x = reference::clamp_to_s16(reference::wrapping_add(
+                transformed_x, transformed_translation[0]));
+            output.y = reference::clamp_to_s16(reference::wrapping_add(
+                transformed_y, transformed_translation[1]));
+            output.z = reference::clamp_to_s16(reference::wrapping_add(
+                transformed_z, transformed_translation[2]));
             output.clip_mask = reference::dynamic_clip_mask(
-                transformed_x, transformed_y, transformed_z, line_length);
+                output.x, output.y, output.z, line_length);
             result.clip_mask = static_cast<std::uint16_t>(
                 result.clip_mask & output.clip_mask);
         }
         return result;
+    }
+
+    // Compose the exact fast/oriented split from 0x00463e50. The query must
+    // already have been passed through reference::prepare so its line basis,
+    // line length, and vertical direction flag are available.
+    static PsxDynamicObjectPreprocess preprocess_dynamic_object(
+        const PsxModel& model, const QueryRecord& prepared_query,
+        const RawVec3& object_position_raw,
+        const std::array<std::int16_t, 3>& object_angles,
+        bool force_oriented_path = false) {
+        const auto transform = reference::build_dynamic_object_transform(
+            prepared_query, object_position_raw, object_angles,
+            force_oriented_path);
+        PsxDynamicObjectPreprocess result;
+        result.query_object_basis = transform.normal_basis;
+        result.final_object_basis = transform.final_basis;
+        result.vertices = transform_dynamic_model(
+            model, transform.model_origin_units, transform.vertex_basis,
+            prepared_query.line_length, transform.transformed_translation);
+        return result;
+    }
+
+    // Run the recovered 0x004f4c50 face pass over a caller-owned transformed
+    // vertex stream. query_object_basis is the basis used by 0x004e24b0 for
+    // the candidate normal (the transposed object matrix for rotated linked
+    // objects, or the line basis on the fast unrotated path). The final basis
+    // is the untransposed object matrix consumed by 0x00463d50.
+    PsxCollisionResult query_dynamic_object(
+        RawVec3 start, RawVec3 end, std::size_t object_index,
+        const PsxDynamicModelVertices& transformed_vertices,
+        const std::array<std::int16_t, 9>& query_object_basis,
+        const std::array<std::int16_t, 9>& final_object_basis,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        PsxCollisionResult result;
+        result.query.start = start;
+        result.query.end = end;
+        reference::prepare(result.query, query_stamp);
+        if (object_index >= objects_.size() ||
+            (transformed_vertices.clip_mask & 0x60fu) != 0) {
+            return result;
+        }
+        const auto& object = objects_[object_index];
+        if (object.model_index >= models_.size()) {
+            return result;
+        }
+        const auto& model = models_[object.model_index];
+        if (transformed_vertices.vertices.size() < model.vertices.size()) {
+            return result;
+        }
+        for (std::size_t face_index = 0; face_index < model.faces.size(); ++face_index) {
+            const auto& face = model.faces[face_index];
+            const auto surface_word =
+                (static_cast<std::uint32_t>(face.surface_flags) << 16u) |
+                (static_cast<std::uint32_t>(face.normal_index) << 3u);
+            if (!filter.accepts(surface_word) ||
+                face.normal_index >= model.normals.size()) {
+                continue;
+            }
+            const auto& indices = face.vertex_indices;
+            if (indices[0] >= transformed_vertices.vertices.size() ||
+                indices[1] >= transformed_vertices.vertices.size() ||
+                indices[2] >= transformed_vertices.vertices.size() ||
+                indices[3] >= transformed_vertices.vertices.size()) {
+                continue;
+            }
+            const auto& vertex0 = transformed_vertices.vertices[indices[0]];
+            const auto& vertex1 = transformed_vertices.vertices[indices[1]];
+            const auto& vertex2 = transformed_vertices.vertices[indices[2]];
+            const auto& vertex3 = transformed_vertices.vertices[indices[3]];
+            if (!reference::dynamic_face_clip_accepts(
+                    vertex0, vertex1, vertex2, vertex3)) {
+                continue;
+            }
+            const auto candidate = reference::dynamic_face_candidate(
+                vertex0, vertex1, vertex2, vertex3,
+                (face.base_flags & 0x10u) != 0,
+                model.normals[face.normal_index], query_object_basis,
+                result.query.line_length);
+            if (!candidate || !reference::record_nearest_dynamic_candidate(
+                                   result.query, *candidate,
+                                   static_cast<std::uint32_t>(object_index + 1),
+                                   static_cast<std::uint32_t>(face.source_offset),
+                                   object.model_index)) {
+                continue;
+            }
+            result.query.hit_normal = reference::transform_normal_q12(
+                final_object_basis, model.normals[face.normal_index]);
+            result.object_index = object_index;
+            result.face_index = face_index;
+            result.base_flags = face.base_flags;
+            result.surface_flags = face.surface_flags;
+            result.surface_word = surface_word;
+        }
+        if (result.hit()) {
+            const auto contact = reference::dynamic_contact_at_distance(result.query);
+            if (contact) {
+                result.query.hit_position = *contact;
+            }
+        }
+        return result;
+    }
+
+    PsxCollisionResult query_dynamic_object(
+        RawVec3 start, RawVec3 end, std::size_t object_index,
+        const PsxDynamicObjectPreprocess& preprocess,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        return query_dynamic_object(
+            start, end, object_index, preprocess.vertices,
+            preprocess.query_object_basis, preprocess.final_object_basis,
+            query_stamp, filter);
     }
 
     bool query(QueryRecord& query_record,

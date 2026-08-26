@@ -11,9 +11,10 @@ broad-phase candidate index, and calls the recovered fixed-point model/face
 query. `query_with_metadata` retains the raw base/surface flags alongside the
 contact, normal, distance, and parameter fields. The native object and face
 identifiers are stable scene IDs/source offsets; they are not fabricated
-32-bit PC pointers. The dynamic branch's transformed-vertex preprocessing is
-also exposed, while its unresolved floating-point precision helper remains
-documented as a separate gap.
+32-bit PC pointers. The dynamic branch's transformed-vertex preprocessing,
+projected-face gate, candidate-distance arithmetic, and signed-short
+saturation are also exposed. The remaining gap is the PC heap-linked object
+list and its broad-phase record serialization.
 
 The standalone checks can be run with:
 

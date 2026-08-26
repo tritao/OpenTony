@@ -122,6 +122,28 @@ void check_synthetic_scene() {
 
     const std::array<std::int16_t, 9> identity{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
+
+    PsxDynamicModelVertices dynamic_vertices;
+    dynamic_vertices.clip_mask = 0;
+    dynamic_vertices.vertices = {
+        reference::DynamicVertexRecord{0, 0, 10, 0},
+        reference::DynamicVertexRecord{10, 0, 10, 0},
+        reference::DynamicVertexRecord{0, 10, 10, 0},
+        reference::DynamicVertexRecord{10, 10, 10, 0},
+    };
+    const std::array<std::int16_t, 9> reverse_z{
+        0x1000, 0, 0, 0, 0x1000, 0, 0, 0, -0x1000};
+    const auto dynamic_result = scene->query_dynamic_object(
+        {0, 0, 0}, {0, 0, 409600}, 0, dynamic_vertices, reverse_z,
+        identity, 0);
+    assert(dynamic_result.hit());
+    assert(dynamic_result.query.hit_body == 1);
+    assert(dynamic_result.query.hit_distance == 10);
+    assert(dynamic_result.query.hit_position.at(2) == 163800);
+    assert(dynamic_result.query.hit_normal == expected_normal);
+    assert(dynamic_result.object_index == 0);
+    assert(dynamic_result.face_index == 0);
+
     const auto dynamic = PsxScene::transform_dynamic_model(
         scene->models()[0], {0, 0, 0}, identity, 4096);
     assert(dynamic.vertices.size() == 4);

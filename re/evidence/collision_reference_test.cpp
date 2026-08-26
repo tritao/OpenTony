@@ -9,6 +9,11 @@
 using namespace opentony::collision_reference;
 
 int main() {
+    assert(clamp_to_s16(-40000) == -32768);
+    assert(clamp_to_s16(-32768) == -32768);
+    assert(clamp_to_s16(32767) == 32767);
+    assert(clamp_to_s16(40000) == 32767);
+
     assert(face_record_stride_bytes(0x001c1083) == 0x1c);
     assert(face_record_stride_bytes(0x00205823) == 0x20);
 
@@ -198,6 +203,14 @@ int main() {
                                      transformed_vertices[1],
                                      transformed_vertices[2],
                                      transformed_vertices[3]));
+    std::array<DynamicVertexRecord, 4> saturated_vertices{};
+    assert(transform_model_vertices(model_view, {40000, 40000, 40000},
+                                    identity_q12, 20, saturated_vertices) ==
+           0x608);
+    assert(saturated_vertices[0].x == 32767);
+    assert(saturated_vertices[0].y == 32767);
+    assert(saturated_vertices[0].z == 32767);
+    assert(saturated_vertices[0].clip_mask == 0x608);
     const auto projected_triangle = dynamic_projected_face(
         transformed_vertices[0], transformed_vertices[1],
         transformed_vertices[2], transformed_vertices[3], true);
@@ -213,6 +226,48 @@ int main() {
         quad_vertices[3], false);
     assert(projected_quad.accepted);
     assert(projected_quad.first_vertex == 0);
+
+    std::array<DynamicVertexRecord, 4> candidate_vertices{
+        DynamicVertexRecord{0, 0, 10, 0},
+        DynamicVertexRecord{10, 0, 10, 0},
+        DynamicVertexRecord{0, 10, 10, 0},
+        DynamicVertexRecord{10, 10, 10, 0},
+    };
+    const std::array<std::int16_t, 3> candidate_normal{0, 0, -4096};
+    const auto dynamic_candidate = dynamic_face_candidate(
+        candidate_vertices[0], candidate_vertices[1], candidate_vertices[2],
+        candidate_vertices[3], false, candidate_normal, identity_q12, 100);
+    assert(dynamic_candidate);
+    assert(dynamic_candidate->distance == 10);
+    assert(dynamic_candidate->query_normal == candidate_normal);
+
+    QueryRecord dynamic_query;
+    dynamic_query.start = {0, 0, 0};
+    dynamic_query.end = {0, 0, 409600};
+    prepare(dynamic_query);
+    assert(record_nearest_dynamic_candidate(dynamic_query, *dynamic_candidate,
+                                            7, 9, 11));
+    assert(dynamic_query.hit_body == 7);
+    assert(dynamic_query.hit_distance == 10);
+    const auto dynamic_contact = dynamic_contact_at_distance(dynamic_query);
+    assert(dynamic_contact);
+    assert(dynamic_contact->at(2) == 163800);
+
+    QueryRecord dynamic_transform_query;
+    dynamic_transform_query.start = {0, 0, 0};
+    dynamic_transform_query.end = {0, 4096, 0};
+    prepare(dynamic_transform_query);
+    const RawVec3 dynamic_object_position{4096, 8192, 12288};
+    const auto fast_transform = build_dynamic_object_transform(
+        dynamic_transform_query, dynamic_object_position, {0, 0, 0});
+    assert((fast_transform.model_origin_units == RawVec3{1, 2, 3}));
+    assert(fast_transform.vertex_basis == dynamic_transform_query.line_basis);
+    assert(fast_transform.final_basis == identity_q12_basis());
+    const auto oriented_transform = build_dynamic_object_transform(
+        dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true);
+    assert((oriented_transform.model_origin_units == RawVec3{0, 0, 0}));
+    assert((oriented_transform.transformed_translation == RawVec3{1, -3, 2}));
+    assert(oriented_transform.vertex_basis == identity_q12_basis());
 
     QueryRecord translated_query;
     translated_query.start = {8192, 8192, 4096};

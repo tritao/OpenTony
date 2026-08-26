@@ -1,8 +1,7 @@
 # Collision/query subsystem
 
-Status: confirmed interface and static hit arithmetic; native PSX scene replay
-matches one live PC result; dynamic projected-face quantization remains partly
-open
+Status: confirmed interface and static/dynamic hit arithmetic; native PSX scene
+replay matches one live PC result; PC linked-object storage remains open
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -328,10 +327,15 @@ the wrapper; the query does not parse a file on each call.
     `v3` in the first-vertex slot and negates the other two determinants.
     `0x004e24b0` applies the query/object Q12 basis to the model normal, and
     `0x004e2930` combines that result with the selected vertex before the
-    candidate distance is compared against `q+0x40`. `0x004e2070` is the
-    shared floating-point-to-short clamp between these integer operations;
-    its exact precision behavior is intentionally kept as an explicit gap
-    until a dynamic-object runtime sample is available.
+    candidate distance is compared against `q+0x40`. The native reference now
+    models the same strict-nearer update and the no-face fallback: after the
+    scan it computes `u = trunc((q+0x40) * 0x1000 / (q+0x44))`, then writes
+    `start + ((end-start) >> 12) * u` into `q+0x6c..0x74`. `0x004e2070` is the
+    shared signed-short saturation helper: it obtains `2^15`, converts with
+    the game's truncate-toward-zero x87 helper at `0x005004f4`, and clamps each
+    integer component to `[-32768, 32767]`. This closes the arithmetic gap;
+    dynamic-object runtime execution is still needed to validate the outer
+    linked-list and broad-phase data path.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
@@ -529,26 +533,30 @@ of that API without fabricating the unresolved zone/model format. It provides:
   calculations;
 - nearest-candidate record updates after a caller-provided triangle predicate;
 - raw face-word flag decoding using the exact expressions from `0x0048ea80`;
-- the `0x004f4b00` dynamic transformed-vertex stream, six-bit clip mask, and
-  Q12 object-normal helpers.
+- the `0x004f4b00` dynamic transformed-vertex stream, six-bit clip mask, Q12
+  object-normal helpers, and the signed-short saturation used by
+  `0x004e2070`;
+- the projected dynamic-face winding gate, candidate distance, nearest-hit
+  update, and the dynamic contact fallback arithmetic.
 
 The asset-facing native layer at
 [`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
 version-4 PSX model/object/blockmap decoder, a conservative blockmap broad
 phase, the static scene query, stable scene handles, raw base/surface metadata,
-and a direct wrapper for the dynamic transformed-vertex preprocessing. It
-deliberately does not claim that the unresolved PC heap linked-list
-serialization or the dynamic `0x004e2070` precision helper has been reproduced.
+and direct wrappers for the dynamic transformed-vertex preprocessing and
+projected-face candidate arithmetic. It deliberately does not claim that the
+PC heap linked-list serialization or its broad-phase object records have been
+reproduced.
 
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact
 contact point), the raw query layout, both line-basis branches, synthetic
-model-face traversal, candidate filtering, zone indexing, and a horizontal
-grid walk. This is a reference query layer rather than a complete level-file
-loader: the remaining engine-specific work is wiring loaded zone lists and
-the linked-object cache and temporary transformed-vertex buffer into these
-interfaces. The Q12 object-angle basis used by normal finalization is now
-covered by `build_object_rotation_basis`.
+model-face traversal, candidate filtering, zone indexing, a horizontal grid
+walk, and the dynamic projected-face candidate/fallback path. This is a
+reference query layer rather than a complete level-file loader: the remaining
+engine-specific work is wiring the PC linked-object cache and its broad-phase
+records into these interfaces. The Q12 object-angle basis used by normal
+finalization is now covered by `build_object_rotation_basis`.
 
 ## Open questions / falsifiers
 
