@@ -565,20 +565,46 @@ def transformed_vertex_record(ctx: Context) -> dict | None:
     """Capture ordinary model-path projected vertices after 0x004d29e0."""
 
     memory = ctx.memory
-    player = memory.u32(GLOBALS["Player"])
-    level = memory.u32(GLOBALS["CurrentLevel"])
-    if not player or not memory.valid(player) or not level:
-        return None
-    camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
-    if not camera or not memory.valid(camera):
-        return None
-
+    player = _optional_u32(memory, GLOBALS["Player"]) or 0
+    level = _optional_u32(memory, GLOBALS["CurrentLevel"])
     input_vertices = ctx.arg(0)
-    vertex_count = min(ctx.arg(1) & 0xffff, 256)
+    raw_vertex_count = ctx.arg(1)
+    vertex_count = min(raw_vertex_count & 0xffff, 256)
     record_size = 7 * 4
     scratch_size = vertex_count * record_size
-    if not vertex_count or not memory.readable(TRANSFORMED_VERTEX_SCRATCH, scratch_size):
-        return None
+
+    record = {
+        "type": "transformed_vertices",
+        "frame": ctx.frame,
+        "function": "Render_TransformVertices",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "level": level,
+        "player": f"0x{player:08x}" if player else None,
+        "arguments": {
+            "input_vertices": f"0x{input_vertices:08x}" if input_vertices else None,
+            "vertex_count_raw": raw_vertex_count,
+            "vertex_count": vertex_count,
+            "state": ctx.arg(2),
+        },
+        "record_stride": record_size,
+        "scratch_address": f"0x{TRANSFORMED_VERTEX_SCRATCH:08x}",
+    }
+
+    if not player or not memory.valid(player):
+        record.update({"accepted": False, "rejection": "player_unreadable", "vertices": []})
+        return record
+    camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+    if not camera or not memory.valid(camera):
+        record.update({"accepted": False, "rejection": "camera_unreadable", "vertices": []})
+        return record
+    record["camera"] = f"0x{camera:08x}"
+    if not vertex_count:
+        record.update({"accepted": False, "rejection": "zero_vertex_count", "vertices": []})
+        return record
+    if not memory.readable(TRANSFORMED_VERTEX_SCRATCH, scratch_size):
+        record.update({"accepted": False, "rejection": "scratch_unreadable", "vertices": []})
+        return record
 
     words = [
         list(struct.unpack(
@@ -602,24 +628,12 @@ def transformed_vertex_record(ctx: Context) -> dict | None:
             "auxiliary_bits": values[6],
         })
 
-    return {
-        "type": "transformed_vertices",
-        "frame": ctx.frame,
-        "function": "Render_TransformVertices",
-        "eip": f"0x{ctx.eip:08x}",
-        "caller": f"0x{ctx.caller():08x}",
-        "level": level,
-        "player": f"0x{player:08x}",
-        "camera": f"0x{camera:08x}",
-        "arguments": {
-            "input_vertices": f"0x{input_vertices:08x}" if input_vertices else None,
-            "vertex_count": vertex_count,
-            "state": ctx.arg(2),
-        },
-        "record_stride": record_size,
+    record.update({
+        "accepted": True,
         "scratch": _raw_block(memory, TRANSFORMED_VERTEX_SCRATCH, scratch_size),
         "vertices": vertices,
-    }
+    })
+    return record
 
 
 def camera_point_select_record(ctx: Context) -> dict | None:

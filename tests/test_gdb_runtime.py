@@ -66,6 +66,7 @@ from opentony.camera import (
     geometry_raster_return_record,
     camera_record,
     geometry_submission_record,
+    transformed_vertex_record,
 )
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
@@ -685,6 +686,65 @@ def test_geometry_raster_return_record_preserves_post_transform_scratch():
     assert record["prepared_matrix_s16"][0]["signed_s16"] == 1
     assert record["geometry_matrix_s16"][0]["signed_s16"] == -6
     assert record["raster_vertex_scratch"]["size"] == 0x100
+
+
+def test_transformed_vertex_record_decodes_common_projected_working_records():
+    call_inferior = FakeInferior()
+    call_memory = Memory(call_inferior)
+    call_inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x004D1800, 0x900, 2, 0x800
+    )
+
+    class SparseMemory:
+        def __init__(self):
+            self.data = {}
+
+        def put(self, address, data):
+            self.data.update(
+                (address + index, value) for index, value in enumerate(data)
+            )
+
+        def readable(self, address, size=1):
+            return all(address + index in self.data for index in range(size))
+
+        def valid(self, address):
+            return self.readable(address, 4)
+
+        def bytes(self, address, size):
+            return bytes(self.data[address + index] for index in range(size))
+
+        def u32(self, address):
+            return struct.unpack("<I", self.bytes(address, 4))[0]
+
+    memory = SparseMemory()
+    memory.put(0x200, struct.pack("<I", 0x900))
+    memory.put(0x204, struct.pack("<I", 12))
+    memory.put(0x900, bytes(4))
+    memory.put(0x800, bytes(4))
+    memory.put(0x900 + 0x29B0, struct.pack("<I", 0x800))
+    memory.put(0x00570878, struct.pack(
+        "<7I", 0x3F800000, 0x40000000, 0x40400000, 0x3E800000, 0x11, 0x22, 0x33
+    ))
+    memory.put(0x00570878 + 28, struct.pack(
+        "<7I", 0xBF800000, 0xC0000000, 0xC0400000, 0x3F000000, 0x44, 0x55, 0x66
+    ))
+    context = Context(
+        CallContext(
+            call_memory,
+            registers={"esp": 0x100, "eip": 0x004D29E0},
+        ),
+        memory,
+    )
+
+    record = transformed_vertex_record(context)
+
+    assert record["accepted"] is True
+    assert record["camera"] == "0x00000800"
+    assert record["arguments"]["vertex_count"] == 2
+    assert record["vertices"][0]["projected_x"] == 1.0
+    assert record["vertices"][0]["reciprocal_depth"] == 0.25
+    assert record["vertices"][1]["projected_y"] == -2.0
+    assert record["vertices"][1]["clip_flags_bits"] == 0x55
 
 
 def test_actor_submission_record_keeps_object_prefix_raw():
