@@ -1,0 +1,100 @@
+#pragma once
+
+#include "level_trigger_state.hpp"
+#include "../assets/psx_catalog.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace opentony::trg {
+
+enum class LevelSceneEntityKind : std::uint8_t {
+    StaticScene,
+    TriggerObject,
+    Pickup,
+    LinkedObject,
+    Special,
+};
+
+struct LevelSceneEntity {
+    std::size_t entity{};
+    LevelSceneEntityKind kind{LevelSceneEntityKind::StaticScene};
+    std::size_t source_node{CommandPointRuntime::npos};
+    std::vector<std::size_t> source_nodes;
+    std::size_t psx_object_index{CommandPointRuntime::npos};
+    std::size_t model_index{CommandPointRuntime::npos};
+    std::uint32_t model_name{};
+    std::uint16_t subtype{};
+    TriggerSpawnFamily spawn_family{TriggerSpawnFamily::Unknown};
+    std::string factory_resource;
+    std::uint32_t factory_model_selector{};
+    bool has_factory_model_selector{};
+    std::string factory_asset_path;
+    bool factory_asset_available{};
+    bool factory_asset_loaded{};
+    std::size_t factory_asset_object_count{};
+    std::size_t factory_asset_model_count{};
+    std::array<std::int32_t, 3> position{};
+    std::array<std::uint16_t, 3> orientation{};
+    bool has_orientation{};
+    std::uint32_t asset_flags{};
+    std::uint16_t gameplay_flags{};
+    bool active{true};
+    bool suspended{};
+    bool alive{true};
+    bool killed{};
+    bool visible_commanded{};
+};
+
+struct LevelSceneBinding {
+    std::size_t trigger_node{};
+    std::size_t model_index{CommandPointRuntime::npos};
+    std::uint32_t model_name{};
+    bool bound_to_psx{};
+    std::vector<std::size_t> entities;
+};
+
+// Renderer-independent composition of the two level-side asset systems. It
+// deliberately does not decide how models are uploaded or how collisions are
+// built; it gives those systems stable entity IDs and exact source mappings.
+class LevelSceneRegistry final {
+public:
+    void build(const LevelTriggerState& state, const assets::PsxArchive& archive);
+    void resolve_factory_assets(const assets::PsxAssetCatalog& catalog);
+    void sync(const LevelTriggerState& state);
+
+    [[nodiscard]] const std::vector<LevelSceneEntity>& entities() const noexcept {
+        return entities_;
+    }
+    [[nodiscard]] const std::vector<LevelSceneBinding>& bindings() const noexcept {
+        return bindings_;
+    }
+    [[nodiscard]] const LevelSceneBinding* binding(std::size_t trigger_node) const noexcept;
+    [[nodiscard]] const LevelSceneEntity* entity(std::size_t entity_index) const noexcept;
+    [[nodiscard]] std::size_t static_entity_count() const noexcept { return static_entity_count_; }
+    [[nodiscard]] std::size_t trigger_entity_count() const noexcept {
+        return entities_.size() - static_entity_count_;
+    }
+    [[nodiscard]] std::size_t bound_trigger_count() const noexcept { return bound_trigger_count_; }
+    [[nodiscard]] std::size_t unresolved_trigger_count() const noexcept {
+        return unresolved_trigger_count_;
+    }
+
+private:
+    std::vector<LevelSceneEntity> entities_;
+    std::vector<LevelSceneBinding> bindings_;
+    std::size_t static_entity_count_{};
+    std::size_t bound_trigger_count_{};
+    std::size_t unresolved_trigger_count_{};
+
+    [[nodiscard]] static LevelSceneEntityKind kind_for(TriggerObjectKind kind) noexcept;
+    [[nodiscard]] static const TriggerObjectState* find_state(
+        const LevelTriggerState& state,
+        std::size_t node) noexcept;
+    void sync_binding(const LevelTriggerState& state, const LevelSceneBinding& binding);
+};
+
+} // namespace opentony::trg
