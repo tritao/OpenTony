@@ -16,6 +16,24 @@ Front_LaunchGameLevel 0x004544a0
   -> FUN_004c8050()       // autoexec scripts
   -> FUN_004c8130()       // level node/object setup
 
+After the load/object pass, `Front_LoadGame` calls `FUN_004c4e30` before the
+first gameplay loop. That call consumes the restart selected by the autoexec
+(`0x8c`/`0xb0`), applies its position and auxiliary fields, and dispatches the
+restart's post-name command stream. Native `GameplaySession::initialize()` now
+reproduces this final load-to-player edge; explicit `execute_restart()` remains
+available for later gap/death/restart events.
+
+The restart facing handoff is now bounded as well. `FUN_004c4e30` copies the
+restart record's position to skater `+0x08/+0x0c/+0x10` and history
+`+0xbc/+0xc0/+0xc4`, copies the adjacent u32/u16 fields to `+0x14/+0x18`,
+then calls `FUN_004c4d10`. That helper reads the high word of `+0x14`,
+computes `((word - 0x800) & 0xfff)`, rotates the `-X` and `-Z` Q12 seed
+vectors, installs `-Y` as the down column, and refreshes the nine-short
+orientation plus `+0x30f4/+0x3100/+0x310c` basis. Native
+`PlayerState::apply_restart()` now preserves the raw fields and applies this
+same negative-identity/yaw restart matrix; the angle is represented by
+`retail_restart_angle12()` rather than inferred from the TRG node name.
+
 For level index 12, Front_LoadGame selects the Warehouse SkWare_T level record before the call at 0x0045284d. FUN_004c5130 is therefore the TRG loader, not a generic gameplay update routine. It appends the executable's .trg suffix at 0x00547958, allocates/reads the file through FUN_0046f490, and stores the resulting file base in DAT_0056e20c. It checks:
 
 - *(u32 *)(base + 0x00) == 0x4752545f (_TRG);
@@ -78,6 +96,24 @@ times in the extracted corpus, predominantly in restart streams; native
 those restart streams execute, and `0x83`/`0x84` can address their recovered
 identifier space.
 
+The remaining concrete PC field writers are now preserved as raw dispatcher
+state rather than left in the legacy bucket. `0x99`/`0x9a` call
+`FUN_0040bd00`/`FUN_0040bd10` and write signed values to the current object's
+`+0x4d4/+0x4d8`; `0xa4`/`0xa5` write u16 values to `+0x4dc/+0x4de`; `0xa0`,
+`0xa8`, and `0xac` write u16-derived values to `+0x504/+0x434/+0x436`; and
+`0xad` copies `+0x3a4` to `+0x3dc`. `0xa3`/`0xb1` write skater fields
+`+0x3198/+0x319c`. Finally, `FUN_0040f1a0` behind `0xa7` writes `+0x410` and
+either initializes `+0x40c` or computes `+0x414` from the two u16 operands.
+Native `LevelTriggerState` exposes those offset-named fields and retains each
+source/opcode/operand record; it does not assume which live object the retail
+global current-object pointer selects.
+
+`0xa2` is a bounded unsupported branch rather than an unknown command. Retail
+consumes its aligned NUL-terminated string, calls the diagnostic helper with
+the embedded message `LoadAI command not supported`, and continues dispatch.
+The native cursor now consumes the same string shape and emits that diagnostic
+while retaining the command in the legacy callback stream.
+
 ## Source asset correlation: command point -> SendVisible
 
 SKWARE_T.TRG node 141 is the first unambiguous source-to-runtime command sample:
@@ -121,6 +157,51 @@ objects are diagnosed as non-crates instead. Native `LevelTriggerState` keeps
 the command event record for every link but only mutates the same accepted
 target families.
 
+The type-10/type-11 pulse branch is now also source-correlated. Retail
+`FUN_004aa8c0` allocates a dedicated runtime-list object with the source node
+index at `+0x06`, a state byte at `+0x04`, and a next link at `+0x24`; its raw
+post-position u16 is read through `FUN_004a9f70`. `FUN_004aa420` reaches
+`FUN_004aa3c0(node, 1)`, which writes that state byte to one, while the kill
+path's `FUN_004aa410` writes it to zero. The native build now retains the
+type-10/type-11 position and raw flag word, initializes the same derived mode
+and state, sets the state on pulse, and clears it on kill. The extracted
+corpus contains 9,732 type-10 and 394 type-11 nodes; these are no longer
+discarded as unhandled nodes, although the larger factory/list behavior still
+needs parity work.
+
+The type-1/type-7 object factory also consumes a bounded option-byte list before
+the fixed-point position. `FUN_004c5460` scans it with `FUN_004c5420`: option
+`4` clears the constructed object's flag bit `0x2`, while type 7 additionally
+sets bit `0x4`; when option `2` is absent, the factory performs an extra
+environment/baddy-list registration check. Native `TrgFile::node_spawn_options`
+and `LevelTriggerState` now preserve the raw option bytes and expose these
+three derived factory boundaries. This is still a factory-input correlation,
+not a claim that the final baddy AI/object list has been recreated. Across the
+32 extracted TRGs there are 793 type-1 records; all carry option `2`, and 642
+carry option `4`. Type 7 is retained as a statically verified factory branch,
+but does not occur in this extracted corpus.
+
+The returned type-1/type-7 object also has a verified initial target flag word.
+`FUN_00403000` (subtype `0xcb`) enters the common object constructor with
+`+0x04 = 0x41`; `FUN_0049f250` (subtype `0x192`) applies
+`(+0x04 & ~0x02) | 0x111`. Native `TriggerObjectState::flags` now starts from
+those constructor values before the SendVisible/SendKill mutations, while the
+separate option-4/type-7 bits remain factory-side fields rather than being
+incorrectly merged into `+0x04`.
+
+Type-12/type-14 construction has a parallel bounded record. `FUN_004bd760`
+registers the node's resolved link key at `+0x04`, source node at `+0x08`,
+active byte at `+0x0a`, next record at `+0x10`, and the resolved live asset
+pointer at `+0x14`. `FUN_004bdc40` resolves that key, installs the live asset,
+sets its object flag, and writes the record active byte. Native
+`LevelTriggerState` now records registration, marks the record active when the
+type-12/type-14 node is pulsed, and preserves the verified asset-side writes as
+`flags_or = 0x04` and marker `0x202020`; the actual `+0x14` heap pointer and
+player-owner fields remain explicit seams.
+The extracted corpus contains 3,886 type-12 nodes and 6 type-14 nodes; the
+Warehouse TRG contributes the first family and node 120 is used as the native
+end-to-end join fixture.
+
 The linked Warehouse nodes are mostly type 2 nodes, with one type 12 node. Those are exactly among the node types handled by FUN_004c77f0's visible-object path. This makes node 141 a source-correlated level event rather than only a generic script parser example.
 
 ## Secondary samples
@@ -148,7 +229,7 @@ Warehouse restart node 167 is type 8 at file offset 0x1c06, named Ho_SkWare_HPGa
 
 ## Retail TRG corpus audit
 
-The bounded script decoder in `tony.assets._trg_decode_script` was checked against all 32 retail PC `*_T.TRG` files in the extracted asset tree. It found 3,579 streams and 8,956 dispatcher records; two streams end in the retained opaque legacy tails. The decoder follows the retail cursor rules rather than assuming every command is a sequence of tightly packed 16-bit values:
+The bounded script decoder in `tony.assets._trg_decode_script` was checked against all 32 retail PC `*_T.TRG` files in the extracted asset tree. It found 3,594 streams and 9,000 dispatcher records; two streams end in the retained opaque legacy tails. The decoder follows the retail cursor rules rather than assuming every command is a sequence of tightly packed 16-bit values:
 
 - streams end with the 16-bit sentinel `0xffff`;
 - NUL-terminated string operands advance with the byte-pointer alignment used by `FUN_004c5d70`;
@@ -171,7 +252,9 @@ The most useful command counts are:
 | `0xcb` / `0xcc` | 8 / 8 | set or conditionally skip on one of eight career flags |
 | `0xcd` | 0 | supported goal-condition branch in the dispatcher, absent from this 32-file corpus |
 
-The corpus contains 41 values that decode as dispatcher cases, plus two old type-6 tails in `SKATE_T.TRG` and `SKPARK_T.TRG` beginning with `0xc5a5`; those tails do not reach the normal `0xffff` terminator and are retained as opaque bytes. The remaining low-frequency cases are statically recognized but not yet assigned gameplay names. This is intentional: the C++ implementation should preserve their raw operands and dispatch addresses until a side effect is correlated, rather than silently inventing semantics.
+The corpus contains 41 values that decode as dispatcher cases, plus two old type-6 tails in `SKATE_T.TRG` and `SKPARK_T.TRG` beginning with `0xc5a5`; the complete opcode-kind count is 42 when that opaque tail value is included. Those tails do not reach the normal `0xffff` terminator and are retained as opaque bytes. The remaining low-frequency cases are statically recognized but not yet assigned gameplay names. This is intentional: the C++ implementation should preserve their raw operands and dispatch addresses until a side effect is correlated, rather than silently inventing semantics.
+
+The native inspector now has `--dispatch-all`, which pulses every type-6 command point after load/build. Across all 32 extracted `.TRG` files this executes 3,244 command-point streams without a cursor or runtime exception. The two `0xc5a5` historical tails follow the retail unknown-command fallthrough: the native dispatcher records the unknown word, advances by its opcode only, and continues instead of rejecting the entire level.
 
 The gap path is the second strong source/runtime correlation after Warehouse node 141. Each `0xc9` record carries an aligned u32 checksum and a u16 argument. The dispatcher first compares that checksum with the command-point record at runtime `+0x0c`, then searches the level gap table. Depending on gap flags it calls scoring/completion helpers immediately or stores the command-point source for a deferred gap action. This is a confirmed gap-gameplay path from the retail dispatcher; the exact score/checklist field names remain unresolved.
 
@@ -203,9 +286,169 @@ The first live command-point allocation at 0x004c84d0 received key `0`, source n
 
 The first observed `Trig_SendPulseToNode` call was for source node 1. Its dispatcher entry received the same stream, source node `1`, and mode `0`; the bytes were `{0x0086, 0x0001, 0x0003, 0xffff}`. At that dispatcher entry the runtime record's byte at `+0x07` had changed from 0 to 1. This is a live load → runtime record → pulse → dispatcher correlation and independently validates the command-point offsets documented above.
 
+## Skater action-script archive boundary
+
+The level-side skater setup also has a separate action-script asset path. On
+the identified retail PC build, `FUN_0046a250` calls `FUN_00492a90` after the
+skater resources are prepared. `FUN_00492a90` loads `tricks.bin`, reads eight
+signed 16-bit relative section offsets, and publishes the loaded image at
+`DAT_0056a894`. Section 0 (`0x00ac`) is a 20-entry selector for player-input
+short-record tables; the trailing signed offsets in those records resolve
+against that image base. Section 1 (`0x3440`) is adjacent metadata, while
+sections 3/4 (`0x7990` and `0x7d90`) are the per-player sequence-table
+destinations. The extracted Warehouse-era `TRICKS.BIN` is 0x8190 bytes and
+begins with offsets `0x00ac, 0x3440, 0x6bcc, 0x7990, 0x7d90, 0x1736,
+0x161a, 0x2b3b`; these are asset-relative offsets, not pointers.
+
+`FUN_00492de0` performs the on-demand build path: it calls `FUN_004bd1e0`,
+walks the generated per-player sequence tables through `FUN_00492d50`, and
+uses `FUN_00492d10`/`FUN_004bf6c0` to advance over each stream until opcode
+`0x07`. Runtime `FUN_004925e0` scans the active sequence table against the
+recent action records, resolves the selected signed-16-bit stream offset
+directly against `DAT_0056a894`, and passes the stream through `FUN_00492290` into the
+player action cursor at `+0x29cc`. This is separate from the TRG dispatcher;
+it is the asset-to-skater-action path that eventually reaches
+`FUN_004be450`.
+
+The native player now preserves the remaining confirmed cursor lifecycle.
+`FUN_00491b80` marks `+0x29c8` active, stores the resolved stream at `+0x29cc`,
+initializes `+0x29c0` to `0x7b`, and dispatches it in the same update through
+`FUN_00492ea0`; opcode `0x07` clears the active state. When opcode `0x2c`
+finds pending queued motion, retail rewinds `+0x29cc` by one byte and returns
+to the frame loop. Native `PlayerState` retains the signed stream-relative
+identity and a stream-local byte cursor, resumes it before attempting a new
+history match, and clears the active state only on completion or malformed
+input. A two-frame fixture verifies `0x2b -> 0x2c` yield, queued-motion drain,
+resume, and `0x07` completion through `PlayerPhysicsFrame`.
+
+The native boundary is now represented by `src/assets/tricks_bin.*`,
+`src/runtime/action_sequence.*`, and `src/runtime/action_commands.*`. The
+archive view resolves a bounded offset-table entry to a direct image-relative
+stream span. Section 0 itself is a 20-entry selector for player-input
+short-record tables: Warehouse index 0 points at `0x00d4`, index 1 at
+`0x0ab0`, and the remaining observed entries point at the other bounded
+tables. Those input tables are not command streams; their trailing signed
+offsets resolve command streams against the loaded image. The view exposes
+the 596-record `0x1736`/27-record `0x161a` source
+tables. The sequence
+runtime preserves the retail 32-record action-history ring, the generated
+`[length][actions][stream-relative][flags]` table shape, age/mode filtering,
+primary-action fallback, and bounded backward matching. The player/frame seam
+can publish the profile records, select a generated entry, resolve its stream,
+and invoke the command dispatcher. The command layer maps the confirmed
+`0x01`, `0x0a`, `0x0e`, `0x0f`, `0x13`, `0x14`, `0x1c`, `0x1f`, `0x23`, `0x29`,
+`0x2b`, `0x2c`, `0x2d`, and `0x07` effects and retains the retail
+`FUN_004bf6c0` cursor-width table for unknown fixed, NUL-string, and relative
+commands. The builder at `0x004bd1e0`/`0x004bcf00` now synthesizes the
+zero-filled per-player table sections from the metadata/resource sections;
+the remaining asset-side bridge is the live selection/configuration population
+described below. No generic keyboard-acceleration meaning is assigned to the
+recovered action opcodes.
+
+The four newly mapped direct cases preserve raw action-object state through
+`ActionCommandRuntimeState`: `0x1f` writes signed i16 to `+0x29ec`, `0x23`
+writes signed i16 to `+0x2f00`, and `0x29` writes signed i16 to `+0x2c0c`.
+`0x2d` writes the integer absolute value of its signed i16 argument to
+`+0x2e2c`. These fields are source-correlated but intentionally unnamed until
+their consumers are traced.
+
+Header word 7 is a separate special-resource pointer at `0x2b3b`, used by the
+nonzero-mode path of `FUN_004bbf00` instead of the normal section-0 stream
+lookup. Its shipped leading word is `0x0100`, so the native view exposes it as
+a raw bounded span rather than incorrectly decoding it as an ordinary
+`[length][actions...]` table. Its internal record format and versus-mode
+selection rules remain open.
+
+The builder is no longer an opaque allocation boundary. `0x004bd1e0` allocates
+`0x140c` bytes and calls the `0x004bb4f0` constructor. The constructor walks the
+source records from header section 5 (`0x1736`) and registers each stream in a
+heap record array whose count is at `object+0x1404`, whose first record begins
+at `object+0x04`, and whose stride is `0x28`. The recovered fields are the
+stream-relative key at `+0x20`, source/type data at `+0x22/+0x24`, and copied
+source flags at `+0x26`; `0x004bd170(index)` returns
+`object + 0x04 + index*0x28`. The constructor's post-pass promotes raw flag
+bits `0x0800`, `0x1000`, `0x2000`, and `0x8000` into the filter word at
+`+0x24`; raw `0x4000` clears the provisional `0x0800` bit and promotes
+`0x4000`. Before that post-pass, `FUN_004bb7e0` starts the filter at `0x7b`,
+walks the direct stream with `FUN_004bf6c0`, and replaces it when opcode
+`0x51` reads a signed little-endian 16-bit value. The native exact resource
+parser now reproduces this stream metadata walk when the loaded image is
+available; the image-free overload retains the conservative raw-flags
+fallback for isolated fixtures.
+
+The runtime selection bytes are not part of the TRICKS.BIN source tables. The
+normal builder obtains a player slot through `FUN_004416050(index)`, whose base
+is `0x568a6c + index*0x104`, and passes `slot + 0xcc` to the four direct-group
+builder calls. The selection view stores mapped resource IDs at view-relative
+`+0x2b` and independent mapping indices at view-relative `+0x30`; for the
+normal slot these are physical `slot + 0xf7` and `slot + 0xfc`. The
+`FUN_004c36d0` path reads and updates those pairs through `FUN_00416340` and
+`FUN_00416380` while processing a loaded resource. Native configuration now
+keeps these arrays separate, and `RetailActionResourceSelection` models the
+confirmed lookup/update behavior: `0xff` empty resource slots, mapping-index
+replacement, duplicate-resource rejection, first-empty-slot insertion, and
+the `-1/0xff` resource-removal sentinel. `FUN_00416380` stores the mapping
+byte verbatim, including `0xff`; the trick-selection caller at
+`0x004c36d0` validates its resource-derived mapping value to `0..0x2a`
+before the update. These are selection-view offsets, not direct
+player-slot offsets: the normal setup passes `FUN_004416050(index)+0xcc`, so
+the mapped fields are physically slot `+0xf7/+0xfc`; the helper sees them as
+view-relative `+0x2b/+0x30`. The unresolved work is to connect the actual
+selection/config setup caller to this native object at the correct lifecycle
+point, rather than invent values from the archive. The lifecycle seam is now
+narrower: the setup constructor at `0x004c04de` selects either the special
+`0x0056a690` array or `FUN_004416050(mode)+0xcc` at object `+0x2154`, and the
+resource-processing path at `0x004c3bbd` enters `FUN_004c36d0` after validating
+the loaded resource. The remaining native equivalent is the loaded-resource
+name/index mapping, not a TRG loader.
+
+The remaining live-selection bridge is now source-correlated. During the
+resource setup path, `0x004c3bbd` obtains a source-record index from
+`FUN_004bc330` (the `+0x24` filter-word scan), then calls `0x004c36d0` with
+that index. The selection routine matches a loaded resource in the 0x60-entry
+resource list, validates its type mask through `FUN_004c3350`, and uses the
+loaded record's `+0x08` value as the mapping candidate. When the source ID is
+not already installed, it calls `FUN_00416380` with the semantic pair
+`(resource_id = source-record index, mapping_index = loaded-resource +0x08)`.
+This is the concrete native bridge still needed for automatic mapped-action
+population; it is not a TRG record field or a level-script opcode.
+
+The native builder now exposes this bridge explicitly. `retail_action_resource_id_for_filter`
+implements the first-match `FUN_004bc330` scan over constructor `+0x24` filter
+words. `RetailLoadedActionResourceRecord` retains the loaded entry's `+0x08`
+mapping value, and `bind_loaded_action_resource` limits the catalog walk to
+the retail 0x60 entries, requires the `FUN_004c3350` result's `0x8000` bit,
+rejects mapping values outside `0..0x2a`, installs the pair when absent, and
+reports the retail already-installed versus conflicting-mapping cases without
+silently replacing the live selection. The remaining caller-side input is
+the resource/type catalog that supplies the current `FUN_00470ab0` key; no
+TRG field is used as a substitute.
+
+`0x004bcf00` is now ported in bounded form by
+`src/runtime/action_sequence_builder.*`: it parses the section-0 input table,
+matches each trailing stream-relative key to the first constructor resource
+record, emits ordinary records for masks `0x1000`, `0x0800`, `0x2000`,
+`0x4000`, and `0x0300`, then applies the four static combo groups and the
+five-entry mapping pass. `0x004bcdd0` emits the static player-combo map at
+`0x540e30`, copying the selected source record's `+0x20` and `+0x26` into the
+final stream-relative/flags pair; `0x004bcb70` handles ordinary filtering and
+`0x004bcc90` applies the four mask-selected groups. The remaining unresolved
+inputs are the runtime selection view at player record `+0xcc` and its mapped
+fields at view-relative `+0x2b`,
+plus the special alternate-resource path selected in versus mode. Static setup
+identifies the player record stride as `0x104`, the direct selection view as
+`slot + 0xcc`, the five mapped resource IDs as view `+0x2b` (physical slot
+`+0xf7`), and their independent mapping indices as view `+0x30` (physical
+slot `+0xfc`). They are explicit native inputs rather than guessed constants;
+the builder materializes them through the native selection object before applying the retail passes. The Warehouse session tests now exercise the real
+archive through this builder both with the optional groups unset (ordinary
+records) and with source resource ID `0` plus mapping index `0` (the mapped
+static pass), proving both generated-table branches before the matcher and
+stream resolver.
+
 ## Native C++ replay validation
 
-The portable implementation in `src/trg/trg_runtime.*` keeps the same relative offsets and node indices while replacing retail pointers with bounded spans and list indices. `src/trg/level_trigger_state.*` now supplies a deterministic renderer-independent state service for linked nodes, object flags, event ordering, timers, restarts, and objective state. `src/trg/level_runtime.*` composes that service with PSX binding, scene entities, frame ticks, pulses, restarts, and catalog-backed resource requests. `src/assets/psx_asset.*` parses the scene-side fixed-point object/model tables, geometry, texture metadata/palettes, tags, and blockmaps. Running the TRG inspector against Warehouse alone reports:
+The portable implementation in `src/trg/trg_runtime.*` keeps the same relative offsets and node indices while replacing retail pointers with bounded spans and list indices. `src/trg/level_trigger_state.*` now supplies a deterministic renderer-independent state service for linked nodes, object flags, event ordering, retail timer-reset traces, restarts, and objective state. `src/trg/level_runtime.*` composes that service with PSX binding, scene entities, frame ticks, pulses, restarts, and catalog-backed resource requests. `src/assets/psx_asset.*` parses the scene-side fixed-point object/model tables, geometry, texture metadata/palettes, tags, and blockmaps. Running the TRG inspector against Warehouse alone reports:
 
 `GameplaySession::pulse_node()` and `pulse_checksum()` now expose that same
 dispatcher boundary to gameplay code: a node/checksum event executes the TRG
@@ -215,7 +458,7 @@ therefore exercised end to end in the session test (`node 141` -> `0x0d` ->
 linked-object visibility state), alongside the named restart path.
 
 ```text
-nodes=313 command_points=109 objects=53 pickups=12 positioned=65 oriented=65 restarts=9 resources=2 legacy=1 diagnostics=0
+nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=0 scene_instances=0 scene_positioned=0 scene_entities=0 scene_static=0 scene_trigger=0 scene_bound=0 scene_unresolved=0 legacy=0 diagnostics=0
 ```
 
 With `SKWARE.PSX` supplied, type-2/type-12 link keys bind to PSX model-name
@@ -223,7 +466,7 @@ hashes and scene instances. The scene registry composes the 252 PSX static
 entities with 67 trigger-created entities:
 
 ```text
-nodes=313 command_points=109 objects=53 pickups=12 positioned=65 oriented=65 restarts=9 resources=2 bound_models=95 scene_instances=95 scene_positioned=95 scene_entities=319 scene_static=252 scene_trigger=67 scene_bound=95 scene_unresolved=67 legacy=1 diagnostics=2
+nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=95 scene_instances=95 scene_positioned=95 scene_entities=384 scene_static=252 scene_trigger=132 scene_bound=95 scene_unresolved=132 legacy=0 diagnostics=2
 ```
 
 The two diagnostics are type-2 keys `0xbd7ce256` and `0x3be890f8`; they do not
@@ -244,6 +487,24 @@ by type-1/type-5/type-7 subtype: `0xcb` enters `FUN_00403000`, `0x192` enters
 `FUN_004a8e50`. This is a class/factory correlation, not yet a claim that the
 native renderer has created the final object.
 
+For type-12/type-14 activation, `FUN_004bd760` allocates the compact runtime
+record with source node at `+0x08`, active byte at `+0x0a`, owner byte at
+`+0x0b`, control value at `+0x0c`, and the resolved live asset pointer at
+`+0x14`. `FUN_004bdc40` fills the owner/control values from the current-player
+globals before setting the active byte and mutating the asset. The native
+`LevelTriggerState::set_special_runtime_context()` boundary now preserves
+those raw owner/control writes when the player service supplies them; it does
+not assign a player meaning to the control value or claim to own the retail
+heap pointer.
+
+Opcode `0x9e` reaches `FUN_00466c10`. Its mode/versus counter branches still
+need player-state inputs, but the first-call initialization is exact: it sets
+the event latch at `DAT_00568658`, writes `0x50` to `DAT_00568818`, writes
+`0x40` to `DAT_00568610`, clears the secondary player's `+0x3144` turn field,
+and sets `DAT_006a3d49`. The native state records that one-shot initialization,
+its raw values, and each `0x9e` event without inventing the missing player
+ownership/stat inputs.
+
 Factory resource resolution is also verified against the extracted catalog:
 `SKPH_T.TRG` + `SKPH.PSX` produces 10 special-vehicle entities, and all 10
 resolve to and lazily parse the retail `C_TAXI.PSX` resource family through
@@ -251,7 +512,7 @@ the case-insensitive catalog; the native records retain its object/model
 counts. Warehouse has no vehicle factory records, as expected from its subtype
 distribution.
 
-The same load → autoexec → build pass succeeds for all 32 extracted retail TRG files. The native runtime also reproduces the command-point pulse budget: `0x86 N` initializes the runtime `+0x08` state, `0x03` suppresses propagation at zero, decrements finite budgets after sending linked pulses, and treats `0xffff` as unlimited. Its linked-node pulse routing now includes the retail type-10/type-11 object branches in addition to the type-1/type-5/type-7/type-12/type-14 paths. Restart-selection commands `0x8c`/`0xb0` resolve a type-8 node by name without prematurely executing it; `0xb2` selects the named restart only in two-player mode. Opcode `0x98` is now source-correlated on `SKB1_T.TRG`: node 11 links restart node 2, and the dispatcher applies that restart's position plus `+0x14/+0x18` auxiliary fields through the native restart service before the following pulse command. Opcode `0xab` is represented as a bounded script-object creation record rather than a guessed gameplay effect. `GameplaySession::pulse_node()` consumes the resulting `RestartApplied` event and resets the player/clock at the same boundary as explicit restart execution.
+The same load → autoexec → build pass succeeds for all 32 extracted retail TRG files. The corpus-wide `--dispatch-all` run executes 3,244 command-point streams with no cursor/runtime failures; the reported diagnostics are retained as evidence for unresolved retail branches, not treated as parser success. The native runtime also reproduces the command-point pulse budget: `0x86 N` initializes the runtime `+0x08` state, `0x03` suppresses propagation at zero, decrements finite budgets after sending linked pulses, and treats `0xffff` as unlimited. Its linked-node pulse routing now includes the retail type-10/type-11 object branches in addition to the type-1/type-5/type-7/type-12/type-14 paths. Restart-selection commands `0x8c`/`0xb0` resolve a type-8 node by name without prematurely executing it; `0xb2` selects the named restart only in two-player mode. Opcode `0x98` is now source-correlated on `SKB1_T.TRG`: node 11 links restart node 2, and the dispatcher applies that restart's position plus `+0x14/+0x18` auxiliary fields through the native restart service before the following pulse command. Opcode `0xab` is represented as a bounded script-object creation record rather than a guessed gameplay effect. `GameplaySession::pulse_node()` consumes the resulting `RestartApplied` event and resets the player/clock at the same boundary as explicit restart execution.
 
 ## Interpretation
 
@@ -270,5 +531,5 @@ This is enough to name the central dispatcher Trig_CommandDispatch provisionally
 - Determine the precise meaning of target-object +0x04 bits 0x01 and 0x40; a flag watch around the linked type-2 objects would strengthen “visible/active.”
 - Correlate the remaining command-point opcode families, especially the deferred gap/player-position services and the live event callers for 0xcd goal filtering.
 - Recover the object factory and linked-object field meanings behind the type-1/5/7/12/14 node branches; the trigger dispatcher and static type-2/type-12 PSX join are now bounded, but their gameplay helpers still need their own evidence.
-- Type-10/type-11 pulses now reach the native gameplay boundary, but the retail helpers FUN_004aa420/FUN_004bdbd0 still need object-factory and state-transition evidence before their effects can be implemented.
+- Type-10/type-11 state transitions are now mapped through FUN_004aa8c0/FUN_004aa420/FUN_004aa410; the remaining question is the larger factory/list behavior around those records and the separate type-12/type-14 FUN_004bdbd0 path.
 - The current evidence is for the retail PC build above. Do not reuse these addresses for the separate game/thps2-demo.exe build (3b39fd23...) without a new identity record.

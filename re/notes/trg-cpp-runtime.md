@@ -110,7 +110,16 @@ The command table must encode operand shape, not just an opcode-to-function map.
 0xc9                 aligned u32 checksum + u16 argument; table lookup by argument
 0xcb/0xcc/0xcd       one u16 condition/flag/goal index
 0xab                 aligned u32 script key + three u16 raw values
+type 10/11 nodes     fixed-point position + trailing u16 runtime flag word
+type 12/14 nodes     u32 link key + node-indexed runtime registration record
 ```
+
+Type-1/type-7 object construction has one additional bounded input before the
+position triplet: a byte list terminated by `0xff`. Retail
+`FUN_004c5460` tests option values `2` and `4`; the latter clears constructed
+object flag bit `0x2`, type 7 sets bit `0x4`, and absence of option `2` enters
+an environment/baddy-list registration check. The native loader preserves the
+raw list and these derived factory-input predicates on `TriggerObjectState`.
 
 The retail dispatcher has additional low-frequency branches (`0x82`–`0x92`, `0x99`–`0xb1`) whose operand widths are recoverable even where their helper semantics are not. A portable implementation should expose them as named raw-helper callbacks or no-op/unsupported callbacks with diagnostics, never consume a guessed width. Unknown values should report opcode, stream offset, source node, and remaining raw bytes.
 
@@ -131,15 +140,29 @@ The strongest first implementation mapping is:
 0xb2                 NUL-terminated two-player restart name; selected only in two-player mode
 0xab                 allocate/register a script object from the aligned key; preserve the three raw values
 0x94/0x95 -> pulse-count conditional block
-0x97 -> set_timer(read_u16() * 1000)
-0x9d -> set reverb type; 0x9e -> update level/event state
+0x97 -> clear the global timer object; the following read_u16() is passed to
+       FUN_004c5d90, which is a ret-only stub in this PC build
+0x9d -> set reverb type; 0x9e -> update level/event state (first call writes
+       the verified `0x50`/`0x40` initialization values)
+0xa2                 aligned NUL-terminated LoadAI string; emit the retail
+                     `LoadAI command not supported` diagnostic and continue
 0xa6/0xa9 -> publish the two known script global words
 0xc9 -> complete_gap(read_aligned_checksum(), read_u16()); ordinary matched
         records award and pulse the source links once, flagged records defer
 0xcb/0xcc -> set/conditional-career-flag(read_u16())
 0xcd -> conditional-goal(read_u16())
 0xab -> create/register a bounded script-object record from the aligned key and raw parameters
+type 10/11 pulse -> retain the retail runtime-list state byte (+0x04): pulse sets 1; kill clears 0
+type 12/14 pulse -> activate the registered node record (+0x0a) after key resolution
 ```
+
+The PC dispatcher field-write subset is represented by
+`LevelTriggerState::current_object_fields()` and
+`current_skater_fields()`: 0x99/0x9a -> object +0x4d4/+0x4d8, 0xa4/0xa5 ->
++0x4dc/+0x4de, 0xa0/0xa8/0xac -> +0x504/+0x434/+0x436, 0xad -> copy
++0x3a4 to +0x3dc, 0xa3/0xb1 -> skater +0x3198/+0x319c, and 0xa7 ->
++0x40c/+0x410/+0x414. `dispatcher_field_writes()` retains source and raw
+operands so the unresolved current-object identity can be joined later.
 
 `0x0d` is source-correlated by Warehouse node 141: its stream is `{0x000d, 0x0001, 0xffff}` and it reaches `FUN_004c77f0`. `0xc9` is corpus-confirmed as a gap path, but its scoring/checklist services should be injected through a `GameState` interface rather than embedded in the bytecode reader.
 
@@ -153,7 +176,7 @@ them available without assigning names to them.
 
 ## Services still required for faithful gameplay
 
-The dispatcher is only the script-facing boundary. A faithful recreation still needs compatible services for object creation and lookup, link traversal, pulse scheduling/countdown, restart position application, gap/checklist scoring, goal/career state, resource loading, timers, audio/music, fog/path state, and the target-object flags changed by `SendVisible`. Keep those behind interfaces so command decoding can be regression-tested independently.
+The dispatcher is only the script-facing boundary. A faithful recreation still needs compatible services for object creation and lookup, link traversal, pulse scheduling/countdown, restart position application, gap/checklist scoring, goal/career state, resource loading and timer ownership, audio/music, fog/path state, and the target-object flags changed by `SendVisible`. Keep those behind interfaces so command decoding can be regression-tested independently.
 
 ## Regression fixtures
 

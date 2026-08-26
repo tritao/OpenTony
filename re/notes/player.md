@@ -79,6 +79,13 @@ response-speed metric, Q8 component braking, and the state-7 stop request
 with reason `0x2c56`. `PlayerPhysicsFrame` accepts the unresolved surface
 eligibility and raw normal/stat inputs through `ground_brake_input`.
 
+The stateful part of the same routine is now separate `GroundPhysics` state.
+It keeps the dispatcher `+0x30c4` field distinct from the brake mode at
+`+0x2df8`, ports the recovered mode transitions `0/1/3/4/5/6`, cooldown `2`,
+and state-7 reset reasons `0x2c0f`/`0x2c21`. `PlayerPhysicsFrame` exposes it
+through an opt-in hook; surface/profile and animation-readiness predicates
+remain caller-owned until their writers are identified.
+
 `fixed_matrix.*` now covers the next confirmed grounded stage. Retail
 `FUN_0049b500` masks the accumulated turn to a signed 12-bit angle, applies a
 Q12 yaw transform to the existing nine-short matrix, and `FUN_0049c7d0` copies
@@ -102,6 +109,16 @@ frame with those stage callbacks. `runtime/physics_replay.*` can run a fixed
 input sequence repeatedly and record live/history/response/state/basis snapshots;
 this is the native side of the parity harness, not a claim that the missing
 stat-driven motion producers are complete.
+
+`GameplaySession::initialize()` now applies the restart selected by the level
+autoexec before the first fixed step, matching the retail front-end load path;
+manual restart and KILLBRUCE/gap restart events use the same player boundary.
+The player boundary also ports the facing portion of retail
+`FUN_004c4e30 -> FUN_004c4d10`: the high word of the restart auxiliary field is
+converted to `((word - 0x800) & 0xfff)`, used to rotate the `-X`/`-Z` Q12 seed
+vectors, and installed as the negative-identity yaw basis. This keeps restart
+orientation separate from the standalone identity used by unit-level math
+tests while matching the retail skater initialization convention.
 
 `src/runtime/position_commit.*` models the confirmed shared position commit
 fallback, including the PSX hit's fixed-point `0..0x4000` segment parameter

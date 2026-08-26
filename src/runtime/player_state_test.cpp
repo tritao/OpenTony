@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <vector>
 
 int main() {
     opentony::runtime::PlayerState player({100, 200, 300});
@@ -32,6 +33,9 @@ int main() {
     assert(player.air_motion() == opentony::runtime::FixedPosition({0, 0, 0}));
     assert(player.restart_auxiliary() == 0x44556677);
     assert(player.restart_auxiliary_word() == 0x8899);
+    assert(opentony::runtime::retail_restart_angle12(0x08000000) == 0);
+    assert(player.orientation() == opentony::runtime::q12_restart_matrix(
+        0x44556677));
     assert(player.physics_state() == 3);
     assert(player.ground_update_state() == 1);
     opentony::runtime::InputState input;
@@ -42,8 +46,8 @@ int main() {
     assert(player.turn_mirror() == -0x3c00);
     // The -4 table-unit yaw is applied to the live Q12 orientation and its
     // three retail basis handoff vectors are refreshed in the same update.
-    assert(player.orientation().at(1, 1) == 0x1000);
-    assert(player.retail_basis().at_310c[1] == 0x1000);
+    assert(player.orientation().at(1, 1) == -0x1000);
+    assert(player.retail_basis().at_310c[1] == -0x1000);
     player.set_collision_response({0x1000, 0x2000, 0});
     assert(player.remove_collision_normal_component({0x1000, 0, 0}) == 0x1000);
     assert(player.collision_response() == opentony::runtime::FixedPosition({0, 0x2000, 0}));
@@ -131,5 +135,25 @@ int main() {
     // (0x1000 >> 8) / 2 == 8 after the retail helper sequence.
     assert(integrated.position()
         == opentony::runtime::FixedPosition({108, 200, 300}));
+
+    opentony::runtime::PlayerState action_player;
+    const std::vector<std::uint8_t> response_command{
+        opentony::runtime::kSetResponseVectorOpcode,
+        0x03, 0x00,
+        0xfe, 0xff,
+        0x01, 0x00,
+    };
+    std::size_t action_cursor = 0;
+    const auto action_result = action_player.dispatch_action_command(
+        response_command,
+        action_cursor);
+    assert(action_result.recognized);
+    assert(action_cursor == response_command.size());
+    assert(action_player.collision_response()
+        == opentony::runtime::FixedPosition({
+            0x3000,
+            -0x2000,
+            0x1000,
+        }));
     std::cout << "Player state tests passed\n";
 }

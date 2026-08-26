@@ -9,7 +9,7 @@ bool PsxPositionCollisionProbe::operator()(
 
 std::optional<assets::PsxCollisionHit> PsxPositionCollisionProbe::hit(
     const FixedPosition& candidate) const {
-    return world_.trace_segment(start_, candidate);
+    return world_.trace_segment(start_, candidate, options_);
 }
 
 std::optional<PositionCollisionHit> PsxPositionCollisionProbe::query(

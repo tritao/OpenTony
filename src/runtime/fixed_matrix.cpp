@@ -76,6 +76,26 @@ Q12Matrix3 q12_yaw_matrix(std::int32_t angle12) noexcept {
     return result;
 }
 
+std::int32_t retail_restart_angle12(std::uint32_t auxiliary) noexcept {
+    // FUN_004c4d10 reads the word at skater +0x16, subtracts 0x800, and
+    // retains the low twelve bits before using it as a table angle.
+    const std::int32_t high_word = static_cast<std::int32_t>(
+        (auxiliary >> 16) & 0xffffU);
+    return (high_word - 0x800) & 0xfff;
+}
+
+Q12Matrix3 q12_restart_matrix(std::uint32_t auxiliary) noexcept {
+    // FUN_004c4d10 rotates the -X and -Z seed vectors with the same helper
+    // used by the rest of the orientation code and installs -Y as the down
+    // column.  In matrix form this is -yaw(-angle).
+    const Q12Matrix3 yaw = q12_yaw_matrix(-retail_restart_angle12(auxiliary));
+    Q12Matrix3 result{};
+    for (std::size_t index = 0; index < result.values.size(); ++index) {
+        result.values[index] = static_cast<std::int16_t>(-yaw.values[index]);
+    }
+    return result;
+}
+
 Q12Matrix3 q12_apply_yaw(
     const Q12Matrix3& current,
     std::int32_t angle12) noexcept {

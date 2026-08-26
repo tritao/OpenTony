@@ -14,19 +14,21 @@ the dispatcher and to connect them to the other level systems.
 - exact variable-width command cursor, including string alignment, fixed path
   tables, and aligned `0xc9` gap operands;
 - verified command services for pulses, pulse budgets, suspend/activate,
-  signals, kill/visible, object flags, resources, timers, fog, paths, reverb,
+  signals, kill/visible, object flags, resources, timer-reset tracing, fog, paths, reverb,
   level state, global words, career/goal conditions, and gap callbacks;
 - raw node payload callbacks for object, pickup, and type-12/type-14 creation;
 - a deterministic `LevelTriggerState` service that registers linked nodes,
   tracks object flags/visibility/active/alive state, records event order,
-  stores timers/resources/fog/path/restart state, and exposes gap/career/goal
-  state;
+  stores timer-reset/resource/fog/path state, preserves the verified first
+  `0x9e` level-event initialization, and exposes gap/career/goal state;
 - a native PSX reader for fixed-point scene objects, model geometry,
   model-name hashes, texture metadata/palettes, tags, and blockmaps; and
 - the retail general/Warehouse 44-byte gap table plus ordinary/deferred `0xc9`
   completion behavior;
 - strict synthetic tests and native inspectors that load all 32 extracted
-  retail TRGs and all 282 extracted PSXs without structural diagnostics.
+  retail TRGs and all 282 extracted PSXs without structural diagnostics;
+  `opentony_trg_inspect --dispatch-all` now executes all 3,244 extracted
+  type-6 command-point streams, including retail unknown-opcode fallthrough.
 
 ## Next C++ services, in dependency order
 
@@ -37,6 +39,8 @@ the dispatcher and to connect them to the other level systems.
    unresolved type-1/type-5/type-7/type-12/type-14 records. Still recover the
    object payload ownership and final name/id wiring, then replace the
    renderer-independent factory records with actual runtime object instances.
+   Type-1/type-7 option-byte inputs are now retained, including the option-4
+   flag clear, type-7 flag set, and option-2 environment-registration branch.
    The factory family is now explicit:
    `0xcb -> FUN_00403000`, `0x192 -> FUN_0049f250`, `0xd5..0xdc ->
    FUN_00412640`, and type-5 -> `FUN_004a8e50` pickup construction. Factory
@@ -44,14 +48,15 @@ the dispatcher and to connect them to the other level systems.
    remaining work is constructor payload wiring and live object behavior.
 
 2. **Connect event state to the game loop.** `LevelTriggerState` now records
-   deterministic event order and timer expiry, and `LevelRuntime` supplies the
+   deterministic event order and retail timer-reset trace, and `LevelRuntime` supplies the
    first load/tick/pulse/restart facade. Connect it to the actual frame loop
    and real object callbacks while preserving pulse count/state, recursive link
    delivery, and retail ordering.
 
 3. **Gameplay objective state.** The state layer now parses the retail 44-byte
    gap records and implements ordinary versus deferred `0xc9` completion,
-   score/name capture, and the one-shot source pulse. Still connect table
+   score/name capture, deferred completion/award transitions, and the
+   one-shot source pulse. Still connect table
    selection for career/editor modes, player-position gap detection, score
    presentation, and persistent checklist state.
 
@@ -65,12 +70,15 @@ the dispatcher and to connect them to the other level systems.
    first acceptance cases.
 
 5. **Asset-backed scene/object creation.** Feed the native PSX object/model
-   data into the object registry and renderer. Then implement pickups and the
-   type-12/type-14 special-node path. Keep trigger node IDs as the stable join
-   key between TRG, PSX, and runtime objects.
+   data into the object registry and renderer. The type-12/type-14 path now
+   joins Warehouse node 120 through its PSX model-name key and preserves the
+   verified asset flag/marker writes plus the raw owner/control context when
+   supplied by the player service; the actual live asset pointer, player
+   selection policy, and final object behavior remain. Keep trigger node IDs
+   as the stable join key between TRG, PSX, and runtime objects.
 
 6. **Player/restart integration.** Apply the recovered fixed-point restart
-   positions and facing/auxiliary fields to the player runtime, including the
+   positions, restart-derived facing matrix, and auxiliary fields to the player runtime, including the
    one-player/two-player restart names and the post-restart script stream.
 
 ## Evidence needed before calling it faithful
@@ -83,7 +91,7 @@ the dispatcher and to connect them to the other level systems.
   checklist state, and the resulting pulse;
 - one object/pickup creation trace correlating TRG payload fields with PSX
   object/model records;
-- per-frame traces for timer expiry, pulse ordering, and restart execution.
+- per-frame traces for timer-reset ordering, pulse ordering, and restart execution.
 
 ## Full-game dependencies outside this trigger slice
 

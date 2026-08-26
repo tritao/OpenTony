@@ -1,5 +1,7 @@
 #include "player_state.hpp"
 
+#include "tricks_bin.hpp"
+
 #include <cstdint>
 
 namespace opentony::runtime {
@@ -26,6 +28,12 @@ void PlayerState::apply_restart(
     motion_correction_ = {};
     air_motion_ = {};
     queued_motion_ = {};
+    action_stream_active_ = false;
+    action_stream_relative_ = 0;
+    action_stream_cursor_ = 0;
+    ground_physics_mode_ = 0;
+    orientation_ = q12_restart_matrix(auxiliary);
+    retail_basis_ = retail_basis_from_matrix(orientation_);
     restart_auxiliary_ = auxiliary;
     restart_auxiliary_word_ = auxiliary_word;
 }
@@ -46,6 +54,146 @@ QueuedMotionDrainResult PlayerState::drain_queued_motion(
     return opentony::runtime::drain_queued_motion(
         queued_motion_,
         frame_scale_q8);
+}
+
+FixedPosition PlayerState::apply_queued_motion(
+    const QueuedMotionDrainResult& motion) noexcept {
+    if (!motion.moved) {
+        return {};
+    }
+    const FixedPosition world_delta = q12_transform_vector(
+        orientation_,
+        FixedPosition{
+            motion.local_delta[0],
+            motion.local_delta[1],
+            motion.local_delta[2],
+        });
+    position_[0] += world_delta[0];
+    position_[1] += world_delta[1];
+    position_[2] += world_delta[2];
+    return world_delta;
+}
+
+ActionCommandDispatchResult PlayerState::dispatch_action_command(
+    std::span<const std::uint8_t> stream,
+    std::size_t& cursor) noexcept {
+    return opentony::runtime::dispatch_action_command(
+        stream,
+        cursor,
+        queued_motion_,
+        &collision_response_,
+        &action_command_state_);
+}
+
+ActionStreamDispatchResult PlayerState::run_action_stream(
+    std::span<const std::uint8_t> stream,
+    std::size_t& cursor,
+    std::size_t max_commands) noexcept {
+    return opentony::runtime::run_action_stream(
+        stream,
+        cursor,
+        queued_motion_,
+        &collision_response_,
+        max_commands,
+        &action_command_state_);
+}
+
+void PlayerState::publish_action_profile(
+    const ActionProfileState& profile,
+    std::uint32_t timestamp,
+    std::int8_t vertical_lean,
+    std::int8_t horizontal_lean) noexcept {
+    const std::uint8_t selected = select_action_table_entry(
+        profile,
+        vertical_lean,
+        horizontal_lean);
+    for (std::uint8_t action = 1; action <= 8; ++action) {
+        static_cast<void>(action_history_.publish(
+            action,
+            selected == action,
+            timestamp));
+    }
+    // FUN_00492190 publishes only these configured profile records. IDs 13
+    // and 15 are not touched by this retail function.
+    static constexpr std::array<std::pair<std::uint8_t, std::uint16_t>, 6> kProfileRecords{
+        std::pair{9, 0x20},
+        std::pair{10, 0x10},
+        std::pair{11, 0x30},
+        std::pair{12, 0x00},
+        std::pair{14, 0x50},
+        std::pair{16, 0x70},
+    };
+    for (const auto& [action, offset] : kProfileRecords) {
+        static_cast<void>(action_history_.publish(
+            action,
+            profile.slot_at_offset(offset),
+            timestamp));
+    }
+}
+
+ActionSequenceExecutionResult PlayerState::run_action_sequences(
+    const assets::TricksBinView& tricks,
+    std::span<const std::uint8_t> sequence_table,
+    const ActionSequenceMatcherInput& input,
+    std::size_t max_records,
+    std::size_t max_commands) noexcept {
+    ActionSequenceExecutionResult result{};
+
+    if (action_stream_active_) {
+        const auto stream = tricks.action_stream(action_stream_relative_);
+        if (!stream.has_value()) {
+            // The source image changed or the saved signed offset is no
+            // longer valid. Retail would no longer have a usable +29cc
+            // cursor; clear the native equivalent rather than replaying an
+            // unrelated stream from offset zero.
+            action_stream_active_ = false;
+            action_stream_cursor_ = 0;
+            return result;
+        }
+        result.stream_resolved = true;
+        result.stream_resumed = true;
+        result.stream = run_action_stream(
+            *stream,
+            action_stream_cursor_,
+            max_commands);
+        if (result.stream.completed || result.stream.malformed) {
+            action_stream_active_ = false;
+        }
+        result.stream_active = action_stream_active_;
+        return result;
+    }
+
+    result.match = match_action_sequence(
+        sequence_table,
+        action_history_,
+        input,
+        max_records);
+    if (!result.match.matched) {
+        return result;
+    }
+    const auto stream = tricks.action_stream(result.match.stream_relative);
+    if (!stream.has_value()) {
+        return result;
+    }
+    result.stream_resolved = true;
+    result.stream_started = true;
+    action_stream_active_ = true;
+    action_stream_relative_ = result.match.stream_relative;
+    action_stream_cursor_ = 0;
+    // FUN_00491b80's confirmed stream-start writes. The remaining reset
+    // fields belong to the larger animation/action object and stay outside
+    // this raw runtime state until their owners are identified.
+    action_command_state_.word_29c0 = 0x7b;
+    action_command_state_.dword_2e2c = 0;
+    result.stream = run_action_stream(
+        *stream,
+        action_stream_cursor_,
+        max_commands);
+    if (result.stream.completed || result.stream.malformed) {
+        action_stream_active_ = false;
+    }
+    result.stream_active = action_stream_active_;
+    return result;
 }
 
 OllieImpulseResult PlayerState::apply_ollie_impulse(
@@ -242,6 +390,28 @@ GroundBrakeResult PlayerState::apply_ground_brake(
     collision_response_ = result.response;
     if (result.requested_state7) {
         request_physics_state(7, kGroundStopReason);
+    }
+    return result;
+}
+
+GroundPhysicsResult PlayerState::update_ground_physics(
+    GroundPhysicsInput input) noexcept {
+    input.response = collision_response_;
+    input.physics_state = physics_state_;
+    input.ground_update_state = ground_physics_mode_;
+    input.animation_frame = animation_frame_;
+    input.animation_state = animation_state_;
+    const GroundPhysicsResult result =
+        opentony::runtime::update_ground_physics(input);
+    collision_response_ = result.response;
+    ground_physics_mode_ = result.ground_update_state;
+    if (result.cooldown_written) {
+        ground_motion_cooldown_ = result.cooldown_value;
+    }
+    if (result.physics_state_requested) {
+        request_physics_state(
+            result.requested_physics_state,
+            result.requested_physics_reason);
     }
     return result;
 }

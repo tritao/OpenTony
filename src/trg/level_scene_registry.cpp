@@ -66,6 +66,7 @@ void LevelSceneRegistry::build(
                 entity.model_name = source.link_key;
                 entity.subtype = source.subtype;
                 entity.spawn_family = source.spawn_family;
+                copy_source_metadata(entity, source);
             }
             if (!binding.entities.empty()) {
                 ++bound_trigger_count_;
@@ -86,10 +87,14 @@ void LevelSceneRegistry::build(
             entity.factory_resource = source.factory_resource;
             entity.factory_model_selector = source.factory_model_selector;
             entity.has_factory_model_selector = source.has_factory_model_selector;
+            copy_source_metadata(entity, source);
             entity.position = source.position;
             entity.orientation = source.orientation;
             entity.has_orientation = source.has_orientation;
             entity.gameplay_flags = source.flags;
+            entity.special_asset_flags_or = source.special_asset_flags_or;
+            entity.special_asset_marker = source.special_asset_marker;
+            entity.has_special_asset_state = source.has_special_asset_state;
             entity.active = source.active;
             entity.suspended = source.suspended;
             entity.alive = source.alive;
@@ -167,6 +172,27 @@ const TriggerObjectState* LevelSceneRegistry::find_state(
     return state.object(node);
 }
 
+void LevelSceneRegistry::copy_source_metadata(
+    LevelSceneEntity& entity,
+    const TriggerObjectState& source) {
+    entity.spawn_options = source.spawn_options;
+    entity.has_spawn_option_2 = source.has_spawn_option_2;
+    entity.has_spawn_option_4 = source.has_spawn_option_4;
+    entity.factory_requires_environment_registration =
+        source.factory_requires_environment_registration;
+    entity.factory_clears_object_flag_2 = source.factory_clears_object_flag_2;
+    entity.factory_sets_object_flag_4 = source.factory_sets_object_flag_4;
+    entity.trigger_flags = source.trigger_flags;
+    entity.trigger_state = source.trigger_state;
+    entity.trigger_mode = source.trigger_mode;
+    entity.has_trigger_runtime = source.has_trigger_runtime;
+    entity.special_runtime_owner = source.special_runtime_owner;
+    entity.special_runtime_control = source.special_runtime_control;
+    entity.has_special_runtime_context = source.has_special_runtime_context;
+    entity.has_special_runtime = source.has_special_runtime;
+    entity.special_runtime_active = source.special_runtime_active;
+}
+
 void LevelSceneRegistry::sync_binding(
     const LevelTriggerState& state,
     const LevelSceneBinding& binding) {
@@ -179,7 +205,11 @@ void LevelSceneRegistry::sync_binding(
             continue;
         }
         LevelSceneEntity& entity = entities_[entity_index];
+        copy_source_metadata(entity, *source);
         entity.gameplay_flags = source->flags;
+        entity.special_asset_flags_or = source->special_asset_flags_or;
+        entity.special_asset_marker = source->special_asset_marker;
+        entity.has_special_asset_state = source->has_special_asset_state;
         entity.active = source->active;
         entity.suspended = source->suspended;
         entity.alive = source->alive;

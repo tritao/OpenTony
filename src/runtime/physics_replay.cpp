@@ -33,6 +33,7 @@ std::vector<PlayerReplaySnapshot> PlayerPhysicsReplay::run(
     snapshot.restart_auxiliary_word = player.restart_auxiliary_word();
         snapshot.physics_state = player.physics_state();
         snapshot.ground_update_state = player.ground_update_state();
+        snapshot.ground_physics_mode = player.ground_physics_mode();
         snapshot.turn_accumulator = player.turn_accumulator();
         snapshot.dispatch_handled = result.dispatch.handled;
         snapshot.position_commit = result.position_commit;
@@ -43,7 +44,8 @@ std::vector<PlayerReplaySnapshot> PlayerPhysicsReplay::run(
         snapshot.in_air_jump_hold_applied = result.in_air_jump_hold_applied;
         snapshot.velocity_damped = result.velocity_damped;
         snapshot.velocity_damping = result.velocity_damping;
-        snapshot.ground_brake = result.ground_brake;
+    snapshot.ground_brake = result.ground_brake;
+        snapshot.ground_physics = result.ground_physics;
         snapshot.ollie = result.ollie;
         snapshot.ollie_state = player.ollie();
         snapshot.state_request = player.last_state_request();

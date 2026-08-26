@@ -46,6 +46,36 @@ int main() {
     assert(player.previous_position() == FixedPosition({0, 0, 0}));
     assert(player.turn_accumulator() == 0);
 
+    // FUN_00493370 applies the drained local delta through the live matrix
+    // before the state dispatcher. A retail zero-angle restart installs the
+    // negative-identity basis, so a local +X step becomes world -X.
+    PlayerState queued_player({100, 200, 300});
+    queued_player.apply_restart({100, 200, 300}, 0x08000000);
+    assert(queued_player.set_queued_motion_command(0, 1, 4));
+    const auto queued_motion = queued_player.drain_queued_motion();
+    const FixedPosition queued_world_delta = queued_player.apply_queued_motion(
+        queued_motion);
+    assert(queued_world_delta == FixedPosition({-1, 0, 0}));
+    assert(queued_player.position() == FixedPosition({99, 200, 300}));
+    assert(queued_player.previous_position() == FixedPosition({100, 200, 300}));
+
+    PlayerState queued_frame_player;
+    queued_frame_player.set_physics_state(3);
+    assert(queued_frame_player.set_queued_motion_command(1, 1, 2));
+    InputState queued_frame_input;
+    queued_frame_input.begin_frame(0);
+    PlayerPhysicsFrameHooks queued_frame_hooks{};
+    queued_frame_hooks.apply_ground_turn = false;
+    queued_frame_hooks.integrate_position = false;
+    queued_frame_hooks.integrate_motion_correction = false;
+    const auto queued_frame = PlayerPhysicsFrame::step(
+        queued_frame_player,
+        queued_frame_input,
+        queued_frame_hooks);
+    assert(queued_frame.queued_motion.moved);
+    assert(queued_frame.queued_motion_world_delta == FixedPosition({0, 1, 0}));
+    assert(queued_frame_player.position() == FixedPosition({0, 1, 0}));
+
     PlayerState producer({100, 200, 300});
     producer.set_physics_state(0);
     producer.set_collision_response({100, 0, 0});
@@ -131,6 +161,46 @@ int main() {
         profile_hooks);
     assert(profile_frame.action_profile.slot_at_offset(0x10));
     assert(profile_frame.action_profile.slot_at_offset(0x80));
+
+    PlayerState stateful_ground_player;
+    stateful_ground_player.set_physics_state(0);
+    stateful_ground_player.set_collision_response({0x20000, 0, 0});
+    InputState stateful_ground_input;
+    stateful_ground_input.begin_frame(0);
+    PlayerPhysicsFrameHooks stateful_ground_hooks{};
+    stateful_ground_hooks.integrate_position = false;
+    stateful_ground_hooks.integrate_motion_correction = false;
+    stateful_ground_hooks.ground_physics_input = [](
+        const PlayerState&,
+        const InputState&) {
+        return std::optional<opentony::runtime::GroundPhysicsInput>{
+            opentony::runtime::GroundPhysicsInput{
+                {},
+                0,
+                0,
+                -0x1000,
+                0,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+            },
+        };
+    };
+    const auto stateful_ground_frame = PlayerPhysicsFrame::step(
+        stateful_ground_player,
+        stateful_ground_input,
+        stateful_ground_hooks);
+    assert(stateful_ground_frame.ground_physics.has_value());
+    assert(stateful_ground_frame.ground_physics->ground_update_state == 1);
+    assert(stateful_ground_player.ground_physics_mode() == 1);
+    assert(stateful_ground_player.collision_response()
+        == FixedPosition({0x1e000, 0, 0}));
+    assert(stateful_ground_player.ground_motion_cooldown() == 2);
 
     PlayerState wide_player;
     wide_player.set_physics_state(0);

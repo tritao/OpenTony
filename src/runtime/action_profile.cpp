@@ -14,7 +14,39 @@ constexpr std::uint16_t kSlotBits[8] = {
     0x0002, // +0x70
 };
 
+// DAT_005369c8, indexed by the four materialized directional profile bytes.
+constexpr std::uint8_t kRetailActionTable[16] = {
+    0, 1, 2, 2,
+    3, 5, 7, 7,
+    4, 6, 8, 8,
+    4, 6, 8, 8,
+};
+
 } // namespace
+
+std::uint8_t select_action_table_entry(
+    const ActionProfileState& profile,
+    std::int8_t vertical_lean,
+    std::int8_t horizontal_lean) noexcept {
+    std::uint8_t index = static_cast<std::uint8_t>(
+        (profile.slot_at_offset(0xa0) ? 1U : 0U)
+        | (profile.slot_at_offset(0xb0) ? 2U : 0U)
+        | (profile.slot_at_offset(0x80) ? 4U : 0U)
+        | (profile.slot_at_offset(0x90) ? 8U : 0U));
+    if (vertical_lean < -0x28) {
+        index = static_cast<std::uint8_t>(index | 0x01U);
+    }
+    if (vertical_lean > 0x28) {
+        index = static_cast<std::uint8_t>(index | 0x02U);
+    }
+    if (horizontal_lean < -0x28) {
+        index = static_cast<std::uint8_t>(index | 0x04U);
+    }
+    if (horizontal_lean > 0x28) {
+        index = static_cast<std::uint8_t>(index | 0x08U);
+    }
+    return kRetailActionTable[index & 0x0fU];
+}
 
 ActionProfileState map_action_profile(
     std::uint16_t action_mask,
@@ -44,6 +76,7 @@ ActionProfileState map_action_profile(
     result.slots[13] = (action_mask & 0x0400U) != 0;
     result.slots[14] = (action_mask & 0x0800U) != 0;
     result.slots[15] = (action_mask & 0x0100U) != 0;
+    result.selected_action = select_action_table_entry(result);
     return result;
 }
 

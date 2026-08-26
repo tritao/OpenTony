@@ -1,5 +1,7 @@
 #include "physics_frame.hpp"
 
+#include "tricks_bin.hpp"
+
 namespace opentony::runtime {
 namespace {
 
@@ -24,6 +26,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
 
     player.begin_physics_frame();
     result.queued_motion = player.drain_queued_motion(frame_scale_q8);
+    if (hooks.apply_queued_motion) {
+        result.queued_motion_world_delta = player.apply_queued_motion(
+            result.queued_motion);
+    }
     if (hooks.on_queued_motion) {
         hooks.on_queued_motion(player, result.queued_motion);
     }
@@ -116,6 +122,42 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             input,
             hooks.ollie_input(player, input));
     }
+    // FUN_00492190 publishes the current profile immediately before
+    // FUN_004925e0 scans the generated sequence table. Keep that ordering at
+    // the native action boundary rather than deriving history from the raw
+    // four-frame input snapshots after the fact.
+    player.publish_action_profile(
+        result.action_profile,
+        static_cast<std::uint32_t>(player.frame_counter()));
+    if (hooks.action_sequence_source.has_value()
+        && hooks.action_sequence_source->tricks != nullptr) {
+        std::span<const std::uint8_t> sequence_table =
+            hooks.action_sequence_source->sequence_table;
+        if (sequence_table.empty()
+            && hooks.action_sequence_source->use_source_sequence_fallback) {
+            const auto source_table =
+                hooks.action_sequence_source->tricks->source_sequence_table();
+            if (source_table.has_value()) {
+                sequence_table = *source_table;
+            }
+        }
+        if (!sequence_table.empty()) {
+            ActionSequenceMatcherInput matcher = hooks.action_sequence_source->matcher;
+            if (matcher.selected_action == 0) {
+                matcher.selected_action = result.action_profile.selected_action;
+            }
+            if (matcher.now == 0) {
+                matcher.now = static_cast<std::uint32_t>(player.frame_counter());
+            }
+            result.action_sequence = player.run_action_sequences(
+                *hooks.action_sequence_source->tricks,
+                sequence_table,
+                matcher);
+            if (hooks.on_action_sequence) {
+                hooks.on_action_sequence(player, *result.action_sequence);
+            }
+        }
+    }
     if (hooks.on_action_stream) {
         hooks.on_action_stream(player);
     }
@@ -124,6 +166,15 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             hooks.ground_brake_input(player, input);
         if (brake_input.has_value()) {
             result.ground_brake = player.apply_ground_brake(*brake_input);
+        }
+    }
+    if (hooks.ground_physics_input) {
+        const std::optional<GroundPhysicsInput> ground_physics_input =
+            hooks.ground_physics_input(player, input);
+        if (ground_physics_input.has_value()) {
+            GroundPhysicsInput resolved = *ground_physics_input;
+            resolved.frame_scale_q8 = frame_scale_q8;
+            result.ground_physics = player.update_ground_physics(resolved);
         }
     }
 

@@ -38,6 +38,28 @@ constexpr double kEpsilon = 1.0e-9;
     };
 }
 
+[[nodiscard]] bool crosses_retail_collision_plane(
+    const PsxCollisionFace& face,
+    const std::array<std::int32_t, 3>& integer_start,
+    const std::array<std::int32_t, 3>& integer_end) noexcept {
+    const std::array<std::int32_t, 3> plane_point =
+        to_integer_world(face.vertices[0]);
+    const auto plane_value = [&](const std::array<std::int32_t, 3>& point) {
+        const std::int64_t x = static_cast<std::int64_t>(point[0]) - plane_point[0];
+        const std::int64_t y = static_cast<std::int64_t>(point[1]) - plane_point[1];
+        const std::int64_t z = static_cast<std::int64_t>(point[2]) - plane_point[2];
+        return x * face.normal[0] + y * face.normal[1] + z * face.normal[2];
+    };
+    const std::int64_t end_value = plane_value(integer_end);
+    const std::int64_t start_value = plane_value(integer_start);
+    // FUN_00462a20 accepts the oriented crossing used by the retail query:
+    // endpoint >= 0, start <= 0, with a small quantized tolerance branch.
+    return end_value >= 0
+        && start_value < 1
+        && (end_value >= 0x800
+            || (start_value != 0 && start_value < -0x7ff));
+}
+
 [[nodiscard]] std::array<double, 3> subtract(
     const std::array<double, 3>& left,
     const std::array<double, 3>& right) noexcept {
@@ -107,6 +129,30 @@ PsxCollisionMaskView decode_collision_mask(
         static_cast<std::uint8_t>((surface_flags >> 9U) & 0x0fU),
         (face_flags & 0x0080U) != 0,
     };
+}
+
+bool accepts_retail_collision_face(
+    std::uint32_t raw_collision_word,
+    const PsxCollisionQueryOptions& options) noexcept {
+    if (!options.apply_retail_face_filter) {
+        return true;
+    }
+    // FUN_00462a20's early face-word predicates, preserving the original
+    // decompiler spelling for the two global masks:
+    //   (word & DAT_00567a60) == 0
+    //   (word | DAT_00567a68) == 0xffffffff
+    if ((raw_collision_word & options.reject_mask) != 0
+        || (raw_collision_word | options.accept_mask) != 0xffffffffU) {
+        return false;
+    }
+    if (((raw_collision_word ^ 0x00010000U) & 0x00030000U) == 0) {
+        return false;
+    }
+    if (!options.include_trigger_faces
+        && (raw_collision_word & 0x00020000U) != 0) {
+        return false;
+    }
+    return true;
 }
 
 PsxCollisionWorld PsxCollisionWorld::build(const PsxArchive& archive) {
@@ -308,7 +354,8 @@ bool PsxCollisionWorld::segment_triangle(
 
 std::optional<PsxCollisionHit> PsxCollisionWorld::trace_segment(
     std::array<std::int32_t, 3> start,
-    std::array<std::int32_t, 3> end) const {
+    std::array<std::int32_t, 3> end,
+    const PsxCollisionQueryOptions& options) const {
     const std::array<std::int64_t, 3> delta{
         static_cast<std::int64_t>(end[0]) - start[0],
         static_cast<std::int64_t>(end[1]) - start[1],
@@ -347,6 +394,16 @@ std::optional<PsxCollisionHit> PsxCollisionWorld::trace_segment(
             continue;
         }
         const PsxCollisionFace& face = faces_[face_index];
+        if (!accepts_retail_collision_face(face.raw_collision_word, options)) {
+            continue;
+        }
+        if (options.apply_retail_plane_test
+            && !crosses_retail_collision_plane(
+                face,
+                integer_start,
+                integer_end)) {
+            continue;
+        }
         const auto test = [&](std::size_t first, std::size_t second, std::size_t third) {
             double fraction = 0.0;
             const auto integer_vertex = [&](std::size_t corner) {
