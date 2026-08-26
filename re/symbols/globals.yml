@@ -49,3 +49,63 @@ globals:
     confidence: inferred
     evidence:
       - re/evidence/functions/input.md
+  - address: 0x0056af40
+    name: CollisionLinkedZoneRoot
+    description: root passed to the linked/dynamic collision-zone traversal
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00567f80
+    name: CollisionZoneTable
+    description: loaded zone-table base/presence pointer used by line queries
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00567fa0
+    name: CollisionZoneFaceLists
+    description: per-zone spatial-cell candidate-list table
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056d43c
+    name: CollisionModelTable
+    description: model/face data table indexed by collision model records
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x005643b0
+    name: CollisionFaceAabbCache
+    description: generated per-face axis-aligned bounds cache
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b768
+    name: CollisionResultFlagSurface40
+    description: derived collision result flag from winning face flags bit 0x40
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7a8
+    name: CollisionResultFlagInverse23
+    description: derived collision result boolean from the inverse of face bit 23
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7ac
+    name: CollisionResultFlagFace80
+    description: derived collision result flag from face word zero bit 0x80
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7b8
+    name: CollisionResultFlagInverse24
+    description: derived collision result boolean from the inverse of face bit 24
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7e8
+    name: CollisionSurfaceClass
+    description: four-bit surface class derived from winning face flags
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
