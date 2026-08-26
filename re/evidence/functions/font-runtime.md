@@ -36,8 +36,19 @@ runtime font +0x38 -> record_count
 runtime font +0x3c -> packed atlas dimensions/format word
 ```
 
-Each glyph object is allocated through the normal game heap and receives the
-decoded colour data and a texture/image setup call. The extra entry is a
+For the `S2TRICKS.FNT` witness, the count is 59, the record table occupies
+`0x04..0x3b3`, the 0x20-byte colour table begins at `0x3b4`, and packed glyph
+data begins at `0x3d4`. Record 0 is `(5, 14, 14, 19)` as four little-endian
+words. The runtime entry stores the low bytes of record `+0x0c`, `+0x04`, and
+`+0x08` at entry `+0x04`, `+0x05`, and `+0x06`; the full record `+0x00` is
+used with entry `+0x05` to advance the packed-data cursor, including the
+observed even-byte alignment. This is a direct file-offset-to-entry witness,
+while the editor's original glyph metric names remain open.
+
+Each glyph object is allocated through the normal game heap as a 0x5c-byte
+image object. Its setup writes the decoded image width/height, bpp mode, and
+atlas-format word, then creates the associated PC texture record through the
+same image/texture helpers used by the bitmap path. The extra entry is a
 sentinel/blank glyph built from the trailing header values. The font manager
 has eight slots: `0x0044aea0` stores the runtime pointer in
 `DAT_0056161c[slot]` and the name in the 0x10-byte name table beginning at
@@ -56,6 +67,15 @@ and copies the runtime record fields at `+0x04` through `+0x4a` into the text
 rendering globals (`DAT_005619e0` onward), including packed dimensions and the
 glyph table. `0x0046a8d0` repeats the same load/lookup/copy path after a level
 load. Other menu and HUD code uses the same `Font_Find` boundary.
+
+The glyph image prefix used by this path is also bounded: `0x00456d10`
+allocates/initializes a 0x5c-byte object, `0x00456e10` writes image width at
+`+0x40`, image height at `+0x42`, slice dimensions at `+0x4e/+0x50`, maps
+4/8/16-bpp input to the image bpp mode at `+0x58`, and stores the font's
+packed atlas word at `+0x5a`. The texture decoder at `0x004d98d0` receives the
+glyph data and its entry width/height before the image object is built. This
+proves the FNT glyph -> image -> PC texture ownership edge without assigning
+the Direct3D texture implementation's internal fields.
 
 The proven path is therefore:
 

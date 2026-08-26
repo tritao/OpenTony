@@ -196,6 +196,57 @@ model part's public class name, but the merge helper independently proves the
 per-part name-match and index-assignment operation used by the runtime model
 set.
 
+For the ordinary Tony Hawk pair, the checked-in PSH manifests make the
+name-based remap concrete. `SK2ANIM.PSH` uses animation indices 0..18, while
+`HAWK2.PSH` uses the same named parts but stores the right and left leg pieces
+in a different order. The executable's `0x00480d90`/`0x00480cd0` merge path
+therefore produces this independently supported correspondence:
+
+```text
+animation index       0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18
+selected HAWK2 index  0  3  1  2  6  4  5  7  8  9 10 11 12 13 14 15 16 17 18
+part                  pelvis, right thigh/shoe/shin, left thigh/shoe/shin,
+                      torso/arms/head, board/front wheel/back wheel
+```
+
+The merge writes the selected-model index to the animation object's
+`+0x150[index]` byte and sets `+0x14c` when at least one match is present. The
+per-part renderer consumes exactly that table before reading the 0x18-byte
+pose records, so this is a disk-manifest -> runtime remap -> renderer bridge,
+not merely a count comparison.
+
+### Player hook packet
+
+The player setup also binds a small static hook packet after selecting the
+named PSX region. `0x00468e90` calls `0x0046d940`; the latter calls
+`0x0047fe30` (`Object_SelectNamedPsxRegion`) and then selects
+`DAT_00534620 + object[+0x2cc0] * 0x14` before calling
+`0x00464b90` (`M3D_ReadHooksPacket`). `0x00464b90` has a deliberately small
+contract: it stores `packet + 4` in the global hook table slot indexed by the
+object's PSX region byte at `+0x1f`.
+
+The initialized table has 11 entries. Each entry is 0x14 bytes: a 4-byte
+header followed by two 8-byte records. The header words are not assigned a
+semantic name here; the records' final signed-16 field is the part index
+consumed by `0x00464d10`/`0x00464e90` through the bound hook table. The exact
+static values are:
+
+```text
+table index   header   record 0 (4 x s16)   record 1 (4 x s16)
+0             0,1      0,0,0,18             0,0,0,3
+1..10         0,1      0,0,0,12             0,0,0,0
+```
+
+This proves the packet is player-model hook setup and gives the runtime
+selection key (`object + 0x2cc0`), while leaving the two record prefixes and
+the meaning of the unused header open. The first three record words are not
+dead padding: `0x00464e90` passes them to `0x004f5160`, which copies them into
+the lower transform state before applying the selected animation part. Their
+individual axis/vector meanings remain open. `M3D_GetPartPosition` and
+`M3D_GetHookPosition` then select the animation pose/cache, apply the hook's
+part mapping, and return a world-space position; the known consumers include
+rail/camera attachment and dust placement.
+
 ## Spool queue and PSH-to-PSX handoff
 
 `0x004b5370` is the bounded player spool queue insertion point. It accepts a
@@ -214,15 +265,18 @@ then stores the loaded buffer in the spool record. The PSH-side branch calls
 `0x004b37a0`, which registers/queues the associated PSX region and appends the
 `.psx` suffix through `0x004b3750`. `0x004b37a0` searches the 20 named PSX
 region slots first, otherwise writes a bounded region name, a request flag,
-and a queue entry. Its queue entries are 0x11 bytes and carry active, mode,
-region-slot, and request-flag bytes after the name.
+and a queue entry. It rejects a base name that would exceed eight characters,
+then writes the base name plus `.psx` into the queue's 13-byte name field.
+Its queue entries are 0x11 bytes and carry active, mode, region-slot, and
+request-flag bytes after the name.
 
 ### Player spool lifecycle
 
 The ownership boundary is now also supported by the manager lifecycle around
-the queue insertion point. `0x004b5200` constructs a manager with a vtable,
-zeroes its counters, and initializes 0x40 entries at a 0x28-byte stride. The
-manager counters are:
+the queue insertion point. `0x004b5200` constructs a `0xa10`-byte manager
+with a vtable, zeroes its counters, and initializes 0x40 entries beginning at
+`manager + 0x04` at a 0x28-byte stride. The entry array ends exactly at
+`manager + 0xa04`; the manager counters are:
 
 ```text
 manager + 0xa04  queued_count
@@ -232,9 +286,11 @@ manager + 0xa0c  state
 
 Each entry initializes its processed byte at `+0x04` to zero, its region
 handle at `+0x1c` to `-1`, and its direct-file buffer pointer at `+0x20` to
-zero. The resource name begins at `+0x05`; the mode discriminator at `+0x18`
-is `1` for a PSH/region request and `0` for a direct PSX file. The heap
-selector passed to the allocator is stored at `+0x24`.
+zero. `0x004b5370` copies the base name at `+0x05`; the next field starts at
+`+0x18`, so the entry has a confirmed 19-byte name span (`+0x05..+0x17`,
+including its terminator). The mode discriminator at `+0x18` is `1` for a
+PSH/region request and `0` for a direct PSX file. The heap selector passed to
+the allocator is stored at `+0x24`.
 
 `0x004b5580` starts the first pending item and sets state to `1`;
 `0x004b5300` completes the current item, either draining the PSX region
@@ -292,8 +348,10 @@ for the active player roster.
   `SK2DEF.PSX` load and generated
   `sk2def%d` region naming, its pre-parse pointer relocation, PSH
   load/part-count and pointer-array contract, six/eight-part PSH↔PSX count
-  cross-checks, common PSX parser entry, region-table storage, and
-  animation/hierarchy sharing call.
+  cross-checks, common PSX parser entry, region-table storage,
+  animation/hierarchy sharing call, the 19-part `SK2ANIM.PSH`↔`HAWK2.PSH`
+  remap, and the `0x0046d940` static hook-packet bind through
+  `PlayerHookPacketTemplates`.
 - `observed`: the two player-resource setup branches and the optional hook,
   texture-WIB, and colour-pulse checks; the 0x40-entry player spool manager,
   its counters/state machine, 0x28-byte entries, direct-file release path,

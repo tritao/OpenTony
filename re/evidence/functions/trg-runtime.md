@@ -1,8 +1,8 @@
 # Warehouse TRG node loading and runtime object path
 
-Status: confirmed trigger-file parse, object-manager dispatch, all three type-1 constructor families selected by the PC executable, constructor field initialization, TRG link/command records, and live disk-node to constructor/object correspondences; broader node payload semantics remain partial
+Status: confirmed trigger-file parse, object-manager dispatch, type-5 powerup-to-PSX item/medal model handoff, type-12/14 trick-object allocation/checksum handoff, all three type-1 constructor families selected by the PC executable, constructor field initialization, TRG link/command records, live disk-node to constructor/object correspondences, the type-1 script runner/field contract, traffic-object update/interaction consumers, and the common link-command cursor ABI; broader gameplay opcode semantics remain partial
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x004c5130`, `0x004c8130`, `0x004c8650`, `0x004c5460`, `0x00403000`, `0x0049f250`, `0x00412640`, `0x00480240`, `0x004802c0`, `0x00402bb0`, `0x00403410`, `0x004c84d0`, `0x004c5ac0`, `0x004c58b0`, `0x004c5b00`, `0x004c5dc0`, `0x004c8550`, `0x004c7a00`
+Addresses: `0x004c5130`, `0x004c8130`, `0x004c8650`, `0x004c5460`, `0x00403000`, `0x0049f250`, `0x00412640`, `0x004128a0`, `0x004128c0`, `0x00412960`, `0x00413000`, `0x004136e0`, `0x00480240`, `0x004802c0`, `0x00402bb0`, `0x00403410`, `0x004c84d0`, `0x004c5c00`, `0x004c5ac0`, `0x004c58b0`, `0x004c5b00`, `0x004c5b60`, `0x004c5c70`, `0x004c5d70`, `0x004c5dc0`, `0x004c7c50`, `0x004c8550`, `0x004c7a00`, `0x004b3270`, `0x004b32f0`, `0x00464710`, `0x004ca270`, `0x004ca2d0`
 
 The TRG path is a parallel runtime family to the PSX scene-object path. It
 creates gameplay/trigger objects and link records; its pointers must not be
@@ -86,6 +86,32 @@ The node-offset entries are absolute runtime pointers after relocation. All
 later trigger functions use `DAT_0056e210[index]`, so an offline node index is
 stable across the disk/runtime boundary even though its pointer is heap-local.
 
+### Trigger-driven PSX resource selection
+
+The trigger command interpreter is also the level-scene resource selector.
+Its resource opcodes have an exact lower-level contract:
+
+```text
+0x7e <NUL-terminated name> -> PSX_QueueResource(name, mode=0, ...)
+0x80 <NUL-terminated name> -> PSX_QueueResource(name, mode=1, ...)
+0x81                     -> PSX_Spooler drain
+```
+
+Mode 0 parses a raw auxiliary PSX region through `0x004b2450` without the
+environment-list attachment step. Mode 1 runs the same parser and then calls
+`0x004b2ac0`, which finalizes and links the region into the attached
+environment list. `0x004c8050` chooses type-4 `AUTOEXEC` for the ordinary
+level path and type-15 `AUTOEXEC2` when the two-player path is active.
+
+The Warehouse file itself provides a direct disk-to-command witness: its
+type-4 node 0 contains `0x7e SkWare_L` and `0x7e SkWare_O`, while type-8
+restart command streams contain `0x80 SkWare` and `0x80 SkWare_2`. Thus the
+auxiliary `SkWare_L.psx`/`SkWare_O.psx` parses and the attached main
+`SkWare.psx`/alternate `SkWare_2.psx` paths are selected by trigger bytecode,
+not by a filename convention inferred from the offline archive. The complete
+13-level matrix and the normal/two-player auxiliary spellings are recorded in
+[level-load.md](level-load.md).
+
 ## Node dispatch
 
 `0x004c8130`, also in `trig.cpp`, walks the relocated node table. The first
@@ -102,6 +128,12 @@ pass has the following observed dispatch:
 | 12 trick object, 14 (if present) | allocates a small record and calls `0x004bd760` |
 | 13 | calls the node-specific setup at `0x00411f30` |
 | 500 | allocates a 0x58-byte record and initializes it through `0x0045c390` |
+
+The type-12/14 allocation, model-checksum correspondence, record fields, and
+player/rail/update consumers are detailed in
+[trick-object-runtime.md](trick-object-runtime.md). It is a separate runtime
+record family from both the 0x4c-stride PSX environment objects and the larger
+TRG gameplay-object families.
 
 The type 2/6 link records have this observed minimal layout. The names below
 follow the constructor's register-level argument flow, not an assumed public
@@ -262,6 +294,89 @@ C_TAXI.PSH/PSX or C_BULL.PSH/PSX
   -> 0x004ad7d0 attaches the subtype sound handle
 ```
 
+### Traffic update and downstream consumers
+
+The traffic constructor installs vtable `0x005184e0`. Its update entry is the
+function at `0x00412960` (vtable slot `+0x0c`), and the update is a real
+runtime consumer of the object created from the TRG node. The first operation
+uses `+0x1d4` and `+0x1d0` as a sound-update gate. When both are usable, it
+periodically calls `0x004ad8b0(handle, &object+0x08, 0)` and restores the
+frame counter used for the periodic test. The sound handle is therefore tied
+to the traffic object's current fixed-point position, not just to the model
+resource selected by the constructor.
+
+The update then calls `0x00461bf0(this)`, which refreshes the object's integer
+position/cache fields from `+0x08/+0x0c/+0x10` (and applies the base object's
+orientation/transform path). If global runtime state queried by
+`0x004cde70` equals 2, the traffic update takes a special branch through
+`0x004cdef0` and does not integrate movement. Otherwise it resolves the source
+node through `+0x1dc`, decodes the node position with `0x004c8650`, subtracts
+the same `0x6e000` Y offset used by the constructor, and computes a movement
+step with `0x004cabf0`/`0x00465f60`.
+
+The movement state is independently bounded by the object writes at
+`+0x4c/+0x50/+0x54`. The update initializes these three fixed-point response
+components from the target delta, chooses one of three dominant-axis modes,
+scales the step by the global fixed-point factor at `0x0056865c` and the
+constructor's `+0x18` parameter, then advances `+0x08/+0x0c/+0x10` through
+`0x004f5fc0`. When the target is outside the current step interval, each
+response component decays by `value - (value >> 4)`. This is enough to recreate
+the loaded-TRG-object movement contract without assigning game-specific names
+to the response components.
+
+Two additional consumers make the bridge concrete:
+
+```text
+traffic runtime object
+  -> vtable +0x0c = 0x00412960
+     -> positional sound update
+     -> source-node decode and fixed-point movement
+     -> 0x004136e0 proximity/interaction test
+
+traffic runtime object + runtime context object
+  -> 0x00413000
+     -> fixed-point distance and swept angular tests
+     -> subtype-specific traffic response sounds/effects
+     -> latch at traffic object +0x1e4
+```
+
+`0x004136e0` scans the active runtime-object array at `0x0056a858`, accepts
+nearby objects only when the fixed-point distance is below 2000, and uses two
+cross-product tests to determine whether the object lies in the relevant
+angular interval. It emits subtype-specific sound IDs and latches
+`traffic +0x1e4` when a match is found. `0x00413000` is a separate traffic
+interaction path: it rejects self/disabled states, performs the same fixed
+point distance and swept-bound checks against a runtime context object, and
+updates the traffic response components before emitting subtype-specific
+effects. These paths establish a consumer beyond the PSX region lookup and
+show which runtime fields are actually read after construction.
+
+### Traffic object teardown
+
+The first vtable entry at `0x005184e0` is the deleting-destructor wrapper
+`0x004128a0`. It calls the destructor body at `0x004128c0` and frees the
+0x1e8-byte allocation through `0x0047fd60` when the wrapper's destruction flag
+requests it. The body restores the traffic vtable, decrements the traffic
+sequence/global count at `DAT_0055faec`, removes the object from the
+`DAT_0055f6bc` intrusive list through `0x004801f0`, and then invokes the base
+object cleanup at `0x004012f0`.
+
+This closes the ownership loop supported by the executable:
+
+```text
+TRG traffic node
+  -> 0x00412640 allocates 0x1e8 bytes
+  -> 0x004801d0 links object into DAT_0055f6bc
+  -> 0x00412960 updates sound/position/response state
+  -> 0x004128a0 / 0x004128c0 unlink, base-clean, and optionally free
+```
+
+The destructor body does not directly release the named PSX region slot. The
+region/model selection is stored as object metadata, and the shared-region
+release owner is not assigned from this destructor alone. That distinction
+prevents a faithful recreation from freeing shared `C_TAXI.PSX` or
+`C_BULL.PSX` data once per traffic instance.
+
 All three families use the same intrusive list primitive at `0x004801d0`:
 the new object is pushed at the supplied head, its `+0x20` next pointer takes
 the old head, and its `+0x34` back pointer is cleared/installed in the old
@@ -297,10 +412,136 @@ position and sound commands. Opcode `0x4506` copies the current script target
 position into the object; `0x4507` and `0x4508` read one or two `u16` sound
 operands and create a positional sound handle at `+0x1e8`, while `0x4509`
 stops and clears that handle. Opcode `0x4700` toggles bit `0x100` in the
-object state word at `+0x178`. Other recognized commands advance the cursor by
-their fixed payload sizes. This proves that the post-constructor `+0x17c`
-pointer is a live runtime command-stream boundary and gives one concrete
-trigger-object consumer beyond list insertion.
+object state word at `+0x178`. The other recognized cursor operations are
+`0x429b` and `0x42a1` (advance by 12 bytes), and `0x4504` (advance by 8 bytes
+and then the common 12-byte payload); `0x429f` and `0x4503` consume no extra
+bytes in this handler. Unrecognized commands are delegated to `0x004015e0`.
+This proves that the post-constructor `+0x17c` pointer is a live runtime
+command-stream boundary and gives one concrete trigger-object consumer beyond
+list insertion.
+
+### Type-1 script runner and variable/field contract
+
+The shared runner at `0x00401520` makes the command-stream boundary
+reproducible. It stores its input cursor at object `+0x17c`, reads one `u16`
+opcode, advances the cursor by two bytes, and stops at `0x4100`. Words with
+bit `0x4000` set dispatch through the object's virtual slot `+0x1c`; words
+with bit `0x2000` set (and bit `0x4000` clear) dispatch through virtual slot
+`+0x20`. A command handler returning zero terminates the runner. The operand
+helper at `0x004027c0` likewise consumes one `u16`; a non-immediate operand
+(bit `0x2000` set, bit `0x8000` clear) is resolved through virtual slot
+`+0x24`. This is the exact disk/runtime script ABI: the stream is a sequence
+of little-endian words with handler-specific payloads, not a fixed-size record
+array.
+
+For the `0xcb` vtable, virtual slot `+0x20` reaches `0x00403400`, which
+forwards to `0x004027f0`. The supported field-writing words and their proven
+cursor effects are:
+
+```text
+0x2100  consume one u16 -> object +0xb4
+0x2101  consume one u16 -> object +0xae
+0x2114  consume one u16 -> object +0x1bc
+0x2115  consume one u16 -> object +0x1be
+0x2120  read register index, resolve one operand -> u16 object +0x1b0[index]
+0x2121  consume signed u16 -> sign-extended object +0x108
+0x2122  consume one u16 -> object +0x1ac
+0x2125  consume attribute index and one u16 -> object +0x1a0[index]
+0x212c  consume one u16, retain its low byte -> object +0x170
+0x212d  consume one u16, retain its low byte -> object +0x16f
+0x212e  consume one u16 without storing it
+0x212f  align cursor to 4, consume one u32/name token -> object +0x1a
+0x2131  consume signed u16; set/clear object-flags bit 0x08
+0x2135  align cursor to 4 and skip one u32
+0x2140  resolve one operand -> position X at object +0x08
+0x2141  resolve one operand -> position Y at object +0x0c
+0x2142  resolve one operand -> position Z at object +0x10
+```
+
+The index checks are also explicit: `0x2120` accepts register indices below
+six and `0x2125` accepts attribute indices below six. The six register words
+at `+0x1b0` are read by variable `0x2120`; the getter at `0x00402bb0` also
+exposes node index `0x212a`, linked-node state `0x212b`, the two script bytes
+`0x212c/0x212d`, fixed-point position variables `0x2140..0x2142`, and target
+position variables `0x2150..0x2152`. Variable `0x2129` consumes one token and
+passes it through `0x004c9340`; `0x2132/0x2133`, `0x2136`, and `0x212e` remain
+raw runtime queries because their higher-level names are not independently
+established. This closes the type-1 post-preamble stream layout and identifies
+its field consumers without assigning unsupported gameplay semantics.
+
+### Base baddy script bytecode
+
+The base handler at `0x004015e0` consumes the same cursor and provides the
+broader script language used by the `0xcb` object family. Its label operations
+are exact: `0x4104` records the current cursor in one of eight label slots at
+object `+0x180`, `0x4105` scans and records labels until `0x4100`, and `0x4101`
+or `0x4102` reads a label index and jumps to the saved cursor. `0x4106` reads a
+node index, decodes the referenced script node through `0x004c8650`, and moves
+the cursor to that node's post-header command bytes when the node is type
+1000.
+
+The control-flow and gameplay families independently supported by the switch
+are:
+
+```text
+0x4110/0x4111  arithmetic/assignment form using virtual operand resolution
+0x4112..0x4116 comparisons and bit tests; failure enters the conditional skip helper
+0x4120          no-op
+0x4121/0x4122   player flag test/set/clear
+0x4123          goal-bit test
+0x4201          consume animation index and cycle/direction byte; call
+                `0x00480890` and reset the animation to frame zero
+0x4202          consume animation index; call `0x00480730` with default
+                frame range and hold parameter
+0x4203/0x4204  clear or set object state bits
+0x4205          invoke the object's virtual callback
+0x4226/0x4227  clear or set script-local state fields
+0x4240          clear the active byte at object +0x16c
+0x4290/0x4291  non-positional or positional sound request
+0x4292          repeated effect/particle request
+0x4296/0x4297  audio-event requests
+0x4298          map a shake selector to type 0/1/2 and apply it to all active
+                player cameras
+0x429a/0x42a6  explosion request, with the latter using the current object position
+0x429c          ten-byte effect/event payload
+0x429e          update the shared script camera/position words from object state
+0x42a0          powerup request with four u16 operands
+0x42b1/0x42b2  send or execute a command for a referenced TRG node
+0x42b3/0x42b4  dispatch a command to object lists or pulse a referenced node
+0x42c0          conditional event request
+```
+
+The exact operand cursor behavior is visible for the concrete forms: audio
+and powerup commands advance by their consumed `u16` count, `0x42b0` skips a
+null-terminated string and aligns the cursor, and `0x4101..0x4106` advance by
+one or two words before replacing the cursor. Unknown opcodes report through
+the base handler's unknown-command path. This turns the previously open
+post-parameter bytes into a reproducible script stream while retaining raw
+opcode values where the higher-level gameplay name is not independently
+supported.
+
+The animation opcodes are now tied to the common animation object state:
+`0x4201` consumes two words `(animation_index, cycle_direction)` and calls
+`0x00480890`, which stores the index at `+0xf6`, the direction byte at
+`+0x100`, the selected frame-count byte at `+0x106`, resets `+0xf4` and
+`+0x104`, and enters animation state 1. `0x4202` consumes one animation index
+and calls `0x00480730` with `param_3 = param_4 = -1` and a zero hold/alternate
+frame argument, causing the default range to be selected from the runtime
+animation record. These commands are therefore direct trigger-script entries
+into the animation runtime documented in [animation-runtime.md](animation-runtime.md).
+
+Opcode `0x4298` consumes one selector operand, resolves it through the virtual
+operand interface when needed, maps values 0, 1, and all other values to
+camera shake types 2, 1, and 0 respectively, and calls `0x0040bd40` for every
+active player. The camera helper selects the corresponding amplitude/timing
+constants and propagates the shake through both the attached PSX environment
+and TRG object lists. This is a proven script-to-camera runtime edge; the
+camera constant table itself is outside the asset path and remains unnamed.
+
+The conditional skip helper is also exact: `0x004014a0` consumes nested script
+words, increments nesting for `0x4112..0x4116`, ignores `0x4120` no-ops while
+inside the block, and returns at the matching `0x4100`; an unmatched
+conditional terminator is reported as malformed.
 
 The `0xcb` family also exposes a concrete post-preamble parameter layout. The
 factory finds the type-1 parameter stream by adding the node's variable offset
@@ -323,11 +564,14 @@ remaining bytes heuristically: `0x00480240` reads and shifts the three `u32`
 words, while `0x004802c0` reads the three `u16` words. For Warehouse node 2 at
 file `+0x598`, the preamble is `00 02 04 ff`; the following words begin
 `(0x860, 0x1000, 0x2d51)` and the next three `u16` values are `(0, 0, 0)`.
-The following word `0x429e` is outside the three-u16 helper input and remains
-an unassigned family-specific field.
+The following word `0x429e` is outside the three-u16 helper input, but it is
+not promoted to a family-specific object field: the helper return is stored at
+object `+0x17c`, and the virtual script interface consumes the post-parameter
+bytes from that cursor. Its exact opcode/operand interpretation remains open.
 The corresponding runtime object is therefore expected to carry
 `(+0x860000, +0x1000000, +0x2d51000)` at its common position fields when this
-node is constructed. The later `0xcb` bytes remain object-family-specific.
+node is constructed. The later `0xcb` bytes are object-family-specific and
+are consumed by the script runner and virtual handlers described below.
 
 The constructor decompilation independently fixes the remaining stable header
 initialization: `0x00403000` installs vtable `0x005183b0`, stores the runtime
@@ -419,6 +663,12 @@ The object dump also shows a constructor/list pointer at `+0x20` and a second
 object/list pointer at `+0x34`; their exact list ownership is not assigned here
 because the factory selects among several constructor families.
 
+The type-5 branch is expanded in [items-runtime.md](items-runtime.md): its
+0x100-byte powerup object resolves `ITEMS.PSX`/`SKMEDALS.PSX` model checksums
+and enters the separate `DAT_0056b830` render list. This keeps the trigger
+node/object identity separate from the Warehouse PSX environment object while
+still providing a disk-to-runtime model bridge.
+
 ## Downstream command/object-manager consumer
 
 `0x004c8550` is the TRG link lookup helper. Given a node index, it returns the
@@ -452,6 +702,107 @@ cache. `0x004c5dc0` consumes the pointer stored at `+0x00` as a variable-length
 command stream and uses the `0xffff` terminator convention visible in the
 Warehouse bytes.
 
+The command-stream payloads around the link consumer are also recoverable:
+
+```text
+u16 command 0x0002  -> read NUL-terminated cheat strings; store up to 20
+u16 command 0x0003  -> execute the source node's counted command list
+u16 command 0x0004  -> activate/suspend the source node's link targets
+u16 command 0x0005  -> activate/suspend the source node's link targets
+u16 command 0x000a  -> u16 count followed by that many node indices;
+                       0x004c5b60 signals linked type-1/type-6 nodes
+u16 command 0x000b  -> send kill/pulse command with mode 0
+u16 command 0x000c  -> send kill/pulse command with mode 1
+u16 command 0x000d  -> consume one following u16 and update visibility
+u16 command 0x007e  -> NUL-terminated PSX resource name, mode 0
+u16 command 0x0080  -> NUL-terminated PSX resource name, mode 1
+u16 command 0x0081  -> drain the pending PSX spool queue
+```
+
+The count-bearing forms are also fixed by the helper at `0x004c5c70`:
+commands `0x0004` and `0x0005` consume `u16 count` followed by that many
+`u16` node indices and pass the list to the activate/suspend helper. This is
+the same list shape used by command `0x000a`; command `0x0003` has no inline
+payload and executes the source node's own counted list.
+
+## Additional link-command ABI
+
+The remaining cases in `0x004c5dc0` are useful to a faithful runtime
+recreation even when they are cutscene, camera, or platform leftovers. The
+table records only direct cursor widths and direct helper/state effects; it
+does not promote helper names to gameplay meanings without an independent
+consumer.
+
+| command | inline payload after the command | direct runtime effect |
+| --- | --- | --- |
+| `0x0068` | three `u16` | after the whole stream, call `0x00464710(a,b,c)`; the helper asserts the third value is a power of two and publishes the fog-range globals |
+| `0x0069` | one `u16` signed sound value | if the active sound context is idle, call `0x004ad620(value, 0x2000, 0)` |
+| `0x006a` | one `u16` signed sound value | if the active sound context is idle, call `0x004ad9f0(value)` |
+| `0x007f` | NUL-terminated string, aligned to an even address | call `0x004b3270(string)` before skipping the string; this selects/clears a loaded PSX region through the named-region table |
+| `0x0082`, `0x0087` | two `u16` | call the corresponding front-object helper `0x0040f140`/`0x0040f150` when `DAT_0055fa38` is live |
+| `0x0083`, `0x0084` | one `u16` | call `0x00401000` or `0x00401030` |
+| `0x0085` | `u16` mode, then repeated aligned six-`u32` records, terminated by `u16 0xff` | pass each pair of fixed-point 3D vectors to `0x004ca270`; that helper tests the bounds against the traffic, baddy, powerup, and auxiliary object lists |
+| `0x0086` | one `u16` | on a type-6 link whose `+0x06` is clear, set `+0x06 = 1` and copy the operand to `+0x08` |
+| `0x008a` | one `u16` | report `SeekXA` unsupported and consume the operand |
+| `0x008b` | two `u16` words (the second is the shared `0xae` skip word) | report `PlayXA` unsupported |
+| `0x008c`, `0x00b0` | NUL-terminated string, aligned | call the restart/resource helper `0x004c4c50`; horse-mode selection changes the source of the restart name, and a non-default level may call `0x00473650` afterward |
+| `0x008d` | two `u16` flags, then repeated aligned six-`u32` records, terminated by `u16 0xff` | pass fixed-point vector pairs and two boolean flags to `0x004ca2d0`, which updates visibility bits across runtime object lists |
+| `0x008e` | NUL-terminated string, aligned | save the cursor/name as the current track resource, resolve its loaded PSX slot with `0x004b3230`, and, in competition mode, copy the name into one of fifteen bounded spool buffers |
+| `0x008f`..`0x0092` | two `u16` | call front-object helpers `0x0040f160`, `0x0040f170`, `0x0040f180`, or `0x0040f190` |
+| `0x0093` | one `u16` | write the value to global `DAT_005685ec` |
+| `0x0094` | one `u16` pulse-count comparison | if the type-6 link `+0x07` does not match, scan to the matching `0x0095` and skip the conditional body; nested blocks are rejected |
+| `0x0095` | none | close one `0x0094` conditional block |
+| `0x0096` | one `u16` | call `0x004adc60(value)` |
+| `0x0097` | one `u16` time value | reset the command timer and call `0x004c5d90(value * 1000)` |
+| `0x0099`, `0x009a` | one `u16` | write the operand through front-object helpers `0x0040bd00` or `0x0040bd10` |
+| `0x009b`, `0x009c`, `0x009d` | one `u16` | call `0x004adc50`, `0x004adc30`, or `0x004ada20` respectively |
+| `0x009e` | none | call `0x00466c10` |
+| `0x009f` | NUL-terminated string, aligned | call `0x004ad5e0(string)` |
+| `0x00a0` | one `u16` | write front-object field `+0x504` |
+| `0x00a1` | one `u16` | call front-object helper `0x0040be60` |
+| `0x00a2` | NUL-terminated string, aligned | report `LoadAI` unsupported and skip the string |
+| `0x00a3` | one `u16` | if `DAT_0056a960` is live, write its field `+0x3198` |
+| `0x00a4`, `0x00a5` | one `u16` | call front-object helpers `0x0040bd20` or `0x0040bd30` |
+| `0x00a6`, `0x00a9`, `0x00aa` | one `u16` | write globals `DAT_00564368`, `DAT_0056436a`, or `DAT_00535af8` |
+| `0x00a7` | two `u16` | call front-object helper `0x0040f1a0`; its direct implementation stores the second operand at `+0x410` and derives `+0x414` from the first operand when nonzero |
+| `0x00a8`, `0x00ac` | one `u16` | write front-object fields `+0x434` or `+0x436` |
+| `0x00ab` | aligned `u32` plus three `u16` | allocate a `0xcc`-byte record and pass the four decoded values to `0x00401060` |
+| `0x00ad` | none | copy front-object field `+0x3a4` to `+0x3dc` |
+| `0x00b1` | one `u16` | if `DAT_0056a960` is live, write its field `+0x319c` |
+| `0x00c8` | three `u16` | combine the first two operands into `DAT_00563a60` as high/low halves |
+| `0x00c9` | aligned `u32` checksum plus one `u16` | match the checksum against the runtime gap table at `+0x2f74`; on a valid entry, update the skater gap state and execute the source node's counted list |
+| `0x00ca` | two `u16` | combine the operands into `DAT_0056114c` and call `0x0042fc70` |
+| `0x00cb` | one `u16` flag below 8 | set the corresponding character-config bit when the career/level condition allows it |
+| `0x00cc` | one `u16` flag below 8 | conditionally execute the following stream until `0x0095` based on the character-config flag |
+| `0x00cd` | one `u16` goal below 11 | conditionally execute the following stream until `0x0095` based on the goal bit |
+
+The interpreter's skip helper at `0x004c7c50` independently reproduces these
+widths, including the aligned 24-byte records for `0x0085`/`0x008d`, the
+aligned 10-byte payload for `0x00ab`, and the aligned 6-byte payload for
+`0x00c9`. That second parser is important: it proves the cursor contract is
+shared by conditional skipping and execution, not just an artifact of one
+decompilation path.
+
+The command interpreter advances by the payload-specific amount: ordinary
+node/list commands consume no inline words, command `0x000a` consumes its
+counted node-index list, command `0x000d` consumes one word, and resource
+commands consume the aligned end of their NUL-terminated string. The `0x000a`
+signal helper dispatches each referenced type-1/type-6 node through both the
+traffic and baddy object lists. This identifies the link payload as a runtime
+command stream with direct object-manager effects, rather than a passive
+serialized relationship table.
+
+The traffic list has a direct node-index consumer as well. The helper at
+`0x004c5c00(list_head, node_index)` walks the intrusive `+0x20` chain, compares
+each object's `+0xb0` source TRG node index, and calls `0x004802f0` on a match
+with the matching object as `this` and the supplied list head as its argument.
+The command-list interpreter around `0x004c5c70` uses this helper for command
+code `5` on referenced type-1/type-6 nodes, once with the traffic head
+`DAT_0055f6bc` and once with the baddy head `DAT_0056af40`. This independently
+proves that traffic objects created from `SKWARE_T.TRG` are activated through
+their own runtime list and node-index bridge, rather than being treated as
+PSX geometry records.
+
 The resulting trigger-side flow is:
 
 ```text
@@ -470,14 +821,21 @@ SKWARE_T.TRG node index
   families, subtype-specific traffic resource selection, constructor
   allocation/entry points, node-index storage at factory object `+0xb0`,
   intrusive list insertion, link-record field offsets/list insertion, type-6
-  link lookup, command-stream dispatch, the `0xcb` post-preamble
-  position/parameter handoff, and the object-manager consumer.
+  link lookup, command-stream dispatch and skip-parser cursor widths, the
+  `0xcb` post-preamble
+  position/parameter handoff, script runner dispatch/termination, operand
+  resolution, `0xcb` script field writes/cursor advances, traffic-list
+  activation by source node, the object-manager consumer, traffic vtable/update
+  entry, fixed-point target integration, positional-sound update, direct
+  resource/audio/fog/bounds/visibility command effects, traffic
+  proximity/interaction consumers, and the type-12/14 trick-object allocation,
+  checksum, activation, and per-frame update path.
 - `observed`: Warehouse node histogram, one relocated node pointer, the node-17
   runtime object pointer, and its fixed-point position/source-index handoff.
 - `inferred`: some offline type labels for runtime variants, link-record field
   names, and the full constructor semantics for each object subtype.
 
-The remaining type-1 work is to assign the family-specific bytes after the
-  three-u16 helper output. The type-5 node-17 position/index bridge and the
-type-6 disk-command/runtime-link bridge are already proven without conflating
-either with the PSX geometry index.
+The remaining TRG work is semantic naming for some base gameplay opcodes and
+link-command payloads. The type-5 node-17 position/index bridge, the type-6
+disk-command/runtime-link bridge, and the traffic-object consumers are already
+proven without conflating any of them with the PSX geometry index.

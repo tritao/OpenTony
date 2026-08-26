@@ -1,6 +1,6 @@
 # Runtime Warehouse PSX asset loading
 
-Status: confirmed disk-to-runtime path for Warehouse scene geometry
+Status: confirmed disk-to-runtime paths for Warehouse scene geometry and TRG gameplay asset consumers
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Branch: `re/asset-runtime`
 Addresses: `0x00449030`, `0x004b39b0`, `0x004b2450`, `0x004647c0`, `0x004b2ac0`, `0x004a12d0`
@@ -98,6 +98,33 @@ The runtime slot arrays have the following supported roles:
 - `DAT_0056d43c[slot * 0x11]`: relocated pointer array for the PSX model blocks;
 - `DAT_0056db28`: head of the attached environment-array list. `0x004b2ac0` links the current environment through its `+0x20` next pointer and records region metadata in `DAT_0056db20`.
 
+The 36-byte disk object is copied into the 0x4c-byte runtime record with a
+vtable/dispatch prefix and runtime-owned links. In addition to the position,
+model, and slot fields above, the parser copies the disk flags into runtime
+`+0x04`, copies three 16-bit transform components into `+0x14/+0x16/+0x18`,
+and preserves the trailing source word at `+0x24`. The constructor initializes
+the runtime transform defaults at `+0x28/+0x2a/+0x2c` to `0x1000`. The
+collision face test explicitly rejects a nonzero `+0x14/+0x16/+0x18` object as
+a rotated object, so these are not arbitrary padding; the public rotation/
+scale semantics remain unassigned. Finalization additionally derives a model
+feature bit at `+0x19` from the selected model header.
+
+The parser's copy loop makes the source-to-runtime offsets more precise:
+
+```text
+disk +0x00 flags       -> runtime +0x04 flags
+disk +0x04/+0x08/+0x0c position -> runtime +0x08/+0x0c/+0x10
+disk +0x10 u32         -> runtime +0x14 u32 (read by collision as two s16 words)
+disk +0x14 u16         -> runtime +0x18 s16 transform component
+disk +0x16 u16 model   -> runtime +0x1a model index
+disk +0x18/+0x1a       -> runtime +0x1c four-byte trailing transform/source area
+disk +0x20 u32         -> runtime +0x24 source RGBX word
+```
+
+The disk word at `+0x1c` is not copied by this loop; runtime `+0x20` is
+reserved for the intrusive next pointer. This distinction prevents the
+source-format tail from being mistaken for a contiguous runtime struct.
+
 The parser also resolves face references against a checksum/material table and processes the post-model image/palette tables. The material ownership is now statically proven. After `0x004b20f0` locates the post-tag tables, `0x004b2450` relocates the scene checksum entries by `DAT_0056db3c`, looks each checksum up through `0x004b2030`, and allocates a missing 0x2c-byte record through `0x004b1f70`. The lookup uses `checksum & 0x1ff` as a bucket index at `DAT_0056cc18`; the record stores the checksum at `+0x18`, a reference count at `+0x10`, and doubly-linked list pointers at `+0x24/+0x28`.
 
 For every model face whose packed flags include bit `0x01`, the loader replaces the disk texture/checksum-table index at `face + 0x10` with the corresponding `RuntimePsxMaterialRecord*`. This is the disk-to-runtime material bridge; it is separate from the later inline-image palette/cache and PC D3D texture records described in [texture-runtime.md](texture-runtime.md).
@@ -110,7 +137,7 @@ The adjacent [texture-runtime.md](texture-runtime.md) evidence covers the indepe
 
 The ground/collision path at `0x004a12d0` is a confirmed consumer of the runtime environment representation. It walks a runtime object list, reads the object's slot byte and model index, indexes `DAT_0056d43c[slot * 0x11]`, reads the selected model's bounds, scales those bounds by `0x1000`, and compares them with the player's `+0x08/+0x0c/+0x10` position/AABB. A qualifying model/object is passed to `0x0049f4c0` with the player's `+0x4c` response vector.
 
-This proves the disk-derived model pointer table is consumed by collision/ground processing. The more detailed [physics.md](physics.md) path now follows the selected PSX face through the collision query outputs and surface-flag extraction into skater response state. It does not claim that every node in the separate `DAT_0056af40` trigger-object list is a `SKWARE.PSX` object, nor does it reverse the full renderer.
+This proves the disk-derived model pointer table is consumed by collision/ground processing. The more detailed [physics.md](physics.md) path now follows the selected PSX face through the collision query outputs and surface-flag extraction into skater response state. It does not claim that every node in the separate `DAT_0056af40` trigger-object list is a `SKWARE.PSX` object; renderer packet and hardware semantics remain separately documented in [renderer.md](renderer.md).
 
 The render consumer is now dynamically bridged as well. In a Warehouse
 gameplay frame (`CurrentLevel = 12`), the attached environment list entered
@@ -135,6 +162,12 @@ The other proven consumers are recorded separately:
   the PC texture manager.
 - [skater-asset-runtime.md](skater-asset-runtime.md) traces named player/skater
   PSX model regions into the player resource and animation handoff.
+- [items-runtime.md](items-runtime.md) traces `ITEMS.PSX` and optional
+  `SKMEDALS.PSX` regions through TRG powerup objects into the shared render
+  list, and traces `BITS.PSX` type-0x45 named resources into the effect path.
+- [trick-object-runtime.md](trick-object-runtime.md) traces Warehouse TRG
+  type-12/14 nodes through checksum-bearing `RuntimeTrickObject` records into
+  player/rail activation and the per-frame trick-object consumer.
 - [psx-lifecycle.md](psx-lifecycle.md) traces the inverse region clear path,
   including shared-material usage decrement, blockmap reset, and environment
   detach.
@@ -146,7 +179,7 @@ these independent asset/runtime boundaries:
 
 | Asset family | Runtime boundary | Consumer or handoff |
 | --- | --- | --- |
-| `SKWARE.PSX` / `SkWare_T.trg` | 0x4c-stride PSX environment records, relocated model pointers, and TRG object families | renderer, blockmap collision, trigger/object manager |
+| `SKWARE.PSX` / `SkWare_T.trg` | 0x4c-stride PSX environment records, relocated model pointers, and TRG object families | renderer, blockmap collision, baddy and traffic object managers |
 | `SK2DEF.PSX` | rebased shared/default skater PSX region named `sk2def%d` | player/custom-skater model setup |
 | `SK2ANIM.PSX` | compacted animation table at `DAT_0056d444[slot * 0x11]` | gameplay animation start/update |
 | skater `PSH`/`PSX` resources | player spool records, part manifests, and model regions | player object/model and animation handoff |
@@ -155,23 +188,50 @@ these independent asset/runtime boundaries:
 | PSX image/palette tables | PSX palette handles, 0x18 converted-palette cache nodes, 0x2c PC texture records | bitmap open, conversion, Direct3D upload |
 | PRE/PKR2/direct files | shared abstract resource handles and synchronized buffers | PSX, FNT, WAV, replay, and legacy module loaders |
 | `FNT` | bounded font slots, glyph records, and image resources | text renderer |
-| WAV/VAB sound resources | sound-bank records and runtime PCM buffers | sound playback |
+| VAB-selected `audio/*.wav` sound resources | sound-bank records and runtime PCM buffers; packaged `.SFX` tables are not opened by the PC executable | sound playback |
+| `CDPARKS.TXT` / `MUSIC.TXT` / `CREDITS.TXT` | borrowed label pointers and 0x44/0x10/0x18-byte presentation records | park menu and credits/music update/render paths |
+| startup `*.STR` / `GrayMat.dat` media | blocking PC movie/media reader state | logo, intro, and startup media playback; no gameplay object handoff |
 | `PRK` custom parks | level-generation grid/items and finalized runtime region | custom-park level generation |
+| `ITEMS.PSX` / `SKMEDALS.PSX` | named item/medal PSX slots and 0x100-byte TRG powerup objects | powerup update, glow state, and renderer object list |
+| `BITS.PSX` | type-0x45 named-group records and runtime resource list | shadow/effect named-resource lookup |
+| `SKWARE_T.TRG` type 12/14 nodes | 0x18-byte checksum-linked `RuntimeTrickObject` records | player/rail trick activation and per-frame tint/update |
 | replay/card buffers | fixed header plus five records and paired card buffers | replay load/save |
-| `TRICKS.BIN` / `CRETEX.BIN` | relative section pointers and texture-set records | trick manager / texture-set manager |
+| `TRICKS.BIN` / `CRETEX.BIN` | relative section pointers, bytecode cursor/state, and texture-set records | trick manager/skater script executor / texture-set manager |
+| remaining `.BIN`, `.SEQ`, `.SBL`, `.TST`, `.TDF`, `.TAG`, `.TS`, `.NT`, `CD.*` tables | console/tool/build metadata or unconnected archive tables; no PC consumer proven in this build | intentionally outside the runtime recreation boundary |
 
 The remaining gaps are semantic rather than missing top-level ownership paths:
-Warehouse-specific bitmap residency after the proven hash/filename lookup,
 the original names of several renderer state bits and Direct3D enums, the
 final world-facing interpretation of the now-recovered steering-target
 integrator, and the exact class names behind a few legacy module and
 audio/texture handles.
 
+## Remaining reverse targets
+
+The next useful work is bounded to these consumer-side questions; none of them
+requires reopening the already-proven Warehouse file-to-object path:
+
+| Target | Existing boundary | Evidence needed to close it |
+| --- | --- | --- |
+| TRG gameplay command names and state effects | `0x004c5dc0`, `0x004c7a00`, `0x004c7c50` | correlate decoded command operands with a controlled node activation and the mutated gameplay object; retain raw opcodes until then |
+| TRICKS scoring/physics semantics | `0x004be450`, `0x00491b80`, `0x004904d0` | trace one selected script from the key table through cursor execution into score, animation, and physics-state writes |
+| public surface flags and physics-state names | `0x0048ea80`, `0x0049db80`, `0x00497f40`, `0x00494210`, `0x00499710`, `0x004995d0` | exercise controlled ground, air, rail, wallride, footplant, and handplant transitions while retaining raw numeric states and face bits |
+| final renderer/material meanings | `0x0045f530`, `0x004d14d0`, and [texture-runtime.md](texture-runtime.md) | provide the missing Warehouse hash-named bitmaps or capture equivalent texture resources, then correlate packet fields with submitted material state |
+| individual named PSX/PSH selection coverage | generic spool/parser plus [skater-asset-runtime.md](skater-asset-runtime.md) | recover the caller/table that selects each remaining frontend, secret, equipment, and unused-region name; the common parser is already established |
+| legacy module and packaged sound consumers | `0x004ac0c0` generic `.bin`/`.rel` helper and the negative `.SFX` search in [legacy-assets.md](legacy-assets.md) | locate a direct PC caller or producer; absent that, these remain outside the faithful PC runtime path |
+
+Startup `*.STR`/`GrayMat.dat` playback is intentionally not in this queue:
+[`startup-runtime.md`](../startup-runtime.md) proves a separate blocking media
+consumer with no gameplay-object handoff.
+
 ## Confidence and limits
 
-- `confirmed`: exact Warehouse file names, file-open path, PSX parser entry, object/model counts, model-pointer relocation, object-array allocation size/stride, object-17/model-17 correspondence, checksum-bucket material allocation, and the textured-face index-to-runtime-material rewrite.
+- `confirmed`: exact Warehouse file names, file-open path, PSX parser entry, object/model counts, model-pointer relocation, object-array allocation size/stride, object-17/model-17 correspondence, checksum-bucket material allocation, the textured-face index-to-runtime-material rewrite, the four-hash Warehouse BMP -> PC texture upload witness recorded in `texture-runtime.md`, the `ITEMS.PSX`/`SKMEDALS.PSX`/`BITS.PSX` runtime bridges recorded in `items-runtime.md`, the TRG type-12/14 checksum/object bridge recorded in `trick-object-runtime.md`, and the `TRICKS.BIN`/`CRETEX.BIN` runtime boundaries recorded in `bin-runtime.md`.
 - `observed`: trigger node count and trigger-object allocations; auxiliary `SkWare_L.psx`/`SkWare_O.psx` slot contents.
 - `inferred`: semantic names for some runtime record fields beyond position, model index, next pointer, and model-derived flags.
+
+The startup movie/media row is an observed media path from
+[`startup-runtime.md`](../startup-runtime.md), included to make the inventory
+complete; it does not converge on the gameplay resource/object structures.
 
 The primary geometry trace intentionally stops short of renderer redesign,
 external Warehouse bitmap provisioning, and full physics behavior. The
