@@ -6,7 +6,7 @@
 // camera update.  Keep these as integer state machines instead of hiding the
 // one-frame producer/consumer delay behind a floating-point dt.
 
-#include "src/camera/camera_math.hpp"
+#include "camera_math.hpp"
 
 #include <array>
 #include <cstdint>

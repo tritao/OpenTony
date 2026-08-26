@@ -47,7 +47,7 @@ int main() {
     assert(second.current_transform.w != 0);
 
     CameraRuntime point_runtime;
-    point_runtime.reset(target, 21);
+    point_runtime.reset(target, 23);
     CameraModeInputRaw point{};
     point.point_target_valid = true;
     point.point_target_position = {0x20000, 0, 0};

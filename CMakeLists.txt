@@ -45,6 +45,7 @@ add_library(opentony_trg STATIC
     src/trg/trigger_factory_runtime.cpp
     src/trg/gap_table.cpp
     src/trg/retail_gap_table.cpp
+    src/trg/pickup_runtime.cpp
     src/trg/level_trigger_state.cpp
     src/trg/level_scene_registry.cpp
     src/trg/level_render_snapshot.cpp
@@ -65,6 +66,7 @@ add_library(opentony_runtime STATIC
     src/runtime/fixed_math.cpp
     src/runtime/fixed_step_driver.cpp
     src/runtime/gameplay_frame.cpp
+    src/runtime/gameplay_presentation.cpp
     src/runtime/gameplay_session.cpp
     src/runtime/ground_brake.cpp
     src/runtime/ground_physics.cpp

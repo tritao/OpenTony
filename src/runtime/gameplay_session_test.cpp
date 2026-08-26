@@ -118,6 +118,7 @@ int main() {
     opentony::runtime::GameplaySessionConfig tricks_config{};
     tricks_config.tricks_path = asset_path("TRICKS.BIN");
     tricks_config.use_tricks_retail_builder = true;
+    tricks_config.auto_select_tricks_retail_resources = false;
     opentony::runtime::GameplaySession tricks_session(
         trg,
         psx,
