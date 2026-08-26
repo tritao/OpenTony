@@ -290,7 +290,8 @@ Promotion audit for these math helpers:
 | `0x004e39a0` | callers include `0x0045e8e0` and camera transform paths; callee `0x004e2070` | not separately counted; downstream render setup is reached before present | observed; overflow-sensitive inputs could require modeling 32-bit `IMUL` wrap explicitly |
 | `0x004e85a0` | callers include camera-mode transform paths and render preparation; shared x87 return `0x005004f4` | not separately counted | observed; unusual matrix/vector inputs could expose a different conversion convention |
 | `0x004a9650` | called by `0x00410610`; consumes two embedded four-word transform objects and writes a four-word result | not independently counted; statically reached in normal follow preparation | observed; operand convention is exact, while the final matrix row/column interpretation remains a separate question |
-| `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular fallback helper `0x004ca0a0` remains to be classified |
+| `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular conversion is `0x004ca0a0` |
+| `0x004f5f90` | x87 dot product of two three-word integer vectors, scaled by `1/4096` and truncated | called twice by `0x00410610` for follow-direction thresholds | observed; earlier “length” wording was corrected, and a non-dot use at an unexamined callsite would falsify the global semantic name |
 
 ### `0x004e39a0` — Q12 matrix multiply
 
@@ -436,7 +437,7 @@ keep as a separate native stage:
 anchor delta = camera + 0x3c0 - camera + 0x3b0
 follow offset = tripod + 0x310c..+0x3114
 mode 25 offset = (0, -0x1000, 0)
-distance/angle helpers -> target orientation/effect records
+dot/angle helpers -> target orientation/effect records
 history vectors -> +0x5b8 and +0x5c4
 ```
 
@@ -591,6 +592,18 @@ The static path proves the view/projection handoff, but not yet the exact matrix
 
 ## Minimal faithful C++ contract
 
+The value-level portion is now implemented in
+[camera_math.hpp](../../../src/camera/camera_math.hpp) and
+[camera_system.hpp](../../../src/camera/camera_system.hpp). `CameraStateRaw`
+preserves the recovered PE32/Q16/Q12 fields, `prepare_follow_target` keeps the
+mode-25 and dot/angle branches explicit, `update_camera_history` models the
+observed half-step recurrence, and `commit_viewport_effects` preserves the
+special tripod-state `5` behavior. The `CameraUpdateHooks` are intentional:
+anchor reconstruction, gameplay-state transitions, and the final follow
+transform producer are still owned by opaque runtime helpers, so the native
+reference leaves them injectable rather than silently replacing them with
+floating-point behavior.
+
 The first native implementation should preserve the original update/render boundary:
 
 ```cpp
@@ -679,10 +692,10 @@ The remaining engineering gates are therefore:
    define pause, menus, level transitions, and split-screen behavior. The
    native driver must be compared against traces keyed to the confirmed
    present boundary, not to message-pump frequency.
-2. **Camera completion.** Implement mode-1 follow plus smoothing with the
-   exact integer/x87 operations already identified, then add point mode,
-   death mode, shake/effect composition, and projection calibration as
-   separate replayable stages.
+2. **Camera completion.** Connect the recovered mode-1 follow snapshot and
+   transform interpolation to the remaining gameplay-owned anchor/collision
+   producer, then add point mode, death mode, shake/effect composition, and
+   projection calibration as separate replayable stages.
 3. **Scene/render handoff.** Bind runtime scene objects to asset-backed model
    instances, reproduce traversal/order and object visibility, and validate one
    actor and one static object from camera state through transformed vertices

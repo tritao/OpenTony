@@ -160,6 +160,16 @@ inline Raw horizontal_range_q4(const Q16Vec3& delta) {
     return truncate_x87_result(std::sqrt(static_cast<long double>(square)));
 }
 
+// 0x004f5f90: x87 dot product of two three-word integer vectors, scaled by
+// 1/4096 and truncated through the shared return helper. This is used by the
+// follow routine for angular/state thresholds; it is not a vector length.
+inline Raw dot_q12_x87(const Q12Vec3& first, const Q12Vec3& second) {
+    const long double dot = static_cast<long double>(first.x) * second.x
+        + static_cast<long double>(first.y) * second.y
+        + static_cast<long double>(first.z) * second.z;
+    return truncate_x87_result(dot * static_cast<long double>(kOneOver4096));
+}
+
 // Reproduces 0x004c9770. Inputs are the original world-position words; the
 // helper shifts their differences right by 12 before deriving angles.
 inline LookAngles build_look_angles(const Q16Vec3& target, const Q16Vec3& origin) {

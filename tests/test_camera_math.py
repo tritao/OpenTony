@@ -52,6 +52,10 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (sin_angle_q12(0x400) != 0x0fff) {
                     return 6;
                 }
+                if (dot_q12_x87({0, 0x1000, 0}, {0, 0x1000, 0}) != 0x1000
+                    || dot_q12_x87({0x0800, 0, 0}, {0x1000, 0, 0}) != 0x0800) {
+                    return 16;
+                }
                 const TransformQ12 identity{0, 0, 0, 0x1000};
                 const TransformQ12 sample{0x0200, -0x0300, 0x0400, 0x0e00};
                 const auto left_identity = multiply_transform_q12(sample, identity);
