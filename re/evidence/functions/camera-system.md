@@ -1137,6 +1137,49 @@ blocks at `DAT_00563a90..0x563ade` are built from normalized half-extents,
 `Fixed_MatrixMultiplyQ12`. This establishes the integer projection setup and
 where aspect/zoom enters, but not a conventional camera FOV scalar.
 
+### Controlled projection perturbation
+
+The first perturbation attempt was invalid because its bounded view sample
+completed in the front end before the Warehouse geometry probe became live.
+The probe was then changed to accept only a valid level, player, and camera;
+menu calls are rejected without consuming the observation limit.
+
+The fresh `camera-projection6` run provides the positive experiment:
+
+| observation | accepted count | runtime evidence |
+| --- | ---: | --- |
+| `Render_SetViewProjection 0x0045e8e0` | 1,200 | every mutation record had level `12`, player `0x05f39530`, and camera `0x05f40ac8` |
+| geometry handoff `0x004d11d0` | 1,200 | level `12`, same player/camera, 19 packets per full observed render frame |
+| `Camera_Update 0x0040f850` | 500 | same live Warehouse camera path |
+| `Render_Present 0x004d0ca4` | 16,595 | present clock remained live while the mutation ran |
+
+The normal live input contained:
+
+```text
+viewport input words = (640, 480, 0, 0, 10, 20512, 3413, 12, 320, 240, 0, 0, 320, 480)
+```
+
+The probe alternated word `6` between `3413` and `1706` at function entry.
+It produced 600 records at each value. The prepared view blocks were stable
+across the 19 geometry packets belonging to a view setup, and the alternation
+changed those blocks in the expected repeated pattern. For example, adjacent
+live frames showed these first nine signed shorts in `DAT_005620c0`:
+
+```text
+word6 = 1706: (4, -3437, 2228, 3781, 283, 1543, -3779, 282, 1556)
+word6 = 3413: (5, -2606, 3169, 3155, 491, 2574, -3149, 490, 2585)
+```
+
+The corresponding `DAT_005620e8` block changed as well. The effect reversed
+on every subsequent pair while the camera continued to move, so this is
+strong runtime evidence that input word `6` is consumed by projection/view
+preparation and reaches object submission. It does not by itself prove that
+the value is a conventional FOV angle: camera motion changes between the
+alternating calls, and the exact screen/depth interpretation still needs a
+stationary basis-object or viewport-producer experiment. The strongest
+current semantic name is therefore `vertical_projection_input`, with high
+confidence for dataflow and medium confidence for its user-facing meaning.
+
 ### One actor submission path
 
 `Render_World` passes the active scene/player pointers through
@@ -1288,10 +1331,10 @@ The names in this contract are reconstruction interfaces, not claims that the or
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
 1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
-2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`. Static code now proves that `+0x40c` is camera-owned and supports guarded assignment, increment/decrement flags, reset, and timed delta updates; the dedicated camera-key experiment left it at raw `12`, so its projection/FOV meaning still requires an aspect/display-mode or producer trace that changes the rendered scale.
+2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates, and its relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
-5. Use the now-established input/player/camera frame contract as the fixture for projection calibration: vary one camera/viewport input at a time and compare the resulting basis rows, transformed object coordinates, and present-to-present output.
+5. Use the now-established input/player/camera frame contract for stationary projection calibration: vary one camera/viewport input at a time and compare known basis-object coordinates, clipping, depth, and present-to-present output. The live word-6 perturbation already closes the dataflow part of this gate.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
 
@@ -1346,22 +1389,23 @@ The remaining engineering gates are therefore:
    a confidence level, and a falsifier; screenshots alone cannot identify
    whether a mismatch came from timing, camera state, or rasterization.
 
-The next highest-value probe is now a controlled projection calibration using
-the established frame fixture: hold the player stationary, vary the camera
-viewport/zoom input or aspect state, and submit known basis objects while
-recording `Render_SetViewProjection`, transformed geometry, and
-`Render_Present`. This should resolve matrix row/column order, handedness,
-scale, and the semantic role of camera `+0x40c` without expanding into the
-whole DirectDraw backend.
+The next highest-value probe is now a stationary basis-object calibration
+using the established frame fixture. Hold the player and camera still, vary
+word `6`, camera `+0x40c`, and the display/aspect state one at a time, and
+record `Render_SetViewProjection`, transformed geometry, clipping, and
+`Render_Present`. This should resolve screen-axis signs, depth convention,
+and the remaining `+0x40c` producer without expanding into the whole
+DirectDraw backend.
 
 ## Open questions and falsifiers
 
 - `0x0040f850` is recovered from a runtime vtable and raw disassembly, but Ghidra’s function table does not provide an ordinary function record for its exception-heavy prologue.
-- The raw `tony-view-probe` and `tony-actor-probe` are implemented and
-  unit-tested. `camera-render-handoff` reached level entry and produced live
-  view/object observations; projection claims are still raw fixed-point
-  records until a controlled movement/viewport experiment identifies the
-  final matrix convention and any zoom parameter.
+- The raw `tony-view-probe`, `tony-view-perturb`, and `tony-actor-probe` are
+  implemented and unit-tested. `camera-projection6` reached live Warehouse
+  rendering and recorded 1,200 gated word-6 mutations alongside 1,200
+  geometry submissions. The experiment proves the word-6 dataflow, but a
+  stationary basis-object run is still required for final screen/depth
+  semantics and for the independent `+0x40c` producer.
 - `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524aa4`, `DAT_0056b008`, `DAT_0056b018`, `DAT_0056aff8`, and the `+0x410/+0x414` timer/delta pair. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
 - The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `21`, `22`, and `23` remain unobserved in a live level transition.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
