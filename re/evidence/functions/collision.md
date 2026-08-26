@@ -462,7 +462,11 @@ the wrapper; the query does not parse a file on each call.
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
     `q+0x78..0x7c`. The three helpers use one full turn per `0x1000` angle
     units and compose Y (`0x004e7de0`), X (`0x004e7c60`), then Z
-    (`0x004e7f60`) Q12 rotations. Its return is `1` iff `q+0x68` is nonzero.
+    (`0x004e7f60`) Q12 rotations. Their angle conversion is also pinned down:
+    each loads the float constants at `0x00518910` (`1/4096`) and
+    `0x00519a08` (`6.283185482...`), executes x87 `fcos`/`fsin`, multiplies
+    by the double `4096.0` at `0x00519900`, and truncates toward zero. Its
+    return is `1` iff `q+0x68` is nonzero.
 
 ## Physics callsites
 

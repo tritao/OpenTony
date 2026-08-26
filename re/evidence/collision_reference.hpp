@@ -1507,16 +1507,29 @@ inline std::int16_t q12_matrix_component(std::int16_t a,
     return clamp_to_s16(arithmetic_shift_right_12(wrapping_from_i64(sum)));
 }
 
+inline std::int16_t object_angle_trig_q12(std::int16_t angle, bool sine) {
+    // 0x004e7c60/0x004e7de0/0x004e7f60 load these as a float 1/4096 and a
+    // float 2*pi, in that order, before executing the x87 fcos/fsin. The
+    // result is multiplied by the double 4096.0 and converted with the
+    // game's truncate-toward-zero helper. Keep the constants and operation
+    // order distinct from an idealized double-precision 2*pi so angle-unit
+    // edge cases follow the PC executable more closely.
+    constexpr float kAngleUnit = 0.000244140625f;       // 0x518910
+    constexpr float kFullTurn = 6.283185482025146484375f;  // 0x519a08
+    const long double radians = static_cast<long double>(angle) *
+                                static_cast<long double>(kAngleUnit);
+    const long double scaled = radians * static_cast<long double>(kFullTurn);
+    const long double value = (sine ? std::sin(scaled) : std::cos(scaled)) *
+                              4096.0L;
+    return static_cast<std::int16_t>(static_cast<Raw>(value));
+}
+
 inline std::int16_t object_angle_cos_q12(std::int16_t angle) {
-    constexpr double kFullTurn = 6.283185307179586476925286766559;
-    return static_cast<std::int16_t>(static_cast<Raw>(
-        std::cos(static_cast<double>(angle) * kFullTurn / 4096.0) * 4096.0));
+    return object_angle_trig_q12(angle, false);
 }
 
 inline std::int16_t object_angle_sin_q12(std::int16_t angle) {
-    constexpr double kFullTurn = 6.283185307179586476925286766559;
-    return static_cast<std::int16_t>(static_cast<Raw>(
-        std::sin(static_cast<double>(angle) * kFullTurn / 4096.0) * 4096.0));
+    return object_angle_trig_q12(angle, true);
 }
 
 inline std::array<std::int16_t, 9> compose_q12_basis(
