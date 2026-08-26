@@ -103,6 +103,13 @@ slice deliberately does not invent a JUMP-to-KICK mapping. It also preserves
 the raw-3 timeout request (`0x0049de9e`, reason `0x2bf2`) and the normal
 landing bookkeeping writers (`0x004991a4`, `0x004991b3`, `0x004991d4`,
 `0x004991f8`, `0x00499255`) around the `0x004991fe` air-to-ground request.
+The landing branch now also mirrors `0x004914d0`: it consumes the temporary
+`+0x2ec0` marker and clears `+0x2e90`/`+0x2e94` before the identity and request
+stores; the same deterministic cleanup is exposed as a frame callback before
+final velocity integration. Its post-marker recovery condition now also
+preserves the nested `0x004904d0` reset at `0x004916a9`, the `+0x29f2` clear,
+and `+0x3034` increment; the action-history/trick scans remain explicit
+caller-owned seams.
 The prephysics model also keeps the retail random consumers separate: impulse
 formula draws, held-charge cap refresh, wallie cap, and early-release count.
 The eligible grounded charge path clears the movement target at writer
@@ -115,17 +122,22 @@ context/in-progress/mode/recovery-latch fields.
 The grounded dispatcher has a separate static leave-ground transition after
 its case-0 helper sequence: when the published slope/recovery-window
 predicate is met, callsite `0x0049ddcf` requests raw state `1` with reason
-`0x2ba1`, and the following store clamps negative Y velocity. The native
-`try_ground_to_air()` method keeps those supplied inputs and transition
-metadata explicit; it is not conflated with the KICK/ollie path.
+`0x2ba1`, and the following store clamps negative Y velocity. It then calls
+`FUN_004904d0(0x14,0)` at `0x0049dde1`, which resets the deterministic
+off-ground fields and issues the same-state `0x0715` request at
+`0x004905ab`, followed by the `+0x3204 = 0x28` marker at `0x0049dde6`.
+The native `try_ground_to_air()` method now preserves that ordering while
+leaving the helper's animation, sound, and speed-table calls external; it is
+not conflated with the KICK/ollie path.
 
 The independent frontend trace also provides an exact collision transition
 chain `0 → 2 → 4 → 1 → 0`: requests occur at `0x004972da` (`0x1ac9`),
 `0x004913dd` (`0x0b1c`), `0x004905ab` (`0x0715`), and `0x004991fe`
 (`0x1fd6`), all written by `0x004902bf`. Raw state 4 dispatches to
 `0x00494210` and is provisionally the cross-build rail slot; the native
-`enter_state4_from_collision()` / `leave_state4_to_air()` methods retain only
-these request boundaries while rail geometry remains outside the model.
+`enter_state4_from_collision()` / `leave_state4_to_air()` methods retain the
+same deterministic off-ground reset while rail geometry remains outside the
+model.
 
 The in-air handler's deterministic action-control block is also exposed in
 the native slice: when its supplied global gate is enabled, KICK/UP/DOWN and
@@ -181,8 +193,20 @@ side effect. The native model therefore does not alias JUMP `0x0010` to KICK
 `0x0040`; a later gameplay/animation eligibility layer remains the only
 unresolved user-facing handoff.
 
+The adjacent action-history path is also implemented without resolving its
+producer: `update_action_history()` mirrors `0x00492190`'s ordered calls for
+physics-action indices 1–8 and the GRAB/GRIND/KICK/JUMP/NOLLIE/SWITCH records,
+then applies `0x00491c90`'s change filter and modulo-`0x20` event ring. The
+postphysics native helper preserves the independent X/Y/Z cap-rescale draws
+from `0x0049d480`. `step_frame()` defers raw-state-3 timeout promotion until
+after the common in-air callback, matching the retail handler-before-timeout
+order; standalone `dispatch()` retains a closed dispatch boundary for direct
+callers.
+
 The next movement boundary is also captured. `0x00493370` consumes the full
-12-record action bank before prephysics/dispatch; a bounded Warehouse Left
+12-record action bank before prephysics/dispatch, and the native frame seam
+now exposes `0x00492190` action-history updates before the remaining ground
+helpers; a bounded Warehouse Left
 injection (`0x8000`) reaches the Left record and updates `player+0x3144` and
 `+0x3148` while raw physics state remains `0`. The native action bank mirrors
 those masks, held/edge bytes, and counters. Grounded steering, heading, and

@@ -18,7 +18,9 @@ boundary:
   controlled retail capture shows reaching the direct ollie charge/latch gate;
 - the second grounded leave-ground path after the case-0 helper sequence:
   supplied slope/recovery/frame inputs can request raw state `1` at
-  `0x0049ddcf` with reason `0x2ba1`, including the following downward-Y clamp;
+  `0x0049ddcf` with reason `0x2ba1`, including the following downward-Y clamp,
+  shared `0x004904d0` reset, same-state `0x0715` request, and `+0x3204`
+  marker;
 - the independent frontend trace's raw collision chain `0 → 2 → 4 → 1 → 0`,
   with request callsites/reasons `0x004972da/0x1ac9`,
   `0x004913dd/0x0b1c`, `0x004905ab/0x0715`, and `0x004991fe/0x1fd6`;
@@ -27,6 +29,9 @@ boundary:
   raw states `1`, `3`, and `6` reaching the common in-air handler, the
   case-6 pre-air request/setup boundary, and the raw-3 timeout promotion to
   state `1`;
+- the exact `0x00492190` action-history update and `0x00491c90` change-filtered
+  32-entry ring, with the unresolved `FUN_00492120` physics-action result
+  supplied explicitly;
 - provisional `EPhysicsState` semantic labels correlated from the bundled PSX
   symbol order, while retaining raw values as the authoritative replay key;
 - case-6 velocity shaping from the published orientation basis and explicit
@@ -79,6 +84,8 @@ boundary:
   publication, and postphysics velocity damping (`0x0049d480`) as
   deterministic helpers
   with collision/global/random inputs supplied by the caller; and
+- the independent X/Y/Z cap-rescale random draws in `0x0049d480`, preserving
+  their order and per-component targets for replay; and
 - fixed-point position/velocity storage with callback boundaries for impulse,
   orientation-dependent acceleration, collision, and position math; and
 - the raw in-air collision-result/material predicate immediately after
@@ -97,6 +104,10 @@ boundary:
   ordering; and
 - the recovered fixed-point grounded target/brake stage from `0x00493370`,
   exposed as `apply_ground_action_step()`.
+- the deterministic landing/recovery-marker cleanup from `0x004914d0`, exposed
+  as `apply_landing_cleanup()` and placed in the frame contract before final
+  velocity integration, including its exact nested off-ground reset/counter
+  branch while leaving trick recognition callback-owned;
 - the case-6 dispatch ordering: an optional frame callback supplies the five
   retail random draws to `run_state6_preair_setup()` between the case-6
   dispatch observation and the common in-air action/motion callbacks.
@@ -174,6 +185,14 @@ the following air callbacks observe the requested raw state 1. Set
 `movement_action_step` and keeps the retail global modifiers/random draw
 caller-owned. Accepted air contact also preserves the retail branch around
 `0x004992f0`: the landing frame skips the common gravity-add fallthrough.
+The action-history seam is explicit through `update_action_history()`: pass the
+unresolved `FUN_00492120` result and frame to reproduce the `0x00492190` call
+order and change-filtered 32-entry ring. For raw state 3, `step_frame()` runs
+the common air callbacks before applying the `0x0049de9e` timeout check, while
+standalone `dispatch()` closes that post-handler check immediately.
+The grounded leave-ground helper also exposes `apply_off_ground_transition()`
+for the deterministic `0x004904d0` reset and its same-state `0x0715` request;
+animation, sound, and speed-table calls from that helper remain external.
 Set `air_preparation` when the caller owns the `0x00497df0` basis/global setup;
 it runs after any case-6 setup and before the native air-action terms. The
 callback can call `prepare_in_air_orientation()` for the recovered rolling
@@ -192,6 +211,15 @@ Set `velocity_integration` to call `integrate_velocity()` with the captured
 Set `blocked_physics_reset` after air contact/gravity when reproducing the
 control-blocked `0x0049d8a0` boundary; call `apply_blocked_physics_reset()`
 with the captured decay divisor and clamp gate before velocity integration.
+Set `landing_cleanup` after that blocked-reset boundary to mirror
+`0x004914d0`; accepted common-air contact invokes `apply_landing_cleanup()` at
+the earlier retail landing point before publishing contact identity and the
+air-to-ground request. If the caller reconstructs the preceding landing query,
+`landing_collision_preparation` supplies the `0x004aaf70` boundary immediately
+before cleanup. Its deeper animation/recovery branch remains external.
+Postphysics damping keeps the initial cap draw and the independent X/Y/Z
+cap-rescale draws in `VelocityDampingRandom`; supplying one shared cap target
+for all components will not match the retail random stream or velocity.
 
 ## Warehouse trigger and gameplay runtime
 
