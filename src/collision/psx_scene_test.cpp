@@ -339,6 +339,9 @@ void check_packaged_scene(const char* path) {
     assert(scene->models()[171].vertices.size() == 14);
     assert(scene->models()[171].normals.size() == 6);
     assert(scene->models()[171].faces.size() == 6);
+    assert(scene->objects()[170].model_index == 171);
+    assert(scene->objects()[170].position ==
+           (RawVec3{-4100096, -6782976, 9408512}));
     const std::array<std::int16_t, 3> expected_normal{1, -3867, -1351};
     assert(scene->models()[171].normals[4] == expected_normal);
     bool found_surface_match = false;
@@ -385,6 +388,7 @@ void check_packaged_scene(const char* path) {
     const auto linked_model_171 = scene->linked_collision_object_from_source(
         170, 6, 0x05f26c84, 0x0110);
     assert(linked_model_171.has_value());
+    assert(linked_model_171->source_object_index == 170);
     assert(linked_model_171->position ==
            (RawVec3{-4100096, -6782976, 9408512}));
     assert(linked_model_171->angles == (std::array<std::int16_t, 3>{0, 0, 0}));
@@ -396,6 +400,7 @@ void check_packaged_scene(const char* path) {
         std::span<const PsxLinkedCollisionObject>(&*linked_model_171, 1), 1);
     assert(dynamic_replay.hit());
     assert(dynamic_replay.query.hit_body == 0x05f26c84);
+    assert(dynamic_replay.source_object_index == 170);
     assert(dynamic_replay.query.hit_model_index == 171);
     assert(dynamic_replay.query.hit_distance == 29);
     assert(dynamic_replay.query.hit_position ==

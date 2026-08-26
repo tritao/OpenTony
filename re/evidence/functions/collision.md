@@ -764,7 +764,9 @@ The controlled `collision-dynamic-positive5` capture then changed only the
 first live linked node during one collision call, restoring every changed
 prefix field when `0x00463e50` returned. It supplied the known model-171
 Hangar origin `[-4100096, -6782976, 9408512]`, zero angles, model index 171,
-model kind 6, and flags `0x0110`. The query was the same vertical line used by
+model kind 6, and flags `0x0110`. Offline parsing of the same `SKHAN.PSX`
+scene identifies this as source object index `170` (the source object uses
+model `171` at that exact position). The query was the same vertical line used by
 the static and airborne captures:
 
 ```text
@@ -790,7 +792,8 @@ and reconstructs contact from `q+0x40`. The native asset replay resolves this
 dynamic candidate as model face 5, with surface/normal word `0x00100028` and
 finalized normal `[1, -4093, -160]`; the static replay selects its own nearest
 face and `0x4000` parameter independently. This is a positive end-to-end
-runtime confirmation of the linked dynamic primitive; the temporary field
+runtime confirmation of the linked dynamic primitive and its PSX source
+provenance; the temporary field
 mutation is why it is labeled controlled rather than a claim about ordinary
 gameplay objects at every position.
 
@@ -893,6 +896,11 @@ caller-supplied body identity in `q+0x68`, and leaves the unresolved heap
 loader/serialization boundary explicit. Its `model_index` is a caller-
 resolved native scene index; the original PC `model_kind`/index pair still
 selects one of the unresolved type-specific model tables.
+When a node is constructed with
+`PsxScene::linked_collision_object_from_source`, the native result preserves
+the source PSX object index separately from the dynamic-span index. This is a
+provenance handle for the reconstruction, not a claim that the retail
+`q+0x68` pointer is an integer object index.
 For records taking the full-word `0x0200` matrix-transform branch, the original
 consumes signed Q12 tail words at `+0x28/+0x2a/+0x2c` while constructing the
 temporary matrix. The native view accepts those factors, but the PC loader

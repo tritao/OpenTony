@@ -71,6 +71,11 @@ struct PsxObject {
 // has a different on-disk record and no recovered angle fields.
 struct PsxLinkedCollisionObject {
     std::uint32_t body_id = 0;
+    // Stable source-side identity when this node came from the parsed PSX
+    // object table. This is separate from the caller-owned span index used
+    // by PsxCollisionResult::object_index and from the retail heap pointer
+    // carried in q+0x68.
+    std::size_t source_object_index = std::numeric_limits<std::size_t>::max();
     std::uint16_t flags = 0;
     RawVec3 position{};
     std::array<std::int16_t, 3> angles{};
@@ -101,6 +106,10 @@ struct PsxBlockmap {
 struct PsxCollisionResult {
     QueryRecord query{};
     std::size_t object_index = std::numeric_limits<std::size_t>::max();
+    // Set for a dynamic hit when the linked node carries parsed-PSX
+    // provenance. Static hits continue to use object_index as their scene
+    // object identity.
+    std::size_t source_object_index = std::numeric_limits<std::size_t>::max();
     std::size_t face_index = std::numeric_limits<std::size_t>::max();
     std::uint16_t base_flags = 0;
     std::uint16_t surface_flags = 0;
@@ -366,6 +375,7 @@ public:
         const auto& source = objects_[object_index];
         PsxLinkedCollisionObject result;
         result.body_id = body_id;
+        result.source_object_index = object_index;
         result.flags = finalized_flags;
         result.position = source.position;
         result.angles = source.collision_angles;
@@ -573,10 +583,11 @@ public:
             const auto body_id = object.body_id != 0
                                      ? object.body_id
                                      : static_cast<std::uint32_t>(object_index + 1);
-            const auto candidate = query_dynamic_model(
+            auto candidate = query_dynamic_model(
                 model, start, end, object_index, body_id, object.model_index,
                 preprocess.vertices, preprocess.query_object_basis,
                 preprocess.final_object_basis, query_stamp, filter);
+            candidate.source_object_index = object.source_object_index;
             if (candidate.query_mask_model_index) {
                 query_mask_model_index = candidate.query_mask_model_index;
             }

@@ -79,6 +79,7 @@ std::optional<PositionCollisionHit> PsxScenePositionCollisionProbe::query(
         flags.surface_skateable,
         static_cast<std::uint8_t>((result.surface_flags >> 9u) & 0x0fu),
         flags.face_bit_80,
+        result.source_object_index,
     };
 }
 

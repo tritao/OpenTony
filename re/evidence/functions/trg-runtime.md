@@ -243,6 +243,21 @@ TRG type 1 / subtype 0x0192
               object +0x04 bits 0x111 after clearing bit 1
 ```
 
+The `0x0192` constructor's collision-facing inputs are now more explicit.
+`0x0049f250` passes the current resource-name pointer from `DAT_0056e218`
+through `0x0047fe30`; that helper resolves the name against the 20-entry
+region table, writes the region selector to object `+0x1f`, and initializes
+the model index at `+0x1a` to zero. The constructor then calls
+`0x00480240` with the factory's position payload and `0x004802c0` with the
+three-u16 orientation payload, storing them at `+0x08..+0x10` and
+`+0x14..+0x18`. It writes `+0x04 = (+0x04 & ~0x0002) | 0x0111`, so a later
+factory clear of bit `0x2` leaves the observed `0x0110` form without changing
+the model/position inputs. The originating TRG node index is written at
+`+0xb0` by the factory after the constructor returns. This connects the
+trigger-side allocation to the same region/model/position/angle prefix read
+by the dynamic collision path, while leaving the live heap body pointer and
+the later model-index update explicit.
+
 The constructors also expose stable sentinel/header initialization beyond the
 shared position and source-node fields. The `0xcb` constructor stores the
 current runtime context from `DAT_0056a954` at `+0x1d8`, initializes `+0x1ec`

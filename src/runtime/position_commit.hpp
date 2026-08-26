@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 
 namespace opentony::runtime {
@@ -31,6 +32,9 @@ struct PositionCollisionHit {
     bool surface_bit_8_clear{};
     std::uint8_t raw_type_bits_9_12{};
     bool face_flag_80{};
+    // Parsed PSX object-table identity for a linked/dynamic hit. Static hits
+    // leave this at its sentinel value and use object_index for scene identity.
+    std::size_t source_object_index{std::numeric_limits<std::size_t>::max()};
 
     friend bool operator==(
         const PositionCollisionHit&,

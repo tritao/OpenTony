@@ -80,6 +80,7 @@ int main() {
         hangar_session.set_recovered_linked_collision_objects({
             opentony::collision::PsxLinkedCollisionObject{
                 .body_id = 0x05f26c84,
+                .source_object_index = 170,
                 .flags = 0x0110,
                 .position = {
                     -4100096 + dynamic_offset,
@@ -98,6 +99,7 @@ int main() {
              11472896 + dynamic_offset});
         assert(dynamic_hit.has_value());
         assert(dynamic_hit->object_index == 0);
+        assert(dynamic_hit->source_object_index == 170);
         assert(dynamic_hit->model_index == 171);
         assert(dynamic_hit->hit_parameter_q14 == 0x7fffffffU);
         assert(dynamic_hit->position == (opentony::runtime::FixedPosition{
