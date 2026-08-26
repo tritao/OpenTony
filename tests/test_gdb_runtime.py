@@ -680,6 +680,56 @@ def test_camera_probe_samples_this_pointer_and_writes_trace_event():
     assert events[0]["function"] == "Camera_Update"
 
 
+def test_camera_probe_captures_mode25_tripod_producer_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    tripod = 0xA00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", tripod)
+    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", 0)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 25)
+    inferior.data[tripod + 0x50:tripod + 0x54] = struct.pack("<i", -0x2400)
+    inferior.data[tripod + 0x31EC:tripod + 0x31F0] = struct.pack("<I", 1)
+    inferior.data[tripod + 0x2E58:tripod + 0x2E6A] = struct.pack(
+        "<9h", 0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000
+    )
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
+
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CameraProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert events[0]["camera_fields"]["mode"] == 25
+    assert events[0]["tripod_mode25_input"] == {
+        "scalar_raw": -0x2400,
+        "vector_effect_gate": 1,
+        "basis_q12": [
+            {"raw_u16": 0x1000, "signed_s16": 0x1000},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0x1000, "signed_s16": 0x1000},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0, "signed_s16": 0},
+            {"raw_u16": 0x1000, "signed_s16": 0x1000},
+        ],
+    }
+
+
 def test_camera_point_select_record_preserves_gameplay_producer_inputs():
     inferior = FakeInferior()
     memory = Memory(inferior)
