@@ -1,5 +1,57 @@
 version: 1
 functions:
+  - address: 0x004d14d0
+    name: M3D_SubmitModelState
+    slice: render-packet-submission
+    status: modeled
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_packet_builder_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native pre-backend adapter preserves the model/state-to-polygon handoff and source order; exact retail model-wide vertex ownership, culling, bucket linking, and backend submission remain outside this mapping.
+
+  - address: 0x004d18b0
+    name: M3D_SubmitFacePolygons
+    slice: render-packet-submission
+    status: modeled
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_packet_builder_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native flattened face traversal retains input order and emits one portable polygon product per face; variable retail face lengths and visibility/color-table policy remain open.
+
+  - address: 0x004d1d40
+    name: M3D_BuildD3DPolygon
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_packet_builder_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, and half-texel UV normalization; raw arena allocation is not represented as a host pointer layout.
+
+  - address: 0x004d29e0
+    name: M3D_TransformVertices
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/camera/camera_math.hpp
+    tests:
+      - tests/test_camera_math.py
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+    notes: Ordinary source-flags-without-bit-0x10 branch reproduces the seven-word projected record and clip-bit arithmetic; special source-flag and alternate state branches remain separate.
+
   - address: 0x00492ed0
     name: Skater_ApproachHeadingFrame
     status: tested

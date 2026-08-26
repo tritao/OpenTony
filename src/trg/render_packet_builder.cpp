@@ -122,19 +122,29 @@ RenderPacketBuildResult RenderPacketBuilder::build(
     const camera::CameraStateRaw& camera,
     const RenderProjector& projector,
     const RenderPacketBuildOptions& options) {
+    return build(
+        snapshot.entities(), snapshot.faces(), camera, projector, options);
+}
+
+RenderPacketBuildResult RenderPacketBuilder::build(
+    std::span<const LevelRenderEntitySnapshot> entities,
+    std::span<const LevelRenderFaceSnapshot> faces,
+    const camera::CameraStateRaw& camera,
+    const RenderProjector& projector,
+    const RenderPacketBuildOptions& options) {
     if (!projector) {
         throw RenderPacketError("render packet requires a projector");
     }
 
     RenderPacketBuildResult result;
-    result.polygons.reserve(snapshot.faces().size());
-    for (const LevelRenderFaceSnapshot& face : snapshot.faces()) {
+    result.polygons.reserve(faces.size());
+    for (const LevelRenderFaceSnapshot& face : faces) {
         const auto entity = std::find_if(
-            snapshot.entities().begin(), snapshot.entities().end(),
+            entities.begin(), entities.end(),
             [&](const LevelRenderEntitySnapshot& candidate) {
                 return candidate.entity == face.entity;
             });
-        if (entity == snapshot.entities().end()) {
+        if (entity == entities.end()) {
             throw RenderPacketError("render face references a missing entity");
         }
         RenderPolygonPacket packet = build_face(
