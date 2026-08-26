@@ -32,12 +32,17 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 const CameraTargetRaw target{
                     {0x20000, 0, 0}, {0x111, 0x222, 0x333}, {}, 1, 0, false};
                 const CameraFollowInput follow{1, 1, true, false, false};
+                const auto expected_follow = build_follow_target_transform_q12(
+                    {}, {0, -0x1000, 0}, 0);
                 const auto committed = update_camera(
                     camera, target, follow, {}, {});
                 if (camera.mirrored_anchor.x != 0x10000
                     || camera.anchor_target.x != 0x20000
                     || camera.update_tick != 1
-                    || camera.current_transform.w != 0x1000
+                    || camera.current_transform.x != expected_follow.x
+                    || camera.current_transform.y != expected_follow.y
+                    || camera.current_transform.z != expected_follow.z
+                    || camera.current_transform.w != expected_follow.w
                     || camera.viewport_parameter_raw != 13
                     || static_cast<unsigned>(camera.viewport_timer_raw & 0xffff) != 1
                     || committed.rendered_position.x != 16) {
