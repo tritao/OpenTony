@@ -10,6 +10,7 @@ QUERY_WRAPPER = 0x00466090
 QUERY_RETURN = 0x0046609F
 COLLISION_MODEL_TABLE = 0x0056D43C
 COLLISION_LINKED_ROOT = 0x0056AF40
+COLLISION_LINKED_ROOT_AUX = 0x0056AF44
 COLLISION_ZONE_TABLE = 0x00567F80
 COLLISION_CANDIDATE_TABLE = 0x00567FA0
 COLLISION_FACE_CACHE = 0x005643B0
@@ -107,9 +108,12 @@ def _scene_roots(memory) -> dict:
     """Capture addresses/ownership markers without walking unbounded memory."""
 
     linked_root = _global_u32(COLLISION_LINKED_ROOT, memory)
+    linked_root_aux = _global_u32(COLLISION_LINKED_ROOT_AUX, memory)
     return {
         "linked_root_value": linked_root,
         "linked_objects": _linked_object_snapshots(linked_root, memory),
+        "linked_root_aux_value": linked_root_aux,
+        "linked_objects_aux": _linked_object_snapshots(linked_root_aux, memory),
         "zone_table_base": f"0x{COLLISION_ZONE_TABLE:08x}",
         "zone0": _zone_entry_snapshot(COLLISION_ZONE_TABLE, memory),
         "candidate_table_base": f"0x{COLLISION_CANDIDATE_TABLE:08x}",
