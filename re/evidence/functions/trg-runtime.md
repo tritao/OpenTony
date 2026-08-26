@@ -322,6 +322,22 @@ with the player response vector. This is a ground/platform response consumer,
 not the skater's line-query primitive, but it proves that the type-192
 object-manager list is a live downstream collision/ground input.
 
+The model-overlap gate is now exact enough to reproduce independently. For
+each player axis, `0x004a12d0` takes the ordered pair of the live position
+(`+0x08/+0x0c/+0x10`) and the corresponding player extent (`+0xbc/+0xc0/+0xc4`),
+then expands both ends by `0x14000` (20 Q12 world units). It adds the selected
+model's signed-short bounds, shifted left by 12, to the object position and
+rejects when any model minimum is above the expanded player maximum or any
+model maximum is below the expanded player minimum. The selected model bounds
+are read as runtime header pairs at `+0x0c/+0x0e` (X), `+0x10/+0x12` (Y), and
+`+0x14/+0x16` (Z), with the endpoint order resolved by the comparisons rather
+than by assuming a min/max serialization order. Before this test the function
+sets object flag `+0x04` bit `0x20` for an admitted object; it then rejects
+objects with state bit `+0x178:0x20` and calls `0x0049f4c0` only for the
+survivors. This gives the future ground/platform adapter its exact broad phase
+while keeping its object-manager record and platform type separate from the
+PSX environment records.
+
 The constructors also expose stable sentinel/header initialization beyond the
 shared position and source-node fields. The `0xcb` constructor stores the
 current runtime context from `DAT_0056a954` at `+0x1d8`, initializes `+0x1ec`
