@@ -8506,12 +8506,60 @@ modules:
 - id: text_004f6063
   section: .text
   start_va: 5202019
-  end_va: 5246976
+  end_va: 5202048
   file_offset: 1007715
-  size: 44957
+  size: 29
   status: raw
   source: match/modules/text/text_004f6063.asm
-  sha256: 91af09fac3611babf0fe75d593b55d76a27fff66dd5bfcd482d2ebb9cb5cf500
+  sha256: a827df407d24e8bea71f000dec18e8079cc46cd9091233f7183ee281959cf1a8
+- id: text_004f6080
+  section: .text
+  start_va: 5202048
+  end_va: 5202118
+  file_offset: 1007744
+  size: 70
+  status: cpp
+  source: match/modules/text/text_004f6080.asm
+  cpp_source: match/cpp/FUN_004f6080.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 0a1959b009c3ddb65cbfa1516741205ce1b47b1ee2bb31728520767eb921fbcb
+- id: text_004f60c6
+  section: .text
+  start_va: 5202118
+  end_va: 5202128
+  file_offset: 1007814
+  size: 10
+  status: raw
+  source: match/modules/text/text_004f60c6.asm
+  sha256: bde559b24d3a5302d82a4e56eb6f4b12d39057d100fd0ca81b337f5c1aa80cba
+- id: text_004f60d0
+  section: .text
+  start_va: 5202128
+  end_va: 5202230
+  file_offset: 1007824
+  size: 102
+  status: cpp
+  source: match/modules/text/text_004f60d0.asm
+  cpp_source: match/cpp/FUN_004f60d0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 6b9b0ec7e5ea865772864334e593a08ce31d7062218f03d02f6758b102d5d08d
+- id: text_004f6136
+  section: .text
+  start_va: 5202230
+  end_va: 5246976
+  file_offset: 1007926
+  size: 44746
+  status: raw
+  source: match/modules/text/text_004f6136.asm
+  sha256: e3046ad06efc7b63c8ef359d6a6a261afa2eadb7545f0c507dd1a7aae8a84136
 - id: text_00501000
   section: .text
   start_va: 5246976
