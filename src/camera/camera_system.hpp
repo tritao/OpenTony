@@ -45,6 +45,9 @@ struct CameraStateRaw {
     Raw viewport_parameter_delta_raw{};
     std::uint32_t mode{};
     std::uint32_t update_tick{};
+    std::uint32_t death_camera_tick{}; // camera +0x570
+    Q16Vec3 death_target_position{};    // camera +0x574..+0x57c
+    Q16Vec3 death_start_position{};     // camera +0x594..+0x59c
     std::uint32_t follow_distance_counter{};
     std::uint32_t follow_preparation_counter{};
     // Camera +0x5d8. This is an effect-ramp counter, not the follow
@@ -355,6 +358,61 @@ inline CameraSmoothingStageOutputRaw advance_camera_smoothing_stage(
     output.base_position = build_base_position_stage_input({
         output.distance.distance_q4, input.vertical_effect_q4});
     return output;
+}
+
+struct CameraDeathPositionResultRaw {
+    Q16Vec3 position{};
+    std::uint32_t tick{};
+    bool initialized{};
+    bool completed{};
+    bool missing_tripod{};
+};
+
+// Camera_DeathMode 0x00410c90 latches the tripod position on tick zero, then
+// advances toward the preselected death-camera target for ticks 0..30. The
+// retail sequence is component-wise `(start - target) / 30`, multiplied by
+// the tick, and subtracted from start; preserve truncation and PE32 wrapping.
+inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right);
+
+inline CameraDeathPositionResultRaw advance_camera_death_position(
+    CameraStateRaw& camera,
+    const Q16Vec3& death_target_position,
+    const Q16Vec3& tripod_position,
+    bool tripod_present) {
+    if (!tripod_present) {
+        return {camera.position, camera.death_camera_tick, false, false, true};
+    }
+    if (camera.death_camera_tick == 0) {
+        camera.death_target_position = death_target_position;
+        camera.death_start_position = tripod_position;
+        camera.position = tripod_position;
+    }
+    if (camera.death_camera_tick < 0x1f) {
+        const Q16Vec3 delta = subtract_q16(
+            camera.death_start_position, camera.death_target_position);
+        const Q16Vec3 per_tick{
+            divide_toward_zero(delta.x, 0x1e),
+            divide_toward_zero(delta.y, 0x1e),
+            divide_toward_zero(delta.z, 0x1e),
+        };
+        const Q16Vec3 offset{
+            multiply_s32(per_tick.x,
+                         static_cast<Raw>(camera.death_camera_tick)),
+            multiply_s32(per_tick.y,
+                         static_cast<Raw>(camera.death_camera_tick)),
+            multiply_s32(per_tick.z,
+                         static_cast<Raw>(camera.death_camera_tick)),
+        };
+        camera.position = subtract_q16(camera.death_start_position, offset);
+        ++camera.death_camera_tick;
+        return {
+            camera.position, camera.death_camera_tick,
+            camera.death_camera_tick == 1, false, false};
+    }
+    camera.mode = 1;
+    return {
+        camera.position, camera.death_camera_tick,
+        false, true, false};
 }
 
 // Stateful adapter for the four camera-owned effect counters at

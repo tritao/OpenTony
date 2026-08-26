@@ -203,10 +203,35 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 | Address | Current name | Static evidence | Confidence |
 |---|---|---|---|
 | `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. | inferred |
-| `0x00410c90` | `Camera_DeathMode` | Asserts on missing/non-skater tripod; copies tripod position and interpolates over `+0x570` for roughly `0x1f` ticks. | inferred |
+| `0x00410c90` | `Camera_DeathMode` | Requires a tripod, latches its position at tick `+0x570 == 0`, interpolates toward the selected death position for ticks `0..30`, then writes mode `1`; also interpolates the death transform through the shared Q12 helpers. | medium; position contract is statically exact, transform producer remains partial |
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
 | `0x00411f30` | `Camera_RegisterPoint` | Appends a point ID to `DAT_0055fa58`, with a maximum of `0x46` entries. | observed |
 | `0x0040bd40` | `Camera_Shake` | Selects shake parameter sets by `EShakeType` and applies them to camera effect objects. | inferred |
+
+The death-position sub-contract is now represented by
+`advance_camera_death_position`. Static dataflow gives:
+
+```text
+if tick == 0:
+    start = tripod.position
+    camera.position = start
+
+if tick < 31:
+    delta = (start - death_target) / 30
+    camera.position = start - delta * tick
+    tick += 1
+else:
+    camera.mode = 1
+```
+
+The divide and multiply are component-wise signed PE32 operations; this is
+not a floating-point easing curve. The same routine separately builds a Q12
+transform interpolation through `0x0040e060` and `0x004a9bf0`, but its source
+transform fields and death/effect producer are not yet connected to the native
+state. Static callers are the mode-dispatch target `0x0041001b` from
+`Camera_Update 0x0040f850`; the position fixture covers ticks 0, 1, 30, 31,
+and the missing-tripod diagnostic path. No live death-mode trace has yet been
+captured, so the dynamic mode transition remains an explicit validation item.
 
 ## Camera fields currently safe to expose in C++
 

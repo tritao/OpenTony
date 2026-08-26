@@ -93,6 +93,48 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 16;
                 }
 
+                CameraStateRaw death;
+                death.mode = 22;
+                const Q16Vec3 death_start{0x2e000, 0, 0};
+                const Q16Vec3 death_target{0x10000, 0, 0};
+                const auto death_first = advance_camera_death_position(
+                    death, death_target, death_start, true);
+                if (!death_first.initialized
+                    || death_first.tick != 1
+                    || death.position.x != death_start.x
+                    || death.death_start_position.x != death_start.x
+                    || death.death_target_position.x != death_target.x) {
+                    return 24;
+                }
+                const auto death_second = advance_camera_death_position(
+                    death, death_target, death_start, true);
+                if (death_second.initialized
+                    || death_second.tick != 2
+                    || death.position.x != 0x2d000) {
+                    return 25;
+                }
+                death.death_camera_tick = 30;
+                const auto death_last = advance_camera_death_position(
+                    death, death_target, death_start, true);
+                if (death_last.completed
+                    || death_last.tick != 31
+                    || death.position.x != death_target.x
+                    || death.mode != 22) {
+                    return 26;
+                }
+                const auto death_done = advance_camera_death_position(
+                    death, death_target, death_start, true);
+                if (!death_done.completed || death.mode != 1
+                    || death.position.x != death_target.x) {
+                    return 27;
+                }
+                CameraStateRaw no_death_tripod;
+                if (!advance_camera_death_position(
+                        no_death_tripod, death_target, death_start, false)
+                         .missing_tripod) {
+                    return 28;
+                }
+
                 camera.history_a = {0x200, 0, 0};
                 camera.mode_vector = {0x100, 0, 0};
                 update_camera_history(camera, {}, true);
