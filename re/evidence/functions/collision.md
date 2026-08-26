@@ -66,7 +66,12 @@ schema; the original PC code uses caller-local storage.
 | `0x004638d0` | scene traversal calls at `0x004662fa`, `0x0046670f`, `0x004667a5` | `void VisitModelFaces(void* list, SLineInfo*)` | builds/reuses face AABBs and invokes the face tester |
 | `0x004f43e0` | linked traversal `0x004628f0` | `void CullLinkedObjects(void* root, ..., SLineInfo*, uint16 stamp)` | walks `node+0x20`, applies object bounds/cross tests, and marks tested nodes |
 | `0x004f4940` | candidate traversal `0x004638d0` | `void CullCandidateObjectLists(void* head_array, ..., SLineInfo*, uint16 stamp)` | walks the selected null-terminated head array and applies the same object broad phase |
+| `0x004f4b00` | oriented-object path `0x00463e50` | `uint16_t TransformModelVertices(Model*, DynamicVertex*, uint32 line_length, const int32 origin[3])` | transforms each model vertex through the prepared Q12 matrix, writes 8-byte `{x,y,z,clip}` records, and returns their AND clip mask |
+| `0x004f4c50` | oriented-object path `0x00463e50` | `void ScanDynamicFaces(Model*, DynamicVertex*, SLineInfo*, ...)` | applies face masks, selects the projected triangle, and writes the winning dynamic distance/body/face/model fields; special `0x20000` faces update a sideband model selector instead |
 | `0x004f5540` | direct calls `0x0045fcbc`, `0x0045fd9c`, `0x00460dce`, `0x00460eaf`, `0x00461c5f`, `0x00464062`, `0x00464095` | `void ScaleObjectMatrix(void* object, int16_t matrix[9])` | scales matrix columns from signed Q12 tail words; writes the matrix in place and has no consumed return value |
+| `0x004e24b0` | dynamic face pass `0x004f4c50` | `void TransformNormalQ12(const int16_t basis[9], const int16_t normal[3])` | multiplies the model normal by the composed query/object matrix, shifts by 12, and saturates to signed shorts |
+| `0x004e2930` | dynamic face pass `0x004f4c50` | `void ProjectCandidate(...)` | combines the selected transformed vertex and transformed normal into the signed dot/line-limit values consumed by the dynamic distance test |
+| `0x004f5780` | linked transform `0x00463e50` | `void ComposeQueryBasis(int16_t matrix[9])` | left-composes the object/scale matrix with the query line basis; the resulting basis is used by vertex and candidate-normal transforms |
 | `0x00462a20` | model-face traversal calls at `0x004639b2`, `0x00463d03` | `void TestFace(void* model, SLineInfo*, void* cache)` | segment/triangle test; updates nearest hit fields; no useful return |
 | `0x00463d50` | scene traversal call at `0x004667c3` | `int FinalizeHit(SLineInfo*)` | returns `1` iff `q+0x68` is nonzero and writes the normal |
 | `0x0048ea80` | ground/in-air calls `0x0049587e`, `0x00495a4f`, `0x0049695a`, `0x00496fdc`, `0x00498a6e`, `0x00498ac9`, `0x004993b0`, `0x00499ae5`, `0x00499dd5` | `void ConsumeHitFlags(SLineInfo*)` | translates face metadata into shared collision/material flags |
@@ -414,15 +419,20 @@ the wrapper; the query does not parse a file on each call.
     decompiler naming artifact. The decompiled dynamic face-hit branch does
     not itself assign `q+0x6c..0x74`; those contact words are assigned by the
     static tester and by the dynamic routine's post-face-loop contact
-    calculation, using the winning traveled distance.
+    calculation, using the winning traveled distance. A geometrically
+    accepted face whose surface word contains `0x20000` takes a separate
+    branch: when `q+0x88` is nonzero it stores the model's `+0x1a` selector in
+    `DAT_00567a64`, but does not publish a physical q+0x68 hit.
   - The dynamic helpers are now algebraically constrained at the machine-code
     level. `0x004e2f80` computes the three 2-D determinants from the
     transformed X/Y vertex pairs. For a triangle, a negative determinant for
     the `(v1,v2)` pair rejects the face; for a quad, the walker retries with
     `v3` in the first-vertex slot and negates the other two determinants.
-    `0x004e24b0` applies the query/object Q12 basis to the model normal, and
-    `0x004e2930` combines that result with the selected vertex before the
-    candidate distance is compared against `q+0x40`. The native reference now
+    `0x004e24b0` applies the composed query/object Q12 basis to the model
+    normal, and `0x004e2930` combines that result with the selected vertex
+    before the candidate distance is compared against `q+0x40`. For the
+    alternate quad winding, the selected vertex is the fourth transformed
+    vertex rather than `v0`. The native reference now
     models the same strict-nearer update and the no-face fallback: after the
     scan it computes `u = trunc((q+0x40) * 0x1000 / (q+0x44))`, then writes
     `start + ((end-start) >> 12) * u` into `q+0x6c..0x74`. `0x004e2070` is the
@@ -441,8 +451,12 @@ the wrapper; the query does not parse a file on each call.
     flags. The helper scales matrix columns independently: `+0x28` multiplies
     entries 0/3/6, `+0x2a` multiplies 1/4/7, and `+0x2c` multiplies 2/5/8;
     each product is SAR 12 and passed through the signed-short saturation
-    helper. The loader's runtime values remain unresolved, but the native
-    linked-object API now accepts these factors directly.
+    helper. `0x004f5780` then left-composes that scaled object matrix with
+    the query basis, so the dynamic vertex and candidate-normal basis is
+    `query_basis * object_rotation * scale`. The loader's runtime values
+    remain unresolved, but the native linked-object API now accepts these
+    factors directly. The final normal path remains the unscaled
+    `object_rotation * model_normal` transform.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
@@ -746,6 +760,8 @@ of that API without fabricating the unresolved zone/model format. It provides:
   `0x004e2070`;
 - the projected dynamic-face winding gate, candidate distance, nearest-hit
   update, and the dynamic contact fallback arithmetic.
+  The native scene result also preserves the dynamic `0x20000` query-mask
+  sideband as an optional model selector instead of turning it into a hit.
 - the recovered linked-object prefix view, model-bound expansion/reflection,
   the exact linked-object flag gate, and the complete short-arithmetic
   object broad-phase prefilter.
