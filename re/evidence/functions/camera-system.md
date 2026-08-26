@@ -198,17 +198,47 @@ target table at `0x00410378`. The currently proven mapping is:
 |---:|---:|---|
 | `1` | `0x0040ff2b` | normal follow continuation; Warehouse runtime mode |
 | `2` | `0x00410006` → `0x004113f0` | separate camera-mode handler; exact semantic label pending |
-| `3..20` | `0x00410027` | unsupported/default diagnostic path in this build’s table |
-| `21` | `0x0041000f` → `0x00410f70` | separate point/sequence-style handler; exact mode name pending |
-| `22` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
-| `23` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
+| `3..22` | `0x00410027` | unsupported/default diagnostic path in this build’s table |
+| `23` | `0x0041000f` → `0x00410f70` | separate point/sequence-style handler; exact mode name pending |
+| `24` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
+| `25` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
 
-Value `24` remains unobserved and appears to index padding after the
-meaningful table entries. Value `25` is different: the dedicated
-`camera-zoom-probe` recorded two valid runtime intervals, and the camera path
-used the normal follow preparation with the mode-25 `(0,-0x1000,0)` offset
-branch before returning to mode `1`. Preserve this as a real transition rather
-than collapsing it into invalid-mode handling.
+The table has 25 byte entries, so mode `25` is a real dispatch value rather
+than padding. The dedicated `camera-zoom-probe` recorded two valid runtime
+intervals for it. Its alternate handler performs a normal follow/smoothing
+pass, may apply the transformed tripod-local offset guarded by camera `+0x4a9`,
+then calls `0x00410610` again before the common commit tail. The mode-25
+`(0,-0x1000,0)` offset is therefore a producer input within that handler, not
+evidence that mode `25` is an alias for mode `1`.
+
+### `0x0040feef` — mode-25 alternate-follow handler
+
+Static behavior from the raw dispatch target is:
+
+- call `Camera_FollowTarget 0x00410610`;
+- call `Camera_SmoothAndValidate 0x0040e090` with the alternate call-site
+  constant `0x2c7`;
+- if a linked tripod has physics state other than `1`, behavior flag `+0x2f64`
+  equal to zero, and follow-offset word `+0x3110 < 0`, write camera mode `1`;
+- if the tripod has `+0x3110 > 0x64` and physics state `1`, retain/write mode
+  `25`;
+- when camera byte `+0x4a9` is set, transform local `(0,0,-0x1000)` by the
+  tripod short basis at `+0x2e58` through `0x004e85a0`, store the result in
+  camera `+0x610..+0x618`, shift that vector left by `0xc` through
+  `0x004cad00` into `+0x5c4`, copy the unshifted result into `+0x5b8`, then
+  call `0x00410610` again;
+- join the common camera tail at `0x00410064`, which ultimately commits through
+  `0x0040be70`.
+
+Static callers/callees: caller `0x0040fed0` via the six-target jump table;
+callees `0x00410610`, `0x0040e090`, `0x004e85a0`, `0x004cad00`, and the common
+commit path. Runtime evidence: `camera-zoom-probe.jsonl` recorded intervals
+at frames `4108..4204` (97 camera observations) and `4292..4389` (98
+observations), with mode `1` before, between, and after. Confidence is high
+for dispatch and branch predicates, medium for the transformed-vector
+producer because the `+0x4a9` branch has not yet been live-sampled. A runtime
+mode-25 trace that bypasses the second follow call or uses a different local
+vector would falsify the remaining producer details.
 
 One mode-25 producer is visible at the gameplay boundary in
 `Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
@@ -236,7 +266,7 @@ a falsifier would be a trace showing the same `0x19` store used for a
 non-camera event or a mode-25 update that bypasses the recovered follow offset
 branch.
 
-The mode-21 and mode-22 targets do not return through the normal
+The mode-23 and mode-24 targets do not return through the normal
 `Camera_SmoothAndValidate` tail. Both handlers jump to `0x00410357`, which
 calls `Camera_CommitViewportEffects 0x0040be70` and then returns from
 `Camera_Update`. The native `update_camera` contract therefore exposes an
@@ -831,7 +861,7 @@ steady-state interpolation tick.
 Confidence: high for the two tail callsites, raw input scales, output ordering,
 and position/effect destinations; medium for the semantic source of the two
 input vectors because collision and effect branches can replace them.
-Possible falsifier: a mode-21/22/23 or split-screen trace that reaches
+Possible falsifier: a mode-23/24/25 or split-screen trace that reaches
 `0x004e85a0` through another caller and uses a different vector layout; those
 callers should be probed separately before making the hook inputs universal.
 
@@ -1407,6 +1437,6 @@ DirectDraw backend.
   stationary basis-object run is still required for final screen/depth
   semantics and for the independent `+0x40c` producer.
 - `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524aa4`, `DAT_0056b008`, `DAT_0056b018`, `DAT_0056aff8`, and the `+0x410/+0x414` timer/delta pair. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
-- The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `21`, `22`, and `23` remain unobserved in a live level transition.
+- The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `23`, and `24` remain unobserved in a live level transition; mode `25` is statically mapped to the alternate-follow handler and dynamically observed, but its transformed-offset branch is not yet live-sampled.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

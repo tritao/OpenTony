@@ -56,6 +56,49 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 36;
                 }
 
+                if (camera_dispatch_kind(1)
+                        != CameraDispatchKind::normal_follow
+                    || camera_dispatch_kind(2)
+                        != CameraDispatchKind::mode2
+                    || camera_dispatch_kind(22)
+                        != CameraDispatchKind::default_path
+                    || camera_dispatch_kind(23)
+                        != CameraDispatchKind::point
+                    || camera_dispatch_kind(24)
+                        != CameraDispatchKind::death
+                    || camera_dispatch_kind(25)
+                        != CameraDispatchKind::alternate_follow) {
+                    return 40;
+                }
+
+                CameraStateRaw alternate;
+                alternate.mode = 25;
+                alternate.transform_fallback = 1;
+                const auto alternate_result =
+                    apply_camera_mode25_alternate(
+                        alternate,
+                        {true, 1, 0, 0x65, true, {0x1000, -0x2000, 0x3000}});
+                if (!alternate_result.retained_mode25
+                    || !alternate_result.transformed_offset_applied
+                    || alternate.mode != 25
+                    || alternate.mode_vector.x != 0x1000
+                    || alternate.history_a.y != -0x2000
+                    || alternate.history_b.x != 0x1000 * 0x1000
+                    || alternate.history_b.y != -0x2000 * 0x1000
+                    || alternate.history_b.z != 0x3000 * 0x1000) {
+                    return 41;
+                }
+                CameraStateRaw alternate_reset;
+                alternate_reset.mode = 25;
+                const auto alternate_reset_result =
+                    apply_camera_mode25_alternate(
+                        alternate_reset,
+                        {true, 2, 0, -1, false, {}});
+                if (!alternate_reset_result.reset_to_normal
+                    || alternate_reset.mode != 1) {
+                    return 42;
+                }
+
                 // The retail producer changes mode only after the current
                 // normal-follow update has completed. It must not cause the
                 // same call to use the mode-25 offset during preparation.
@@ -141,7 +184,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 }
 
                 CameraStateRaw death;
-                death.mode = 22;
+                death.mode = 24;
                 const Q16Vec3 death_start{0x2e000, 0, 0};
                 const Q16Vec3 death_target{0x10000, 0, 0};
                 const auto death_first = advance_camera_death_position(
@@ -166,7 +209,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (death_last.completed
                     || death_last.tick != 31
                     || death.position.x != death_target.x
-                    || death.mode != 22) {
+                    || death.mode != 24) {
                     return 26;
                 }
                 const auto death_done = advance_camera_death_position(
@@ -183,7 +226,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 }
 
                 CameraStateRaw point;
-                point.mode = 21;
+                point.mode = 23;
                 const Q16Vec3 point_start{0x82000, 0, 0};
                 const Q16Vec3 point_target{0, 0, 0};
                 const auto point_first = advance_camera_point_position(
@@ -231,7 +274,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 // Point/death dispatches bypass normal smoothing and finish
                 // at the viewport commit boundary.
                 CameraStateRaw point_dispatch;
-                point_dispatch.mode = 21;
+                point_dispatch.mode = 23;
                 CameraModeInputRaw point_mode_input{};
                 point_mode_input.point_target_valid = true;
                 point_mode_input.point_start_valid = true;
@@ -244,12 +287,12 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (point_dispatch_result.rendered_position.x != 0x82
                     || point_dispatch.point_camera_tick != 1
                     || point_dispatch.update_tick != 1
-                    || point_dispatch.mode != 21) {
+                    || point_dispatch.mode != 23) {
                     return 34;
                 }
 
                 CameraStateRaw death_dispatch;
-                death_dispatch.mode = 22;
+                death_dispatch.mode = 24;
                 death_dispatch.death_target_position = death_target;
                 CameraModeInputRaw death_mode_input{};
                 death_mode_input.tripod_present = true;
@@ -262,7 +305,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (death_dispatch_result.rendered_position.x != 46
                     || death_dispatch.death_camera_tick != 1
                     || death_dispatch.update_tick != 1
-                    || death_dispatch.mode != 22) {
+                    || death_dispatch.mode != 24) {
                     return 35;
                 }
 

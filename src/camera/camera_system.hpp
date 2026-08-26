@@ -638,7 +638,7 @@ struct CameraUpdateHooks {
 };
 
 // Inputs owned by the mode/level systems rather than by Camera_Update itself.
-// The retail dispatcher sends modes 21 and 22 directly to 0x0040be70 after
+// The retail dispatcher sends modes 23 and 24 directly to 0x0040be70 after
 // their handlers; they do not pass through the normal smoothing tail. A
 // native caller must therefore provide the selected point/death destination
 // and, when available, the mode-specific quaternion producer explicitly.
@@ -656,6 +656,37 @@ struct CameraModeInputRaw {
     TransformQ12 death_transform_source{};
     TransformQ12 death_transform_target{};
 };
+
+// Exact selector mapping recovered from the byte table at 0x00410390 and
+// the target table at 0x00410378.  Values not listed here enter the retail
+// diagnostic/default path at 0x00410027; they are not aliases for normal
+// follow.  Keep this separate from the semantic names used by callers so a
+// future runtime trace can promote a mode without changing dispatch.
+enum class CameraDispatchKind : std::uint8_t {
+    default_path,
+    normal_follow,       // mode 1 -> 0x0040ff2b
+    mode2,               // mode 2 -> 0x004113f0
+    point,               // mode 23 -> 0x00410f70
+    death,               // mode 24 -> 0x00410c90
+    alternate_follow,    // mode 25 -> 0x0040feef
+};
+
+constexpr CameraDispatchKind camera_dispatch_kind(std::uint32_t mode) {
+    switch (mode) {
+    case 1:
+        return CameraDispatchKind::normal_follow;
+    case 2:
+        return CameraDispatchKind::mode2;
+    case 23:
+        return CameraDispatchKind::point;
+    case 24:
+        return CameraDispatchKind::death;
+    case 25:
+        return CameraDispatchKind::alternate_follow;
+    default:
+        return CameraDispatchKind::default_path;
+    }
+}
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {
     return {
@@ -1073,6 +1104,70 @@ inline bool camera_mode25_condition(
         && input.tripod_physics_state == 1;
 }
 
+// Mode 25 is selected by the normal-follow continuation, but its next
+// dispatch enters 0x0040feef rather than 0x0040ff2b.  That alternate path
+// performs a normal follow/smoothing pass, applies an optional transformed
+// tripod-local offset, then calls Camera_FollowTarget once more before the
+// common commit tail.  The matrix transform producing the optional vector is
+// 0x004e85a0 over the linked tripod's +0x2e58 short basis and the local
+// vector (0, 0, -0x1000).  Keep that producer result injectable until the
+// tripod/runtime ownership is independently promoted.
+struct CameraAlternateFollowInputRaw {
+    bool tripod_present{};
+    Raw tripod_physics_state{};       // tripod +0x30b8
+    Raw tripod_behavior_flag{};       // tripod +0x2f64
+    Raw tripod_follow_offset_y_raw{}; // tripod +0x3110
+    bool transformed_offset_valid{};
+    Q16Vec3 transformed_offset{};     // result of 0x004e85a0
+};
+
+struct CameraAlternateFollowResultRaw {
+    bool reset_to_normal{};
+    bool retained_mode25{};
+    bool transformed_offset_applied{};
+};
+
+inline CameraAlternateFollowResultRaw apply_camera_mode25_alternate(
+    CameraStateRaw& camera,
+    const CameraAlternateFollowInputRaw& input) {
+    CameraAlternateFollowResultRaw result;
+
+    // 0x0040ff08..0x0040ff25: only a linked tripod with physics state other
+    // than 1, no behavior flag, and a negative +0x3110 resets mode to 1.
+    if (input.tripod_present
+        && input.tripod_physics_state != 1
+        && input.tripod_behavior_flag == 0
+        && input.tripod_follow_offset_y_raw < 0) {
+        camera.mode = 1;
+        result.reset_to_normal = true;
+    }
+
+    // 0x0040ff39..0x0040ff4b is the camera-side mode-25 producer.  It is
+    // deliberately evaluated after the reset condition, matching the
+    // original branch order.
+    if (input.tripod_present
+        && input.tripod_follow_offset_y_raw > 0x64
+        && input.tripod_physics_state == 1) {
+        camera.mode = 25;
+        result.retained_mode25 = true;
+    }
+
+    // The retail +0x4a9 guard controls this vector path.  The caller supplies
+    // the already-transformed vector so the camera contract does not invent a
+    // matrix scale or a tripod object layout at this boundary.
+    if (camera.transform_fallback != 0 && input.transformed_offset_valid) {
+        camera.mode_vector = input.transformed_offset;
+        camera.history_b = {
+            shift_left_12(input.transformed_offset.x),
+            shift_left_12(input.transformed_offset.y),
+            shift_left_12(input.transformed_offset.z),
+        };
+        camera.history_a = input.transformed_offset;
+        result.transformed_offset_applied = true;
+    }
+    return result;
+}
+
 // The 0x0040f850 viewport-parameter branch is controlled by globals owned by
 // the camera/effect system.  This value-level adapter preserves the observed
 // operation order without pretending those globals are camera fields:
@@ -1117,7 +1212,11 @@ inline CameraViewportCommitRaw update_camera(
     const Q16Vec3& look_target_offset,
     const CameraUpdateHooks& hooks = {},
     const CameraModeInputRaw& mode_input = {},
-    const CameraMode25ProducerInputRaw& mode25_input = {}) {
+    const CameraMode25ProducerInputRaw& mode25_input = {},
+    const CameraAlternateFollowInputRaw& alternate_follow_input = {}) {
+    const CameraDispatchKind dispatch = camera_dispatch_kind(camera.mode);
+    const bool alternate_follow =
+        dispatch == CameraDispatchKind::alternate_follow;
     if (camera.anchor_update_flag != 0) {
         camera.mirrored_anchor = camera.anchor_target;
         if (camera.tripod_anchor_flag != 0) {
@@ -1131,18 +1230,19 @@ inline CameraViewportCommitRaw update_camera(
     }
 
     CameraFollowSnapshot snapshot;
-    if (camera.mode == 1 || camera.mode == 25) {
+    if (dispatch == CameraDispatchKind::normal_follow || alternate_follow) {
         snapshot = prepare_follow_target(camera, target, follow_input);
-    } else if (camera.mode == 2) {
+    } else if (dispatch == CameraDispatchKind::mode2) {
         (void)prepare_mode2_target(camera, target, follow_input);
     }
 
-    // Modes 21 and 22 jump from their mode handler directly to
+    // Modes 23 and 24 jump from their mode handler directly to
     // Camera_CommitViewportEffects 0x0040be70. Do not run normal follow's
     // history, smoothing, shake, or position producer after them. The
     // destination/transform producers are supplied explicitly because the
     // point table and death-camera setup live outside Camera_Update.
-    if (camera.mode == 21 && mode_input.point_target_valid) {
+    if (dispatch == CameraDispatchKind::point
+        && mode_input.point_target_valid) {
         const Q16Vec3 point_start = mode_input.point_start_valid
             ? mode_input.point_start_position
             : camera.point_start_position;
@@ -1159,7 +1259,8 @@ inline CameraViewportCommitRaw update_camera(
         ++camera.update_tick;
         return committed;
     }
-    if (camera.mode == 22 && mode_input.tripod_present) {
+    if (dispatch == CameraDispatchKind::death
+        && mode_input.tripod_present) {
         (void)advance_camera_death_position(
             camera, camera.death_target_position,
             mode_input.tripod_position, true);
@@ -1178,7 +1279,7 @@ inline CameraViewportCommitRaw update_camera(
     // Camera_SmoothAndValidate is entered. Keeping this boundary explicit is
     // important: the startup path then consumes the newly prepared target,
     // rather than smoothing one frame behind it.
-    if (camera.mode == 1 || camera.mode == 25) {
+    if (dispatch == CameraDispatchKind::normal_follow || alternate_follow) {
         const bool anchors_equal = camera.anchor_target.x
                 == camera.mirrored_anchor.x
             && camera.anchor_target.y == camera.mirrored_anchor.y
@@ -1188,7 +1289,7 @@ inline CameraViewportCommitRaw update_camera(
             anchors_equal || follow_input.external_history_override
                 || follow_input.collision_distance_valid);
     }
-    if (camera.mode == 1 || camera.mode == 25) {
+    if (dispatch == CameraDispatchKind::normal_follow || alternate_follow) {
         if (hooks.apply_follow_transform != nullptr) {
             hooks.apply_follow_transform(camera, snapshot);
         } else {
@@ -1243,6 +1344,30 @@ inline CameraViewportCommitRaw update_camera(
         hooks.prepare_position_stage(camera, target, position_input);
         apply_position_stage(camera, position_input);
     }
+
+    // The mode-25 handler at 0x0040feef performs the alternate producer
+    // between its first smoothing pass and a second Camera_FollowTarget call.
+    // There is no second smoothing pass here: the common tail consumes the
+    // second target on the next update, matching the retail call order.
+    if (alternate_follow) {
+        (void)apply_camera_mode25_alternate(
+            camera, alternate_follow_input);
+        const auto second_snapshot = prepare_follow_target(
+            camera, target, follow_input);
+        const bool anchors_equal = camera.anchor_target.x
+                == camera.mirrored_anchor.x
+            && camera.anchor_target.y == camera.mirrored_anchor.y
+            && camera.anchor_target.z == camera.mirrored_anchor.z;
+        update_camera_history(
+            camera, second_snapshot.anchor_delta,
+            anchors_equal || follow_input.external_history_override
+                || follow_input.collision_distance_valid);
+        camera.target_transform = build_follow_target_transform_q12(
+            camera.history_a,
+            second_snapshot.follow_offset,
+            camera.follow_rotation_raw);
+    }
+
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
     apply_camera_shake(camera, hooks.shake_phase_multiplier);
     // Retail updates +0x40c/+0x410 before copying the low word to the active
