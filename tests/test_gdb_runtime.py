@@ -50,6 +50,8 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import (
     camera_effect_record,
+    camera_collision_record,
+    camera_collision_result_record,
     camera_point_select_record,
     camera_timing_record,
     CameraPointSelectProbe,
@@ -377,6 +379,73 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert effect_record["tripod_effect_gate"] == 1
     assert effect_record["tripod_effect_transform_gate"] == 3
     assert effect_record["raw_fields"]["0x5d8"]["s32"] == [0]
+
+
+def test_camera_collision_record_keeps_world_query_raw_and_camera_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    camera = 0x800
+    query = 0xA00
+    inferior.data[0x100:0x10C] = struct.pack(
+        "<3I", 0x0040E77F, query, 1
+    )
+    inferior.data[camera + 0x3C0:camera + 0x3CC] = struct.pack(
+        "<3I", 0x10000, 0x20000, 0x30000
+    )
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<I", 197)
+    inferior.data[query:query + 0x30] = bytes(range(0x30))
+    context = Context(
+        CallContext(
+            memory,
+            registers={
+                "esp": 0x100,
+                "ebp": camera,
+                "eip": 0x00466090,
+            },
+        ),
+        memory,
+    )
+
+    record = camera_collision_record(context)
+
+    assert record["function"] == "Camera_WorldCollisionQuery"
+    assert record["caller"] == "0x0040e77f"
+    assert record["arguments"]["query"] == "0x00000a00"
+    assert record["arguments"]["query_flag"] == 1
+    assert record["query_block"]["size"] == 0x30
+    assert record["camera_before"]["anchor_target"]["raw"] == [
+        0x10000, 0x20000, 0x30000
+    ]
+    assert record["camera_before"]["distance_q4"] == 197
+
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E790)
+    # The result breakpoint sees the caller's two pushes still on the stack;
+    # its query pointer is stack+0xf8, with the face/result word at +0x68.
+    inferior.data[0x100 + 0xF8:0x100 + 0x104] = struct.pack(
+        "<3I", 0x10000, 0, 0
+    )
+    inferior.data[0x100 + 0x104:0x100 + 0x110] = struct.pack(
+        "<3I", 0x20000, 0, 0
+    )
+    inferior.data[0x100 + 0xF8 + 0x68:0x100 + 0xF8 + 0x6C] = struct.pack(
+        "<I", 1
+    )
+    result_context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ebp": camera, "eip": 0x0040E790},
+        ),
+        memory,
+    )
+    result = camera_collision_result_record(result_context)
+    assert result["caller"] == "0x0040e78b"
+    assert result["resume_eip"] == "0x0040e790"
+    assert result["query"] == "0x000001f8"
+    assert result["query_result_field_offset"] == 0x68
+    assert result["collision_result_raw"] == 1
+    assert result["hit_face_raw"] == 1
+    assert result["candidate_segment"]["start"]["raw"] == [0x10000, 0, 0]
+    assert result["candidate_segment"]["end"]["raw"] == [0x20000, 0, 0]
 
 
 def test_camera_timing_record_preserves_rate_producer_state():

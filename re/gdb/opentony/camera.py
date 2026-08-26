@@ -18,6 +18,8 @@ PREPARED_VIEW_B = 0x005620E8
 VIEWPORT_POINTER = 0x005620E0
 GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
+CAMERA_COLLISION_QUERY = 0x00466090
+CAMERA_COLLISION_RESULT = 0x0040E790
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
 CAMERA_POINT_TABLE = 0x0055FA58
 CAMERA_POINT_COUNT = 0x0055FAE4
@@ -729,6 +731,99 @@ def camera_position_transform_record(ctx: Context) -> dict | None:
     }
 
 
+def camera_collision_record(ctx: Context) -> dict | None:
+    """Capture the world-query boundary used by Camera_SmoothAndValidate."""
+
+    caller = ctx.caller()
+    # The normal camera collision path returns to 0x0040e790. Keep this
+    # filter broad enough for nearby compiler/layout variants while avoiding
+    # unrelated world queries at the same shared helper.
+    if not 0x0040E000 <= caller < 0x0040ED53:
+        return None
+    memory = ctx.memory
+    camera = ctx.register("ebp")
+    if not camera or not memory.valid(camera):
+        return None
+    query = ctx.arg(0)
+    return {
+        "type": "camera_collision_query",
+        "frame": ctx.frame,
+        "function": "Camera_WorldCollisionQuery",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{caller:08x}",
+        "camera": f"0x{camera:08x}",
+        "arguments": {
+            "query": f"0x{query:08x}",
+            "query_flag": ctx.arg(1),
+        },
+        # The pointed-to layout is still provisional. Preserve enough raw
+        # bytes to correlate the query with the camera's endpoint/result
+        # writes without naming world-collision fields prematurely.
+        "query_block": _raw_block(memory, query, 0x30),
+        "camera_before": {
+            "anchor_target": _field_words(memory, camera, 0x3C0, 3),
+            "position": _field_words(memory, camera, 0x08, 3),
+            "distance_q4": _optional_s32(memory, camera + 0x5D0),
+            "distance_step_q4": _optional_s32(memory, camera + 0x61C),
+            "transition_counter": _optional_u32(memory, camera + 0x60C),
+            "effect_counter_a": _optional_s32(memory, camera + 0x5D8),
+            "effect_counter_b": _optional_s32(memory, camera + 0x5E0),
+            "target_transform": _field_words(memory, camera, 0x45C, 4),
+        },
+        "world_collision_disabled": _optional_u32(memory, 0x0056A86C),
+    }
+
+
+def camera_collision_result_record(ctx: Context) -> dict | None:
+    """Capture the caller-side result immediately after the world query."""
+
+    if ctx.eip != CAMERA_COLLISION_RESULT:
+        return None
+    memory = ctx.memory
+    camera = ctx.register("ebp")
+    if not camera or not memory.valid(camera):
+        return None
+    stack = ctx.esp
+    # The caller's two argument pushes remain on the stack at 0x0040e790.
+    # The query pointer therefore resolves to stack+0xf8. The query record's
+    # result field is word 0x1a, i.e. query+0x68; 0x00462a20 writes the hit
+    # face pointer there and 0x004624d0 initializes it to zero.
+    query = stack + 0xF8
+    return {
+        "type": "camera_collision_result",
+        "frame": ctx.frame,
+        "function": "Camera_WorldCollisionQuery_Result",
+        "eip": f"0x{ctx.eip:08x}",
+        # At this instruction the call has already returned, so the top of
+        # the stack is the first pushed argument, not a return address.
+        # The static callsite is 0x0040e78b and the resume point is 0x0040e790.
+        "caller": "0x0040e78b",
+        "resume_eip": f"0x{ctx.eip:08x}",
+        "camera": f"0x{camera:08x}",
+        "stack": f"0x{stack:08x}",
+        "query": f"0x{query:08x}",
+        "query_result_field_offset": 0x68,
+        # This is the exact caller-side test at 0x0040e790. Static dataflow
+        # identifies it as the query's hit-face pointer; retain both names so
+        # traces remain useful if a later build changes the result payload.
+        "collision_result_raw": _optional_u32(memory, query + 0x68),
+        "hit_face_raw": _optional_u32(memory, query + 0x68),
+        "candidate_segment": {
+            "start": _words(memory, query, 3)
+            if memory.readable(query, 0x0C)
+            else None,
+            "end": _words(memory, query + 0x0C, 3)
+            if memory.readable(query + 0x0C, 0x0C)
+            else None,
+        },
+        "query_block_after": _raw_block(memory, query, 0x8C),
+        "target_transform_after": _field_words(memory, camera, 0x45C, 4),
+        "camera_position": _field_words(memory, camera, 0x08, 3),
+        "transition_counter": _optional_u32(memory, camera + 0x60C),
+        "world_collision_disabled": _optional_u32(memory, 0x0056A86C),
+    }
+
+
 class CameraProbe(CountingBreakpoint):
     """Sample the actual camera-update entry, before mode-specific work runs."""
 
@@ -1015,3 +1110,49 @@ class CameraPositionTransformProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"camera position transform probe complete: {self.hits} observations\n")
+
+
+class CameraCollisionProbe(CountingBreakpoint):
+    """Sample the game-owned world query used by the camera position stage."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(CAMERA_COLLISION_QUERY, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_collision_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera collision probe complete: {self.hits} observations\n")
+
+
+class CameraCollisionResultProbe(CountingBreakpoint):
+    """Sample the caller-side collision result branch."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(CAMERA_COLLISION_RESULT, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_collision_result_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera collision result probe complete: {self.hits} observations\n")

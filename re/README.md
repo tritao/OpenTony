@@ -39,7 +39,8 @@ the four movement action-state records alongside the action mask.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-camera-timing-probe`,
-`tony-camera-point-probe`, and `tony-camera-point-state-probe`,
+`tony-camera-point-probe`, `tony-camera-point-state-probe`, and
+`tony-camera-collision-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw
 `tony-geometry-probe [COUNT]`. For projection calibration,
 `tony-view-perturb [COUNT]` alternates view-input word 6 between its observed

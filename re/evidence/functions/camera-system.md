@@ -361,7 +361,7 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 
 | Address | Current name | Static evidence | Confidence |
 |---|---|---|---|
-| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. The `tony-camera-effects-probe` now records its guard globals, tripod gates, shared vertical effect, and raw effect fields. | static boundary; runtime hit count pending |
+| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. The `tony-camera-effects-probe` records its guard globals, tripod gates, shared vertical effect, and raw effect fields. | high boundary for the settled normal path; producer sub-branches remain partial |
 | `0x00410c90` | `Camera_DeathMode` | Requires a tripod, latches its position at tick `+0x570 == 0`, interpolates toward the selected death position for ticks `0..30`, then writes mode `1`; also interpolates the death transform through the shared Q12 helpers. | medium; position contract is statically exact, transform producer remains partial |
 | `0x00410f70` | `Camera_PointMode` | Initializes the point-sequence state, builds a Q12 orientation sequence, interpolates position over duration `0x82` using `+0x55c`, optionally advances by six ticks after the late flag, and returns to mode `1` after the duration. | medium for the fixed-point position sequence; point-table producer remains partial |
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
@@ -582,6 +582,10 @@ Promotion audit for these math helpers:
 | `0x004a9650` | called by `0x00410610`; consumes two embedded four-word transform objects and writes a four-word result | not independently counted; statically reached in normal follow preparation | observed; operand convention is exact, while the final matrix row/column interpretation remains a separate question |
 | `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular conversion is `0x004ca0a0` |
 | `0x004f5f90` | x87 dot product of two three-word integer vectors, scaled by `1/4096` and truncated | called twice by `0x00410610` for follow-direction thresholds | observed; earlier “length” wording was corrected, and a non-dot use at an unexamined callsite would falsify the global semantic name |
+| `0x004ca8f0` | quantizes a Q16 vector to Q4, measures it, and clamps lengths above 100 to `(100,0,0)` before the distance-history sample path | statically called from `0x0040e090`; the new camera collision/distance capture records its tripod-side source vector | high static; a live state-0/4 sample with a different source or clamp would falsify the producer mapping |
+| `0x004624d0` | initializes the spatial/ray query record used by the camera endpoint test, including result face pointer field `+0x1a` to zero | called from `0x0040e090` immediately before `0x00466090` | high static; hit-point/distance fields are typed only at the helper boundary |
+| `0x00466090` | wrapper around `0x004660b0` for the camera world query, called with flag `1` after the candidate endpoint is built | 80 paired Warehouse query/result observations; one query and one result at the same `Render_Present` frame, caller/resume `0x0040e78b`/`0x0040e790`, result raw `0` throughout | high boundary; a different caller-side result field or a query without the paired resume branch would falsify the current seam, while hit-value semantics remain open |
+| `0x00462a20` | tests candidate segment faces and writes the nearest hit face pointer to query `+0x1a`, hit point to `+0x1b..+0x1d`, nearest distance to `+0x23`, and face cache to `+0x20` | called by `0x004638d0`, reached by `0x004660b0`'s spatial traversal | high static; exact camera response after a nonzero hit remains a separate producer question |
 | `0x004c9500` | converts two 12-bit look angles and a scalar into the raw follow-direction vector | called by `0x00410610`; exact sine/cosine products are represented in the native reference | observed; the caller’s downstream scale interpretation remains raw/provisional |
 | `0x004f53e0` | transposes the nine prepared signed-short matrix words into the backend view-record order | called at the end of `0x0045e8e0` after the two fixed matrix multiplies | observed; downstream API row/column naming remains renderer-specific |
 
@@ -949,6 +953,25 @@ Q4 length check, the `100`-unit `(100,0,0)` clamp, and the Q16 dot/square-root
 sample. The remaining `0x004e85a0` collision/effect transform is intentionally
 still a hook boundary because it depends on gameplay/world collision state.
 
+The next static boundary is now isolated as `Camera_WorldCollisionQuery`:
+after the transition counter exceeds `3`, `0x0040e090` builds the candidate
+camera endpoint from the anchor and transformed local offset, initializes a
+spatial query record through `0x004624d0`, and calls the wrapper
+`0x00466090` (which delegates to `0x004660b0`) with query flag `1`. The
+query is a spatial/ray record whose result face pointer is at `+0x1a` (byte
+offset `+0x68`); `0x00462a20` writes that field on a face intersection and
+also records a hit point and nearest distance. The camera branches on this
+raw hit pointer before committing the target transform;
+when `DAT_0056a86c` disables world collision, the query is bypassed. A live
+Warehouse run produced 80 query events and 80 immediate result events on the
+same rendered-frame keys (`5054..6207`), all with query flag `1`, caller
+`0x0040e78b`, resume `0x0040e790`, and world-collision guard `0`. The sampled
+interval was unobstructed, so the raw hit-face pointer was `0` throughout; this confirms
+the game-owned query/result seam and its no-hit branch, but does not yet type
+the pointed-to query record or prove the nonzero hit/response payload.
+The native camera should therefore keep this as an explicit collision hook,
+not replace it with a guessed distance clamp.
+
 The orientation smoothing tail is now promoted as well. After its temporary
 effect branches, `0x0040e090` copies `camera +0x458` (target transform) and
 `camera +0x46c` (previous transform) into temporary transform objects, derives
@@ -980,7 +1003,13 @@ uses the equivalent maximum phase constant `0x5fb40 = 49 * 8000` and advances
 `+0x5e4`. The native reference exposes this as
 `advance_camera_effect_ramp`; it reports the special branch rather than
 guessing the unresolved collision/effect transform producer at
-`0x0040c370`.
+`0x0040c370`. A live Warehouse run hit `0x0040c370` exactly 160 times for
+160 camera updates on frames `4089..4238`, always from caller `0x0040eac5`,
+mode `1`, tripod physics state `0`, and all four effect guards clear. The
+sampled interval kept the special producer inputs mostly at zero while
+`DAT_0055f94c` changed from `-573440` to `-442368` and camera `+0x63c`
+developed nonzero values, confirming that the effect boundary is live even
+when the capture does not exercise a shake/death branch.
 
 Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
 `0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
