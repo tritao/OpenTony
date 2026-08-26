@@ -3,8 +3,8 @@
 !/game/README.md
 
 # Tool installations and generated analysis
-/.tools/
-/build/
+/.tools
+/build
 
 # Ghidra local projects, if accidentally created elsewhere
 *.gpr

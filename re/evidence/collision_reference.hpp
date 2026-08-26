@@ -70,7 +70,7 @@ inline Raw arithmetic_shift_right_12(Raw value) {
     // for right-shifting a negative signed integer.
     auto shifted = static_cast<std::uint32_t>(value) >> 12;
     if (value < 0) {
-        shifted |= 0xfffff000u;
+        shifted |= 0xfff00000u;
     }
     return static_cast<Raw>(shifted);
 }
@@ -253,7 +253,7 @@ inline bool triangle_side_accepted(const RawVec3& start,
         return oriented_edge_dot(a, b, start, direction) >= tolerance;
     };
 
-    if (!edge_ok(face.vertex2, face.vertex0) ||
+    if (!edge_ok(face.vertex0, face.vertex2) ||
         !edge_ok(face.vertex1, face.vertex0)) {
         return false;
     }

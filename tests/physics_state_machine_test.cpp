@@ -1442,6 +1442,7 @@ int main() {
     test_in_air_jump_hold_effect();
     test_action_record_bank();
     test_clean_ground_air_ground_trace();
+    test_state3_timeout_follows_air_handler();
     test_transient_routes_remain_distinct();
     test_ollie_impulse_formula();
     test_ollie_charge_and_air_integration();

@@ -66,6 +66,23 @@ target_link_libraries(opentony_runtime PUBLIC opentony_trg)
 
 if(OPENTONY_BUILD_TESTS)
     enable_testing()
+    add_executable(opentony_physics_state_machine_test
+        tests/physics_state_machine_test.cpp
+        src/physics_state_machine.cpp
+    )
+    target_include_directories(opentony_physics_state_machine_test PRIVATE src)
+    target_compile_features(opentony_physics_state_machine_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_physics_state_machine_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_physics_state_machine_test COMMAND opentony_physics_state_machine_test)
+
+    add_executable(opentony_collision_reference_test
+        re/evidence/collision_reference_test.cpp
+    )
+    target_include_directories(opentony_collision_reference_test PRIVATE re/evidence)
+    target_compile_features(opentony_collision_reference_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_collision_reference_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_collision_reference_test COMMAND opentony_collision_reference_test)
+
     add_executable(opentony_trg_test
         src/trg/trg_runtime_test.cpp
     )
