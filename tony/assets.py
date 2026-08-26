@@ -42,6 +42,47 @@ _TRG_NODE_NAMES = {
     1000: "script_point",
 }
 
+# These names follow the retail PC dispatcher at 0x004c5dc0.  They are
+# deliberately limited to operations whose branch, operand shape, or embedded
+# diagnostic gives us a useful name; an unknown command remains visible as a
+# raw opcode instead of being guessed.
+_TRG_COMMAND_NAMES = {
+    0x02: "set_cheat_restart_strings",
+    0x03: "send_pulse",
+    0x04: "send_suspend",
+    0x05: "send_activate",
+    0x0A: "send_signal",
+    0x0B: "send_kill",
+    0x0C: "send_kill_visible",
+    0x0D: "send_visible",
+    0x68: "set_fog_range",
+    0x69: "play_music_track",
+    0x6A: "play_sound",
+    0x7E: "load_resource",
+    0x7F: "load_resource_aux",
+    0x80: "load_resource_mode1",
+    0x81: "flush_resource_state",
+    0x8D: "set_path_segment",
+    0x8E: "set_competition_name",
+    0xB2: "select_two_player_restart",
+    0x83: "clear_object_flag_by_id",
+    0x84: "set_object_flag_by_id",
+    0x93: "set_initial_state",
+    0x94: "if_pulse_count",
+    0x95: "endif",
+    0x97: "set_timer",
+    0x98: "kill_bruce_restart",
+    0xAB: "create_script_object",
+    0x9D: "set_reverb_type",
+    0x9E: "update_level_event_state",
+    0xC8: "set_script_value",
+    0xC9: "complete_gap",
+    0xCA: "set_level_value",
+    0xCB: "set_career_flag",
+    0xCC: "if_career_flag",
+    0xCD: "if_goal",
+}
+
 
 class PkrFormatError(ValueError):
     """The input does not satisfy the observed PKR2 archive layout."""
@@ -519,6 +560,207 @@ class TrgArchive:
             ],
             "unknown_node_types": sorted(node_type for node_type in counts if node_type not in _TRG_NODE_NAMES),
         }
+
+
+def _trg_align_down4(offset: int) -> int:
+    """Match the retail ``(pointer + bias) & ~3`` expressions."""
+
+    return offset & ~3
+
+
+def _trg_command_point_key(offset: int, link_count: int) -> int:
+    """Return the key position used by the type-6 loader.
+
+    The original advances a ushort pointer past the links and adds one
+    ushort only when the resulting pointer has bit 1 set.  Expressing that
+    directly is safer than applying a generic round-up operation to an
+    absolute file offset.
+    """
+
+    key = offset + 4 + link_count * 2
+    if key & 2:
+        key += 2
+    return key
+
+
+def _trg_string(data: bytes, offset: int, end: int) -> tuple[str, int]:
+    terminator = data.find(b"\0", offset, end)
+    if terminator < 0:
+        raise ValueError("unterminated string operand")
+    raw = data[offset:terminator]
+    try:
+        value = raw.decode("ascii")
+    except UnicodeDecodeError:
+        value = raw.decode("latin-1")
+    # This is the byte-pointer alignment used by FUN_004c5d70.
+    return value, (terminator + 2) & ~1
+
+
+def _trg_script_start(data: bytes, node: TrgNode) -> int | None:
+    """Return the command stream start for the node layouts used by retail PC."""
+
+    offset = node.offset
+    end = offset + node.size
+    if node.node_type in (4, 15):
+        return offset + 2
+    if node.node_type == 6:
+        if offset + 4 > end:
+            raise ValueError("truncated command-point header")
+        link_count = struct.unpack_from("<H", data, offset + 2)[0]
+        key = _trg_command_point_key(offset, link_count)
+        if key + 4 > end:
+            raise ValueError("truncated command-point key")
+        return key + 4
+    if node.node_type == 8:
+        if offset + 4 > end:
+            raise ValueError("truncated restart header")
+        link_count = struct.unpack_from("<H", data, offset + 2)[0]
+        # FUN_004c8650 aligns the position triplet from the absolute node
+        # pointer.  The returned position pointer is +0x0c, and the restart
+        # name begins six bytes after that return value.
+        position = (offset + link_count * 2 + 7) & ~3
+        name = position + 18
+        _, stream = _trg_string(data, name, end)
+        return stream
+    return None
+
+
+def _trg_skip_command(data: bytes, offset: int, end: int, opcode: int) -> int:
+    """Apply the retail dispatcher operand widths and return the next command."""
+
+    if opcode == 2:
+        cursor = offset + 2
+        while cursor < end and data[cursor] != 0:
+            _, cursor = _trg_string(data, cursor, end)
+        if cursor >= end:
+            raise ValueError("unterminated string-list operand")
+        return cursor + 2
+
+    one_word = {
+        3, 4, 5, 10, 11, 12, 0x66, 0x67, 0x69, 0x6A, 0x79, 0x7A,
+        0x81, 0x88, 0x89, 0x95, 0x98, 0x9E, 0xAD, 0xAF,
+    }
+    two_words = {
+        0x0D, 0x83, 0x84, 0x86, 0x8A, 0x93, 0x94, 0x96, 0x97,
+        0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0xA0, 0xA1, 0xA3,
+        0xA4, 0xA5, 0xA6, 0xA8, 0xA9, 0xAA, 0xAC, 0xB1, 0xCB,
+        0xCC, 0xCD,
+    }
+    strings = {0x73, 0x77, 0x7E, 0x7F, 0x80, 0x8C, 0x8E, 0x9F, 0xA2, 0xB0, 0xB2}
+    three_words = {0x82, 0x87, 0x8B, 0x8F, 0x90, 0x91, 0x92, 0xA7, 0xAE, 0xC8, 0xCA}
+
+    if opcode in one_word:
+        next_offset = offset + 2
+    elif opcode in two_words:
+        next_offset = offset + 4
+    elif opcode == 0x68:
+        next_offset = offset + 8
+    elif opcode in strings:
+        _, next_offset = _trg_string(data, offset + 2, end)
+    elif opcode in three_words:
+        next_offset = offset + 6
+    elif opcode == 0x8D:
+        # The table's terminator is tested as a byte by the original code,
+        # despite Ghidra rendering the temporary as ushort.
+        cursor = offset + 6
+        while cursor < end and data[cursor] != 0xFF:
+            record = _trg_align_down4(cursor + 3)
+            if record + 0x18 > end:
+                raise ValueError("truncated 0x8d path record")
+            cursor = record + 0x18
+        if cursor >= end:
+            raise ValueError("unterminated 0x8d path table")
+        next_offset = cursor + 2
+    elif opcode == 0x85:
+        cursor = offset + 2
+        while cursor < end and data[cursor] != 0xFF:
+            record = _trg_align_down4(cursor + 3)
+            if record + 0x18 > end:
+                raise ValueError("truncated 0x85 path record")
+            cursor = record + 0x18
+        if cursor >= end:
+            raise ValueError("unterminated 0x85 path table")
+        next_offset = cursor + 2
+    elif opcode == 0xAB:
+        next_offset = _trg_align_down4(offset + 5) + 10
+    elif opcode == 0xC9:
+        next_offset = _trg_align_down4(offset + 5) + 6
+    else:
+        raise ValueError(f"unknown opcode 0x{opcode:04x}")
+
+    if next_offset > end:
+        raise ValueError("command operand extends beyond node")
+    return next_offset
+
+
+def _trg_command_record(data: bytes, offset: int, next_offset: int, opcode: int) -> dict:
+    record = {
+        "offset": offset,
+        "opcode": opcode,
+        "name": _TRG_COMMAND_NAMES.get(opcode, "unknown"),
+        "size": next_offset - offset,
+        "raw": data[offset:next_offset].hex(),
+    }
+    if opcode == 0xC9:
+        aligned = _trg_align_down4(offset + 5)
+        record["checksum"] = struct.unpack_from("<I", data, aligned)[0]
+        record["argument"] = struct.unpack_from("<H", data, aligned + 4)[0]
+    elif opcode == 0xAB:
+        aligned = _trg_align_down4(offset + 5)
+        record["key"] = struct.unpack_from("<I", data, aligned)[0]
+        record["arguments"] = [
+            struct.unpack_from("<H", data, aligned + cursor)[0]
+            for cursor in (4, 6, 8)
+        ]
+    elif opcode == 0x8D:
+        record["arguments"] = [
+            struct.unpack_from("<H", data, offset + 2)[0],
+            struct.unpack_from("<H", data, offset + 4)[0],
+        ]
+    elif opcode in {0x73, 0x77, 0x7E, 0x7F, 0x80, 0x8C, 0x8E, 0x9F, 0xA2, 0xB0, 0xB2}:
+        value, _ = _trg_string(data, offset + 2, next_offset)
+        record["string"] = value
+    elif next_offset - offset >= 4:
+        record["arguments"] = [
+            struct.unpack_from("<H", data, cursor)[0]
+            for cursor in range(offset + 2, next_offset, 2)
+        ]
+    return record
+
+
+def _trg_decode_script(data: bytes, node: TrgNode) -> dict | None:
+    start = _trg_script_start(data, node)
+    if start is None:
+        return None
+    end = node.offset + node.size
+    result = {"stream_offset": start, "commands": []}
+    cursor = start
+    while cursor + 2 <= end:
+        opcode = struct.unpack_from("<H", data, cursor)[0]
+        if opcode == 0xFFFF:
+            result["terminator_offset"] = cursor
+            result["terminated"] = True
+            return result
+        try:
+            next_offset = _trg_skip_command(data, cursor, end, opcode)
+        except ValueError as error:
+            result["commands"].append(
+                {
+                    "offset": cursor,
+                    "opcode": opcode,
+                    "name": _TRG_COMMAND_NAMES.get(opcode, "unknown"),
+                    "size": end - cursor,
+                    "raw": data[cursor:end].hex(),
+                }
+            )
+            result["terminated"] = False
+            result["decode_error"] = str(error)
+            return result
+        result["commands"].append(_trg_command_record(data, cursor, next_offset, opcode))
+        cursor = next_offset
+    result["terminated"] = False
+    result["decode_error"] = "command stream ends without a terminator"
+    return result
 
 
 _PSX_TAG_NAMES = {0x0000000A: "blockmap", 0x73424752: "rgbs"}
@@ -1229,7 +1471,12 @@ def inspect_pre(path: str | Path, *, include_entries: bool = False) -> dict:
     return result
 
 
-def inspect_trg(path: str | Path, *, include_nodes: bool = False) -> dict:
+def inspect_trg(
+    path: str | Path,
+    *,
+    include_nodes: bool = False,
+    include_scripts: bool = False,
+) -> dict:
     source = resolve(path)
     archive = TrgArchive.read(source)
     result = {
@@ -1251,6 +1498,32 @@ def inspect_trg(path: str | Path, *, include_nodes: bool = False) -> dict:
             }
             for node in archive.nodes
         ]
+    if include_scripts:
+        data = source.read_bytes()
+        scripts = []
+        for node in archive.nodes:
+            if node.node_type not in (4, 6, 8, 15):
+                continue
+            try:
+                script = _trg_decode_script(data, node)
+            except ValueError as error:
+                script = {
+                    "stream_offset": None,
+                    "commands": [],
+                    "terminated": False,
+                    "decode_error": str(error),
+                }
+            scripts.append(
+                {
+                    "node": node.index,
+                    "offset": node.offset,
+                    "size": node.size,
+                    "type": node.node_type,
+                    "name": node.type_name,
+                    **script,
+                }
+            )
+        result["scripts"] = scripts
     return result
 
 
@@ -1998,7 +2271,7 @@ def assets_inspect_pre(args) -> int:
 
 
 def assets_inspect_trg(args) -> int:
-    result = inspect_trg(args.path, include_nodes=args.nodes)
+    result = inspect_trg(args.path, include_nodes=args.nodes, include_scripts=args.scripts)
     print(json.dumps(result, indent=2))
     return 0
 
