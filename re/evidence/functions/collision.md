@@ -206,6 +206,17 @@ the wrapper; the query does not parse a file on each call.
   keeps the two loader responsibilities separate in the reconstruction. The
   bounded `tony-collision-model-kind-probe` captures the selector and the
   before/after 0x44-byte slot without walking unrelated table entries.
+- The adjacent finalizer `0x004647c0` explains why a PSX object cannot be
+  promoted directly to a faithful linked collision node from its source
+  fields alone. Given a region slot, it walks the model table and then the
+  count-prefixed runtime object array; for each object it writes the
+  intrusive `+0x20` next link, writes the attached region slot into `+0x1f`,
+  resolves `+0x1a` through that region's model table, and adds object flag
+  bits from model-header and face metadata. The parser has already copied the
+  three collision-facing shorts at `+0x14/+0x16/+0x18`, but the final flags
+  and `model_kind` are attachment/finalization products. The native linked
+  object seam therefore keeps `flags`, `model_kind`, and `body_id` caller-owned
+  until this finalizer is reconstructed.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are
