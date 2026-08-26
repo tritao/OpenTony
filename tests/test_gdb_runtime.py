@@ -55,10 +55,13 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
 from opentony.collision import (
+    CollisionModelKindProbe,
     _candidate_source_snapshot,
     _dynamic_object_snapshot,
     _dynamic_query_snapshot,
     _linked_object_snapshots,
+    _model_kind_object_snapshot,
+    _model_kind_table_snapshot,
     _zone_entry_snapshot,
 )
 from opentony.frame import FrameClock
@@ -240,6 +243,62 @@ def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
         "cell_count_x": 20,
         "cell_count_z": 20,
     }
+
+
+def test_model_kind_probe_pairs_selector_with_bounded_cache_slot(monkeypatch):
+    inferior = FakeInferior()
+    object_address = 0x500
+    table_base = 0x1000
+    table_index = 2
+    slot = table_base + table_index * 0x44
+    monkeypatch.setattr("opentony.collision.COLLISION_MODEL_TABLE", table_base)
+    struct.pack_into(
+        "<4I",
+        inferior.data,
+        object_address + 0x80,
+        0x11111111,
+        table_index,
+        0x33333333,
+        0x44444444,
+    )
+    struct.pack_into("<17I", inferior.data, slot, *range(17))
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x420E33)
+    memory = Memory(inferior)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CollisionModelKindProbe(count=1, writer=Writer())
+    entry = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": object_address, "eip": 0x420FA0},
+        ),
+        memory,
+    )
+    probe.begin(entry)
+    memory.write_u32(slot, 0xAABBCCDD)
+    returned = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": object_address, "eax": 0x1234, "eip": 0x421038},
+        ),
+        memory,
+    )
+    probe.finish(returned)
+
+    assert _model_kind_object_snapshot(object_address, memory)["table_index"] == table_index
+    assert _model_kind_table_snapshot(table_index, memory)["words"][0] == 0xAABBCCDD
+    assert events[0]["type"] == "collision_model_kind_load"
+    assert events[0]["caller"] == "0x00420e33"
+    assert events[0]["object"]["table_index"] == table_index
+    assert events[0]["table_before"]["words"][0] == 0
+    assert events[0]["table_after"]["words"][0] == 0xAABBCCDD
+    assert probe.remaining == 0
+    assert probe._entry.enabled is False
+    assert probe._return.enabled is False
 
 
 def test_collision_dynamic_snapshots_keep_object_transform_and_query_outputs():

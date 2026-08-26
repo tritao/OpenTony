@@ -22,6 +22,9 @@ ZONE_LOADER = 0x004667E0
 ZONE_LOADER_AFTER_ARGS = 0x0046682E
 ZONE_LOADER_FIRST_CELL = 0x0046697A
 ZONE_LOADER_RETURN_SITES = (0x0043E041, 0x004B29EB)
+# thiscall model/resource setup that initializes one kind-strided cache slot.
+MODEL_KIND_LOADER = 0x00420FA0
+MODEL_KIND_LOADER_RETURN = 0x00421038
 COLLISION_FLAG_CONSUMER = 0x0048EA80
 COLLISION_FLAG_RETURN = 0x0048EB02
 COLLISION_DYNAMIC_QUERY = 0x00463E50
@@ -572,6 +575,117 @@ class _CollisionLoaderReturn(TonyBreakpoint):
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx, self.return_site)
+
+
+def _model_kind_table_snapshot(index: int, memory) -> dict | None:
+    """Read the bounded model-table slot selected by 0x00420fa0."""
+
+    # The executable uses a 0x44-byte slot (17 pointers) and the observed
+    # object field is a small kind/region index. Do not turn a corrupt object
+    # word into an unbounded memory read while the probe is armed early.
+    if index < 0 or index > 0x100:
+        return None
+    slot = COLLISION_MODEL_TABLE + index * 0x44
+    if not memory.readable(slot, 0x44):
+        return None
+    return {
+        "index": index,
+        "address": f"0x{slot:08x}",
+        "words": _u32_words(slot, 17, memory),
+    }
+
+
+def _model_kind_object_snapshot(address: int, memory) -> dict | None:
+    if not address or not memory.readable(address + 0x80, 0x10):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "words_80_8c": _u32_words(address + 0x80, 4, memory),
+        "table_index": memory.u32(address + 0x84),
+    }
+
+
+class CollisionModelKindProbe:
+    """Capture cache-slot initialization and its object-side selector."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionModelKindEntry(self)
+        self._return = _CollisionModelKindReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._pending: list[dict] = []
+
+    @property
+    def breakpoints(self):
+        return (self._entry, self._return)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.this_ptr()
+        snapshot = _model_kind_object_snapshot(object_address, ctx.memory)
+        if snapshot is None:
+            return
+        index = int(snapshot["table_index"])
+        self._pending.append(
+            {
+                "caller": ctx.caller(),
+                "caller_function": function_name_at(ctx.caller()),
+                "object": snapshot,
+                "table_before": _model_kind_table_snapshot(index, ctx.memory),
+            }
+        )
+
+    def finish(self, ctx: Context) -> None:
+        if not self._pending:
+            return
+        active = self._pending.pop(0)
+        index = int(active["object"]["table_index"])
+        record = {
+            "type": "collision_model_kind_load",
+            "function": "Collision_InitModelCacheSlot",
+            "address": f"0x{MODEL_KIND_LOADER:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "caller": f"0x{int(active['caller']):08x}",
+            "caller_function": active["caller_function"],
+            "object": active["object"],
+            "object_after": _model_kind_object_snapshot(
+                int(active["object"]["address"], 16), ctx.memory
+            ),
+            "table_before": active["table_before"],
+            "table_after": _model_kind_table_snapshot(index, ctx.memory),
+            "return_value": ctx.register("eax"),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionModelKindEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionModelKindProbe):
+        self.owner = owner
+        super().__init__(MODEL_KIND_LOADER, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionModelKindReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionModelKindProbe):
+        self.owner = owner
+        super().__init__(MODEL_KIND_LOADER_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
 
 
 class CollisionFlagProbe:

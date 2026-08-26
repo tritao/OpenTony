@@ -24,6 +24,7 @@ from .collision import (
     CollisionDynamicTransformProbe,
     CollisionFlagProbe,
     CollisionLoaderProbe,
+    CollisionModelKindProbe,
     CollisionQueryProbe,
 )
 from .frame import FrameBreakpoint, frame_clock
@@ -1703,6 +1704,26 @@ class TonyCollisionLoaderProbe(gdb.Command):
         _write(f"collision loader probe armed for {count} completed calls")
 
 
+class TonyCollisionModelKindProbe(gdb.Command):
+    """tony-collision-model-kind-probe [COUNT] -- log model/cache setup."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-model-kind-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-model-kind-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-model-kind-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionModelKindProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision model-kind probe armed for {count} completed calls")
+
+
 class TonyCollisionFlagsProbe(gdb.Command):
     """tony-collision-flags-probe [COUNT] -- log face flag decoding."""
 
@@ -1842,6 +1863,7 @@ def register_commands() -> None:
     TonyPositionCommitProbe()
     TonyCollisionProbe()
     TonyCollisionLoaderProbe()
+    TonyCollisionModelKindProbe()
     TonyCollisionFlagsProbe()
     TonyCollisionDynamicProbe()
     TonyCollisionDynamicCullProbe()
@@ -1868,7 +1890,8 @@ def register_commands() -> None:
         "tony-physics-state-writers, "
         "tony-ollie-latch-probe, "
         "tony-player-diff, tony-position-commit, "
-        "tony-collision-loader-probe, tony-collision-flags-probe, "
+        "tony-collision-loader-probe, tony-collision-model-kind-probe, "
+        "tony-collision-flags-probe, "
         "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
         "tony-collision-transform-probe"
     )

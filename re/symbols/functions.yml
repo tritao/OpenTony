@@ -3042,3 +3042,13 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md
+  - address: 0x00420fa0
+    name: Collision_InitModelCacheSlot
+    signature:
+      calling_convention: thiscall
+      return: void
+      parameters: []
+    description: initialize one object-selected 0x44-byte model/cache slot
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md

@@ -120,6 +120,8 @@ record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
 `tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
 passes. `tony-collision-transform-probe [COUNT]` captures the object tail and
 temporary matrix around the `0x0200` matrix-transform branch.
+`tony-collision-model-kind-probe [COUNT]` captures the object selector and
+kind-strided model/cache slot initialization at the loader boundary.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw

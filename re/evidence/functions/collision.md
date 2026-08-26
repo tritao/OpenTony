@@ -69,6 +69,7 @@ schema; the original PC code uses caller-local storage.
 | `0x004f4b00` | oriented-object path `0x00463e50` | `uint16_t TransformModelVertices(Model*, DynamicVertex*, uint32 line_length, const int32 origin[3])` | transforms each model vertex through the prepared Q12 matrix, writes 8-byte `{x,y,z,clip}` records, and returns their AND clip mask |
 | `0x004f4c50` | oriented-object path `0x00463e50` | `void ScanDynamicFaces(Model*, DynamicVertex*, SLineInfo*, LinkedObject*)` | applies face masks, selects the projected triangle, and writes the winning dynamic distance/body/face/model fields; special `0x20000` faces update a sideband model selector instead |
 | `0x004f5540` | direct calls `0x0045fcbc`, `0x0045fd9c`, `0x00460dce`, `0x00460eaf`, `0x00461c5f`, `0x00464062`, `0x00464095` | `void ScaleObjectMatrix(void* object, int16_t matrix[9])` | scales matrix columns from signed Q12 tail words; writes the matrix in place and has no consumed return value |
+| `0x00420fa0` | model/resource setup `0x00420e2e` | `void InitModelCacheSlot(void* object)` (`thiscall`, `ECX`) | reads the setup selector at `object+0x84`, allocates a 0x50-byte slot payload through `0x0046f490`, stores it at `DAT_0056d43c[index*0x11]`, advances the slot cursor by four bytes, writes the `0x13` cache count, and clears 19 payload words |
 | `0x004e24b0` | dynamic face pass `0x004f4c50` | `void TransformNormalQ12(const int16_t basis[9], const int16_t normal[3])` | multiplies the model normal by the composed query/object matrix, shifts by 12, and saturates to signed shorts |
 | `0x004e2930` | dynamic face pass `0x004f4c50` | `void ProjectCandidate(...)` | combines the selected transformed vertex and transformed normal into the signed dot/line-limit values consumed by the dynamic distance test |
 | `0x004f5780` | linked transform `0x00463e50` | `void ComposeQueryBasis(int16_t matrix[9])` | left-composes the object/scale matrix with the query line basis; the resulting basis is used by vertex and candidate-normal transforms |
@@ -193,13 +194,18 @@ the wrapper; the query does not parse a file on each call.
   `[0,0,0,2,46,47,0,0]`, so this probe also confirms that the published
   pointer is an array view over the source cell's trailing/succeeding words,
   not a separately allocated object header.
-- Model-kind table population is a separate loader stage. The routine
-  `0x00420fa0` reads a kind/index field from its object, stores the returned
-  model pointer at the kind-strided table rooted at `DAT_0056d43c`, advances
-  to the model-data pointer, and initializes the associated collision-cache
-  entry. This explains why the query can resolve `model_kind`/`model_index`
-  without consulting the zone candidate table, and keeps the two loader
-  responsibilities separate in the reconstruction.
+- Model-kind/cache population is a separate setup stage. The routine
+  `0x00420fa0`, called directly at `0x00420e2e`, reads a selector from its
+  setup object at `+0x84`, allocates a fixed 0x50-byte payload through
+  `0x0046f490`, stores that allocation in the selected 17-word slot rooted at
+  `DAT_0056d43c`, advances the slot's first pointer by four bytes, writes the
+  `0x13` count word, and clears the following 19 words. The adjacent setup
+  routine populates the other region-slot fields, including the model/object
+  products consumed by collision. This explains why the query can resolve
+  `model_kind`/`model_index` without consulting the zone candidate table, and
+  keeps the two loader responsibilities separate in the reconstruction. The
+  bounded `tony-collision-model-kind-probe` captures the selector and the
+  before/after 0x44-byte slot without walking unrelated table entries.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are
