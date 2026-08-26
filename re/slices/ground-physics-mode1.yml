@@ -1,0 +1,35 @@
+version: 1
+id: ground-physics-mode1
+subsystem: ground-movement
+status: active
+
+scope:
+  functions:
+    - 0x0049df00
+  types:
+    - RuntimeSkaterMovementState
+    - RuntimeAnimationObjectState
+  globals: []
+
+shared:
+  functions: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/ground-movement.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/runtime/ground_physics.cpp
+    - src/runtime/ground_physics.hpp
+  tests:
+    - src/runtime/ground_physics_test.cpp
+
+open_questions:
+  - Identify the owner of the surface predicate and the audio/script services called after the mode transition.
+  - Recover the remaining mode-0/3/4/5/6 animation side effects without folding animation dispatch into this movement boundary.
+  - Obtain a retail frame trace that joins the mode-1 transition to its subsequent animation request.
+
+completion:
+  - The mode-1 strict speed boundary and surface-bypass predicate are evidence-backed.
+  - The raw animation-control handoff and cooldown write have deterministic native fixtures.
+  - Native progress records the movement/state result while leaving animation and audio services caller-owned.

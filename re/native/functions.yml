@@ -6,10 +6,14 @@ functions:
     sources:
       - src/runtime/animation_cursor.hpp
       - src/runtime/animation_cursor.cpp
+      - src/assets/psx_animation_runtime.cpp
+      - src/assets/psx_animation_runtime.hpp
     tests:
       - src/runtime/animation_cursor_test.cpp
+      - src/assets/psx_animation_runtime_test.cpp
     evidence:
       - re/evidence/functions/animation.md
+      - re/evidence/functions/animation-runtime.md
     notes: Exact 5/3/1 signed steering-frame easing primitive; shared by the ground selector and the standalone animation cursor contract.
 
   - address: 0x00480730
@@ -85,6 +89,37 @@ functions:
     evidence:
       - re/evidence/functions/position-write-path.md
     notes: Candidate ordering and fallback behavior are tested; retail trace parity and the offset-0x3200 bypass meaning remain open.
+
+  - address: 0x0049b010
+    name: Skater_UpdateAcceleration
+    slice: ground-motion-ordinary
+    status: tested
+    sources:
+      - src/runtime/ground_motion.cpp
+      - src/runtime/ground_motion.hpp
+    tests:
+      - src/runtime/ground_motion_test.cpp
+    evidence:
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: Ordinary scale-1 correction branch is modeled with inclusive metric <= 0x4e20, strict basis-Y < 0x1f4, strict metric < threshold, and low-word PE32 basis products; profile/stat and collision services remain explicit inputs.
+
+  - address: 0x0049df00
+    name: Skater_UpdateBrakeMode
+    slice: ground-physics-mode1
+    status: tested
+    sources:
+      - src/runtime/ground_physics.cpp
+      - src/runtime/ground_physics.hpp
+      - src/runtime/ground_brake.cpp
+      - src/runtime/ground_brake.hpp
+    tests:
+      - src/runtime/ground_physics_test.cpp
+      - src/runtime/ground_brake_test.cpp
+    evidence:
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: Mode-1 case is reconstructed with the strict speed boundary, surface-failure bypass, raw +0x101/+0x114 byte/short exchange, +0x107/+0x100 control writes, mode 1-to-3 transition, and unconditional cooldown 2; surface/audio/script services and remaining modes stay caller-owned.
 
   - address: 0x004624d0
     name: M3D_InitCollisionQuery
