@@ -1,0 +1,37 @@
+version: 1
+functions:
+  - address: 0x004624d0
+    name: M3D_InitCollisionQuery
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: The query setup model intentionally leaves the short basis construction open.
+
+  - address: 0x00462a20
+    name: M3D_CollisionFaceTest
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/assets/psx_collision.cpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/assets/psx_collision_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: Geometry and nearest-hit arithmetic are tested; exact retail face filters remain open.
+
+  - address: 0x00466090
+    name: M3D_QueryZoneCollision
+    status: modeled
+    sources:
+      - src/runtime/psx_collision_probe.cpp
+      - src/assets/psx_collision.cpp
+    tests:
+      - src/runtime/psx_collision_probe_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: Portable query boundary exists, but the retail wrapper and complete zone policy are not integrated.

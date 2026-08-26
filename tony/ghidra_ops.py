@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .common import ROOT, load_yaml, resolve
 from .identity import recorded_executable
+from .native_progress import load_native_progress, validate_native_progress
 from .recovered_types import TypeExpression, ghidra_type_plan, parse_type_expression
 
 
@@ -30,7 +31,7 @@ def _fingerprints(profile: str = "complete") -> dict[str, str]:
     identity.update(str(config["version"]).encode())
     identity.update(profile.encode())
     knowledge = hashlib.sha256()
-    for pattern in ("re/symbols/*.yml", "re/types/*.yml"):
+    for pattern in ("re/symbols/*.yml", "re/types/*.yml", "re/native/*.yml"):
         for path in sorted(ROOT.glob(pattern)):
             knowledge.update(str(path.relative_to(ROOT)).encode())
             knowledge.update(path.read_bytes())
@@ -69,6 +70,46 @@ def _apply_symbols(program, pyghidra) -> None:
             for item in load_yaml(config_path).get(key, []):
                 address = address_space.getAddress(int(item["address"]))
                 symbol_table.createLabel(address, str(item["name"]), SourceType.USER_DEFINED)
+
+
+def _apply_tracked_functions(program, pyghidra) -> dict:
+    from ghidra.app.cmd.function import CreateFunctionCmd
+    from ghidra.program.model.address import AddressSet
+    from ghidra.program.model.symbol import SourceType
+
+    report = {"created": [], "skipped": []}
+    address_space = program.getAddressFactory().getDefaultAddressSpace()
+    listing = program.getListing()
+    manager = program.getFunctionManager()
+    memory = program.getMemory()
+    with pyghidra.transaction(program):
+        for item in load_yaml("re/symbols/functions.yml").get("functions", []):
+            if item.get("confidence") not in {"observed", "confirmed"}:
+                continue
+            value = int(item["address"])
+            address = address_space.getAddress(value)
+            if manager.getFunctionAt(address) is not None:
+                continue
+            block = memory.getBlock(address)
+            containing = manager.getFunctionContaining(address)
+            reason = None
+            if block is None or str(block.getName()) != ".text" or not block.isExecute():
+                reason = "not executable .text"
+            elif listing.getInstructionAt(address) is None:
+                reason = "no instruction at tracked address"
+            elif containing is not None:
+                reason = f"overlaps {containing.getName()} at {containing.getEntryPoint()}"
+            if reason:
+                report["skipped"].append({"address": value, "name": item["name"], "reason": reason})
+                continue
+            command = CreateFunctionCmd(AddressSet(address, address), SourceType.USER_DEFINED)
+            if command.applyTo(program, pyghidra.task_monitor()) and manager.getFunctionAt(address) is not None:
+                report["created"].append({"address": value, "name": item["name"]})
+            else:
+                report["skipped"].append({
+                    "address": value, "name": item["name"], "reason": str(command.getStatusMsg() or "creation failed"),
+                })
+    return report
 
 
 def _apply_recovered_types(program, pyghidra) -> dict:
@@ -345,11 +386,13 @@ def rebuild(profile: str = "complete") -> None:
             disabled = _set_analysis_profile(program, profile, pyghidra)
             print(f"Analyzing {exe.name} ...")
             pyghidra.analyze(program, pyghidra.task_monitor())
+            function_report = _apply_tracked_functions(program, pyghidra)
             _apply_symbols(program, pyghidra)
             type_report = _apply_recovered_types(program, pyghidra)
             type_report["bindings"] = _apply_type_bindings(program, pyghidra)
             type_report["fingerprints"] = _fingerprints(profile)
             type_report["analysis"] = {"profile": profile, "disabled": disabled}
+            type_report["tracked_functions"] = function_report
             program.save("OpenTony deterministic rebuild", pyghidra.task_monitor())
 
     report_path = _report_path()
@@ -385,12 +428,14 @@ def sync(addresses: list[int] | None = None, force: bool = False) -> None:
     with pyghidra.open_project(project_parent, spec["project_name"], create=False) as project, pyghidra.program_context(
         project, f"/{exe.name}"
     ) as program:
+        function_report = _apply_tracked_functions(program, pyghidra)
         _apply_symbols(program, pyghidra)
         report = _apply_recovered_types(program, pyghidra)
         report["bindings"] = _apply_type_bindings(program, pyghidra)
         _reanalyze_functions(program, addresses, pyghidra)
         report["fingerprints"] = current
         report["analysis"] = previous.get("analysis", {"profile": profile, "disabled": []})
+        report["tracked_functions"] = function_report
         program.save("OpenTony knowledge sync", pyghidra.task_monitor())
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"Ghidra knowledge synchronized; targeted functions: {len(set(addresses))}")
@@ -412,6 +457,8 @@ def verify() -> bool:
         return False
 
     errors = []
+    native_errors, _native_counts = validate_native_progress()
+    errors.extend(native_errors)
     plan = ghidra_type_plan()
 
     def display(value: str) -> str:
@@ -491,6 +538,10 @@ def verify() -> bool:
                 expected = display(item["type"])
                 if actual != expected:
                     errors.append(f"{item['name']}: global type {actual!r}, expected {expected!r}")
+        for item in report.get("tracked_functions", {}).get("created", []):
+            address = address_space.getAddress(int(item["address"]))
+            if program.getFunctionManager().getFunctionAt(address) is None:
+                errors.append(f"{item['name']}: generated function is missing")
     for error in errors:
         print(f"FAIL {error}")
     if errors:
@@ -596,6 +647,7 @@ def inspect_function(address: int, output: Path | None = None) -> dict:
             "name": str(item.getName()), "type": str(item.getDataType().getDisplayName()),
         } for item in function.getParameters()]
         tracked = _tracked_function(address)
+        native = load_native_progress().get(address)
         result = {
             "version": 1,
             "function": {
@@ -619,7 +671,7 @@ def inspect_function(address: int, output: Path | None = None) -> dict:
             "evidence": tracked.get("evidence", []),
             "confidence": tracked.get("confidence"),
             "subsystem": _subsystem_for_address(address),
-            "native_status": "untracked",
+            "native": native or {"status": "not_recorded", "sources": [], "tests": [], "evidence": []},
         }
     text = json.dumps(result, indent=2) + "\n"
     if output is None:
@@ -636,6 +688,7 @@ def gaps(output: Path | None = None, limit: int = 50) -> list[dict]:
     pyghidra = _require_pyghidra()
     spec = load_yaml("re/config/ghidra.yml")["ghidra"]
     tracked = load_yaml("re/symbols/functions.yml").get("functions", [])
+    native_progress = load_native_progress()
     modules = load_yaml("match/manifest.yml").get("modules", [])
     subsystem_ranges = []
     for path in sorted((ROOT / "re/subsystems").glob("*.yml")):
@@ -689,11 +742,19 @@ def gaps(output: Path | None = None, limit: int = 50) -> list[dict]:
                 reasons.append("raw matching module")
                 score += 15
             subsystem = subsystem_at(address)
+            native = native_progress.get(address)
+            if native is None:
+                reasons.append("native status not recorded")
+                score += 5
+            elif native["status"] in {"unmodeled", "modeled"}:
+                reasons.append(f"native status {native['status']}")
+                score += 20 if native["status"] == "unmodeled" else 10
             if reasons:
                 rows.append({
                     "address": address, "name": item["name"], "score": score, "reasons": reasons,
                     "incoming_references": reference_count, "matching": module, "confidence": item.get("confidence"),
-                    "evidence": item.get("evidence", []), "subsystem": subsystem, "native_status": "not_recorded",
+                    "evidence": item.get("evidence", []), "subsystem": subsystem,
+                    "native": native or {"status": "not_recorded", "sources": [], "tests": [], "evidence": []},
                 })
     rows.sort(key=lambda item: (-item["score"], item["address"]))
     rows = rows[:limit]

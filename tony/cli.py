@@ -253,6 +253,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--output")
     p.set_defaults(func=commands.ghidra_gaps)
+
+    native = sub.add_parser("native", help="native reconstruction progress operations")
+    native_sub = native.add_subparsers(dest="native_command", required=True)
+    p = native_sub.add_parser("verify", help="validate function-to-native progress mappings")
+    p.set_defaults(func=commands.native_verify)
     p = ghidra_sub.add_parser("export-functions", help="export current function inventory as JSON")
     p.add_argument("--output")
     p.set_defaults(func=commands.ghidra_export_functions)

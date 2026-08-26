@@ -14,6 +14,7 @@ Before committing matching work, run:
 
 ```bash
 tony types verify
+tony native verify
 tony split rebuild
 tony split verify
 pytest -q

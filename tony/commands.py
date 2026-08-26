@@ -30,6 +30,7 @@ from .media import (
     media_tracks,  # noqa: F401 - command handlers are consumed by cli.py
 )
 from .media_setup import install_media
+from .native_progress import native_verify
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
 from .recovered_types import types_verify
@@ -177,6 +178,8 @@ def verify(_args) -> int:
             else:
                 print(f"OK   {category}.{name}: {actual}")
     if types_verify(_args):
+        failed = True
+    if native_verify(_args):
         failed = True
     return 1 if failed else 0
 

@@ -5,6 +5,7 @@ Everything under `re/` should be reviewable evidence or a reproducible input to 
 - `config/` — binary/tool/runtime configuration
 - `symbols/` — names and addresses we want reapplied to generated Ghidra projects
 - `types/` — recovered type layouts (initially documentation/schema)
+- `native/` — explicit retail-function to native-progress mappings
 - `experiments/` — named runtime experiments
 - `evidence/` — evidence records and confidence rules
 - `notes/` — subsystem narratives and open questions
@@ -52,8 +53,8 @@ ownership, stack variables, referenced globals, and unresolved pointer/field
 accesses. Use `--output FILE` for stable JSON consumed by scripts or reviews.
 `gaps` ranks tracked functions using missing Ghidra boundaries/signatures,
 unresolved parameter types, incoming-reference relevance, and raw matching
-ownership. Native status is reported as `not_recorded` until an explicit
-function-to-native progress map exists; do not infer completion from filenames.
+ownership. Native status comes only from `re/native/functions.yml`; do not
+infer completion from filenames.
 
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.

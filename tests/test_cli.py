@@ -78,6 +78,10 @@ def test_media_tracks_parse():
     assert callable(args.func)
 
 
+def test_native_verify_parse():
+    assert callable(build_parser().parse_args(["native", "verify"]).func)
+
+
 def test_wine_disc_commands_parse():
     for command in ("mount-disc", "unmount-disc"):
         args = build_parser().parse_args(["wine", command])

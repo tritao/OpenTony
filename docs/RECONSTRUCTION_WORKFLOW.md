@@ -192,6 +192,10 @@ defined only in `match/POLICY.md`. Native progress should distinguish at least:
 unmodeled -> modeled -> tested -> trace-validated -> integrated
 ```
 
+Record function-level native progress in `re/native/functions.yml` and validate
+it with `tony native verify`. A mapping must cite its source, tests, and evidence
+without treating a partial portable boundary as complete retail behavior.
+
 Do not mark a subsystem complete merely because its bytes are transcribed, or
 because a native approximation passes isolated tests.
 
