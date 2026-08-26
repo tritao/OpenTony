@@ -257,6 +257,28 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                             25, 26, 27, 29, 30, 31}) {
                     return 25;
                 }
+                CameraRenderPreparationInputRaw render_input;
+                render_input.camera_transform = identity;
+                render_input.viewport = viewport;
+                render_input.state_selector = 0x33;
+                render_input.scale_x = 0x1000;
+                render_input.scale_y = 0x1000;
+                CameraRenderPreparationRaw render_state;
+                if (!prepare_camera_render_state_q12(render_input, render_state)
+                    || render_state.row_ordered_matrix != identity_matrix
+                    || render_state.backend_view_matrix != identity_matrix
+                    || render_state.viewport_projection.viewport.words
+                           != projection.viewport.words
+                    || render_state.prepared_records.record_005620e8
+                           != handoff.record_005620e8
+                    || render_state.prepared_records.record_005620c0
+                           != handoff.record_005620c0) {
+                    return 30;
+                }
+                render_input.scale_y = 0;
+                if (prepare_camera_render_state_q12(render_input, render_state)) {
+                    return 31;
+                }
                 NormalizedViewportRecordRaw display_record;
                 const DisplayViewportNormalizationInputRaw display_config{
                     true, 640, 480, 0, 0};

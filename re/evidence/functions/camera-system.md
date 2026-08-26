@@ -1237,6 +1237,23 @@ the signed-short narrowing visible. This closes the camera-to-prepared-object
 record contract, while material/object traversal and the later geometry packet
 remain separate boundaries.
 
+The native seam is now composed by `prepare_camera_render_state_q12`. It takes
+the recovered camera transform, raw viewport record, selector, and two scale
+words, then returns both matrix orderings, the mutated viewport/basis state,
+and the two prepared fifteen-short records. Its row-ordered matrix is the
+input to the five `0x004e39a0` products; its backend matrix is the literal
+`0x004f53e0` transpose. This is an evidence-backed camera/render contract,
+not a graphics-API projection abstraction. The helper preserves the original
+zero-divisor failure result and leaves display-rectangle normalization as the
+separate `normalize_viewport_record` contract.
+
+Promotion audit:
+
+| address | exact behavior | runtime/static evidence | confidence / falsifier |
+|---|---|---|---|
+| `0x0045e8e0` | combines transform-to-matrix conversion, viewport/basis construction, and five prepared view-record products before the transpose handoff | static decomp/assembly plus 1,200 accepted Warehouse view mutations and matching geometry packets in `camera-projection6` | high for the normal path; an alternate view mode producing different matrix ordering or bypassing the five products would require a separate adapter |
+| `0x004f53e0` | transposes the prepared 3x3 matrix into backend view-record order | exact static store order and 1,091 normal gameplay comparisons in `camera-input-motion2` | high; non-default/alternate viewport conventions remain a possible separate path |
+
 ### Dynamic matrix-convention validation
 
 The paired `camera-input-motion2.jsonl` trace closes the previously open

@@ -829,6 +829,29 @@ struct ViewPreparationRecordsRaw {
     std::array<std::int16_t, 15> record_005620e8{};
 };
 
+// Value-oriented camera/render handoff for the established normal view path.
+// Render_SetViewProjection 0x0045e8e0 receives the camera transform through
+// the active view record, builds the row-ordered matrix used by its five
+// Fixed_MatrixMultiplyQ12 calls, mutates the viewport record, and prepares the
+// two fifteen-short scratch records. The backend-facing view record is the
+// literal transpose made by 0x004f53e0. Keep both matrix orderings here so a
+// native renderer cannot accidentally feed the backend record back into the
+// preparation loop.
+struct CameraRenderPreparationInputRaw {
+    TransformQ12 camera_transform{};
+    ViewportInputRaw viewport{};
+    std::uint16_t state_selector{};
+    std::uint32_t scale_x{};
+    std::uint32_t scale_y{};
+};
+
+struct CameraRenderPreparationRaw {
+    MatrixQ12 row_ordered_matrix{};
+    MatrixQ12 backend_view_matrix{};
+    ViewportProjectionRaw viewport_projection{};
+    ViewPreparationRecordsRaw prepared_records{};
+};
+
 // Exact five-iteration handoff inside 0x0045e8e0.  The retail loop starts at
 // basis word 1, advances four words per iteration, and multiplies the two
 // cyclic three-word slices by the row-ordered view matrix.  Keeping the raw
@@ -1167,6 +1190,32 @@ inline bool build_viewport_projection(
 
     out.viewport = input;
     out.basis = basis;
+    return true;
+}
+
+// Complete the pure camera-to-render preparation portion of
+// Render_SetViewProjection 0x0045e8e0. This intentionally stops before the
+// display-rectangle packet and backend state calls: it is the stable handoff
+// needed by a native renderer, while those later records remain a separate
+// raw contract. A false result preserves the original divide-by-zero failure
+// paths from viewport setup.
+inline bool prepare_camera_render_state_q12(
+    const CameraRenderPreparationInputRaw& input,
+    CameraRenderPreparationRaw& out) {
+    ViewportProjectionRaw viewport_projection{};
+    if (!build_viewport_projection(
+            input.viewport, input.state_selector, input.scale_x,
+            input.scale_y, viewport_projection)) {
+        return false;
+    }
+
+    const MatrixQ12 row_ordered_matrix =
+        transform_to_matrix_q12(input.camera_transform);
+    out.row_ordered_matrix = row_ordered_matrix;
+    out.backend_view_matrix = transpose_matrix_q12(row_ordered_matrix);
+    out.viewport_projection = viewport_projection;
+    out.prepared_records = prepare_view_records_q12(
+        row_ordered_matrix, viewport_projection.basis);
     return true;
 }
 
