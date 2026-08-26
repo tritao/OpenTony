@@ -61,7 +61,24 @@ Keep generated decompilation under `build/`. Promote only reviewed conclusions
 to `re/evidence/`, `re/symbols/`, and `re/types/`. Never paste unreviewed Ghidra
 output and mark it reconstructed C++.
 
-### 2. Record a semantic model
+### 2. Recover accessed retail fields
+
+Before attempting matching C++, record every object-relative field accessed by
+the target function in `re/types/`. Confirm offset, width, signedness, and
+read/write behavior from instructions and related call sites. Use a neutral
+name such as `field_3200` when the offset is observed but its meaning is not.
+
+Recover layouts incrementally; do not block a function on reconstructing an
+entire large object. Validate the corpus with:
+
+```bash
+tony types verify
+```
+
+A structure-using module should not become matching `cpp` while its accessed
+offsets remain undocumented. Retail layouts do not replace native domain types.
+
+### 3. Record a semantic model
 
 Express the understood behavior independently of compiler matching. Depending
 on scope, this may be pseudocode, a small reference model, portable code under
@@ -71,7 +88,7 @@ The model should capture observable decisions, constants, state transitions,
 and unresolved seams. Add tests before source-shape experiments obscure the
 underlying behavior.
 
-### 3. Attempt matching C or C++
+### 4. Attempt matching C or C++
 
 For compiler-shaped functions, ordinary higher-level C or C++ is the preferred
 matching target. Compile with the pinned VC6 toolchain and compare the emitted
@@ -92,7 +109,7 @@ Iterate on evidence-backed source properties such as:
 A module is `cpp` only when its body is genuine higher-level code, contains no
 naked inline assembly, passes semantic tests, and emits the retail bytes.
 
-### 4. Time-box compiler matching
+### 5. Time-box compiler matching
 
 Do not guess indefinitely at register allocation or instruction scheduling. If
 semantics are understood but higher-level matching stops producing useful new
@@ -107,7 +124,7 @@ evidence, preserve the exact implementation using the status defined in
 Assembly remains an oracle beneath the native implementation. Converting all
 retail code to naked inline assembly is not a project milestone.
 
-### 5. Implement portable native behavior
+### 6. Implement portable native behavior
 
 Native code under `src/` should use maintainable types and interfaces. It does
 not need to reproduce VC6 instruction selection, object addresses, or platform
@@ -117,11 +134,12 @@ Recovered layouts in `re/types/` describe retail memory. Native domain types
 remain C++ source. Translate between them with explicit adapters rather than
 leaking provisional packing into gameplay code.
 
-### 6. Validate both axes
+### 7. Validate both axes
 
 Exact matching validation:
 
 ```bash
+tony types verify
 tony split rebuild
 tony split verify
 tony vc6 compare text_XXXXXXXX  # when the module uses matching C/C++

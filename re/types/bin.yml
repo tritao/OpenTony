@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeTricksSectionPointers
+    kind: fixed_layout
     confidence: observed
     description: Seven globals published by the TRICKS.BIN loader; each points into one raw loaded buffer.
     fields:
@@ -48,6 +49,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTextureSetManagerPrefix
+    kind: fixed_layout
     size: 0x6608
     confidence: observed
     description: Observed prefix/extent of the CRETEX texture-set manager; the entry array layout is not yet stable.
@@ -60,6 +62,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickDescriptor
+    kind: variable_record
     confidence: observed
     description: Variable-length descriptor in the GTricks section; the stream data and fixed trick record remain separate.
     fields:
@@ -72,7 +75,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: variable
         name: prefix_words
-        type: u16[variable]
+        type: sequence<u16>
         confidence: observed
         description: Prefix words between the count and type; their complete button encoding remains open.
         evidence:
@@ -99,13 +102,14 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickRecord
+    kind: fixed_layout
     size: 0x28
     confidence: confirmed
     description: Fixed runtime database record appended by the GTricks parser.
     fields:
       - offset: 0x00
         name: name
-        type: char[32]
+        type: array<char,32>
         confidence: confirmed
         description: NUL-terminated name copied with a maximum length below 32 bytes.
         evidence:
@@ -139,6 +143,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeCreateTextureRecord
+    kind: fixed_layout
     size: 0x1c
     confidence: observed
     description: Individual texture record allocated while parsing CRETEX.BIN.
@@ -152,6 +157,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTextureSetRecord
+    kind: fixed_layout
     size: 0x44
     confidence: observed
     description: Assembled CRETEX texture-set record copied into the set manager.

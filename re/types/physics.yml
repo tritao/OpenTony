@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeSkaterMovementState
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Evidence-backed movement fields on the gameplay skater object; raw physics-state values are fixed and semantic labels remain provisional.
@@ -25,13 +26,13 @@ types:
           - re/evidence/functions/physics.md
       - offset: 0x4c
         name: collision_response_vector
-        type: array<i32, 3>
+        type: array<i32,3>
         confidence: observed
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x58
         name: acceleration_vector
-        type: array<i32, 3>
+        type: array<i32,3>
         confidence: confirmed
         description: State-gated fixed-point acceleration words written from the player-relative source vector by the post-action helper; scale is -1, -4, or -8 in independently recovered branches.
         evidence:
@@ -71,7 +72,7 @@ types:
           - re/evidence/functions/physics.md
       - offset: 0x2ccc
         name: action_record_bank
-        type: ptr
+        type: pointer<void>
         confidence: confirmed
         description: Player-relative pointer to the 16-byte action-record bank consumed by the action/physics step.
         evidence:
@@ -152,7 +153,7 @@ types:
           - re/evidence/functions/physics.md
       - offset: 0x30f4
         name: acceleration_source_vector
-        type: array<i32, 3>
+        type: array<i32,3>
         confidence: observed
         description: Three player-relative words negated/scaled by the post-action acceleration writer; final semantic name remains open.
         evidence:
@@ -173,50 +174,7 @@ types:
           - re/evidence/functions/physics.md
 
   - name: RuntimeCollisionQueryRecord
-    size: null
+    kind: alias
+    target: SLineInfo
     confidence: observed
-    description: Collision query/result record shared by skater physics and the PSX zone collision routines. Input geometry and complete basis layout remain open.
-    fields:
-      - offset: 0x00
-        name: segment_start
-        type: array<i32,3>
-        confidence: confirmed
-        description: Fixed-point query endpoint words used to derive the query AABB.
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x0c
-        name: segment_end
-        type: array<i32,3>
-        confidence: confirmed
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x40
-        name: hit_distance_or_metric
-        type: i32
-        confidence: observed
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x68
-        name: hit_object
-        type: pointer<RuntimePsxObjectRecord>
-        confidence: confirmed
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x80
-        name: hit_face
-        type: pointer<RuntimePsxFaceRecord>
-        confidence: confirmed
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x84
-        name: hit_model_index
-        type: i32
-        confidence: confirmed
-        evidence:
-          - re/evidence/functions/physics.md
-      - offset: 0x8c
-        name: hit_metric
-        type: i32
-        confidence: observed
-        evidence:
-          - re/evidence/functions/physics.md
+    description: Compatibility alias for the canonical collision query layout.

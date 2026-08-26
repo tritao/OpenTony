@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeTriggerObjectHeader
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Common fields observed on objects created by the TRG factory. This is separate from RuntimePsxObjectRecord.
@@ -81,6 +82,7 @@ types:
           - re/evidence/functions/trg-runtime.md
 
   - name: RuntimeTriggerLinkRecord
+    kind: fixed_layout
     size: 0x18
     confidence: confirmed
     description: Small link record allocated for crate/command-point style TRG relationships.
@@ -147,6 +149,7 @@ types:
           - re/evidence/functions/trg-runtime.md
 
   - name: RuntimeTriggerSubtype0x00cb
+    kind: fixed_layout
     size: 0x1f4
     confidence: observed
     description: Type-1 TRG object allocation selected by subtype 0x00cb. The layout is limited to constructor/header fields independently supported by the factory and constructor.
@@ -288,6 +291,7 @@ types:
           - re/evidence/functions/trg-runtime.md
 
   - name: RuntimeTriggerSubtype0x0192
+    kind: fixed_layout
     size: 0x218
     confidence: observed
     description: Type-1 TRG object allocation selected by subtype 0x0192. Only constructor/header fields are named.
@@ -415,6 +419,7 @@ types:
           - re/evidence/functions/trg-runtime.md
 
   - name: RuntimeTriggerTrafficObject
+    kind: fixed_layout
     size: 0x1e8
     confidence: observed
     description: Type-1 TRG traffic/car object selected for subtypes 0xd5..0xdc. Only constructor-owned fields and the subtype resource switch are named.

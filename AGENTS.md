@@ -13,6 +13,7 @@ the status required by `match/POLICY.md`.
 Before committing matching work, run:
 
 ```bash
+tony types verify
 tony split rebuild
 tony split verify
 pytest -q

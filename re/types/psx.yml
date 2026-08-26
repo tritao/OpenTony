@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimePsxBlockmapCellSourceHeader
+    kind: fixed_layout
     size: 0x0c
     confidence: confirmed
     description: Three-word source cell prefix. The PC zone loader skips the first two words and consumes the third as the object-reference count.
@@ -27,6 +28,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
 
   - name: RuntimePsxObjectRecord
+    kind: fixed_layout
     size: 0x4c
     confidence: confirmed
     description: 0x4c-stride environment object record allocated by the PSX parser. The allocation has a four-byte count prefix before record zero.
@@ -75,6 +77,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimePsxModelPacketHeader
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Header at the start of a relocated PSX model packet. The packet is selected through the slot model-pointer table.
@@ -171,6 +174,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
 
   - name: RuntimePsxFaceRecord
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Variable-size PSX face record; the loader replaces the disk texture-table index at +0x10 with a shared scene-material pointer for textured faces.
@@ -222,6 +226,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimeCollisionFaceCacheRecord
+    kind: fixed_layout
     size: 0x1c
     confidence: observed
     description: World-space acceleration entry built from one PSX model face before collision testing. It is transient cache state, not part of the disk model packet.
@@ -270,6 +275,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
 
   - name: RuntimeCollisionModelCacheEntry
+    kind: fixed_layout
     size: 0x10
     confidence: observed
     description: One of twenty rotating model-cache entries used by the collision cell walker.
@@ -301,6 +307,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
 
   - name: RuntimePsxSlotArrays
+    kind: fixed_layout
     size: null
     confidence: confirmed
     description: Global slot-indexed pointers used by the PSX parser and consumers. One slot entry is 0x11 integers (0x44 bytes) apart.
@@ -327,13 +334,14 @@ types:
           - re/evidence/functions/asset-loading.md
 
   - name: RuntimePsxSpoolQueueEntry
+    kind: fixed_layout
     size: 0x11
     confidence: observed
     description: Compact queue entry used while registering a named PSX region for player/vehicle loading.
     fields:
       - offset: 0x00
         name: queued_name
-        type: char[13]
+        type: array<char,13>
         confidence: observed
         description: Bounded base name plus the appended .psx suffix.
         evidence:
@@ -364,6 +372,7 @@ types:
           - re/evidence/functions/skater-asset-runtime.md
 
   - name: RuntimePlayerSpoolManager
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Player-resource spool manager containing forty 0x28-byte entries and queue lifecycle counters.
@@ -395,6 +404,7 @@ types:
           - re/evidence/functions/skater-asset-runtime.md
 
   - name: RuntimePlayerSpoolEntry
+    kind: fixed_layout
     size: 0x28
     confidence: observed
     description: One player-resource spool entry. The resource name starts at +0x05; the manager owns forty entries at this stride.
@@ -408,7 +418,7 @@ types:
           - re/evidence/functions/skater-asset-runtime.md
       - offset: 0x05
         name: resource_name
-        type: char[?]
+        type: sequence<char>
         confidence: observed
         evidence:
           - re/evidence/functions/skater-asset-runtime.md

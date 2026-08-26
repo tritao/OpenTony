@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeReplayHeaderFields
+    kind: fixed_layout
     size: 0x38
     confidence: confirmed
     description: Prefix fields extracted by the replay loader before it releases the loaded resource buffer.
@@ -13,7 +14,7 @@ types:
           - re/evidence/functions/replay-runtime.md
       - offset: 0x04
         name: highlight_ranges
-        type: array<RuntimeReplayHighlightRange, 5>
+        type: array<RuntimeReplayHighlightRange,5>
         confidence: confirmed
         evidence:
           - re/evidence/functions/replay-runtime.md
@@ -49,6 +50,7 @@ types:
           - re/evidence/functions/replay-runtime.md
 
   - name: RuntimeReplayHighlightRange
+    kind: fixed_layout
     size: 0x08
     confidence: confirmed
     description: One copied replay highlight start/end pair printed by the GVideoRestart consumer.
@@ -67,6 +69,7 @@ types:
           - re/evidence/functions/replay-runtime.md
 
   - name: RuntimeReplayPlaybackHighlightSlot
+    kind: fixed_layout
     size: 0x08
     confidence: observed
     description: Per-skater playback highlight slot consulted when a replay reaches the end of its active frame range.
@@ -91,6 +94,7 @@ types:
           - re/evidence/functions/replay-runtime.md
 
   - name: RuntimeReplayPlaybackState
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Per-skater replay/video playback state block selected by the video prephysics consumer.
@@ -168,6 +172,7 @@ types:
           - re/evidence/functions/replay-runtime.md
 
   - name: RuntimeReplayBitReader
+    kind: fixed_layout
     size: 0x0c
     confidence: confirmed
     description: Operational bit-reader fields embedded in each per-skater replay playback block.
@@ -192,6 +197,7 @@ types:
           - re/evidence/functions/replay-runtime.md
 
   - name: RuntimeReplayStreamBuffer
+    kind: fixed_layout
     size: 0x80000
     confidence: observed
     description: Per-skater replay/card buffer allocated by the video manager; only the serialized prefix and live bitstream boundaries are assigned.

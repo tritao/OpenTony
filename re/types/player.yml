@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeGameplaySkater
+    kind: fixed_layout
     size: 0x3538
     confidence: confirmed
     description: Gameplay skater object allocated by the player-object creator; this is the object published at the two global player slots, not the contained camera object.
@@ -37,7 +38,7 @@ types:
           - re/evidence/functions/player-runtime.md
       - offset: 0x2cc0
         name: skater_resource
-        type: ptr
+        type: pointer<void>
         confidence: confirmed
         description: Selected skater-manager resource pointer.
         evidence:
@@ -51,28 +52,28 @@ types:
           - re/evidence/functions/player-runtime.md
       - offset: 0x2ccc
         name: action_record_bank
-        type: ptr
+        type: pointer<void>
         confidence: confirmed
         evidence:
           - re/evidence/functions/player-runtime.md
           - re/evidence/functions/physics.md
       - offset: 0x2cd0
         name: appearance_resource_10
-        type: ptr
+        type: pointer<void>
         confidence: observed
         description: Appearance resource handle returned by the manager lookup for resource id 0x10.
         evidence:
           - re/evidence/functions/player-runtime.md
       - offset: 0x2cd4
         name: appearance_resource_11
-        type: ptr
+        type: pointer<void>
         confidence: observed
         description: Appearance resource handle returned by the manager lookup for resource id 0x11.
         evidence:
           - re/evidence/functions/player-runtime.md
       - offset: 0x2cd8
         name: appearance_resource_12
-        type: ptr
+        type: pointer<void>
         confidence: observed
         description: Appearance resource handle returned by the manager lookup for resource id 0x12.
         evidence:
@@ -100,6 +101,7 @@ types:
           - re/evidence/functions/ground-movement.md
 
   - name: RuntimeSkaterCameraObject
+    kind: fixed_layout
     size: 0x674
     confidence: confirmed
     description: Camera object allocated and owned by one RuntimeGameplaySkater.

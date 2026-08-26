@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeCustomParkDiskHeader
+    kind: fixed_layout
     size: 0x0c
     confidence: confirmed
     description: Header at the start of PARK%d.PRK.
@@ -25,13 +26,14 @@ types:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeCustomParkDiskCell
+    kind: fixed_layout
     size: 0x08
     confidence: confirmed
     description: Packed custom-park grid cell.
     fields:
       - offset: 0x00
         name: compact_references
-        type: u8[5]
+        type: array<u8,5>
         confidence: confirmed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
@@ -49,58 +51,60 @@ types:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeCustomParkCell
+    kind: fixed_layout
     size: 0x10
     confidence: confirmed
     description: Expanded custom-park grid cell used by level-generation state.
     fields:
       - offset: 0x00
         name: translated_references
-        type: u16[5]
+        type: array<u16,5>
         confidence: confirmed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x0a
         name: unpacked_cell_values
-        type: u8[6]
+        type: array<u8,6>
         confidence: confirmed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeCustomParkItemRecord
+    kind: fixed_layout
     size: 0x2c
     confidence: confirmed
     description: Expanded 36-byte PRK item record used by level generation.
     fields:
       - offset: 0x00
         name: endpoint_coordinate_column_0
-        type: u8[2]
+        type: array<u8,2>
         confidence: confirmed
         description: First packed endpoint/index column; byte 0 is endpoint 0 and byte 1 is endpoint 1.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x02
         name: endpoint_coordinate_column_1
-        type: u8[2]
+        type: array<u8,2>
         confidence: confirmed
         description: Second packed endpoint/index column; byte 2 is endpoint 0 and byte 3 is endpoint 1.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x04
         name: endpoint_coordinate_column_2
-        type: u8[2]
+        type: array<u8,2>
         confidence: confirmed
         description: Third packed endpoint/index column; byte 4 is endpoint 0 and byte 5 is endpoint 1.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x06
         name: packed_values_0
-        type: u8[2]
+        type: array<u8,2>
         confidence: observed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x08
         name: packed_values_1
-        type: u8[4]
+        type: array<u8,4>
         confidence: observed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
@@ -112,7 +116,7 @@ types:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x0d
         name: item_name
-        type: char[27]
+        type: array<char,27>
         confidence: observed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
@@ -124,6 +128,7 @@ types:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeGeneratedParkPiece
+    kind: fixed_layout
     size: 0x238
     confidence: observed
     description: Level-generation object created from translated PRK cell/model references before PSX-region finalization.
@@ -208,6 +213,7 @@ types:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeGeneratedGapMember
+    kind: fixed_layout
     size: 0x58
     confidence: observed
     description: Intermediate gap/item member generated from a custom-park item endpoint.

@@ -32,6 +32,7 @@ from .media import (
 from .media_setup import install_media
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
+from .recovered_types import types_verify
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_clean,
     sessions_list,
@@ -175,6 +176,8 @@ def verify(_args) -> int:
                 failed = True
             else:
                 print(f"OK   {category}.{name}: {actual}")
+    if types_verify(_args):
+        failed = True
     return 1 if failed else 0
 
 

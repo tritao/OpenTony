@@ -137,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify", help="verify recorded media/executable hashes")
     p.set_defaults(func=commands.verify)
 
+    recovered_types = sub.add_parser("types", help="validate recovered retail memory layouts")
+    recovered_types_sub = recovered_types.add_subparsers(dest="types_command", required=True)
+    p = recovered_types_sub.add_parser("verify", help="validate recovered type schemas and evidence")
+    p.set_defaults(func=commands.types_verify)
+
     split = sub.add_parser("split", help="build a byte-preserving modular executable split")
     split_sub = split.add_subparsers(dest="split_command", required=True)
     p = split_sub.add_parser("init", help="create a coarse split manifest and raw NASM modules")

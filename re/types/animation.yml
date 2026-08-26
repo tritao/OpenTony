@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeAnimationTable
+    kind: fixed_layout
     size: null
     confidence: confirmed
     description: Runtime animation table derived from a PSX animation resource.
@@ -13,12 +14,13 @@ types:
           - re/evidence/functions/animation-runtime.md
       - offset: 0x08
         name: animation_records
-        type: array<RuntimeAnimationRecord>
+        type: sequence<RuntimeAnimationRecord>
         confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationRecord
+    kind: fixed_layout
     size: 0x08
     confidence: confirmed
     description: Fixed-stride source/runtime record selected by animation index. The loader treats the two words as frame metadata and a source-stream boundary.
@@ -38,6 +40,7 @@ types:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationObjectState
+    kind: fixed_layout
     size: null
     confidence: confirmed
     description: Animation playback fields on an animation-capable runtime object.

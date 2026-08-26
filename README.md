@@ -147,6 +147,8 @@ tony split accept-proposals --tracked-only [--range START:END] [--dry-run]
 tony split rebuild
 tony split verify
 
+tony types verify
+
 tony wine init
 tony wine mount-disc
 tony wine unmount-disc

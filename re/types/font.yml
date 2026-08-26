@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeFont
+    kind: fixed_layout
     size: 0x14c
     confidence: observed
     description: Runtime font object allocated by Font_Create.
@@ -25,6 +26,7 @@ types:
           - re/evidence/functions/font-runtime.md
 
   - name: RuntimeFontGlyphEntry
+    kind: fixed_layout
     size: 0x08
     confidence: confirmed
     description: Per-glyph entry in the font object's pointer/atlas table.

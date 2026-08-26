@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeD3DPolygonCommandHeader
+    kind: fixed_layout
     size: null
     confidence: confirmed
     description: Common linked command prefix consumed by the final polygon-list dispatcher.
@@ -14,12 +15,14 @@ types:
       - offset: 0x04
         name: enabled_or_payload_word
         type: u32
+        overlay_group: command_word
         confidence: confirmed
         evidence:
           - re/evidence/functions/renderer.md
       - offset: 0x07
         name: opcode_and_format
         type: u8
+        overlay_group: command_word
         confidence: confirmed
         evidence:
           - re/evidence/functions/renderer.md
@@ -31,6 +34,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimeD3DPrimitiveDispatchTable
+    kind: fixed_layout
     size: 0x400
     confidence: confirmed
     description: 256-entry opcode-base dispatch table initialized by the renderer; uninstalled slots point to a no-op handler.
@@ -43,6 +47,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimeD3DPolygonRecord
+    kind: fixed_layout
     size: 0x30
     confidence: observed
     description: Fixed-size per-frame polygon record allocated after PSX face color and vertex resolution. The tail is a variable vertex/color/UV stream.
@@ -86,6 +91,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimeM3DTransformedVertex
+    kind: fixed_layout
     size: 0x1c
     confidence: observed
     description: Seven-float working record produced by the packed model vertex transformer. The first coordinates and clip/control values are stable; some later slots are mode-dependent.

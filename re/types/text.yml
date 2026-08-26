@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeCdParksLabelTable
+    kind: fixed_layout
     confidence: confirmed
     description: Retained CDPARKS source buffer and 50 borrowed display-label pointers.
     fields:
@@ -12,12 +13,13 @@ types:
           - re/evidence/functions/text-runtime.md
       - offset: 0x7c
         name: labels_by_index
-        type: pointer<char>[50]
+        type: array<pointer<char>,50>
         confidence: confirmed
         evidence:
           - re/evidence/functions/text-runtime.md
 
   - name: RuntimeCreditsTextManager
+    kind: fixed_layout
     confidence: observed
     description: Credits/music parser manager with a pointer array of parsed runtime records.
     fields:
@@ -29,7 +31,7 @@ types:
           - re/evidence/functions/text-runtime.md
       - offset: 0x04
         name: records
-        type: pointer<void>[1000]
+        type: array<pointer<void>,1000>
         confidence: observed
         description: Parsed record pointers begin at manager +0x04.
         evidence:
@@ -54,7 +56,7 @@ types:
           - re/evidence/functions/text-runtime.md
       - offset: 0xfb0
         name: line_buffer
-        type: char[49]
+        type: array<char,49>
         confidence: confirmed
         evidence:
           - re/evidence/functions/text-runtime.md
@@ -84,6 +86,7 @@ types:
           - re/evidence/functions/text-runtime.md
 
   - name: RuntimeCreditsTextRecord
+    kind: fixed_layout
     size: 0x44
     confidence: observed
     description: Type-0 parsed text record allocated by the credits/music manager.
@@ -96,7 +99,7 @@ types:
           - re/evidence/functions/text-runtime.md
       - offset: 0x0c
         name: text
-        type: char[?]
+        type: sequence<char>
         confidence: observed
         description: Text is copied into the record's inline region by the constructor; exact capacity is not assigned.
         evidence:
@@ -109,6 +112,7 @@ types:
           - re/evidence/functions/text-runtime.md
 
   - name: RuntimeCreditsBitmapRecord
+    kind: fixed_layout
     size: 0x10
     confidence: observed
     description: Type-1 image directive record.
@@ -127,6 +131,7 @@ types:
           - re/evidence/functions/text-runtime.md
 
   - name: RuntimeCreditsMusicMarker
+    kind: fixed_layout
     size: 0x18
     confidence: observed
     description: Type-2 @M marker record.

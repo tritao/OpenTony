@@ -2,6 +2,7 @@ version: 1
 
 types:
   - name: SLineInfo
+    kind: fixed_layout
     aliases:
       - CollisionLineQuery
     size: 0x94
@@ -13,133 +14,133 @@ types:
     fields:
       - offset: 0x00
         name: start_x
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: start_y
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: start_z
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: end_x
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x10
         name: end_y
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x14
         name: end_z
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x18
         name: bounds_min_x
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x1c
         name: bounds_min_y
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x20
         name: bounds_min_z
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x24
         name: bounds_max_x
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x28
         name: bounds_max_y
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x2c
         name: bounds_max_z
-        type: fixed32
+        type: q12_i32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x40
         name: hit_distance
-        type: int32
+        type: i32
         confidence: observed
         description: distance from start along the line, in integer line units
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x44
         name: line_length
-        type: int32
+        type: i32
         confidence: observed
         description: integer length used to convert hit_parameter to distance
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x48
         name: line_basis
-        type: int16[3][3]
+        type: array<array<i16,3>,3>
         confidence: inferred
         description: short direction/orientation basis used by model paths
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x68
         name: hit_body
-        type: pointer
+        type: pointer<void>
         confidence: observed
         description: null until the nearest accepted candidate is stored
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x6c
         name: hit_position
-        type: fixed32[3]
+        type: array<q12_i32,3>
         confidence: observed
         description: segment-plane intersection point, integer-truncated
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x78
         name: hit_normal
-        type: int16[3]
+        type: array<i16,3>
         confidence: inferred
         description: finalized signed Q12-like normal/basis vector
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x80
         name: hit_face_record
-        type: pointer
+        type: pointer<void>
         confidence: observed
         description: winning model/cache face record; flags are read at +0xc
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x84
         name: hit_model_index
-        type: uint16
+        type: u16
         confidence: observed
         description: model/item index copied from the tested model record
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x88
         name: query_mask_mode
-        type: uint8
+        type: u8
         confidence: inferred
         description: enables otherwise-filtered collision flag class when nonzero
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x89
         name: direction_flag
-        type: uint8
+        type: u8
         confidence: inferred
         description: initialized by the degenerate vertical-line setup branch
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x8a
         name: query_stamp
-        type: uint16
+        type: u16
         confidence: observed
         description: traversal/cache stamp written by query preparation
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x8c
         name: hit_parameter
-        type: int32
+        type: i32
         confidence: observed
         description: nearest segment parameter in 0..0x4000 fixed scale
         evidence: [re/evidence/functions/collision.md]

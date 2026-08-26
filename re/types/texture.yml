@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimePsxMaterialRecord
+    kind: fixed_layout
     size: 0x2c
     confidence: confirmed
     description: Hash-bucketed PSX scene material record allocated while relocating a scene checksum table; distinct from the PC D3D texture record with the same allocation size.
@@ -49,6 +50,7 @@ types:
           - re/evidence/functions/asset-loading.md
 
   - name: RuntimeSourcePaletteLookupNode
+    kind: fixed_layout
     size: 0x18
     confidence: observed
     description: Source-palette lookup node used by the inline PSX texture path; distinct from the converted-color cache node.
@@ -85,6 +87,7 @@ types:
           - re/evidence/functions/texture-runtime.md
 
   - name: RuntimePaletteCacheRecord
+    kind: fixed_layout
     size: 0x18
     confidence: confirmed
     description: Palette conversion/cache node allocated by the PC texture path and linked in a global doubly-linked list.
@@ -127,6 +130,7 @@ types:
           - re/evidence/functions/texture-runtime.md
 
   - name: RuntimePaletteRecord
+    kind: fixed_layout
     size: null
     confidence: observed
     description: PSX palette metadata/handle record created for a 4-bit or 8-bit palette; distinct from RuntimePaletteCacheRecord.
@@ -163,6 +167,7 @@ types:
           - re/evidence/functions/texture-runtime.md
 
   - name: RuntimePcTextureRecord
+    kind: fixed_layout
     size: 0x2c
     confidence: confirmed
     description: Zeroed PC texture record allocated by the D3D texture manager and linked in a global doubly-linked list.

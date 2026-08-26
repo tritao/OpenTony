@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimePreManager
+    kind: fixed_layout
     size: 0x144
     confidence: confirmed
     description: Fixed-capacity manager for loaded PRE container buffers and their names.
@@ -13,12 +14,13 @@ types:
           - re/evidence/functions/pre-runtime.md
       - offset: 0x44
         name: loaded_names
-        type: array<char[16],16>
+        type: array<array<char,16>,16>
         confidence: confirmed
         evidence:
           - re/evidence/functions/pre-runtime.md
 
   - name: RuntimePreEntry
+    kind: variable_record
     size: null
     confidence: confirmed
     description: Inline entry layout parsed from a loaded PRE container buffer.

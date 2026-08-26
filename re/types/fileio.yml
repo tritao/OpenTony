@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeResourceStream
+    kind: fixed_layout
     size: 0x38
     confidence: observed
     description: Package/stream object allocated by the runtime resource backend. Field names describe behavior established by the seek, read, refill, and cleanup paths.
@@ -49,13 +50,14 @@ types:
           - re/evidence/functions/fileio-runtime.md
 
   - name: RuntimePkrFileRecord
+    kind: fixed_layout
     size: 0x30
     confidence: confirmed
     description: Runtime copy of a PKR2 file-table record used by the package lookup and payload dispatch.
     fields:
       - offset: 0x00
         name: name
-        type: char[32]
+        type: array<char,32>
         confidence: confirmed
         evidence:
           - re/evidence/functions/fileio-runtime.md

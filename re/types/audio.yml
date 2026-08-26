@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeSoundDescriptionRecord
+    kind: fixed_layout
     size: 0x34
     confidence: confirmed
     description: One entry in a selected VAB sound bank's 0x42-entry description table.
@@ -32,13 +33,14 @@ types:
           - re/evidence/functions/audio-runtime.md
 
   - name: RuntimeAudioBankRecord
+    kind: fixed_layout
     size: 0x28
     confidence: observed
     description: Per-sound bank record containing eight runtime voice/buffer pointers and bank state.
     fields:
       - offset: 0x00
         name: voice_buffers
-        type: array<pointer<void>, 8>
+        type: array<pointer<void>,8>
         confidence: observed
         evidence:
           - re/evidence/functions/audio-runtime.md
@@ -56,6 +58,7 @@ types:
           - re/evidence/functions/audio-runtime.md
 
   - name: RuntimeWaveFormatEx
+    kind: fixed_layout
     size: 0x12
     confidence: confirmed
     description: The 18-byte WAVEFORMATEX prefix read from a PCM WAV fmt chunk.
@@ -104,6 +107,7 @@ types:
           - re/evidence/functions/audio-runtime.md
 
   - name: RuntimeSoundBufferDescriptor
+    kind: fixed_layout
     size: 0x24
     confidence: observed
     description: Descriptor values passed to the audio device when creating one decoded WAV buffer.
