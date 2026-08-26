@@ -517,6 +517,99 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
     assert run.returncode == 0, run.stderr
 
 
+def test_update_camera_uses_recovered_default_smoothing_stage(tmp_path):
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("g++ is not installed")
+    source = tmp_path / "camera_default_smoothing.cpp"
+    source.write_text(
+        textwrap.dedent(
+            """
+            #include "src/camera/camera_system.hpp"
+
+            int main() {
+                using namespace opentony::camera;
+
+                CameraStateRaw camera;
+                camera.mode = 1;
+                camera.update_tick = 12;
+                camera.current_transform = {0, 0, 0, kQ12One};
+                camera.anchor_target = {0x10000, 0x20000, 0x30000};
+                camera.distance_history = {
+                    0x100000, 0x100000, 0x100000,
+                    0x100000, 0x100000, 0x100000};
+                camera.distance_q4 = 197;
+                camera.follow_transition_active = 1;
+                camera.effect_ramp_counter_a = 1;
+                camera.effect_ramp_counter_c = 3;
+
+                CameraTargetRaw target;
+                target.tripod_state = 2;
+                target.follow_offset = {0, -0x1000, 0};
+
+                CameraUpdateHooks hooks{};
+                hooks.apply_follow_transform =
+                    [](CameraStateRaw&, const CameraFollowSnapshot&) {};
+
+                CameraSmoothingProducerInputRaw producer;
+                producer.valid = true;
+                producer.history_sample_valid = true;
+                producer.history_sample_raw = 0x2000;
+                producer.distance_bias_q4 = -3;
+                producer.tripod_effect_gate = true;
+                producer.vertical_effect_valid = true;
+                producer.vertical_effect_q16 = -140 * kQ12One;
+
+                update_camera(
+                    camera, target, {}, {}, hooks, {}, {}, {}, {}, {}, producer);
+
+                // The recovered distance recurrence gives step -45 and
+                // distance 7 for this fixture.  The common effect ramp adds
+                // 800 Q16 units to the supplied -140-world-unit effect.
+                if (camera.distance_step_q4 != -45
+                    || camera.distance_q4 != 7
+                    || camera.position.x != 0x10000
+                    // 0x004e85a0 emits matrix rows 1, 2, 0, so the local
+                    // camera-Z offset lands in the native Y output slot.
+                    || camera.position.y != 0x19000
+                    || camera.position.z != 0x30000
+                    || camera.screen_effect_offset.x != -140 * kQ12One
+                    || camera.screen_effect_offset.y != 0
+                    || camera.shared_vertical_effect_q16
+                        != -140 * kQ12One + 800) {
+                    return 1;
+                }
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            compiler,
+            "-std=c++20",
+            "-I",
+            str(Path(__file__).resolve().parents[1]),
+            str(source),
+            "-o",
+            str(tmp_path / "camera_default_smoothing"),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        [str(tmp_path / "camera_default_smoothing")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+
+
 def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
     compiler = shutil.which("g++")
     if compiler is None:

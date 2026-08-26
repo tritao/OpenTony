@@ -1515,6 +1515,31 @@ Promotion audit:
 | `0x004d14c7` | stable return-tail boundary after the per-vertex byte stores | breakpoint hit on all 100 active-level samples, same frame as the corresponding geometry path | high for tail placement; a compiler/backend variant could move the last game-owned conversion |
 | `0x0057e888` | four-byte-stride raster scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout | medium for semantic field labels; a stationary basis/clipping experiment is the falsifier |
 
+### Native default smoothing-stage adapter
+
+The value-level implementation now promotes the camera-owned common portion of
+`Camera_SmoothAndValidate 0x0040e090` into the normal C++ update path. A new
+`CameraSmoothingProducerInputRaw` supplies only the values that remain owned by
+gameplay/world state: the post-`0x004f53b0` distance sample, the
+`DAT_00524A98` distance bias, tripod effect gates, the global override, and the
+shared `DAT_0055F94C` vertical-effect word. `update_camera` then applies the
+recovered six-sample distance recurrence, effect-ramp counters, and base local
+position/effect vector when no replacement smoothing hook is installed.
+
+The input also carries an explicit validity bit for the distance sample. This
+prevents a missing producer from refreshing the retail history ring with an
+invented zero. The shared vertical effect is mirrored in the replay state only
+to carry it between calls; the evidence still treats the retail storage as a
+global/effect-system value rather than a proven camera member.
+
+Static confidence is high for the common recurrence and ramp arithmetic. A
+focused native fixture passes with the recovered `step=-45`, `distance=7`, and
+the expected `800`-unit effect-ramp increment. The collision-dependent
+transform branch after transition counter `+0x60c > 3`, and the special effect
+transform path, remain explicit producer hooks; a live nonzero collision/effect
+trace is the falsifier for treating this adapter as the complete smoothing
+routine.
+
 ## Minimal faithful C++ contract
 
 The value-level portion is now implemented in

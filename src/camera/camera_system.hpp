@@ -64,6 +64,11 @@ struct CameraStateRaw {
     Raw effect_ramp_counter_b{}; // camera +0x5dc
     Raw effect_ramp_counter_c{}; // camera +0x5e0
     Raw effect_ramp_counter_d{}; // camera +0x5e4
+    // DAT_0055F94C is a shared effect word rather than a field proven to be
+    // embedded in the camera object.  Keep a replay mirror here so the
+    // default native smoothing adapter can carry it from one update to the
+    // next without pretending to own the retail global.
+    Raw shared_vertical_effect_q16{};
     // Raw mode-25 alternate-path state.  These are kept separate from the
     // normal effect ramp: the dispatcher updates +0x5ec/+0x5f0 from the
     // linked tripod scalar and may feed +0x5ec into anchor Y.
@@ -358,10 +363,11 @@ inline Raw advance_camera_distance_q4(
 inline CameraDistanceAdvanceResultRaw advance_camera_distance_smoothing(
     const CameraDistanceSmoothingRaw& smoothing,
     Raw tripod_physics_state,
-    Raw history_sample_raw) {
+    Raw history_sample_raw,
+    bool history_sample_valid = true) {
     auto history = smoothing.history;
-    const bool refreshed = tripod_physics_state == 0
-        || tripod_physics_state == 4;
+    const bool refreshed = history_sample_valid
+        && (tripod_physics_state == 0 || tripod_physics_state == 4);
     if (refreshed) {
         for (std::size_t index = history.size() - 1; index > 0; --index) {
             history[index] = history[index - 1];
@@ -416,6 +422,10 @@ struct CameraSmoothingStageInputRaw {
     CameraDistanceSmoothingRaw distance{};
     Raw tripod_physics_state{};
     Raw history_sample_raw{};
+    // Direct callers that do not have a valid tripod sample must not refresh
+    // the six-entry history with an invented zero.  Existing value fixtures
+    // retain the retail-default behavior by leaving this true.
+    bool history_sample_valid{true};
     CameraEffectRampStateRaw effect{};
     Raw vertical_effect_q4{};
 };
@@ -427,6 +437,58 @@ struct CameraSmoothingStageOutputRaw {
     CameraPositionStageInput base_position{};
 };
 
+// Raw producer boundary for the camera-owned portion of
+// Camera_SmoothAndValidate 0x0040e090.  The gameplay/world side supplies the
+// scalar sample, effect gates, and shared vertical-effect value; the native
+// camera owns the exact history/ramp recurrence after those values arrive.
+// This intentionally stops before the collision-dependent transform branch
+// at 0x004e85a0.
+struct CameraSmoothingProducerInputRaw {
+    bool valid{};
+    bool history_sample_valid{};
+    Raw history_sample_raw{};       // result after 0x004f53b0
+    Raw distance_bias_q4{};         // DAT_00524A98
+    bool global_override{};         // DAT_0055FA30 != 0
+    bool tripod_effect_gate{};      // tripod +0x2C68 != 0
+    bool vertical_effect_valid{};
+    Raw vertical_effect_q16{};      // DAT_0055F94C
+};
+
+inline bool build_camera_smoothing_stage_input(
+    const CameraStateRaw& camera,
+    const CameraTargetRaw& target,
+    const CameraSmoothingProducerInputRaw& producer,
+    CameraSmoothingStageInputRaw& output) {
+    if (!producer.valid) {
+        return false;
+    }
+
+    output.distance = {
+        camera.distance_history,
+        camera.distance_q4,
+        producer.distance_bias_q4};
+    output.tripod_physics_state = static_cast<Raw>(target.tripod_state);
+    output.history_sample_raw = producer.history_sample_raw;
+    output.history_sample_valid = producer.history_sample_valid;
+    output.effect = {
+        producer.global_override,
+        camera.follow_transition_active != 0,
+        producer.tripod_effect_gate,
+        camera.follow_state_flag != 0,
+        static_cast<Raw>(target.tripod_state),
+        camera.distance_step_q4,
+        camera.effect_ramp_counter_a,
+        camera.effect_ramp_counter_b,
+        camera.effect_ramp_counter_c,
+        camera.effect_ramp_counter_d,
+        producer.vertical_effect_valid
+            ? producer.vertical_effect_q16
+            : camera.shared_vertical_effect_q16};
+    output.vertical_effect_q4 = arithmetic_shift_right(
+        output.effect.vertical_effect_q16, 12);
+    return true;
+}
+
 inline CameraPositionStageInput build_base_position_stage_input(
     const CameraPositionProducerRaw& producer);
 
@@ -434,7 +496,10 @@ inline CameraSmoothingStageOutputRaw advance_camera_smoothing_stage(
     const CameraSmoothingStageInputRaw& input) {
     CameraSmoothingStageOutputRaw output;
     output.distance = advance_camera_distance_smoothing(
-        input.distance, input.tripod_physics_state, input.history_sample_raw);
+        input.distance,
+        input.tripod_physics_state,
+        input.history_sample_raw,
+        input.history_sample_valid);
     output.effect = input.effect;
     output.effect.tripod_physics_state = input.tripod_physics_state;
     output.effect.distance_step_q4 = output.distance.distance_step_q4;
@@ -1608,7 +1673,8 @@ inline CameraViewportCommitRaw update_camera(
     const CameraMode25ProducerInputRaw& mode25_input = {},
     const CameraAlternateFollowInputRaw& alternate_follow_input = {},
     const CameraViewportParameterControlRaw& viewport_control = {},
-    const CameraFramingInputControlRaw& framing_control = {}) {
+    const CameraFramingInputControlRaw& framing_control = {},
+    const CameraSmoothingProducerInputRaw& smoothing_producer = {}) {
     // 0x0040f881..0x0040fc00 runs before the mode table is dispatched. In
     // particular, the restore/decrement/increment/reset operations must also
     // occur for modes 2, 23, and 24; placing this at the old common-tail
@@ -1722,6 +1788,28 @@ inline CameraViewportCommitRaw update_camera(
         have_smoothing_position = !smoothing_output.effect_result.special_branch;
         if (hooks.commit_smoothing_stage != nullptr) {
             hooks.commit_smoothing_stage(camera, smoothing_output);
+        }
+    } else if (smoothing_producer.valid) {
+        // The normal distance/effect state machine is camera-owned once its
+        // gameplay producer values have crossed this explicit boundary. Do
+        // not require a replacement hook for the recovered common path.
+        CameraSmoothingStageInputRaw smoothing_input;
+        if (build_camera_smoothing_stage_input(
+                camera, target, smoothing_producer, smoothing_input)) {
+            const auto smoothing_output = advance_camera_smoothing_stage(
+                smoothing_input);
+            camera.distance_history = smoothing_output.distance.history;
+            camera.distance_step_q4 = smoothing_output.distance.distance_step_q4;
+            camera.distance_q4 = smoothing_output.distance.distance_q4;
+            camera.effect_ramp_counter_a = smoothing_output.effect.counter_a;
+            camera.effect_ramp_counter_b = smoothing_output.effect.counter_b;
+            camera.effect_ramp_counter_c = smoothing_output.effect.counter_c;
+            camera.effect_ramp_counter_d = smoothing_output.effect.counter_d;
+            camera.shared_vertical_effect_q16 =
+                smoothing_output.effect.vertical_effect_q16;
+            smoothing_position_input = smoothing_output.base_position;
+            have_smoothing_position =
+                !smoothing_output.effect_result.special_branch;
         }
     }
     const bool startup_transform = camera.update_tick < 12;
