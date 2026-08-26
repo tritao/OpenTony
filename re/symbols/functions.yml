@@ -172,6 +172,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x004caa20
+    name: Math_Vector3Sub
+    description: three-component fixed-point vector subtraction helper
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred

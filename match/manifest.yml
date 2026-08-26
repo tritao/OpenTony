@@ -163,12 +163,21 @@ modules:
 - id: text_004caa20
   section: .text
   start_va: 5024288
-  end_va: 5050368
+  end_va: 5024336
   file_offset: 829984
-  size: 26080
-  status: raw
+  size: 48
+  status: asm
   source: match/modules/text/text_004caa20.asm
-  sha256: 98218edeb8a0d4eca00e01b915331c589997f83e6feee070aa655430f061f722
+  sha256: eeb45a7e3c8f42c1506a5f1971ba0cfd09eae4dadf897758c3e7778b2dd15764
+- id: text_004caa50
+  section: .text
+  start_va: 5024336
+  end_va: 5050368
+  file_offset: 830032
+  size: 26032
+  status: raw
+  source: match/modules/text/text_004caa50.asm
+  sha256: feb2b8a5d59461135b1296bde3f4fa6a9b95104cf7a556cfcbb6da012ea5b71c
 - id: text_004d1000
   section: .text
   start_va: 5050368
