@@ -56,6 +56,11 @@ unresolved parameter types, incoming-reference relevance, and raw matching
 ownership. Native status comes only from `re/native/functions.yml`; do not
 infer completion from filenames.
 
+For normal repository validation use `tony verify`; before committing matching
+or generated-analysis changes use `tony verify --all`. The specialized
+`types`, `native`, `split`, and `ghidra` verification commands remain available
+for focused diagnostics.
+
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.
 

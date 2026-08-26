@@ -328,7 +328,7 @@ def _compose_coverage(section: dict, section_bytes: bytes, claims: list[dict]) -
 
 
 def split_coverage(_args) -> int:
-    from .ghidra_ops import export_text_claims
+    from .ghidra_inspect import export_text_claims
 
     manifest = _load_manifest()
     source = _source_executable()

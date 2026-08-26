@@ -6,6 +6,12 @@ def test_parser_builds():
     assert parser.prog == "tony"
 
 
+def test_verify_all_parse():
+    args = build_parser().parse_args(["verify", "--all"])
+    assert args.all is True
+    assert callable(args.func)
+
+
 def test_experiments_parse():
     args = build_parser().parse_args(["experiments", "list"])
     assert callable(args.func)

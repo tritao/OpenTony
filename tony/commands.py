@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from types import SimpleNamespace
 
+from . import ghidra_inspect as ghidra_inspection
 from . import ghidra_ops
 from .assets import (
     assets_extract_hed,  # noqa: F401 - command handlers are consumed by cli.py
@@ -181,6 +183,15 @@ def verify(_args) -> int:
         failed = True
     if native_verify(_args):
         failed = True
+    if getattr(_args, "all", False):
+        split_args = SimpleNamespace(
+            no_build=False,
+            output="match/generated/THawk2.rebuilt.exe",
+        )
+        if split_rebuild(split_args) or split_verify(split_args):
+            failed = True
+        if not ghidra_ops.verify():
+            failed = True
     return 1 if failed else 0
 
 
@@ -199,24 +210,24 @@ def ghidra_verify(_args) -> int:
 
 
 def ghidra_inspect(args) -> int:
-    ghidra_ops.inspect_function(args.address, resolve(args.output) if args.output else None)
+    ghidra_inspection.inspect_function(args.address, resolve(args.output) if args.output else None)
     return 0
 
 
 def ghidra_gaps(args) -> int:
-    ghidra_ops.gaps(resolve(args.output) if args.output else None, args.limit)
+    ghidra_inspection.gaps(resolve(args.output) if args.output else None, args.limit)
     return 0
 
 
 def ghidra_export_functions(args) -> int:
     output = resolve(args.output) if args.output else None
-    ghidra_ops.export_functions(output)
+    ghidra_inspection.export_functions(output)
     return 0
 
 
 def ghidra_decompile(args) -> int:
     output = resolve(args.output) if args.output else None
-    ghidra_ops.decompile_function(args.address, output)
+    ghidra_inspection.decompile_function(args.address, output)
     return 0
 
 

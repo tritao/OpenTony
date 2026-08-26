@@ -134,7 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", help="output path; defaults beside the recorded executable")
     p.set_defaults(func=commands.exe_patch_nocd)
 
-    p = sub.add_parser("verify", help="verify recorded media/executable hashes")
+    p = sub.add_parser("verify", help="verify canonical repository knowledge and recorded inputs")
+    p.add_argument("--all", action="store_true", help="also rebuild/verify matching output and verify Ghidra state")
     p.set_defaults(func=commands.verify)
 
     recovered_types = sub.add_parser("types", help="validate recovered retail memory layouts")

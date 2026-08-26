@@ -13,12 +13,9 @@ the status required by `match/POLICY.md`.
 Before committing matching work, run:
 
 ```bash
-tony types verify
-tony native verify
-tony split rebuild
-tony split verify
+tony verify --all
 pytest -q
 ```
 
-`tony split verify` must report a byte-identical rebuilt executable and rejects
+`tony verify --all` must report a byte-identical rebuilt executable and rejects
 misclassified `vc6_asm`/`cpp` sources.
