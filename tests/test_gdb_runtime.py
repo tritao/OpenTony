@@ -513,7 +513,12 @@ def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
 def test_view_projection_perturb_probe_alternates_vertical_scale_input():
     inferior = FakeInferior()
     memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
     view_input = 0xB00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
     inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
     inferior.data[0x100:0x110] = struct.pack(
         "<4I", 0x1234, 0xA00, view_input, 0xC00
@@ -534,6 +539,9 @@ def test_view_projection_perturb_probe_alternates_vertical_scale_input():
     assert probe.hits == 1
     assert events[0]["type"] == "view_projection"
     assert events[0]["mutation"]["word"] == 6
+    assert events[0]["mutation"]["level"] == 12
+    assert events[0]["mutation"]["player"] == "0x00000600"
+    assert events[0]["mutation"]["camera"] == "0x00000800"
     assert events[0]["mutation"]["baseline"] == baseline
     assert events[0]["mutation"]["after"] == baseline // 2
     assert memory.s16(view_input + 0x0C) == baseline // 2

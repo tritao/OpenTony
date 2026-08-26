@@ -506,9 +506,12 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
     """Alternate the raw vertical-scale input at view setup entry.
 
     This is a controlled calibration probe, not a gameplay feature. It waits
-    for a positive word-6 value, then alternates the live record between its
-    observed baseline and half that value. Downstream view/geometry probes can
-    therefore test whether the field changes the prepared basis and packets.
+    for a live level player/camera and a positive word-6 value, then alternates
+    the live record between its observed baseline and half that value.
+    Menu/front-end view calls are deliberately ignored: they can satisfy the
+    positive-value test but have no gameplay geometry to validate downstream.
+    Downstream view/geometry probes can therefore test whether the field
+    changes the prepared basis and packets.
     """
 
     def __init__(self, count: int | None = None, writer=None):
@@ -518,6 +521,17 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
 
     def on_count(self, ctx: Context) -> bool:
         memory = ctx.memory
+        player = memory.u32(GLOBALS["Player"])
+        level = memory.u32(GLOBALS["CurrentLevel"])
+        camera = (
+            memory.u32(player + PLAYER_CAMERA_OFFSET)
+            if player and memory.valid(player)
+            else 0
+        )
+        if level > 12 or not player or not memory.valid(player):
+            return False
+        if not camera or not memory.valid(camera):
+            return False
         view_input = ctx.arg(1)
         address = view_input + VIEW_INPUT_VERTICAL_SCALE_OFFSET
         if not memory.readable(address, 2):
@@ -535,6 +549,9 @@ class ViewProjectionPerturbProbe(CountingBreakpoint):
             record["mutation"] = {
                 "word": 6,
                 "address": f"0x{address:08x}",
+                "level": level,
+                "player": f"0x{player:08x}",
+                "camera": f"0x{camera:08x}",
                 "baseline": self.baseline,
                 "before": before,
                 "after": after,
