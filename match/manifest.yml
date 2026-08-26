@@ -253,12 +253,57 @@ modules:
 - id: text_004cac30
   section: .text
   start_va: 5024816
-  end_va: 5050368
+  end_va: 5024864
   file_offset: 830512
-  size: 25552
-  status: raw
+  size: 48
+  status: asm
   source: match/modules/text/text_004cac30.asm
-  sha256: ab7344dfedcc28e6cf4391056b9f65d42b3588dc713a37df3da5d2b8421c52e4
+  sha256: 082a1264afe8e5a037fb764a92609a8b46d8469d656fb19362a8c5927f208649
+- id: text_004cac60
+  section: .text
+  start_va: 5024864
+  end_va: 5024912
+  file_offset: 830560
+  size: 48
+  status: asm
+  source: match/modules/text/text_004cac60.asm
+  sha256: 0828ce74209e96506661ebb5cf56cf7f0f33ad7d0c441a704da145d514bf88fc
+- id: text_004cac90
+  section: .text
+  start_va: 5024912
+  end_va: 5024976
+  file_offset: 830608
+  size: 64
+  status: asm
+  source: match/modules/text/text_004cac90.asm
+  sha256: 33d6f3364e4def254fc0f314c755d032753d577fa2c3dd4420cac867b77e1d15
+- id: text_004cacd0
+  section: .text
+  start_va: 5024976
+  end_va: 5025024
+  file_offset: 830672
+  size: 48
+  status: asm
+  source: match/modules/text/text_004cacd0.asm
+  sha256: 1fbe4c85df0df995c0776ca766b720cdd1aa45997f12bb28b1288dcf36a1a8d0
+- id: text_004cad00
+  section: .text
+  start_va: 5025024
+  end_va: 5025072
+  file_offset: 830720
+  size: 48
+  status: asm
+  source: match/modules/text/text_004cad00.asm
+  sha256: 388cfa71661c16c418d4c084bf8cdda6dfb1982813da4398f4ae4752148a641c
+- id: text_004cad30
+  section: .text
+  start_va: 5025072
+  end_va: 5050368
+  file_offset: 830768
+  size: 25296
+  status: raw
+  source: match/modules/text/text_004cad30.asm
+  sha256: 7a47d0b08f438ea05c5ec79390a1f5f70ff5287f0005ce9c96602a57b7cbbc84
 - id: text_004d1000
   section: .text
   start_va: 5050368

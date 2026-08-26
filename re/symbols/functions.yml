@@ -232,6 +232,36 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004cac30
+    name: Math_Vector3MulScalarOut
+    description: multiply a vector by a scalar into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cac60
+    name: Math_ScalarMulVector3Out
+    description: commuted scalar-vector multiply into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cac90
+    name: Math_Vector3DivScalarOut
+    description: divide a vector by a scalar into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cacd0
+    name: Math_Vector3ShiftRightOut
+    description: arithmetic-right-shift a vector into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cad00
+    name: Math_Vector3ShiftLeftOut
+    description: left-shift a vector into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred

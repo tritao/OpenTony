@@ -52,3 +52,15 @@ Two out-of-place operators follow the comparison helpers:
   same register, output, and padding layout through `0x004cac30`.
 
 Both 64-byte modules reproduce the retail instruction encodings and padding.
+
+Five scalar/shift out-of-place operators occupy the next aligned ranges:
+
+- `0x004cac30–0x004cac60` multiplies a vector by a scalar into an output.
+- `0x004cac60–0x004cac90` implements the commuted scalar/vector argument form.
+- `0x004cac90–0x004cacd0` divides a vector by a scalar into an output.
+- `0x004cacd0–0x004cad00` arithmetic-right-shifts a vector into an output.
+- `0x004cad00–0x004cad30` left-shifts a vector into an output.
+
+The first, second, fourth, and fifth modules are 48 bytes; the divide module is
+64 bytes. Each range includes its original NOP padding and matches the retail
+bytes exactly.
