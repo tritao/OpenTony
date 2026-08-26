@@ -75,6 +75,12 @@ entire large object. Validate the corpus with:
 tony types verify
 ```
 
+`tony ghidra rebuild` then generates fixed Ghidra structures from the validated
+corpus. It applies only observed or confirmed fields, leaving weaker claims as
+opaque gaps, and records omissions in `build/ghidra/recovered-types.json`.
+Never edit the generated Ghidra types as a substitute for updating the YAML and
+its evidence.
+
 A structure-using module should not become matching `cpp` while its accessed
 offsets remain undocumented. Retail layouts do not replace native domain types.
 

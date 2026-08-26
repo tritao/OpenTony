@@ -11,6 +11,7 @@ from .common import ROOT, resolve
 
 TYPE_ROOT = ROOT / "re/types"
 CONFIDENCE = {"provisional", "inferred", "observed", "confirmed"}
+GHIDRA_FIELD_CONFIDENCE = {"observed", "confirmed"}
 PRIMITIVE_SIZES = {
     "i8": 1,
     "u8": 1,
@@ -237,6 +238,94 @@ def validate_type_documents(root: Path = TYPE_ROOT) -> tuple[list[str], dict[str
                             errors.append(f"{field_context}: overlaps {other_name} without a shared overlay_group")
                     occupied.append((offset, end, str(field_name), overlay if isinstance(overlay, str) else None))
     return errors, counts
+
+
+def load_type_definitions(root: Path = TYPE_ROOT) -> dict[str, dict[str, Any]]:
+    """Load the validated corpus in deterministic name order."""
+
+    errors, _counts = validate_type_documents(root)
+    if errors:
+        raise ValueError("invalid recovered type corpus:\n" + "\n".join(errors))
+    definitions: dict[str, dict[str, Any]] = {}
+    for path in sorted(root.glob("*.yml")):
+        with path.open("r", encoding="utf-8") as stream:
+            document = yaml.load(stream, Loader=UniqueKeyLoader) or {}
+        for definition in document.get("types", []):
+            definitions[str(definition["name"])] = definition
+    return dict(sorted(definitions.items()))
+
+
+def ghidra_type_plan(root: Path = TYPE_ROOT) -> dict[str, Any]:
+    """Return the conservative, Ghidra-independent type import plan."""
+
+    definitions = load_type_definitions(root)
+    known_sizes = {
+        name: definition.get("size") if isinstance(definition.get("size"), int) else None
+        for name, definition in definitions.items()
+    }
+    imported: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    aliases: list[dict[str, str]] = []
+
+    for name, definition in definitions.items():
+        kind = str(definition["kind"])
+        if kind == "alias":
+            aliases.append({"name": name, "target": str(definition["target"])})
+            continue
+        if kind == "variable_record":
+            skipped.append({"name": name, "reason": "variable_record has no fixed Ghidra layout"})
+            continue
+
+        fields: list[dict[str, Any]] = []
+        for field in definition.get("fields", []):
+            field_name = str(field["name"])
+            confidence = str(field["confidence"])
+            if confidence not in GHIDRA_FIELD_CONFIDENCE:
+                skipped.append({"name": f"{name}.{field_name}", "reason": f"{confidence} confidence"})
+                continue
+            if field.get("overlay_group"):
+                skipped.append({"name": f"{name}.{field_name}", "reason": "overlapping field requires a union"})
+                continue
+            expression = parse_type_expression(field["type"])
+            field_size = _expression_size(expression, known_sizes, 4)
+            if not isinstance(field.get("offset"), int) or field_size is None:
+                skipped.append({"name": f"{name}.{field_name}", "reason": "non-fixed offset or size"})
+                continue
+            fields.append(
+                {
+                    "name": field_name,
+                    "offset": int(field["offset"]),
+                    "type": str(field["type"]),
+                    "size": field_size,
+                    "comment": str(field.get("description", "")),
+                }
+            )
+
+        declared_size = definition.get("size")
+        extent = max((field["offset"] + field["size"] for field in fields), default=0)
+        size = declared_size if isinstance(declared_size, int) else extent
+        if size <= 0:
+            skipped.append({"name": name, "reason": "no fixed extent"})
+            continue
+        imported.append(
+            {
+                "name": name,
+                "kind": kind,
+                "size": size,
+                "description": str(definition.get("description", "")),
+                "fields": sorted(fields, key=lambda item: (item["offset"], item["name"])),
+            }
+        )
+        for alias in sorted(definition.get("aliases", [])):
+            aliases.append({"name": str(alias), "target": name})
+
+    return {
+        "version": 1,
+        "category": "/OpenTony/Recovered",
+        "types": imported,
+        "aliases": sorted(aliases, key=lambda item: item["name"]),
+        "skipped": sorted(skipped, key=lambda item: item["name"]),
+    }
 
 
 def _referenced_names(expression: TypeExpression) -> set[str]:

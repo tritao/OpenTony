@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .common import ROOT, load_yaml, resolve
 from .identity import recorded_executable
+from .recovered_types import TypeExpression, ghidra_type_plan, parse_type_expression
 
 
 def _require_pyghidra():
@@ -48,6 +49,100 @@ def _apply_symbols(program, pyghidra) -> None:
                 symbol_table.createLabel(address, str(item["name"]), SourceType.USER_DEFINED)
 
 
+def _apply_recovered_types(program, pyghidra) -> dict:
+    from ghidra.program.model.data import (
+        ArrayDataType,
+        ByteDataType,
+        CategoryPath,
+        CharDataType,
+        DataTypeConflictHandler,
+        DoubleDataType,
+        DWordDataType,
+        FloatDataType,
+        IntegerDataType,
+        LongLongDataType,
+        PointerDataType,
+        QWordDataType,
+        ShortDataType,
+        SignedByteDataType,
+        StructureDataType,
+        TypedefDataType,
+        VoidDataType,
+        WordDataType,
+    )
+
+    plan = ghidra_type_plan()
+    manager = program.getDataTypeManager()
+    category = CategoryPath(plan["category"])
+    conflict_handler = DataTypeConflictHandler.REPLACE_HANDLER
+    named = {}
+    alias_targets = {item["name"]: item["target"] for item in plan["aliases"]}
+
+    primitive = {
+        "i8": SignedByteDataType.dataType,
+        "u8": ByteDataType.dataType,
+        "char": CharDataType.dataType,
+        "i16": ShortDataType.dataType,
+        "u16": WordDataType.dataType,
+        "i32": IntegerDataType.dataType,
+        "u32": DWordDataType.dataType,
+        "q12_i32": IntegerDataType.dataType,
+        "q16_i32": IntegerDataType.dataType,
+        "i64": LongLongDataType.dataType,
+        "u64": QWordDataType.dataType,
+        "f32": FloatDataType.dataType,
+        "f64": DoubleDataType.dataType,
+        "void": VoidDataType.dataType,
+    }
+
+    with pyghidra.transaction(program):
+        for item in plan["types"]:
+            structure = StructureDataType(category, item["name"], item["size"], manager)
+            named[item["name"]] = manager.addDataType(structure, conflict_handler)
+
+        def resolve_type(expression: TypeExpression):
+            if expression.kind == "primitive":
+                return primitive[expression.name]
+            if expression.kind == "named":
+                name = expression.name
+                if name == "void":
+                    return VoidDataType.dataType
+                while name in alias_targets:
+                    name = alias_targets[name]
+                return named[name]
+            if expression.kind == "pointer":
+                return PointerDataType(resolve_type(expression.element), 4, manager)
+            if expression.kind == "array":
+                element = resolve_type(expression.element)
+                return ArrayDataType(element, expression.count, element.getLength(), manager)
+            if expression.kind == "bytes":
+                return ArrayDataType(ByteDataType.dataType, expression.count, 1, manager)
+            raise ValueError(f"cannot import non-fixed Ghidra type expression: {expression.kind}")
+
+        for item in plan["types"]:
+            structure = named[item["name"]]
+            structure.setDescription(item["description"])
+            for field in item["fields"]:
+                structure.replaceAtOffset(
+                    field["offset"],
+                    resolve_type(parse_type_expression(field["type"])),
+                    field["size"],
+                    field["name"],
+                    field["comment"] or None,
+                )
+
+        for item in plan["aliases"]:
+            target = named.get(item["target"])
+            if target is None:
+                plan["skipped"].append({"name": item["name"], "reason": f"target {item['target']} was not imported"})
+                continue
+            alias = TypedefDataType(category, item["name"], target, manager)
+            manager.addDataType(alias, conflict_handler)
+
+    plan["skipped"] = sorted(plan["skipped"], key=lambda item: item["name"])
+    return plan
+
+
 def rebuild() -> None:
     exe = _exe_path()
     pyghidra = _require_pyghidra()
@@ -75,9 +170,17 @@ def rebuild() -> None:
             print(f"Analyzing {exe.name} ...")
             pyghidra.analyze(program, pyghidra.task_monitor())
             _apply_symbols(program, pyghidra)
+            type_report = _apply_recovered_types(program, pyghidra)
             program.save("OpenTony deterministic rebuild", pyghidra.task_monitor())
 
+    report_path = project_parent / "recovered-types.json"
+    report_path.write_text(json.dumps(type_report, indent=2) + "\n", encoding="utf-8")
+
     print(f"Ghidra project rebuilt: {project_parent} / {project_name}")
+    print(
+        f"Recovered types: {len(type_report['types'])} layouts, "
+        f"{len(type_report['aliases'])} aliases, {len(type_report['skipped'])} skipped; {report_path}"
+    )
 
 
 def export_functions(output: Path | None = None) -> Path:

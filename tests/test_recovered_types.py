@@ -100,3 +100,38 @@ def test_types_verify_reports_repository_summary(monkeypatch, capsys):
 
     assert recovered_types.types_verify(SimpleNamespace()) == 0
     assert "3 types, 4 fields across 2 files" in capsys.readouterr().out
+
+
+def test_ghidra_plan_is_conservative_and_preserves_declared_extent(tmp_path: Path):
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text("observed\n")
+    write_types(
+        tmp_path / "types",
+        {
+            "version": 1,
+            "types": [
+                {
+                    "name": "Example",
+                    "kind": "fixed_layout",
+                    "size": 16,
+                    "confidence": "provisional",
+                    "aliases": ["OldExample"],
+                    "fields": [
+                        {"offset": 0, "name": "known", "type": "u32", "confidence": "observed", "evidence": [str(evidence)]},
+                        {"offset": 4, "name": "guess", "type": "u32", "confidence": "inferred", "evidence": [str(evidence)]},
+                    ],
+                },
+                {"name": "Stream", "kind": "variable_record", "confidence": "observed", "fields": []},
+            ],
+        },
+    )
+
+    plan = recovered_types.ghidra_type_plan(tmp_path / "types")
+
+    assert plan["types"] == [
+        {"name": "Example", "kind": "fixed_layout", "size": 16, "description": "", "fields": [
+            {"name": "known", "offset": 0, "type": "u32", "size": 4, "comment": ""}
+        ]}
+    ]
+    assert plan["aliases"] == [{"name": "OldExample", "target": "Example"}]
+    assert {item["name"] for item in plan["skipped"]} == {"Example.guess", "Stream"}

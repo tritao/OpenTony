@@ -55,6 +55,8 @@ identifier references another recovered type. Use `kind: variable_record` for
 symbolic offsets and `kind: alias` with `target` when retaining an old name.
 Overlapping fields must share an explicit `overlay_group`.
 
-`tony ghidra rebuild` does not yet apply these layouts. Add generation only
-when a matching or analysis consumer needs it; the validated YAML remains the
-canonical evidence source.
+`tony ghidra rebuild` imports fixed layouts into `/OpenTony/Recovered` after
+analysis and symbol application. Only `observed` and `confirmed` fields are
+materialized; weaker claims remain unknown bytes. Variable records and other
+unsupported claims are listed in `build/ghidra/recovered-types.json`. The YAML
+remains canonical; the generated Ghidra data types are disposable build state.
