@@ -1,0 +1,55 @@
+version: 1
+subsystem: player-physics
+focus:
+  id: position-write-path
+  function: Skater_PositionWritePath
+  start_va: 0x00496060
+  end_va: 0x00496276
+  module: text_00496060
+  status: hybrid
+abi:
+  convention: thiscall
+  this_register: ECX
+  this_role: skater/player object
+  stack_arguments:
+    - {name: proposed_x, offset: 0x04, width: 4}
+    - {name: proposed_y, offset: 0x08, width: 4}
+    - {name: proposed_z, offset: 0x0c, width: 4}
+  callee_stack_cleanup: 0x0c
+object_fields:
+  - {offset: 0x08, role: position_x, access: read-write, confidence: observed}
+  - {offset: 0x0c, role: position_y, access: read-write, confidence: observed}
+  - {offset: 0x10, role: position_z, access: read-write, confidence: observed}
+  - {offset: 0x3200, role: collision_resolution_disable_or_bypass, access: read, confidence: inferred}
+globals:
+  - {address: 0x00567c7c, role: collision_query_guard, access: save-set-restore, confidence: inferred}
+paths:
+  fast:
+    condition: player[0x3200] != 0
+    effect: commit proposed XYZ directly to player position
+    reconstructed: true
+  collision_resolution:
+    condition: player[0x3200] == 0
+    effect: test proposed/current coordinate combinations and commit an accepted candidate
+    reconstructed: false
+    preserved_from_offset: 0x3b
+calls:
+  - {address: 0x004624d0, role: initialize collision query from candidate position, confidence: inferred}
+  - {address: 0x00466090, role: execute collision query and populate result flag, confidence: inferred}
+candidate_order:
+  - proposed_xyz
+  - current_x_proposed_yz
+  - proposed_xy_current_z
+  - proposed_x_current_y_proposed_z
+  - proposed_x_current_yz
+  - current_xy_proposed_z
+  - current_x_proposed_y_current_z
+  - current_xy_with_selected_z_fallback
+evidence:
+  - re/evidence/functions/position-write-path.md
+  - re/evidence/functions/physics.md
+next_tests:
+  - trace player[0x3200] and the direct-commit path condition
+  - name and trace the result field returned through the collision-query local structure
+  - record which candidate succeeds for grounded wall, floor, and airborne collisions
+  - compare a semantic candidate-selection model against retail traces
