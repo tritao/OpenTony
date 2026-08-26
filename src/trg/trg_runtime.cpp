@@ -1490,6 +1490,11 @@ void TriggerRuntime::dispatch(
             const auto [checksum, argument] = cursor.read_gap_operands(opcode_offset);
             if (command_point != nullptr && command_point->checksum != checksum) {
                 services_.on_diagnostic("gap command checksum does not match its command point");
+                // The retail gap helper joins the command payload to the
+                // source command-point record before looking up a table
+                // definition. A mismatch is therefore a rejected join, not
+                // a gap observation with an unrelated checksum.
+                break;
             }
             services_.on_gap(source_node, checksum, argument);
             if (services_.take_gap_pulse(checksum, argument)) {

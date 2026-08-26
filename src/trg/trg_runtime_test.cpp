@@ -222,6 +222,8 @@ void test_c9_alignment_and_gap_dispatch() {
     u16(node, 0);
     u32(node, 0xf3abdf8e);
     u16(node, 10);
+    u16(node, 0x0086);
+    u16(node, 7);
     u16(node, 0xffff);
     const std::vector<std::byte> file_bytes = trg_file({node, {std::byte{0xff}, std::byte{0}}});
 
@@ -232,6 +234,80 @@ void test_c9_alignment_and_gap_dispatch() {
     const std::vector<std::pair<std::uint32_t, std::uint16_t>> expected_gaps{{0xf3abdf8e, 10}};
     assert(recorder.gaps == expected_gaps);
     assert(recorder.diagnostics.empty());
+    // The following opcode is reached only if the aligned c9 payload consumed
+    // exactly six bytes after its alignment pad.
+    assert(runtime.command_point(0)->state == 7);
+}
+
+void test_c9_rejects_checksum_mismatch_without_side_effects() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x00c9);
+    u16(stream, 0); // absolute alignment pad before the checksum
+    u32(stream, 0x22222222);
+    u16(stream, 10);
+    u16(stream, 0xffff);
+    const std::array<std::uint16_t, 1> links{1};
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node(links, 0x11111111, stream),
+        object_node(),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    assert(recorder.gaps.empty());
+    assert(recorder.node_pulses.empty());
+    assert(recorder.diagnostics
+        == std::vector<std::string>{"gap command checksum does not match its command point"});
+}
+
+void test_c9_rejects_truncated_aligned_payload() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x00c9);
+    u16(stream, 0); // the aligned payload is intentionally absent
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0x12345678, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    bool threw = false;
+    try {
+        runtime.pulse_node(0);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    assert(threw);
+    assert(recorder.gaps.empty());
+}
+
+void test_c9_skip_consumes_aligned_payload() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0094);
+    u16(stream, 0); // the first pulse count is one, so skip the block
+    u16(stream, 0x00c9);
+    u16(stream, 0); // absolute alignment pad before the skipped checksum
+    u32(stream, 0x12345678);
+    u16(stream, 10);
+    u16(stream, 0x0095);
+    u16(stream, 0x0086);
+    u16(stream, 9);
+    u16(stream, 0xffff);
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0x12345678, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    assert(recorder.gaps.empty());
+    assert(recorder.diagnostics.empty());
+    assert(runtime.command_point(0)->state == 9);
 }
 
 void test_initial_pulses_and_timer() {
@@ -673,6 +749,9 @@ void test_unknown_opcode_matches_retail_fallthrough() {
 int main() {
     test_visible_pulse_and_record_layout();
     test_c9_alignment_and_gap_dispatch();
+    test_c9_rejects_checksum_mismatch_without_side_effects();
+    test_c9_rejects_truncated_aligned_payload();
+    test_c9_skip_consumes_aligned_payload();
     test_initial_pulses_and_timer();
     test_counted_link_command_payloads_are_not_node_links();
     test_counted_link_command_skip_and_truncation();

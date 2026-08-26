@@ -967,7 +967,7 @@ consumer.
 | `0x00ad` | none | copy front-object field `+0x3a4` to `+0x3dc` |
 | `0x00b1` | one `u16` | if `DAT_0056a960` is live, write its field `+0x319c` |
 | `0x00c8` | three `u16` | combine the first two operands into `DAT_00563a60` as high/low halves |
-| `0x00c9` | aligned `u32` checksum plus one `u16` | match the checksum against the runtime gap table at `+0x2f74`; on a valid entry, update the skater gap state and execute the source node's counted list |
+| `0x00c9` | aligned `u32` checksum plus one `u16` | admit only a checksum matching the source command point, then match the divider against the runtime gap table; valid immediate entries complete and pulse the source links, while flagged entries defer to the player path |
 | `0x00ca` | two `u16` | combine the operands into `DAT_0056114c` and call `0x0042fc70` |
 | `0x00cb` | one `u16` flag below 8 | set the corresponding character-config bit when the career/level condition allows it |
 | `0x00cc` | one `u16` flag below 8 | conditionally execute the following stream until `0x0095` based on the character-config flag |

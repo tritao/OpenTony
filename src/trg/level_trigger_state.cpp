@@ -1237,6 +1237,7 @@ void LevelTriggerState::on_gap(
         ++found->seen;
         state = &*found;
     }
+    bool completed_now = false;
     if (gap_table_ != nullptr) {
         if (const TriggerGapDefinition* definition = gap_table_->find(argument);
             definition != nullptr) {
@@ -1244,11 +1245,16 @@ void LevelTriggerState::on_gap(
             state->flags = definition->flags;
             state->score = definition->score;
             state->name = definition->name;
-            state->deferred = (definition->flags & 0x40U) != 0;
-            if ((definition->flags & 0x08U) == 0 && !state->deferred && !state->awarded) {
+            // FUN_004c5dc0 has separate deferred branches for definition
+            // flags 0x08 and 0x40. Keep one state bit for that shared
+            // completion boundary; the player consumer still owns which
+            // deferred slot is used.
+            state->deferred = (definition->flags & 0x48U) != 0;
+            if (!state->deferred && !state->awarded) {
                 state->completed = true;
                 state->awarded = true;
                 state->pulse_pending = true;
+                completed_now = true;
             }
         }
     }
@@ -1260,6 +1266,16 @@ void LevelTriggerState::on_gap(
         argument,
         checksum,
     });
+    if (completed_now) {
+        events_.push_back(TriggerEvent{
+            TriggerEvent::Kind::GapCompleted,
+            source,
+            CommandPointRuntime::npos,
+            0x00c9,
+            argument,
+            checksum,
+        });
+    }
 }
 
 bool LevelTriggerState::take_gap_pulse(

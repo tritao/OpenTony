@@ -515,6 +515,7 @@ void test_objectives_and_timers() {
     const GapTable table = GapTable::from_definitions({
         TriggerGapDefinition{0x0013, 1001, 200, "[TRANSFER]"},
         TriggerGapDefinition{0x0040, 1002, 500, "[DEFERRED]"},
+        TriggerGapDefinition{0x0008, 1003, 750, "[STATE4-DEFERRED]"},
     });
     state.set_gap_table(&table);
     state.on_timer(100);
@@ -542,6 +543,10 @@ void test_objectives_and_timers() {
     assert(state.gaps()[0].score == 200);
     assert(state.gaps()[0].completed);
     assert(state.gaps()[0].awarded);
+    assert(state.events().back().kind == TriggerEvent::Kind::GapCompleted);
+    assert(state.events().back().source_node == 4);
+    assert(state.events().back().value == 1001);
+    assert(state.events().back().checksum == 0x1234);
     assert(state.take_gap_pulse(0x1234, 1001));
     assert(!state.take_gap_pulse(0x1234, 1001));
     state.on_gap(4, 0x1234, 1001);
@@ -559,6 +564,12 @@ void test_objectives_and_timers() {
     assert(state.gaps()[1].awarded);
     assert(state.take_gap_pulse(0x5678, 1002));
     assert(state.events().back().kind == TriggerEvent::Kind::GapCompleted);
+
+    state.on_gap(4, 0x9abc, 1003);
+    assert(state.gaps()[2].definition_found);
+    assert(state.gaps()[2].deferred);
+    assert(!state.gaps()[2].completed);
+    assert(!state.take_gap_pulse(0x9abc, 1003));
 
     state.on_spawn_node(10, 1, 0x00cb, {1, 2, 3}, {});
     assert(state.object(10)->spawn_family == TriggerSpawnFamily::ObjectCb);
