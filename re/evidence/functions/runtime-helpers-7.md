@@ -12,3 +12,6 @@ The adjacent `0x004e4bf0` mode setter is semantically reconstructed but stays
 raw because the compiler emits `dec`-flag branching that the straightforward
 C++ forms do not reproduce exactly. The larger callback and state-update
 routines in this range are also split for later matching.
+
+The indirect import wrapper at `0x004e4c10` is exact as a VC6 `__stdcall`
+callback through the fixed function-pointer slot at `0x51823c`.

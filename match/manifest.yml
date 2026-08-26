@@ -3445,8 +3445,14 @@ modules:
   end_va: 5131297
   file_offset: 936976
   size: 17
-  status: raw
+  status: cpp
   source: match/modules/text/text_004e4c10.asm
+  cpp_source: match/cpp/FUN_004e4c10.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 4cbcc9c3547a87f0cddcaeff6423841a39f6303b23d86571ac1e2b88a26eb20b
 - id: text_004e4c21
   section: .text
