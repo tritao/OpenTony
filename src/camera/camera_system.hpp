@@ -59,6 +59,13 @@ struct CameraStateRaw {
     Raw effect_ramp_counter_b{}; // camera +0x5dc
     Raw effect_ramp_counter_c{}; // camera +0x5e0
     Raw effect_ramp_counter_d{}; // camera +0x5e4
+    // Raw mode-25 alternate-path state.  These are kept separate from the
+    // normal effect ramp: the dispatcher updates +0x5ec/+0x5f0 from the
+    // linked tripod scalar and may feed +0x5ec into anchor Y.
+    Raw alternate_integrator_raw{}; // camera +0x5ec
+    Raw alternate_counter_raw{};    // camera +0x5f0
+    std::int16_t alternate_phase_a_raw{}; // camera +0x434
+    std::int16_t alternate_phase_b_raw{}; // camera +0x436
     Raw distance_q4{};            // camera +0x5d0
     Raw distance_step_q4{};       // camera +0x61c
     std::array<Raw, 6> distance_history{}; // camera +0x620..+0x634
@@ -1117,6 +1124,8 @@ struct CameraAlternateFollowInputRaw {
     Raw tripod_physics_state{};       // tripod +0x30b8
     Raw tripod_behavior_flag{};       // tripod +0x2f64
     Raw tripod_follow_offset_y_raw{}; // tripod +0x3110
+    bool tripod_vector_effect_enabled{}; // tripod +0x31ec != 0
+    Raw tripod_scalar_raw{};             // tripod +0x50
     bool transformed_offset_valid{};
     Q16Vec3 transformed_offset{};     // result of 0x004e85a0
 };
@@ -1126,6 +1135,60 @@ struct CameraAlternateFollowResultRaw {
     bool retained_mode25{};
     bool transformed_offset_applied{};
 };
+
+struct CameraAlternateFollowStateResultRaw {
+    Raw shared_angle_raw{};
+    bool anchor_y_adjusted{};
+};
+
+// Exact scalar side effects in 0x0040fdc4..0x0040fe74.  The shared angle is
+// DAT_00524a94, so it is deliberately passed by value and returned rather
+// than being misrepresented as a camera field.  The two camera phase words
+// remain raw signed shorts at +0x434/+0x436.
+inline CameraAlternateFollowStateResultRaw advance_camera_mode25_state(
+    CameraStateRaw& camera,
+    const CameraAlternateFollowInputRaw& input,
+    Raw shared_angle_raw) {
+    CameraAlternateFollowStateResultRaw result{shared_angle_raw, false};
+    if (!input.tripod_present) {
+        return result;
+    }
+
+    if (input.tripod_vector_effect_enabled
+        && camera.alternate_phase_b_raw != 0) {
+        if (input.tripod_scalar_raw >= 0) {
+            camera.alternate_counter_raw = add_s32(
+                camera.alternate_counter_raw, 1);
+        } else {
+            camera.alternate_counter_raw = subtract_s32(
+                camera.alternate_counter_raw, 1);
+        }
+        const Raw negated_scalar = subtract_s32(0, input.tripod_scalar_raw);
+        const Raw scalar_q4 = arithmetic_shift_right(negated_scalar, 12);
+        camera.alternate_integrator_raw = add_s32(
+            camera.alternate_integrator_raw,
+            multiply_s32(scalar_q4, camera.alternate_phase_b_raw));
+        if (camera.alternate_counter_raw > 0) {
+            camera.anchor_target.y = add_s32(
+                camera.anchor_target.y, camera.alternate_integrator_raw);
+            result.anchor_y_adjusted = true;
+        }
+    }
+
+    if (camera.alternate_phase_a_raw != 0) {
+        if (input.tripod_scalar_raw <= 0) {
+            result.shared_angle_raw = wrap_s32(
+                static_cast<std::int64_t>(result.shared_angle_raw)
+                - camera.alternate_phase_a_raw);
+        } else {
+            result.shared_angle_raw = subtract_s32(
+                result.shared_angle_raw,
+                arithmetic_shift_right(camera.alternate_phase_a_raw, 1));
+        }
+        result.shared_angle_raw &= 0x0fff;
+    }
+    return result;
+}
 
 inline CameraAlternateFollowResultRaw apply_camera_mode25_alternate(
     CameraStateRaw& camera,

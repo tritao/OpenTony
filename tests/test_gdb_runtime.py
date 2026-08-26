@@ -313,6 +313,8 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
     inferior.data[camera + 0x5B4:camera + 0x5B6] = struct.pack("<H", 0x345)
     inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<I", 197)
+    inferior.data[camera + 0x434:camera + 0x438] = struct.pack("<2h", -5, 3)
+    inferior.data[camera + 0x5EC:camera + 0x5F4] = struct.pack("<2i", 6, -1)
     inferior.data[camera + 0x61C:camera + 0x620] = struct.pack("<I", 3)
     inferior.data[camera + 0x620:camera + 0x638] = struct.pack(
         "<6I", 1, 2, 3, 4, 5, 6
@@ -350,6 +352,10 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert record["camera_fields"]["distance_q4"]["s32"] == [197]
     assert record["camera_fields"]["distance_step_q4"]["s32"] == [3]
     assert record["camera_fields"]["distance_history"]["s32"] == [1, 2, 3, 4, 5, 6]
+    assert record["camera_fields"]["alternate_follow_phase_a_raw"]["signed_s16"] == -5
+    assert record["camera_fields"]["alternate_follow_phase_b_raw"]["signed_s16"] == 3
+    assert record["camera_fields"]["alternate_follow_integrator_raw"]["s32"] == [6]
+    assert record["camera_fields"]["alternate_follow_counter_raw"]["s32"] == [-1]
     assert record["camera_fields"]["follow_transition_active"] == 1
     assert record["camera_fields"]["follow_preparation_counter"] == 4
     assert record["camera_fields"]["point_camera_tick"] == 12

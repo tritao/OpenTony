@@ -227,6 +227,14 @@ Static behavior from the raw dispatch target is:
   camera `+0x610..+0x618`, shift that vector left by `0xc` through
   `0x004cad00` into `+0x5c4`, copy the unshifted result into `+0x5b8`, then
   call `0x00410610` again;
+- before the alternate vector branch, update camera `+0x5ec` and `+0x5f0`
+  from the linked tripod scalar at `+0x50` when tripod `+0x31ec` is nonzero
+  and camera `+0x436` is nonzero. A nonnegative scalar increments `+0x5f0`, a
+  negative scalar decrements it, and `(-tripod_scalar >> 12) * camera+0x436`
+  is accumulated into `+0x5ec`; while `+0x5f0 > 0`, that accumulator is added
+  to camera anchor Y (`+0x3c4`). Separately, nonzero camera `+0x434` adjusts
+  shared angle global `DAT_00524a94` by `-s16(+0x434)` for nonpositive scalar,
+  or by `-(s16(+0x434) >> 1)` for positive scalar, then masks it to 12 bits;
 - join the common camera tail at `0x00410064`, which ultimately commits through
   `0x0040be70`.
 
@@ -380,10 +388,12 @@ The evidence-backed layout is recorded separately in [re/types/camera.yml](../..
 | `+0x448..+0x454` | current four-word transform/effect vector in Q12-like units | inferred |
 | `+0x45c..+0x468` | target four-word transform vector in Q12-like units | inferred |
 | `+0x470..+0x47c` | previous/saved four-word transform vector in Q12-like units | inferred |
+| `+0x434`, `+0x436` | raw signed-short phase words consumed by the mode-25 alternate-follow scalar path | observed; semantic axis labels intentionally omitted |
 | `+0x504` | camera mode/state dispatch value | observed; mode meanings incomplete |
 | `+0x510` | per-update/mode tick | observed; increments once per update in mode `1` |
 | `+0x570` | death-camera interpolation tick | observed |
 | `+0x5d8..+0x5e4` | smoothing/history counters | observed |
+| `+0x5ec`, `+0x5f0` | mode-25 alternate-follow integrator/counter pair | observed; producer scalar is tripod-owned |
 
 Numeric conclusion:
 

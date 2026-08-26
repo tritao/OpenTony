@@ -77,7 +77,8 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 const auto alternate_result =
                     apply_camera_mode25_alternate(
                         alternate,
-                        {true, 1, 0, 0x65, true, {0x1000, -0x2000, 0x3000}});
+                        {true, 1, 0, 0x65, false, 0,
+                         true, {0x1000, -0x2000, 0x3000}});
                 if (!alternate_result.retained_mode25
                     || !alternate_result.transformed_offset_applied
                     || alternate.mode != 25
@@ -93,10 +94,41 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 const auto alternate_reset_result =
                     apply_camera_mode25_alternate(
                         alternate_reset,
-                        {true, 2, 0, -1, false, {}});
+                        {true, 2, 0, -1, false, 0, false, {}});
                 if (!alternate_reset_result.reset_to_normal
                     || alternate_reset.mode != 1) {
                     return 42;
+                }
+
+                CameraStateRaw alternate_state;
+                alternate_state.alternate_phase_a_raw = 5;
+                alternate_state.alternate_phase_b_raw = 3;
+                alternate_state.alternate_counter_raw = 0;
+                alternate_state.anchor_target.y = 1000;
+                const auto alternate_state_result =
+                    advance_camera_mode25_state(
+                        alternate_state,
+                        {true, 1, 0, 0, true, -0x2000, false, {}},
+                        0x1200);
+                if (alternate_state.alternate_counter_raw != -1
+                    || alternate_state.alternate_integrator_raw != 6
+                    || alternate_state.anchor_target.y != 1000
+                    || alternate_state_result.shared_angle_raw != 0x1fb
+                    || alternate_state_result.anchor_y_adjusted) {
+                    return 43;
+                }
+                alternate_state.alternate_counter_raw = 1;
+                const auto alternate_state_positive =
+                    advance_camera_mode25_state(
+                        alternate_state,
+                        {true, 1, 0, 0, true, 0x2000, false, {}},
+                        0x1200);
+                if (alternate_state.alternate_counter_raw != 2
+                    || alternate_state.alternate_integrator_raw != 0
+                    || alternate_state.anchor_target.y != 1000
+                    || alternate_state_positive.shared_angle_raw != 0x1fe
+                    || !alternate_state_positive.anchor_y_adjusted) {
+                    return 44;
                 }
 
                 // The retail producer changes mode only after the current

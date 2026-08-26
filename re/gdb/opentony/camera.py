@@ -128,11 +128,15 @@ def camera_record(ctx: Context, camera: int) -> dict:
         "viewport_zoom_candidate": _field_words(memory, camera, 0x40C),
         "time_or_smoothing_a": _field_words(memory, camera, 0x410),
         "time_or_smoothing_b": _field_words(memory, camera, 0x414),
-        "smoothing_counter_a": _field_words(memory, camera, 0x5D8),
-        "smoothing_counter_b": _field_words(memory, camera, 0x5DC),
-        "smoothing_counter_c": _field_words(memory, camera, 0x5E0),
-        "smoothing_counter_d": _field_words(memory, camera, 0x5E4),
-    }
+            "smoothing_counter_a": _field_words(memory, camera, 0x5D8),
+            "smoothing_counter_b": _field_words(memory, camera, 0x5DC),
+            "smoothing_counter_c": _field_words(memory, camera, 0x5E0),
+            "smoothing_counter_d": _field_words(memory, camera, 0x5E4),
+            "alternate_follow_phase_a_raw": _short(memory, camera + 0x434),
+            "alternate_follow_phase_b_raw": _short(memory, camera + 0x436),
+            "alternate_follow_integrator_raw": _field_words(memory, camera, 0x5EC),
+            "alternate_follow_counter_raw": _field_words(memory, camera, 0x5F0),
+        }
     camera_fields.update(
         {
             "tripod_link": tripod,

@@ -77,6 +77,16 @@ fields:
     type: u8
     confidence: observed
     description: consulted by smoothing/effect branches; semantic enum remains provisional
+  - offset: 0x434
+    name: alternate_follow_phase_a_raw_s16
+    type: s16
+    confidence: observed
+    description: mode-25 alternate-follow phase word used to adjust shared angle DAT_00524a94
+  - offset: 0x436
+    name: alternate_follow_phase_b_raw_s16
+    type: s16
+    confidence: observed
+    description: mode-25 alternate-follow phase word used with tripod +0x50 and camera +0x5ec/+0x5f0
   - offset: 0x444
     name: effect_transform_object_vtable
     type: ptr32
@@ -238,6 +248,16 @@ fields:
     name: smoothing_counter_d
     type: integer_candidate
     confidence: observed
+  - offset: 0x5ec
+    name: alternate_follow_integrator_raw
+    type: s32_raw
+    confidence: observed
+    description: mode-25 alternate-follow accumulator; added to anchor Y while +0x5f0 is positive
+  - offset: 0x5f0
+    name: alternate_follow_counter_raw
+    type: s32_raw
+    confidence: observed
+    description: mode-25 alternate-follow signed counter incremented/decremented from tripod +0x50
   - offset: 0x5d4
     name: follow_transition_active
     type: u8
