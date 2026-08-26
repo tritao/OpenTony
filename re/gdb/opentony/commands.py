@@ -8,6 +8,7 @@ from pathlib import Path
 
 import gdb
 
+from .action import ActionMaskSequenceProbe
 from .breakpoint import CountingBreakpoint, TonyBreakpoint
 from .camera import (
     ActorSubmissionProbe,
@@ -563,6 +564,27 @@ class TonyInputSample(gdb.Command):
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
 
 
+class TonyActionSequence(gdb.Command):
+    """tony-action-sequence MASK... -- inject raw action masks at publish."""
+
+    def __init__(self):
+        super().__init__("tony-action-sequence", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = [value for value in arg.replace(",", " ").split() if value]
+        if not values:
+            raise gdb.GdbError(
+                "usage: tony-action-sequence MASK [MASK ...]"
+            )
+        masks = [_integer(value) for value in values]
+        probe = ActionMaskSequenceProbe(masks, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        _write(
+            f"action mask sequence armed for {len(masks)} publishes "
+            f"at 0x{probe.address:08x}"
+        )
+
+
 def _watch_limit(values: list[str], usage: str, *, default_limit: int | None) -> tuple[list[str], int | None]:
     limit = default_limit
     if "--limit" in values:
@@ -1094,6 +1116,7 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyPlayerSample()
     TonyInputSample()
+    TonyActionSequence()
     TonyWatch()
     TonyWatchOnce()
     TonyWatchBatch()
@@ -1122,6 +1145,7 @@ def register_commands() -> None:
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-action-sequence, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-camera-probe, tony-camera-timing-probe, tony-camera-point-probe, "

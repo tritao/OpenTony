@@ -47,6 +47,7 @@ generated_knowledge.GLOBALS_ALIASES = {}
 sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
+from opentony.action import ActionMaskSequenceProbe
 from opentony.calling import CallContext
 from opentony.camera import (
     camera_effect_record,
@@ -85,6 +86,36 @@ class FakeInferior:
 
     def write_memory(self, address, data):
         self.data[address:address + len(data)] = data
+
+
+def test_action_mask_sequence_writes_masks_in_order():
+    class WritableMemory:
+        def __init__(self):
+            self.values = []
+
+        def write_u16(self, address, value):
+            self.values.append((address, value))
+
+    class ContextStub:
+        frame = 17
+
+        def __init__(self, memory):
+            self.memory = memory
+
+    memory = WritableMemory()
+    probe = ActionMaskSequenceProbe([0x8000, 0, 0x10])
+    context = ContextStub(memory)
+
+    probe.on_hit(context)
+    probe.on_hit(context)
+    probe.on_hit(context)
+
+    assert memory.values == [
+        (0x006A3F1C, 0x8000),
+        (0x006A3F1C, 0),
+        (0x006A3F1C, 0x10),
+    ]
+    assert probe.hits == 3
 
 
 def test_typed_memory_preserves_word_views_and_float_bits():

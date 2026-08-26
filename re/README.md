@@ -52,6 +52,12 @@ The geometry probe accepts only submissions
 with a live player-owned camera, so frontend/menu geometry does not consume
 the bounded level observation count.
 
+For deterministic frontend or camera-mode setup, `tony-action-sequence MASK...`
+writes raw low-word action masks at the post-poll publish boundary
+`0x004e4650`. Use explicit masks (for example `0x8000`, `0`, `0x10`, `0`) and
+record the sequence in the trace; this drives the retail action-state
+consumers without relying on synthetic X/DirectInput keyboard events.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`
