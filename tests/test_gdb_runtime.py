@@ -50,10 +50,12 @@ from opentony.camera import (
     camera_effect_record,
     CameraPositionTransformProbe,
     CameraProbe,
+    GeometrySubmissionProbe,
     ViewProjectionProbe,
     actor_submission_record,
     camera_position_transform_record,
     camera_record,
+    geometry_submission_record,
 )
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
@@ -505,6 +507,55 @@ def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
     assert events[0]["viewport_block"]["raw"].startswith("00010203")
     assert events[0]["camera_angles"]["angle_units"] == [0x123, 0xF80, 0]
     assert events[0]["camera_look_target"]["raw"] == [1, 2, 3]
+
+
+def test_geometry_submission_probe_keeps_transform_and_packet_handoff_raw():
+    inferior = FakeInferior()
+    inferior.data = bytearray(0x700000)
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    geometry = 0x900
+    viewport = 0x1000
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 12)
+    inferior.data[geometry:geometry + 0x40] = bytes(range(0x40))
+    inferior.data[0x005620C0:0x005620C0 + 0x1E] = struct.pack(
+        "<15h", *range(15)
+    )
+    inferior.data[0x005620E8:0x005620E8 + 0x1E] = struct.pack(
+        "<15h", *range(15, 30)
+    )
+    inferior.data[0x005620E0:0x005620E4] = struct.pack("<I", viewport)
+    inferior.data[0x006A3E80:0x006A3EE0] = bytes(range(0x60))
+    inferior.data[viewport:viewport + 0x90] = bytes(range(0x90))
+    inferior.data[0x100:0x114] = struct.pack(
+        "<5I", 0x0045F600, geometry, 7, 0, 0
+    )
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x4D11D0}),
+        memory,
+    )
+
+    record = geometry_submission_record(context)
+
+    assert record["type"] == "geometry_submission"
+    assert record["arguments"]["geometry"] == "0x00000900"
+    assert record["arguments"]["vertex_count_or_index"] == 7
+    assert record["prepared_view_a_s16"][0]["signed_s16"] == 0
+    assert record["prepared_view_b_s16"][-1]["signed_s16"] == 29
+    assert record["geometry_scratch"]["size"] == 0x60
+    assert record["camera_viewport_raw"] == 12
+
+    class Writer:
+        def event(self, _record):
+            pass
+
+    probe = GeometrySubmissionProbe(count=1, writer=Writer())
+    probe.on_hit(context)
+    assert probe.hits == 1
+    assert probe.remaining == 0
 
 
 def test_snapshot_diff_is_raw_first_with_all_word_heuristics():

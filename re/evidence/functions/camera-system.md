@@ -1087,6 +1087,37 @@ submission routine (`+0x04`, `+0x1a`, `+0x1f`, `+0x24`, and `+0x30`). It keeps
 the object/model ownership provisional until a gameplay run captures those
 records alongside `Render_World` and the present clock.
 
+The new raw `tony-geometry-probe` closes that downstream observation without
+claiming a renderer function name. Its acceptance predicate requires a live
+player-owned camera, so menu geometry is rejected. The bounded
+`camera-geometry-level` capture recorded 500 accepted calls to `0x004d11d0` at
+frames `4413..4439`; every record was level `12`, player `0x05f39530`, and
+camera `0x05f40ac8`. The caller was consistently `0x0046192a`, with 19
+geometry packets per full observed frame. The two trailing call arguments were
+stable raw resource/pipeline values (`0x02adfbdc` and usually `0x00568a00`),
+while the first geometry pointer varied across the scene records and repeated
+across frames. The prepared view blocks at `0x005620c0` and `0x005620e8`
+contained 15 signed shorts each, were stable within a frame, and changed as
+the camera/view state changed. The `0x006a3e80` scratch block was populated at
+the same boundary.
+
+This promotes the following narrower contract:
+
+```text
+Camera_Update
+    -> Render_SetViewProjection
+    -> Render_SubmitActor / scene traversal
+    -> 0x0046192a -> 0x004d11d0 geometry handoff
+    -> backend-facing conversion
+    -> Render_Present
+```
+
+It does not promote `0x004d11d0` as the final draw call, and it does not prove
+that the `0x0046192a` packets are the player model: the live packet pointers
+were scene-geometry records. A player-specific actor trace remains required
+for object ownership, but the camera-to-scene geometry transform boundary is
+now runtime-supported.
+
 A bounded `camera-actor` attempt armed `render_present`, the camera, view, and
 actor probes, but the synthetic frontend path stalled before level entry. Its
 trace contains zero accepted camera/view/actor observations and remains a

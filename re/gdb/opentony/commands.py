@@ -14,6 +14,7 @@ from .camera import (
     CameraEffectProbe,
     CameraPositionTransformProbe,
     CameraProbe,
+    GeometrySubmissionProbe,
     ViewProjectionProbe,
 )
 from .frame import FrameBreakpoint, frame_clock
@@ -891,6 +892,25 @@ class TonyActorSubmissionProbe(gdb.Command):
         _write(f"actor submission probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyGeometrySubmissionProbe(gdb.Command):
+    """tony-geometry-probe [COUNT] -- sample the raw geometry handoff."""
+
+    def __init__(self):
+        super().__init__("tony-geometry-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-geometry-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-geometry-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = GeometrySubmissionProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"geometry submission probe armed {limit} at 0x{probe.address:08x}")
+
+
 class TonyPlayerDiff(gdb.Command):
     """tony-player-diff [COUNT] -- log changed player words at physics dispatch."""
 
@@ -971,6 +991,7 @@ def register_commands() -> None:
     TonyViewProjectionProbe()
     TonyCameraPositionProbe()
     TonyActorSubmissionProbe()
+    TonyGeometrySubmissionProbe()
     TonyPlayerDiff()
     TonyPositionCommitProbe()
     _registered = True
@@ -982,5 +1003,5 @@ def register_commands() -> None:
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-camera-position-probe, "
-        "tony-actor-probe, tony-player-diff, tony-position-commit"
+        "tony-actor-probe, tony-geometry-probe, tony-player-diff, tony-position-commit"
     )

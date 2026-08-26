@@ -13,6 +13,11 @@ PLAYER_SECONDARY_LINK_OFFSET = 0x29BC
 VIEWPORT_STATE = 0x00563A38
 VIEWPORT_SCALE_X = 0x00563A6C
 VIEWPORT_SCALE_Y = 0x00563A70
+PREPARED_VIEW_A = 0x005620C0
+PREPARED_VIEW_B = 0x005620E8
+VIEWPORT_POINTER = 0x005620E0
+GEOMETRY_SCRATCH = 0x006A3E80
+GEOMETRY_SUBMISSION = 0x004D11D0
 
 
 def _words(memory, address: int, count: int = 3) -> dict[str, list[int | float]]:
@@ -323,6 +328,57 @@ def actor_submission_record(ctx: Context) -> dict:
     return record
 
 
+def geometry_submission_record(ctx: Context) -> dict:
+    """Capture the raw game-owned geometry handoff after view preparation.
+
+    ``0x004d11d0`` is a callsite-level boundary in the current static
+    recovery, not a promoted renderer function.  Keep the argument and
+    prepared transform records raw so the probe does not assign ownership to
+    the downstream geometry/backend structures prematurely.
+    """
+
+    memory = ctx.memory
+    geometry = ctx.arg(0)
+    player = memory.u32(GLOBALS["Player"])
+    camera = (
+        memory.u32(player + PLAYER_CAMERA_OFFSET)
+        if player and memory.valid(player)
+        else 0
+    )
+    viewport_pointer = memory.u32(VIEWPORT_POINTER) if memory.readable(VIEWPORT_POINTER, 4) else 0
+    return {
+        "type": "geometry_submission",
+        "frame": ctx.frame,
+        "function": "Render_GeometrySubmissionCallsite",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "level": (
+            memory.u32(GLOBALS["CurrentLevel"])
+            if "CurrentLevel" in GLOBALS and memory.readable(GLOBALS["CurrentLevel"], 4)
+            else None
+        ),
+        "player": f"0x{player:08x}" if player else None,
+        "arguments": {
+            "geometry": f"0x{geometry:08x}" if geometry else None,
+            "vertex_count_or_index": ctx.arg(1),
+            "arg2": ctx.arg(2),
+            "arg3": ctx.arg(3),
+        },
+        "geometry_prefix": _raw_block(memory, geometry, 0x40),
+        "prepared_view_a_s16": _s16_array(memory, PREPARED_VIEW_A, 15),
+        "prepared_view_b_s16": _s16_array(memory, PREPARED_VIEW_B, 15),
+        "geometry_scratch": _raw_block(memory, GEOMETRY_SCRATCH, 0x60),
+        "viewport_pointer": f"0x{viewport_pointer:08x}" if viewport_pointer else None,
+        "viewport_block": _raw_block(memory, viewport_pointer, 0x90),
+        "camera": f"0x{camera:08x}" if camera else None,
+        "camera_viewport_raw": (
+            memory.u32(camera + 0x40C)
+            if camera and memory.readable(camera + 0x40C, 4)
+            else None
+        ),
+    }
+
+
 def camera_position_transform_record(ctx: Context) -> dict | None:
     """Capture one exact 0x004e85a0 camera-tail input triplet."""
 
@@ -464,6 +520,34 @@ class ActorSubmissionProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"actor submission probe complete: {self.hits} observations\n")
+
+
+class GeometrySubmissionProbe(CountingBreakpoint):
+    """Sample the raw geometry packet boundary after camera transforms."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(GEOMETRY_SUBMISSION, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        memory = ctx.memory
+        player = memory.u32(GLOBALS["Player"])
+        if not player or not memory.valid(player):
+            return False
+        camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+        if not camera or not memory.valid(camera):
+            return False
+        record = geometry_submission_record(ctx)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"geometry submission probe complete: {self.hits} observations\n")
 
 
 class CameraPositionTransformProbe(CountingBreakpoint):
