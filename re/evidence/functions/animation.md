@@ -1,6 +1,6 @@
 # Session F — skater animation pipeline
 
-Status: the complete minimal pipeline is confirmed by static control-flow, field-write, asset, and pose-cache evidence. Runtime launch/input was reproduced through the frontend, but a clean gameplay transition trace was not obtained; runtime claims below are marked accordingly.
+Status: the complete minimal pipeline is confirmed by static control-flow, field-write, asset, pose-cache, and live Warehouse player evidence. A live player request/timing trace was obtained; a clean input-driven left/right turn trace remains the only harness gap.
 
 Build: retail `THawk2.exe`, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`, image base `0x00400000`.
 
@@ -78,8 +78,8 @@ freeze the requested pose; this is why turning is not just ordinary playback
 of a looping clip.
 
 When steering returns to zero, IDs `6`/`7` request idle ID `0`. Crouched
-turn IDs `9`/`10` request ID `8` over frames `0x13..0x1a`, with the exact
-endpoint/transition byte supplied by the caller. The sign-to-left/right
+turn IDs `9`/`10` request ID `8` over frames `0x13..0x1a`, with the alternate
+endpoint byte supplied by the caller. The sign-to-left/right
 mapping is coordinate/context dependent; only the ID mapping, not a world-axis
 sign, should be copied into a reconstruction.
 
@@ -136,7 +136,7 @@ The decompilation of `0x00480730` shows these writes on the same skater/`CSuper`
 | `+0xf8` | playback mode | Selects stop/range, loop, ping-pong, and reverse behavior in `0x00480950`. |
 | `+0x100` | playback direction | Set to forward/reverse from the requested start/end range. |
 | `+0x101` | endpoint frame | Stored by `RunAnim` and used by the mode logic. |
-| `+0x102` | request endpoint/transition behavior | Controls endpoint handling; exact blend semantics were intentionally not decoded. |
+| `+0x102` | alternate/next endpoint | If non-negative, replaces `+0x101` when the current endpoint is reached and reverses direction; this is endpoint-swap/ping-pong state, not a blend amount. |
 | `+0x107` | finished / endpoint flag | Set when the requested range is already at its endpoint and updated by the playback-mode logic. |
 | `+0x114` | saved/original start frame | Written during request setup and used by reverse/endpoint transitions. |
 
@@ -158,6 +158,25 @@ The pose-side fields that complete the object contract are:
 | `+0x150..` | animation-part → model-part order map | `SetAnimOrder(anim_part, model_part)` writes one byte per part. |
 
 `0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. Its mode switch handles stop, loop, ping-pong, and reverse endpoint behavior. This is the reproducible time/frame advancement path.
+
+The endpoint behavior is now resolved from the decompilation rather than left
+as a transition guess. Before advancing, mode `0`/`2` checks whether the
+current frame has reached `+0x101`. If `+0x102 < 1`, it sets `+0x107` and
+stops. Otherwise it swaps `+0x101` and `+0x102` and negates `+0x100`. For
+example, the crouch-turn restoration call is
+`RunAnim(8, 0x13, 0x1a, 0x13, ...)`, which traverses frames 19 through 26 and
+then back to 19. `+0x102` is therefore an alternate/next endpoint. Mode `1`
+wraps at the selected animation's frame count; mode `3` has a separate
+`+0xfa/+0xfc/+0xfe` ping-pong clock/range path; mode `4` reverses and swaps
+against the saved start at `+0x114`.
+
+`RunAnim` also has a precise invalid-ID behavior: it asserts/logs “Bad anim
+sent to RunAnim”, replaces an out-of-range ID with `0x2e`, then continues
+using that animation's frame count. `CycleAnim` sets mode `1`, starts at frame
+zero, copies the requested direction, clears the fraction and finished flag,
+and uses the selected animation's frame count. These details should be part
+of a compatibility implementation, not approximated as a generic clip
+player.
 
 ## Animation resource identity
 
@@ -190,7 +209,12 @@ The next pose stages are also statically bounded:
 2. `0x00465060` obtains the current animation table entry and calls
    `0x00465110` for all animation parts. `0x00465110` chooses neighboring
    keyframes around the discrete `+0xf4` frame, computes a 12-bit blend
-   fraction, and interpolates each part's three short transform components.
+   fraction from the animation entry's high-word key spacing, and
+   interpolates each part's three short transform components. The extracted
+   `SK2ANIM.PSX` has that high word zero for every clip, so its current
+   skater data uses one decoded sample per frame and the blend fraction is
+   zero; preserve the general path because other PSX animation resources can
+   use sparse key spacing.
 3. `0x00465300` calls `Decomp_GetAnimTransform`, walks the animation's
    parent/calculation-order records, copies or composes local transforms, and
    writes the resulting per-part pose records. This is the skeleton/bone
@@ -211,6 +235,107 @@ those names and calls `SetAnimOrder` for each match.
 `ee74c8325fdeb1cbb2e6f13af70c5b8c694b189f824c2a184abce7056f8ab8b3` in the
 extracted asset set used for this investigation.
 
+### Recovered SK2ANIM packet layout
+
+The animation packet is sufficiently understood to implement a faithful
+asset reader without involving the renderer. `SK2ANIM.PSX` has a standard
+header (`version=4`, `type=2`), then a tag at file offset `0x47fc` with type
+`0x2c` and payload size `0x8f1b0`. The tag payload begins at `0x4804`:
+
+```text
+u32 animation_count = 218
+repeat animation_count:
+    u32 relative_data_offset   // relative to payload start, 0x4804
+    u32 frame_count_and_flags  // low 16 bits are frame count
+```
+
+For this retail `SK2ANIM.PSX`, every high 16-bit flags/key-spacing value is
+zero. Frame counts range from 5 through 97. The controlled clips are:
+
+```text
+ID 0  -> 12 frames       ID 1  -> 10       ID 2  -> 29
+ID 3  -> 31               ID 6  -> 23       ID 7  -> 23
+ID 8  -> 27               ID 9  -> 29       ID 10 -> 28
+```
+
+The relative offset points to a stream containing 19 parts, with six channel
+streams per part. The six signed 16-bit channels are three Euler rotation
+values followed by three translation values. `Decomp_GetAnimTransform`
+passes a destination stride of `19 * 6` shorts and calls the channel decoder
+six times at offsets `0, 2, 4, 6, 8, 10` within each 12-byte part record.
+Decoded records are row-major by frame and part:
+
+```text
+decoded_frame(frame)[part].rotation[3]
+decoded_frame(frame)[part].translation[3]
+```
+
+The matching `SK2ANIM.PSH`/`SK2MOD.PSH` hierarchy is exact for this skater;
+the parent indices recovered from the names are:
+
+```text
+0 pelvis       -> root       1 right_thigh -> 0       2 right_shoe  -> 3
+3 right_shin   -> 1          4 left_thigh  -> 0       5 left_shoe   -> 6
+6 left_shin    -> 4          7 stomach    -> 0       8 chest       -> 7
+9 left_hand    -> 10         10 left_forearm -> 11   11 left_bicep  -> 8
+12 right_hand  -> 13         13 right_forearm -> 14  14 right_bicep -> 8
+15 head        -> 8          16 board     -> root    17 front_wheel -> 16
+18 back_wheel  -> 16
+```
+
+The resource's runtime hierarchy array uses the same part numbering; the
+pose builder derives a root-first calculation order from it rather than
+assuming that file order is a valid traversal order.
+
+The allocation is `(max_frame_count + 2) * part_count * 0x0c` bytes. The
+first two per-part slots are reserved as the final 24-byte transform records;
+the compressed stream is decoded starting at the third slot. The selected
+raw frame starts at:
+
+```text
+cache + (current_frame + 2) * part_count * 0x0c
+```
+
+and the final per-part record contains a 3x3 matrix (nine signed shorts) plus
+three translation shorts. The hierarchy pass fills the first two-slot prefix
+in root-first calculation order and composes each child against its parent.
+
+The channel control byte is `(interpolation_group << 4) | codec`:
+
+* codec `0`: initial little-endian signed 16-bit value, then signed 16-bit
+  endpoints; each endpoint is linearly expanded across `group + 1` samples;
+* codecs `1..13`: initial little-endian signed 16-bit value, then signed
+  deltas of `codec + 1` bits from a most-significant-bit-first packed stream;
+  each delta is expanded across `group + 1` samples;
+* codec `14`: one little-endian 16-bit constant repeated for every frame;
+* codec `15`: zero for every frame and no payload bytes.
+
+For an animation with `F` frames and `P = interpolation_group + 1`, the
+decoder computes `full = (F - 1) / P` full endpoint segments and
+`tail = (F - full * P) - 1` samples in the final partial segment. The first
+sample is always the initial value. For codecs `0..13`, each full segment
+then emits `group` integer intermediate values followed by its endpoint; the
+tail emits `tail - 1` intermediates followed by its endpoint. Streams are
+stored part-major and channel-major: all six channel streams for part 0,
+then all six for part 1, and so on. A decoder should preserve the original
+16-bit bit patterns and wrap/truncate each emitted result to `int16_t`.
+
+The final partial segment uses the same integer interpolation, with signed
+division truncating toward zero as in the original C/C++ implementation.
+Packed delta streams consume the ceiling of the number of bits used; the
+decoder returns the next byte when a stream ends mid-byte. Replaying the
+decompiled decoder independently against all 218 indexed streams consumed
+exactly 19 × 6 channels for every animation, exercised every codec nibble
+`0..15`, and ended at `0x939b2`, exactly two bytes before the tag boundary
+`0x939b4`. Those final two bytes are padding/trailer, not another animation.
+
+The pose math uses the same fixed-point conventions as the packet data:
+rotation shorts convert as `angle * (2*pi / 4096)`, matrix identity is
+`0x1000`, and matrix/vector products shift right by 12. This is enough to
+reproduce local matrices and hierarchy composition while intentionally
+leaving model polygon decoding and renderer behavior to the model/renderer
+sessions.
+
 ## Runtime check
 
 The controlled headless sessions verified the input harness separately:
@@ -218,11 +343,22 @@ writing Return/Space/Pad2 scan-code bytes at the keyboard state buffer caused
 `PCInput_BuildActionMask` (`0x004e42c0`) to produce action mask `0x40`, and
 the frontend advanced through `MAIN_MENU`, `CAREER_SELECT`, and
 `SKATER_SELECT`; earlier attempts also reached `LEVEL_SELECT`. The bounded
-automated runtime attempts did not reach a stable gameplay frame with the
-animation watchpoints armed, so no runtime watchpoint trace of
-`player+0xf6/+0xf4/+0x104/+0x108` is claimed. The selector and timing writes
-above are exact static writes, and the state-specific callers are reproducible
-in the retail image.
+automated sessions then launched Warehouse and hit the real player object at
+`0x05f39530`. A breakpoint on `RunAnim` filtered to the global player pointer
+observed startup ID `94`, idle requests for ID `0`, the crouch-turn request
+`8, 0, 26, 19`, and the live transition IDs `4` and `5`. A longer run also
+observed the push sequence `1 → 3 → 0` with `+0x108 = 0x14000` during the
+fast push, followed by repeated idle/push cycles; normal ticks showed
+`+0xf4/+0x104` changing on that same object while `+0x108` remained at
+`0x10000` outside the fast push. This directly confirms that the static
+cursor fields are live gameplay state, not dead code or a menu-only object.
+
+The injected accept-key schedule did not yet produce a clean left/right
+steering interval in the same trace, so no runtime turn-ID claim is made. The
+static selector still directly requests IDs `6`/`7` (and `9`/`10` for crouch),
+and the existing Warehouse input evidence independently confirms the Left and
+Right action bits. This is a bounded harness limitation, not an unresolved
+selection or pose-path issue.
 
 ## C++ recreation contract
 
@@ -237,7 +373,7 @@ struct AnimationCursor {
     std::uint8_t  mode;        // +0xf8
     std::int8_t   direction;   // +0x100: -1, 0, +1
     std::int8_t   endpoint;    // +0x101
-    std::int8_t   transition;  // +0x102
+    std::int8_t   alternate_endpoint; // +0x102
     std::uint8_t  frame_count; // +0x106
     bool           finished;   // +0x107
     std::int16_t   request_start; // +0x114
@@ -248,17 +384,20 @@ Keep the cursor, animation-table/resource binding, and skeleton pose cache as
 separate C++ objects even if a compatibility layer later packs them into the
 retail object layout. The required operations are:
 
-* `request(id, start, end, transition)`: validate against the selected part
-  set, substitute `frame_count-1` for `-1`, clamp endpoints, reset fraction,
-  set direction, and mark equal-endpoint requests finished;
+* `request(id, start, end, alternate_endpoint)`: validate against the selected
+  part set, substitute `frame_count-1` for `-1`, clamp endpoints, reset
+  fraction, set direction, and mark equal-endpoint requests finished. On a
+  mode-0/2 endpoint, swap `endpoint` with `alternate_endpoint` and negate
+  direction when the latter is non-negative.
 * `cycle(id, direction)`: select the ID, set mode `1`, start at frame zero,
   reset fraction, and clear finished;
 * `advance(global_scale)`: add or subtract
   `(rate * global_scale) >> 8` to the 16.16 `(frame << 16)|fraction`
   accumulator, then apply the mode's endpoint rule;
 * `decode_pose()`: if ID/frame changed, decode the selected frame into local
-  part transforms, blend neighboring keys as the original does, and compose
-  parents in the cached calculation order;
+  part transforms, apply the resource's key-spacing interpolation, and compose
+  parents in the cached calculation order. For the extracted skater resource,
+  the key-spacing high word is zero, so this is a direct per-frame sample.
 * `bind_parts()`: match animation and model part names and build the
   animation-part→model-part order map before exposing the pose to rendering.
 
@@ -268,7 +407,7 @@ visual tests:
 1. `RunAnim` initialization, `CycleAnim`, `-1` endpoint substitution, clamping,
    equal-frame completion, and the invalid-ID fallback behavior.
 2. 16.16 advancement at rates `0x10000` and `0x14000`, including forward,
-   reverse, stop, cycle, ping-pong, and endpoint-transition cases.
+   reverse, stop, cycle, ping-pong, and endpoint-swap cases.
 3. Steering target-frame convergence using the exact 1/3/5 step thresholds,
    including direct `+0xf4` writes and equal-frame requests.
 4. Push sequence `1 → 3 → 0`, idle restoration, and the absence of an
@@ -280,7 +419,5 @@ visual tests:
 
 ## Open questions / falsifiers
 
-* A future gameplay trace should watch `player+0xf6`, `+0xf4`, `+0x104`, and `+0x108` while separately forcing idle, straight push/roll, and left/right steering. It should show ID changes at the selector wrappers and frame-only changes in `0x00480950` between requests.
-* The precise meaning of request byte `+0x102` remains intentionally unresolved; static code proves it can replace the endpoint and reverse direction but not the higher-level blend policy.
 * A gameplay trace can still confirm whether a concrete level ever selects a distinct straight-roll ID, and can identify which derived vtable callbacks are active for a concrete player object. The base `CSuper` callbacks observed statically are no-ops, so this is not a blocker for the pose path already established.
 * If a gameplay trace shows a distinct roll animation ID under straight motion, the “stable ID 0 after push” statement should be narrowed to the tested grounded path; it does not affect the selection/current/time/pose pipeline.
