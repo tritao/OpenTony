@@ -1444,8 +1444,9 @@ inline bool camera_mode25_condition(
 // tripod-local offset, then calls Camera_FollowTarget once more before the
 // common commit tail.  The matrix transform producing the optional vector is
 // 0x004e85a0 over the linked tripod's +0x2e58 short basis and the local
-// vector (0, 0, -0x1000).  Keep that producer result injectable until the
-// tripod/runtime ownership is independently promoted.
+// vector (0, 0, -0x1000). Keep the tripod-owned scalar, basis, and already
+// transformed result as explicit inputs until tripod/runtime ownership is
+// independently promoted.
 struct CameraAlternateFollowInputRaw {
     bool tripod_present{};
     Raw tripod_physics_state{};       // tripod +0x30b8
@@ -1455,6 +1456,8 @@ struct CameraAlternateFollowInputRaw {
     Raw tripod_scalar_raw{};             // tripod +0x50
     bool transformed_offset_valid{};
     Q16Vec3 transformed_offset{};     // result of 0x004e85a0
+    bool tripod_basis_valid{};
+    std::array<std::int16_t, 9> tripod_basis_q12{}; // tripod +0x2e58
 };
 
 struct CameraAlternateFollowResultRaw {
@@ -1542,17 +1545,29 @@ inline CameraAlternateFollowResultRaw apply_camera_mode25_alternate(
         result.retained_mode25 = true;
     }
 
-    // The retail +0x4a9 guard controls this vector path.  The caller supplies
-    // the already-transformed vector so the camera contract does not invent a
-    // matrix scale or a tripod object layout at this boundary.
-    if (camera.transform_fallback != 0 && input.transformed_offset_valid) {
-        camera.mode_vector = input.transformed_offset;
+    // The retail +0x4a9 guard controls this vector path.  Prefer the raw
+    // tripod basis when available and retain the already-transformed input as
+    // a compatibility seam for callers that own 0x004e85a0.  The local input
+    // is (0, 0, -0x1000), and the helper uses its camera-callsite row order
+    // (matrix rows 1, 2, 0) with x87 truncation rather than SAR.
+    Q16Vec3 transformed_offset{};
+    bool transformed_offset_valid = input.transformed_offset_valid;
+    if (input.tripod_basis_valid) {
+        const auto transformed = camera_transform_matrix_q12_trunc(
+            input.tripod_basis_q12, {0, 0, -0x1000});
+        transformed_offset = {transformed.x, transformed.y, transformed.z};
+        transformed_offset_valid = true;
+    } else if (input.transformed_offset_valid) {
+        transformed_offset = input.transformed_offset;
+    }
+    if (camera.transform_fallback != 0 && transformed_offset_valid) {
+        camera.mode_vector = transformed_offset;
         camera.history_b = {
-            shift_left_12(input.transformed_offset.x),
-            shift_left_12(input.transformed_offset.y),
-            shift_left_12(input.transformed_offset.z),
+            shift_left_12(transformed_offset.x),
+            shift_left_12(transformed_offset.y),
+            shift_left_12(transformed_offset.z),
         };
-        camera.history_a = input.transformed_offset;
+        camera.history_a = transformed_offset;
         result.transformed_offset_applied = true;
     }
     return result;

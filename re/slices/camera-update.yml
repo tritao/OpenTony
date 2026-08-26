@@ -22,7 +22,7 @@ artifacts:
     - tests/test_camera_system.py
 
 open_questions:
-  - Confirm helper-owned fields and any mode-specific reinterpretations beyond the direct update-body audit; mode-25 scalar fields are now wired but still need live producer values.
+  - Capture live mode-25 scalar/basis producer values; the camera-side arithmetic, helper ordering, and probe inputs are now wired.
   - Separate the update mode and state branches without guessing semantic names.
   - Establish the target, anchor, smoothing, and viewport relationships.
   - Determine which recovered behavior belongs in the existing native camera math boundary.

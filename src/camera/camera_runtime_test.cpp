@@ -46,6 +46,47 @@ int main() {
     assert(runtime.state().mode == 25);
     assert(second.current_transform.w != 0);
 
+    CameraStateRaw alternate_basis;
+    alternate_basis.mode = 25;
+    alternate_basis.transform_fallback = 1;
+    CameraAlternateFollowInputRaw alternate_basis_input{};
+    alternate_basis_input.tripod_present = true;
+    alternate_basis_input.tripod_physics_state = 1;
+    alternate_basis_input.tripod_follow_offset_y_raw = 0x65;
+    alternate_basis_input.tripod_basis_valid = true;
+    alternate_basis_input.tripod_basis_q12 = {
+        0x1000, 0, 0,
+        0, 0, 0x1000,
+        0, 0x1000, 0,
+    };
+    const auto alternate_basis_result = apply_camera_mode25_alternate(
+        alternate_basis, alternate_basis_input);
+    assert(alternate_basis_result.transformed_offset_applied);
+    assert(alternate_basis.mode_vector.x == -0x1000);
+    assert(alternate_basis.mode_vector.y == 0);
+    assert(alternate_basis.mode_vector.z == 0);
+    assert(alternate_basis.history_b.x == -0x1000 * 0x1000);
+
+    CameraStateRaw alternate_scalar;
+    alternate_scalar.mode = 25;
+    alternate_scalar.alternate_counter_raw = 1;
+    alternate_scalar.alternate_phase_a_raw = 5;
+    alternate_scalar.alternate_phase_b_raw = 3;
+    alternate_scalar.alternate_shared_angle_raw = 0x1200;
+    alternate_scalar.anchor_target.y = 1000;
+    CameraAlternateFollowInputRaw alternate_scalar_input{};
+    alternate_scalar_input.tripod_present = true;
+    alternate_scalar_input.tripod_physics_state = 1;
+    alternate_scalar_input.tripod_follow_offset_y_raw = 0x65;
+    alternate_scalar_input.tripod_vector_effect_enabled = true;
+    alternate_scalar_input.tripod_scalar_raw = 0x2000;
+    update_camera(
+        alternate_scalar, {}, {}, {}, {}, {}, {}, alternate_scalar_input);
+    assert(alternate_scalar.alternate_counter_raw == 2);
+    assert(alternate_scalar.alternate_integrator_raw == -6);
+    assert(alternate_scalar.alternate_shared_angle_raw == 0x1fe);
+    assert(alternate_scalar.anchor_target.y == 994);
+
     CameraRuntime point_runtime;
     point_runtime.reset(target, 23);
     CameraModeInputRaw point{};

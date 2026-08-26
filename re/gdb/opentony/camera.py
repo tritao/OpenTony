@@ -69,6 +69,9 @@ FRAMING_GLOBAL_Z = 0x0055F978
 # Mode-25's scalar path adjusts this shared angle before its second follow
 # call. Keep it separate from camera +0x5b4 and the framing tuple above.
 ALTERNATE_SHARED_ANGLE = 0x00524A94
+TRIPOD_ALTERNATE_SCALAR_OFFSET = 0x50
+TRIPOD_ALTERNATE_BASIS_OFFSET = 0x2E58
+TRIPOD_ALTERNATE_VECTOR_GATE_OFFSET = 0x31EC
 # 0x00468b30 produces the Q8 rate consumed by Camera_Update on the following
 # iteration. Keep the timing state raw so the producer/consumer delay can be
 # checked against the present-clocked camera records.
@@ -361,6 +364,14 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_distance_sample_offset"] = _words(
             memory, tripod + 0x4C, 3)
         record["tripod_follow_offset"] = _words(memory, tripod + 0x310C, 3)
+        record["tripod_mode25_input"] = {
+            "scalar_raw": _optional_s32(
+                memory, tripod + TRIPOD_ALTERNATE_SCALAR_OFFSET),
+            "vector_effect_gate": _optional_u32(
+                memory, tripod + TRIPOD_ALTERNATE_VECTOR_GATE_OFFSET),
+            "basis_q12": _s16_array(
+                memory, tripod + TRIPOD_ALTERNATE_BASIS_OFFSET, 9),
+        }
         record["tripod_physics_state"] = memory.u32(tripod + 0x30B8)
         record["tripod_behavior_flag"] = memory.u32(tripod + 0x2F64)
         record["tripod_effect_gate"] = memory.u32(tripod + 0x2DDC)
@@ -370,6 +381,7 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_position"] = None
         record["tripod_distance_sample_offset"] = None
         record["tripod_follow_offset"] = None
+        record["tripod_mode25_input"] = None
         record["tripod_physics_state"] = None
         record["tripod_behavior_flag"] = None
         record["tripod_effect_gate"] = None

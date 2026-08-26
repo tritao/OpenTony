@@ -63,7 +63,7 @@ functions:
       - src/camera/camera_runtime_test.cpp
     evidence:
       - re/evidence/functions/camera-system.md
-    notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, normal-follow tick increment, and the mode-25 scalar/shared-angle producer boundary; transformed-vector producer inputs and live mode-25 scalar coverage remain excluded.
+    notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, normal-follow tick increment, mode-25 scalar/shared-angle ordering, and the reviewed raw tripod-basis transform; live mode-25 scalar/basis coverage remains excluded.
 
   - address: 0x00496060
     name: Skater_PositionWritePath
