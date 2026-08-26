@@ -48,6 +48,9 @@ struct CameraStateRaw {
     std::uint32_t death_camera_tick{}; // camera +0x570
     Q16Vec3 death_target_position{};    // camera +0x574..+0x57c
     Q16Vec3 death_start_position{};     // camera +0x594..+0x59c
+    std::uint32_t point_camera_tick{};  // camera +0x55c
+    Q16Vec3 point_start_position{};     // camera +0x564..+0x56c
+    std::uint8_t point_acceleration_flag{}; // camera +0x560
     std::uint32_t follow_distance_counter{};
     std::uint32_t follow_preparation_counter{};
     // Camera +0x5d8. This is an effect-ramp counter, not the follow
@@ -413,6 +416,55 @@ inline CameraDeathPositionResultRaw advance_camera_death_position(
     return {
         camera.position, camera.death_camera_tick,
         false, true, false};
+}
+
+struct CameraPointPositionResultRaw {
+    Q16Vec3 position{};
+    std::uint32_t tick{};
+    bool completed{};
+};
+
+// Camera_PointMode 0x00410f70 uses the same raw vector filter family for its
+// position sequence. The recovered path divides the start-target delta by
+// 0x82, multiplies by the current +0x55c tick, subtracts from the start
+// position, and advances the tick by one (or six after the late acceleration
+// flag is set). The point-table producer remains outside this value contract.
+inline CameraPointPositionResultRaw advance_camera_point_position(
+    CameraStateRaw& camera,
+    const Q16Vec3& point_target_position,
+    const Q16Vec3& point_start_position,
+    bool late_acceleration_enabled,
+    Raw duration = 0x82) {
+    if (camera.point_camera_tick > static_cast<std::uint32_t>(duration)) {
+        camera.mode = 1;
+        return {camera.position, camera.point_camera_tick, true};
+    }
+    if (camera.point_camera_tick == 0) {
+        camera.point_start_position = point_start_position;
+    }
+    const Q16Vec3 delta = subtract_q16(
+        camera.point_start_position, point_target_position);
+    const Q16Vec3 per_tick{
+        divide_toward_zero(delta.x, duration),
+        divide_toward_zero(delta.y, duration),
+        divide_toward_zero(delta.z, duration),
+    };
+    const Q16Vec3 offset{
+        multiply_s32(per_tick.x,
+                     static_cast<Raw>(camera.point_camera_tick)),
+        multiply_s32(per_tick.y,
+                     static_cast<Raw>(camera.point_camera_tick)),
+        multiply_s32(per_tick.z,
+                     static_cast<Raw>(camera.point_camera_tick)),
+    };
+    camera.position = subtract_q16(camera.point_start_position, offset);
+    if (camera.point_camera_tick > 10 && late_acceleration_enabled) {
+        camera.point_acceleration_flag = 1;
+    }
+    const Raw increment = camera.point_acceleration_flag != 0 ? 6 : 1;
+    camera.point_camera_tick = static_cast<std::uint32_t>(add_s32(
+        static_cast<Raw>(camera.point_camera_tick), increment));
+    return {camera.position, camera.point_camera_tick, false};
 }
 
 // Stateful adapter for the four camera-owned effect counters at

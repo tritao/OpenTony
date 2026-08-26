@@ -135,6 +135,40 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 28;
                 }
 
+                CameraStateRaw point;
+                point.mode = 21;
+                const Q16Vec3 point_start{0x82000, 0, 0};
+                const Q16Vec3 point_target{0, 0, 0};
+                const auto point_first = advance_camera_point_position(
+                    point, point_target, point_start, false);
+                if (point_first.completed
+                    || point_first.tick != 1
+                    || point.position.x != point_start.x
+                    || point.point_start_position.x != point_start.x) {
+                    return 29;
+                }
+                point.point_camera_tick = 10;
+                const auto point_regular = advance_camera_point_position(
+                    point, point_target, point_start, false);
+                if (point_regular.tick != 11
+                    || point.position.x != 0x78000
+                    || point.point_acceleration_flag != 0) {
+                    return 30;
+                }
+                const auto point_accelerated = advance_camera_point_position(
+                    point, point_target, point_start, true);
+                if (point_accelerated.tick != 17
+                    || point.position.x != 0x77000
+                    || point.point_acceleration_flag != 1) {
+                    return 31;
+                }
+                point.point_camera_tick = 0x83;
+                const auto point_done = advance_camera_point_position(
+                    point, point_target, point_start, true);
+                if (!point_done.completed || point.mode != 1) {
+                    return 32;
+                }
+
                 camera.history_a = {0x200, 0, 0};
                 camera.mode_vector = {0x100, 0, 0};
                 update_camera_history(camera, {}, true);

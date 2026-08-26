@@ -197,6 +197,31 @@ fields:
     name: death_camera_tick
     type: u32
     confidence: observed
+  - offset: 0x574
+    name: death_target_position_q16
+    type: q16_16_vector3
+    confidence: provisional
+    description: selected death-camera destination consumed by the fixed-point position interpolation
+  - offset: 0x55c
+    name: point_sequence_tick
+    type: u32_raw
+    confidence: observed
+    description: camera-point sequence tick used by Camera_PointMode
+  - offset: 0x560
+    name: point_acceleration_flag
+    type: u8
+    confidence: observed
+    description: late camera-point sequence flag that changes the tick increment from one to six
+  - offset: 0x564
+    name: point_start_position_q16
+    type: q16_16_vector3
+    confidence: provisional
+    description: latched point-sequence start position used by the fixed-point interpolation path
+  - offset: 0x594
+    name: death_start_position_q16
+    type: q16_16_vector3
+    confidence: provisional
+    description: tripod position latched at death-camera tick zero
   - offset: 0x5d8
     name: smoothing_counter_a
     type: integer_candidate

@@ -204,6 +204,7 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 |---|---|---|---|
 | `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. | inferred |
 | `0x00410c90` | `Camera_DeathMode` | Requires a tripod, latches its position at tick `+0x570 == 0`, interpolates toward the selected death position for ticks `0..30`, then writes mode `1`; also interpolates the death transform through the shared Q12 helpers. | medium; position contract is statically exact, transform producer remains partial |
+| `0x00410f70` | `Camera_PointMode` | Initializes the point-sequence state, builds a Q12 orientation sequence, interpolates position over duration `0x82` using `+0x55c`, optionally advances by six ticks after the late flag, and returns to mode `1` after the duration. | medium for the fixed-point position sequence; point-table producer remains partial |
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
 | `0x00411f30` | `Camera_RegisterPoint` | Appends a point ID to `DAT_0055fa58`, with a maximum of `0x46` entries. | observed |
 | `0x0040bd40` | `Camera_Shake` | Selects shake parameter sets by `EShakeType` and applies them to camera effect objects. | inferred |
@@ -232,6 +233,24 @@ state. Static callers are the mode-dispatch target `0x0041001b` from
 `Camera_Update 0x0040f850`; the position fixture covers ticks 0, 1, 30, 31,
 and the missing-tripod diagnostic path. No live death-mode trace has yet been
 captured, so the dynamic mode transition remains an explicit validation item.
+
+The point-position sub-contract is represented by
+`advance_camera_point_position`:
+
+```text
+delta = (point_start - point_target) / 0x82
+position = point_start - delta * point_tick
+point_tick += (point_acceleration_flag ? 6 : 1)
+if point_tick > 0x82: mode = 1
+```
+
+Static evidence for the duration and late increment is the instruction path at
+`0x00410f70` (`cmp tick, 0x82`, then `+1` or `+6` after the global late flag).
+Its orientation path calls `0x004a98c0`, `0x004a9820`, `0x004a9870`, two
+`0x004a9650` compositions, `0x0040e060`, and `0x004a9bf0`. The native fixture
+covers regular, accelerated, and completion ticks. The selected point-table
+lookup and the initial mode-23 setup still require a runtime point/camera
+trace before they should be folded into the default update path.
 
 ## Camera fields currently safe to expose in C++
 
