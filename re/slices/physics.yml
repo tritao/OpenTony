@@ -1,0 +1,24 @@
+version: 1
+id: physics
+subsystem: physics
+status: planned
+
+scope:
+  functions:
+    - 0x00497f40
+  types: []
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/physics-states.md
+  native:
+    - re/native/functions.yml
+  tests:
+    - tests/test_native_progress.py
+
+open_questions:
+  - Move the in-air native boundary into a dedicated active physics slice when its remaining state policy is selected.
+
+completion:
+  - The existing native mapping has a manifest owner without changing the physics implementation.

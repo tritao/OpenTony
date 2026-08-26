@@ -480,3 +480,348 @@ functions:
     evidence:
       - re/evidence/functions/custom-park-runtime.md
     notes: Native custom-park finalization seam publishes Q12 0x4c objects and paired 0x58 gap members while leaving source-model translation explicit.
+
+  - address: 0x004a8ee0
+    name: PRE_CreateManager
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Native manager preserves the observed 0x144 allocation and sixteen loaded-container slots as value-owned state.
+
+  - address: 0x004a9000
+    name: PRE_InitializeManager
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Empty construction is the native equivalent of zeroing the sixteen payload/name slots before the first load.
+
+  - address: 0x004a90f0
+    name: PRE_Load
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Direct file loading retains one parsed, value-owned PRE buffer under the bounded manager name.
+
+  - address: 0x004a9110
+    name: PRE_LoadIntoSlot
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Byte-buffer loading models the post-file-I/O slot handoff without fabricating the platform allocator or asynchronous handle.
+
+  - address: 0x004a9410
+    name: PRE_FindEmbeddedResource
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+      - src/assets/pre_asset.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Native lookup scans loaded containers in slot/entry order and returns a bounded payload view into the owning archive.
+
+  - address: 0x004a9480
+    name: PRE_FindEntryInBuffer
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_asset.hpp
+      - src/assets/pre_asset.cpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Native PRE record walking retains the independent name/payload 4-byte alignment and returns the exact payload span.
+
+  - address: 0x004a9330
+    name: PRE_Unload
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/pre_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+    notes: Case-insensitive unload releases the owning archive and makes subsequent embedded views unavailable.
+
+  - address: 0x0044ada0
+    name: Font_Load
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/fnt_asset.hpp
+      - src/assets/fnt_asset.cpp
+      - src/assets/pre_runtime.hpp
+      - src/assets/pre_runtime.cpp
+    tests:
+      - src/assets/fnt_asset_test.cpp
+    evidence:
+      - re/evidence/functions/font-runtime.md
+      - re/evidence/functions/pre-runtime.md
+    notes: Native direct and PRE-embedded paths copy the resource payload into the runtime font before the container lifetime can affect it.
+
+  - address: 0x0044aea0
+    name: Font_Create
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/fnt_asset.hpp
+      - src/assets/fnt_asset.cpp
+    tests:
+      - src/assets/fnt_asset_test.cpp
+    evidence:
+      - re/evidence/functions/font-runtime.md
+    notes: Native eight-slot manager constructs one parsed runtime font and retains the source/atlas products needed by the text boundary.
+
+  - address: 0x00449cd0
+    name: Font_Parse
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/fnt_asset.hpp
+      - src/assets/fnt_asset.cpp
+    tests:
+      - src/assets/fnt_asset_test.cpp
+    evidence:
+      - re/evidence/functions/font-runtime.md
+    notes: Native parser preserves the count, 0x10-byte records, 0x20-byte palette, packed tail, compact entry bytes, and sentinel entry.
+
+  - address: 0x0044b000
+    name: Font_Find
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/fnt_asset.hpp
+      - src/assets/fnt_asset.cpp
+    tests:
+      - src/assets/fnt_asset_test.cpp
+    evidence:
+      - re/evidence/functions/font-runtime.md
+    notes: Native lookup preserves the bounded eight-slot name table and case-insensitive runtime lookup used by the text view.
+
+  - address: 0x0044b0a0
+    name: Font_Unload
+    slice: fnt-pre-runtime
+    status: tested
+    sources:
+      - src/assets/fnt_asset.hpp
+      - src/assets/fnt_asset.cpp
+    tests:
+      - src/assets/fnt_asset_test.cpp
+    evidence:
+      - re/evidence/functions/font-runtime.md
+    notes: Native unload drops the value-owned parsed font and its modeled glyph/image allocation products from the matching slot; graphics resources remain backend-owned.
+
+  - address: 0x00449030
+    name: FileIO_OpenResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native loader preserves short-name PRE selection and direct/package fallback while returning an owned resource boundary; path normalization remains open.
+
+  - address: 0x004e75b0
+    name: FileIO_BackendOpen
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native backend allocates reusable abstract slots for direct file images or decoded PKR2 payloads without exposing platform handles.
+
+  - address: 0x004e79f0
+    name: FileIO_BackendSeek
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native seek preserves begin/current/end origins and rejects signed overflow or positions outside the owned resource.
+
+  - address: 0x004e7ad0
+    name: FileIO_BackendRead
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native read advances the abstract slot cursor and exposes partial-read versus exact-read failure explicitly.
+
+  - address: 0x004e7bc0
+    name: FileIO_BackendClose
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native close releases slot-owned bytes and permits lowest-free slot reuse; platform descriptor cleanup remains an adapter.
+
+  - address: 0x004e9940
+    name: PKR2_OpenResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+      - src/assets/pkr_asset.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+      - src/assets/pkr_asset_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native package mode resolves one validated PKR2 record and owns its decoded resource bytes through the common handle.
+
+  - address: 0x005013c8
+    name: ResourceStream_Open
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: ResourceStream owns the backend handle through move-safe RAII while leaving the observed 0x38-byte buffer fields as implementation details.
+
+  - address: 0x0050229f
+    name: PKR2_SeekResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Package-stream seek delegates to the same bounded cursor contract as the ordinary backend.
+
+  - address: 0x005022cb
+    name: ResourceStream_SeekState
+    slice: resource-stream-runtime
+    status: modeled
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native stream preserves observable cursor movement but intentionally leaves retail buffer-state flags and refill policy open.
+
+  - address: 0x00502358
+    name: PKR2_ReadResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Package-stream reads use the owned decoded entry and preserve partial-read and exact-read boundaries.
+
+  - address: 0x00502387
+    name: ResourceStream_ReadElements
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native element reads check count-size multiplication, destination extent, and full cursor advancement before handing bytes to parsers.
+
+  - address: 0x00500e7b
+    name: ResourceStream_Close
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Stream destruction/close releases its backend slot exactly once; destructor cleanup is no-throw while explicit backend close reports invalid handles.
+
+  - address: 0x00449230
+    name: FileIO_LoadResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native load copies PRE spans or reads backend handles into caller-owned storage and tears down the active operation on failure.
+
+  - address: 0x00449660
+    name: FileIO_SyncResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native synchronization is an immediate completion adapter that closes the active handle before the owned bytes reach a format parser.
