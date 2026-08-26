@@ -58,6 +58,12 @@ writes raw low-word action masks at the post-poll publish boundary
 record the sequence in the trace; this drives the retail action-state
 consumers without relying on synthetic X/DirectInput keyboard events.
 
+For bounded camera-mode validation, `tony-camera-force-mode MODE [HOLD]`
+writes the raw camera mode at `camera + 0x504` for the requested number of
+camera updates, records the before/after mode, and restores mode `1` on the
+next accepted update. Use it only with a live level and a short trace; it is a
+probe for mode handoffs, not a gameplay-mode implementation.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`

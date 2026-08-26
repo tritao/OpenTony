@@ -15,6 +15,7 @@ from .camera import (
     CameraCollisionProbe,
     CameraCollisionResultProbe,
     CameraEffectProbe,
+    CameraModeOverrideProbe,
     CameraPointSelectProbe,
     CameraPointStateProbe,
     CameraTimingProbe,
@@ -845,6 +846,31 @@ class TonyCameraProbe(gdb.Command):
         _write(f"camera probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyCameraForceMode(gdb.Command):
+    """tony-camera-force-mode MODE [HOLD] -- force a raw camera mode briefly."""
+
+    def __init__(self):
+        super().__init__("tony-camera-force-mode", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-camera-force-mode MODE [HOLD]")
+        if len(values) > 2:
+            raise gdb.GdbError("usage: tony-camera-force-mode MODE [HOLD]")
+        mode = _integer(values[0])
+        hold_updates = _integer(values[1]) if len(values) == 2 else 1
+        if not 1 <= mode <= 25:
+            raise gdb.GdbError("MODE must be between 1 and 25")
+        if hold_updates <= 0:
+            raise gdb.GdbError("HOLD must be positive")
+        probe = CameraModeOverrideProbe(
+            mode, hold_updates, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        _write(
+            f"camera mode {mode} will be written for {hold_updates} "
+            f"update(s), then mode 1 will be restored"
+        )
+
+
 class TonyCameraTimingProbe(gdb.Command):
     """tony-camera-timing-probe [COUNT] -- sample the Q8 camera-rate producer."""
 
@@ -1127,6 +1153,7 @@ def register_commands() -> None:
     TonyFrameClock()
     TonyPhysicsProbe()
     TonyCameraProbe()
+    TonyCameraForceMode()
     TonyCameraTimingProbe()
     TonyCameraPointSelectProbe()
     TonyCameraPointStateProbe()
@@ -1148,7 +1175,8 @@ def register_commands() -> None:
         "tony-action-sequence, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
-        "tony-camera-probe, tony-camera-timing-probe, tony-camera-point-probe, "
+        "tony-camera-probe, tony-camera-force-mode, tony-camera-timing-probe, "
+        "tony-camera-point-probe, "
         "tony-camera-point-state-probe, "
         "tony-camera-effects-probe, "
         "tony-view-probe, tony-view-perturb, "

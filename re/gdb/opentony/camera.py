@@ -877,6 +877,52 @@ class CameraProbe(CountingBreakpoint):
         gdb.write(f"camera probe complete: {self.hits} observations\n")
 
 
+class CameraModeOverrideProbe(CountingBreakpoint):
+    """Force one camera-update entry through a selected raw mode."""
+
+    def __init__(self, mode: int, hold_updates: int = 1, writer=None):
+        # The first accepted update gets the requested mode; the following
+        # accepted update restores normal follow so the probe cannot leave the
+        # retail camera permanently altered.  The mode field is camera+0x504.
+        super().__init__(
+            function_address("camera_update"),
+            count=hold_updates + 1,
+            internal=True,
+        )
+        self.mode = mode
+        self.hold_updates = hold_updates
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        camera = ctx.this_ptr()
+        if not ctx.memory.valid(camera):
+            return False
+        original_mode = ctx.memory.u32(camera + 0x504)
+        written_mode = self.mode if self.hits < self.hold_updates else 1
+        ctx.memory.write_u32(camera + 0x504, written_mode)
+        record = camera_record(ctx, camera)
+        record["camera_mode_override"] = {
+            "original_mode": original_mode,
+            "written_mode": written_mode,
+            "requested_mode": self.mode,
+            "hold_updates": self.hold_updates,
+            "sequence_index": self.hits,
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(
+            f"camera mode override complete: mode {self.mode}, "
+            f"hold {self.hold_updates}, observations {self.hits}\n"
+        )
+
+
 class CameraTimingProbe(CountingBreakpoint):
     """Sample the timing/rate producer after it computes the next rate."""
 
