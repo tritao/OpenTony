@@ -27,6 +27,10 @@ def _short_vec(address: int, memory) -> list[int]:
     return [_signed16(memory.u16(address + offset)) for offset in (0, 2, 4)]
 
 
+def _short_words(address: int, count: int, memory) -> list[int]:
+    return [_signed16(memory.u16(address + offset * 2)) for offset in range(count)]
+
+
 def _u32_words(address: int, count: int, memory) -> list[int] | None:
     if not address or not memory.valid(address + count * 4 - 1):
         return None
@@ -164,6 +168,7 @@ class CollisionQueryProbe:
             "query_flags": active["query_flags"],
             "direction_flag": ctx.memory.u8(query + 0x89),
             "query_stamp": ctx.memory.u16(query + 0x8A),
+            "line_basis_s16": _short_words(query + 0x48, 9, ctx.memory),
             "hit": bool(model),
             "model": f"0x{model:08x}" if model else None,
             "contact_raw": _vec_words(query + 0x6C, ctx.memory),

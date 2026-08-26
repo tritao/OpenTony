@@ -86,8 +86,14 @@ PC port's `SLineInfo`-like object rather than an ad-hoc skater-only struct.
 - `0x004624d0` receives one pointer and initializes a query record. The first
   six words are consumed as two three-component fixed-point positions:
   `q+0x00..0x08` and `q+0x0c..0x14`. It computes the displacement, a
-  fixed-point length, direction/transform shorts around `q+0x48..0x58`, and
-  an axis-aligned bounds region at `q+0x18..0x2c`. More precisely, it derives
+  fixed-point length, and a Q12 direction/transform basis at
+  `q+0x48..0x58`. For a vertical-only line the basis is exactly
+  `[0x1000,0,0; 0,0,-s; 0,s,0]`, where `s` is `-0x1000` for a downward
+  line and `+0x1000` otherwise. For a nonvertical line it normalizes the
+  horizontal and total squared lengths, constructs the basis from the
+  horizontal X/Z ratios and vertical ratio, and applies three Q12 matrix
+  multiplies through `0x004e3130`. It then computes an axis-aligned bounds
+  region at `q+0x18..0x2c`. More precisely, it derives
   `q+0x44` as the integer square-root of the squared endpoint delta after
   each component is shifted down by 12 bits. It initializes the nearest
   candidate fields to `0x7fffffff`, clears the hit pointer, and sets the
@@ -106,7 +112,11 @@ PC port's `SLineInfo`-like object rather than an ad-hoc skater-only struct.
   traverses the loaded zone data. It calls `0x004628f0` when the mode is
   nonzero, loops over a zone table with a **`0x660`-byte stride**, rejects
   zones whose bounds do not overlap the query bounds, and passes candidate
-  face lists to `0x004638d0`. It finishes by calling `0x00463d50(q)`.
+  face lists to `0x004638d0`. It finishes by calling `0x00463d50(q)`. In the
+  recovered PC control flow the local zone index starts at zero and the
+  post-pass increment returns after the first entry; the generic stride
+  arithmetic is present, but this query routine normally consumes the active
+  zone entry at index zero rather than scanning an unbounded list.
 
 ### Level/scene data entering the path
 
@@ -121,9 +131,11 @@ the wrapper; the query does not parse a file on each call.
   table. Per-zone bounds are read from `entry+0x84`, `+0x88`, `+0x8c`, and
   `+0x90`; `entry+0x94` is used as the grid-cell divisor and signed values at
   `+0x9c/+0x9e` adjust cell coordinates. The candidate-list table at
-  `DAT_00567fa0` is addressed in a separate per-zone group whose stride is
-  `51 * 8 = 0x198` entries/bytes-of-index-space; that is the source of the
-  earlier `0x198` observation, not the zone-record stride.
+  `DAT_00567fa0` is addressed with the exact index expression
+  `zone*0x198 + cell_x*0x14 + cell_z`, then multiplied by four for a pointer
+  load. Thus `0x198` is a stride in 32-bit candidate-pointer entries, and the
+  resulting address stride is also `0x660` bytes. It is not a 0x198-byte
+  zone-record stride and should not be described as `51*8` bytes.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are
@@ -275,7 +287,35 @@ the wrapper; the query does not parse a file on each call.
 - The alternate model path `0x00463e50` contains the diagnostic
   `Collision check on a model with normals` and calls `0x004f4b00` and
   `0x004f4c50`; it is a reusable oriented/dynamic-object branch underneath
-  the same scene traversal, not a replacement for the triangle path.
+  the same scene traversal, not a replacement for the triangle path. The
+  linked-object path is now constrained further:
+
+  - `0x004628f0` copies q's 3x3 short basis, calls `0x004f43e0` to cull a
+    linked-object list, then follows each object through `node+0x20`. A node
+    is visited once per q stamp (`node+0x06`) and enters `0x00463e50`.
+  - `0x004f43e0` reads each object's fixed-point origin at `+0x08..0x10`,
+    collision flags at `+0x04`, model kind/index at `+0x1f/+0x1a`, and
+    optional Euler/rotation shorts at `+0x14..0x18`. It calls
+    `0x004f4130`/`0x004f4240` for object-space broad-phase culling before the
+    transformed face pass.
+  - `0x00463e50` transforms the query into object/model space and calls
+    `0x004f4b00` to transform all model vertices into a temporary buffer.
+    The returned six-bit clip mask must have `(mask & 0x60f) == 0` before
+    `0x004f4c50` scans faces. The model data layout and face strides are the
+    same as the static path.
+  - `0x004f4c50` applies scene collision masks, reconstructs face vertices
+    from the transformed buffer, performs a cross-product side test, and
+    writes the same q hit body/contact/face/model-index fields. Its nearest
+    comparison is against `q+0x40` (traveled distance), whereas the static
+    `0x00462a20` path compares the `0x4000` segment parameter at `q+0x8c`.
+    This is a real behavioral distinction, not just a decompiler naming
+    artifact.
+  - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
+    from the object rotation at `body+0x14`, applying it to the cached model
+    normal at `DAT_00564390/94/98`, and writing the three signed shorts at
+    `q+0x78..0x7c`. The three helpers use one full turn per `0x1000` angle
+    units and compose Y (`0x004e7de0`), X (`0x004e7c60`), then Z
+    (`0x004e7f60`) Q12 rotations. Its return is `1` iff `q+0x68` is nonzero.
 
 ## Physics callsites
 
@@ -404,9 +444,10 @@ wrapper callsite and one in-air hit.
 The probe implementation is tracked in `re/gdb/opentony/collision.py` and is
 registered as `tony-collision-probe`; it records the wrapper `mode`,
 `start_raw`, `end_raw`, hit, contact, normal shorts, model/face pointers, face
-flags, line length, hit parameter, traveled distance, query stamp, and the
-query-record mode bytes. The two later phase attempts were stopped before
-level physics settled and are not used as evidence.
+flags, line length, hit parameter, traveled distance, query stamp, the nine
+short basis values at `q+0x48`, and the query-record mode bytes. The two later
+phase attempts were stopped before level physics settled and are not used as
+evidence.
 
 ## Interpretation
 
@@ -434,7 +475,15 @@ The compile-only reference at
 of that API without fabricating the unresolved zone/model format. It provides:
 
 - x86-compatible arithmetic-shift and signed-truncation helpers;
-- query preparation of bounds, integer line length, and hit sentinels;
+- the explicit `0x90`-byte query-record ABI view, conversion to/from the
+  semantic `QueryRecord`, and query preparation of bounds, integer line
+  length, hit sentinels, and the recovered Q12 basis;
+- little-endian model-data and variable-length face views, including vertex
+  and normal lookup, face stride/index decoding, raw scene-mask filtering,
+  cache-compatible face-AABB generation, and a reusable `query_model_faces`
+  primitive;
+- zone bounds overlap, candidate-table indexing, and the integer 2-D grid
+  DDA used to visit candidate lists;
 - model-local plane gating and the recovered triangle/quad oriented triple
   products from the x87 face predicate;
 - the `0x4000` segment parameter, interpolated contact, and traveled-distance
@@ -444,9 +493,13 @@ of that API without fabricating the unresolved zone/model format. It provides:
 
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact
-contact point) plus nearest-hit replacement and flag decoding. This is a
-reference math/record layer, not a claim that the complete C++ level query is
-implemented; the scene traversal remains the next engine-specific layer.
+contact point), the raw query layout, both line-basis branches, synthetic
+model-face traversal, candidate filtering, zone indexing, and a horizontal
+grid walk. This is a reference query layer rather than a complete level-file
+loader: the remaining engine-specific work is wiring loaded zone lists and
+the linked-object cache and temporary transformed-vertex buffer into these
+interfaces. The Q12 object-angle basis used by normal finalization is now
+covered by `build_object_rotation_basis`.
 
 ## Open questions / falsifiers
 

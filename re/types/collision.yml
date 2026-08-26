@@ -159,12 +159,13 @@ types:
   - name: SLineInfo
     aliases:
       - CollisionLineQuery
-    size: 0x94
+    size: 0x90
     confidence: provisional
     description: >-
       Caller-owned fixed-point line-query record used by the PC collision
       path. The original PSX symbol database names the corresponding family
-      SLineInfo/SHit; the PC packing beyond the observed fields remains open.
+      SLineInfo/SHit; the observed PC fields occupy 0x90 bytes, with explicit
+      unknown gaps retained in the native layout view.
     fields:
       - offset: 0x00
         name: start_x
@@ -241,8 +242,8 @@ types:
       - offset: 0x48
         name: line_basis
         type: int16[3][3]
-        confidence: inferred
-        description: short direction/orientation basis used by model paths
+        confidence: observed
+        description: short Q12 direction/orientation basis built by 0x004624d0
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x68
         name: hit_body
