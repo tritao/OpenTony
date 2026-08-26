@@ -47,6 +47,7 @@ sys.modules["knowledge"] = generated_knowledge
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import (
+    camera_effect_record,
     CameraPositionTransformProbe,
     CameraProbe,
     ViewProjectionProbe,
@@ -326,6 +327,12 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert record["tripod_behavior_flag"] == 2
     assert record["tripod_effect_gate"] == 1
     assert record["tripod_effect_transform_gate"] == 3
+    effect_record = camera_effect_record(context)
+    assert effect_record["function"] == "Camera_ApplyEffects"
+    assert effect_record["tripod_physics_state"] == 4
+    assert effect_record["tripod_effect_gate"] == 1
+    assert effect_record["tripod_effect_transform_gate"] == 3
+    assert effect_record["raw_fields"]["0x5d8"]["s32"] == [0]
 
 
 def test_camera_probe_samples_this_pointer_and_writes_trace_event():

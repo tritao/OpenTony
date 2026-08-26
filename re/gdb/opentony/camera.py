@@ -35,6 +35,14 @@ def _field_words(memory, camera: int, offset: int, count: int = 1):
     return _words(memory, camera + offset, count)
 
 
+def _optional_u32(memory, address: int) -> int | None:
+    return memory.u32(address) if memory.readable(address, 4) else None
+
+
+def _optional_s32(memory, address: int) -> int | None:
+    return memory.s32(address) if memory.readable(address, 4) else None
+
+
 def _raw_block(memory, address: int, size: int) -> dict | None:
     """Capture a pointed-to block without making its layout part of the probe API."""
 
@@ -182,6 +190,51 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_effect_transform_gate"] = None
         record["tripod_unknown_state"] = None
     return record
+
+
+def camera_effect_record(ctx: Context) -> dict:
+    """Capture the raw state consumed by Camera_ApplyEffects 0x0040c370."""
+
+    memory = ctx.memory
+    camera = ctx.this_ptr()
+    tripod = memory.u32(camera + 0x3A4)
+    effect_offsets = (0x4D4, 0x4DC, 0x4E0, 0x4E8, 0x530, 0x532,
+                      0x534, 0x536, 0x538, 0x540, 0x542, 0x544,
+                      0x546, 0x548, 0x550, 0x554, 0x558, 0x5D8,
+                      0x5DC, 0x5E0, 0x5E4, 0x63C, 0x670)
+    return {
+        "type": "camera_effects",
+        "frame": ctx.frame,
+        "function": "Camera_ApplyEffects",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "camera": f"0x{camera:08x}",
+        "mode": memory.u32(camera + 0x504),
+        "update_tick": memory.u32(camera + 0x510),
+        "follow_state_flag": memory.u8(camera + 0x418),
+        "follow_transition_active": memory.u8(camera + 0x5D4),
+        "tripod": f"0x{tripod:08x}" if tripod else None,
+        "tripod_physics_state": memory.u32(tripod + 0x30B8)
+        if tripod and memory.valid(tripod)
+        else None,
+        "tripod_effect_gate": memory.u32(tripod + 0x2DDC)
+        if tripod and memory.valid(tripod)
+        else None,
+        "tripod_effect_transform_gate": memory.u32(tripod + 0x2C68)
+        if tripod and memory.valid(tripod)
+        else None,
+        "global_guards": {
+            "effects_disabled": _optional_u32(memory, 0x00561C04),
+            "camera_effects_disabled": _optional_u32(memory, 0x0056A8E0),
+            "render_effects_disabled": _optional_u32(memory, 0x0056A86C),
+            "global_override": _optional_u32(memory, 0x0055FA30),
+        },
+        "vertical_effect_q16": _optional_s32(memory, 0x0055F94C),
+        "raw_fields": {
+            f"0x{offset:03x}": _field_words(memory, camera, offset)
+            for offset in effect_offsets
+        },
+    }
 
 
 def view_projection_record(ctx: Context) -> dict:
@@ -345,6 +398,30 @@ class CameraProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"camera probe complete: {self.hits} observations\n")
+
+
+class CameraEffectProbe(CountingBreakpoint):
+    """Sample the gameplay/effect producer boundary inside the camera path."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("camera_effects"), count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        camera = ctx.this_ptr()
+        if not ctx.memory.valid(camera):
+            return False
+        record = camera_effect_record(ctx)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera effects probe complete: {self.hits} observations\n")
 
 
 class ViewProjectionProbe(CountingBreakpoint):
