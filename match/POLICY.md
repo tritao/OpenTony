@@ -14,6 +14,10 @@ architecture of OpenTony.
 
 ## Status
 
+Classify a module by its implementation body, not its filename, compiler, or
+build strategy. These definitions are canonical for documentation, manifests,
+tooling, and progress reports:
+
 - `raw`: the complete module is preserved with `incbin`.
 - `hybrid`: a documented prefix or region is readable assembly and the
   remainder is preserved. `reconstructed_size` records only understood source
@@ -26,6 +30,9 @@ architecture of OpenTony.
   no naked inline assembly, and has an explicit matching strategy.
 
 Promotion requires exact module bytes and a byte-identical full PE rebuild.
+Promoting `vc6_asm` to `cpp` additionally requires replacing the naked assembly
+body with typed higher-level code while retaining an exact-byte comparison
+strategy.
 
 ## Exact encodings
 
