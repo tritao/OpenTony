@@ -25,6 +25,46 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (sizeof(TransformedVertexWorkingRecordRaw) != 28) {
                     return 31;
                 }
+                CommonVertexTransformRaw common_transform;
+                common_transform.linear_bits = {
+                    f32_to_bits(1.0f), f32_to_bits(0.000244140625f),
+                    f32_to_bits(-0.001708984375f),
+                    f32_to_bits(-0.000732421875f), f32_to_bits(0.98388671875f),
+                    f32_to_bits(-0.1796875f),
+                    f32_to_bits(0.001220703125f), f32_to_bits(0.1796875f),
+                    f32_to_bits(0.98388671875f),
+                };
+                common_transform.bias_bits = {
+                    f32_to_bits(-641.56201171875f),
+                    f32_to_bits(-1580.8857421875f),
+                    f32_to_bits(2868.30078125f),
+                };
+                common_transform.center_x_bits = f32_to_bits(320.0f);
+                common_transform.center_y_bits = f32_to_bits(240.0f);
+                common_transform.depth_scale_bits = f32_to_bits(384.0f);
+                const CommonVertexViewportEdgesRaw common_viewport{0, 640, 0, 480};
+                const auto common_projection = project_common_vertex(
+                    {0, 1328, 92, 0}, common_transform, common_viewport, 0x800);
+                if (std::fabs(
+                        f32_from_bits(common_projection.record.words[0])
+                        - 242.971054f) > 0.001f
+                    || std::fabs(
+                        f32_from_bits(common_projection.record.words[1])
+                        - 205.074249f) > 0.001f
+                    || std::fabs(
+                        f32_from_bits(common_projection.record.words[2])
+                        - 3197.443359f) > 0.01f
+                    || std::fabs(
+                        f32_from_bits(common_projection.record.words[3])
+                        - 0.120095953f) > 0.000001f
+                    || common_projection.record.words[5] != 0) {
+                    return 32;
+                }
+                const auto common_near_clip = project_common_vertex(
+                    {0, 0, -3000, 0}, common_transform, common_viewport, 0x800);
+                if ((common_near_clip.record.words[5] & 0x10U) == 0) {
+                    return 33;
+                }
                 const auto angles = build_look_angles({0, 0, 0x10000}, {0, 0, 0});
                 if (angles.first != 0 || angles.second != 0x800 || angles.third != 0) {
                     return 1;

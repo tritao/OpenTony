@@ -22,6 +22,13 @@ GEOMETRY_RASTER_RETURN = 0x004D14C7
 VERTEX_TRANSFORM = 0x004D29E0
 VERTEX_TRANSFORM_RETURN = 0x004D2D9E
 TRANSFORMED_VERTEX_SCRATCH = 0x00570878
+# Coefficients and offsets consumed by the ordinary (non-special) packed
+# vertex branch at 0x004d2b93. Keep them raw until the live source/output
+# pairing proves the final screen/depth interpretation.
+COMMON_VERTEX_LINEAR = 0x0056E84C
+COMMON_VERTEX_BIAS = 0x0058F318
+COMMON_VERTEX_PERSPECTIVE = 0x0057E878
+COMMON_VERTEX_PERSPECTIVE_BASE = 0x005808A0
 CAMERA_COLLISION_QUERY = 0x00466090
 CAMERA_COLLISION_RESULT = 0x0040E790
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
@@ -104,12 +111,42 @@ def _field_words(memory, camera: int, offset: int, count: int = 1):
     return _words(memory, camera + offset, count)
 
 
+def _optional_words(memory, address: int, count: int = 1):
+    if not memory.readable(address, count * 4):
+        return None
+    return _words(memory, address, count)
+
+
 def _optional_u32(memory, address: int) -> int | None:
     return memory.u32(address) if memory.readable(address, 4) else None
 
 
 def _optional_s32(memory, address: int) -> int | None:
     return memory.s32(address) if memory.readable(address, 4) else None
+
+
+def _common_vertex_transform_record(memory) -> dict:
+    """Capture raw state consumed by the common vertex-transform branch."""
+
+    return {
+        "linear_rows": [
+            _optional_words(memory, COMMON_VERTEX_LINEAR + row * 0x0c, 3)
+            for row in range(3)
+        ],
+        "bias": _optional_words(memory, COMMON_VERTEX_BIAS, 3),
+        "perspective_factors": _optional_words(
+            memory, COMMON_VERTEX_PERSPECTIVE, 3
+        ),
+        "perspective_constants": _optional_words(
+            memory, COMMON_VERTEX_PERSPECTIVE_BASE, 3
+        ),
+        "perspective_depth_scale": _optional_words(memory, 0x005808A8),
+        "perspective_depth_limit": _optional_words(memory, 0x0058089C),
+        "state_flags": _optional_u32(memory, 0x0057E884),
+        "source_x_scale": _optional_words(memory, 0x00549D60),
+        "clip_threshold": _optional_words(memory, 0x00518484),
+        "depth_threshold": _optional_words(memory, 0x0059D33C),
+    }
 
 
 def _wrap_s32(value: int) -> int:
@@ -447,6 +484,7 @@ def view_projection_record(ctx: Context) -> dict:
         "viewport_scale_y_raw": memory.u32(VIEWPORT_SCALE_Y)
         if memory.readable(VIEWPORT_SCALE_Y, 4)
         else None,
+        "common_vertex_transform": _common_vertex_transform_record(memory),
     }
     return record
 
@@ -650,6 +688,7 @@ def transformed_vertex_record(
             memory, input_vertices, vertex_count * 8
         ) if input_vertices and memory.readable(input_vertices, vertex_count * 8)
         else None,
+        "common_vertex_transform": _common_vertex_transform_record(memory),
         "scratch": _raw_block(memory, TRANSFORMED_VERTEX_SCRATCH, scratch_size),
         "vertices": vertices,
     })

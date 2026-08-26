@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace opentony::camera {
@@ -80,6 +81,152 @@ struct TransformedVertexWorkingRecordRaw {
 };
 
 static_assert(sizeof(TransformedVertexWorkingRecordRaw) == 7 * sizeof(std::uint32_t));
+
+// Model packet +0x1c supplies three signed shorts and one packed source word
+// every eight bytes. This is the input consumed by 0x004d29e0's ordinary
+// (source flags without bit 0x10) branch.
+struct PackedVertexRecordRaw {
+    std::int16_t x{};
+    std::int16_t y{};
+    std::int16_t z{};
+    std::uint16_t source_flags{};
+};
+
+static_assert(sizeof(PackedVertexRecordRaw) == 8);
+
+// Runtime scratch consumed by the common vertex transform. The executable
+// stores the linear rows and bias as f32 values at 0x0056e84c and 0x0058f318,
+// then uses the center/depth constants at 0x005808a0..0x005808a8. Keeping
+// float bits here makes the f32 load/store boundaries explicit while avoiding
+// an accidental host reinterpretation of the raw PE32 record.
+struct CommonVertexTransformRaw {
+    std::array<std::uint32_t, 9> linear_bits{};
+    std::array<std::uint32_t, 3> bias_bits{};
+    std::uint32_t center_x_bits{};
+    std::uint32_t center_y_bits{};
+    std::uint32_t depth_scale_bits{};
+};
+
+struct CommonVertexViewportEdgesRaw {
+    // These are the unsigned-short view-input fields in comparison order:
+    // input[2], input[0], input[3], input[1].
+    std::uint16_t left{};
+    std::uint16_t right{};
+    std::uint16_t top{};
+    std::uint16_t bottom{};
+};
+
+struct CommonVertexProjectionResultRaw {
+    TransformedVertexWorkingRecordRaw record{};
+    // The values written to the first three working words before perspective
+    // conversion. They are useful for diagnostics and are not extra retail
+    // record fields.
+    std::array<float, 3> pre_perspective{};
+};
+
+inline float f32_from_bits(std::uint32_t bits) {
+    float value{};
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+inline std::uint32_t f32_to_bits(float value) {
+    std::uint32_t bits{};
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+inline float store_f32_x87(long double value) {
+    // The retail code performs the linear operation in x87 precision, then
+    // stores the result to a float scratch word before perspective math.
+    return static_cast<float>(value);
+}
+
+inline std::uint32_t common_vertex_clip_flags(
+    float projected_x,
+    float projected_y,
+    float projected_z,
+    const CommonVertexViewportEdgesRaw& viewport,
+    std::uint32_t state_flags = 0,
+    float near_limit = 10.0f,
+    float far_limit = 20512000.0f) {
+    std::uint32_t flags = 0;
+    if (projected_x < static_cast<float>(viewport.left)) {
+        flags |= 0x01;
+    }
+    if (projected_x > static_cast<float>(viewport.right)) {
+        flags |= 0x02;
+    }
+    if (projected_y < static_cast<float>(viewport.top)) {
+        flags |= 0x04;
+    }
+    if (projected_y > static_cast<float>(viewport.bottom)) {
+        flags |= 0x08;
+    }
+    if (projected_z < near_limit) {
+        flags |= 0x10;
+    }
+    // 0x0057e884 bit 0x10 suppresses the far-depth test.
+    if ((state_flags & 0x10U) == 0 && projected_z >= far_limit) {
+        flags |= 0x20;
+    }
+    return flags;
+}
+
+// Reproduces the ordinary source-flags-without-bit-0x10 branch of
+// Render_TransformVertices 0x004d29e0. The three linear results are stored as
+// f32 values first. The second stage then computes reciprocal depth from the
+// stored Z and applies the screen center to the stored X/Y. The special source
+// flag branch and its auxiliary polygon pointer remain a separate renderer
+// path.
+inline CommonVertexProjectionResultRaw project_common_vertex(
+    const PackedVertexRecordRaw& source,
+    const CommonVertexTransformRaw& transform,
+    const CommonVertexViewportEdgesRaw& viewport,
+    std::uint32_t state_flags = 0,
+    float near_limit = 10.0f,
+    float far_limit = 20512000.0f) {
+    const long double x = source.x;
+    const long double y = source.y;
+    const long double z = source.z;
+    const std::array<long double, 3> input{x, y, z};
+
+    CommonVertexProjectionResultRaw result;
+    for (std::size_t row = 0; row < 3; ++row) {
+        long double value = f32_from_bits(transform.bias_bits[row]);
+        for (std::size_t column = 0; column < 3; ++column) {
+            value += static_cast<long double>(f32_from_bits(
+                transform.linear_bits[row * 3 + column])) * input[column];
+        }
+        result.pre_perspective[row] = store_f32_x87(value);
+    }
+
+    const float reciprocal_depth = store_f32_x87(
+        static_cast<long double>(f32_from_bits(transform.depth_scale_bits))
+        / result.pre_perspective[2]);
+    const float projected_x = store_f32_x87(
+        static_cast<long double>(reciprocal_depth)
+            * result.pre_perspective[0]
+        + f32_from_bits(transform.center_x_bits));
+    const float projected_y = store_f32_x87(
+        static_cast<long double>(reciprocal_depth)
+            * result.pre_perspective[1]
+        + f32_from_bits(transform.center_y_bits));
+
+    result.record.words = {
+        f32_to_bits(projected_x),
+        f32_to_bits(projected_y),
+        f32_to_bits(result.pre_perspective[2]),
+        f32_to_bits(reciprocal_depth),
+        static_cast<std::uint32_t>(
+            static_cast<std::int32_t>(source.source_flags)),
+        common_vertex_clip_flags(
+            projected_x, projected_y, result.pre_perspective[2], viewport,
+            state_flags, near_limit, far_limit),
+        0,
+    };
+    return result;
+}
 
 // Render_SetViewProjection receives a fourteen-short view-input record. The
 // projection formulas consume fields 0..9 and mutate 5, 7, 8, and 9; fields

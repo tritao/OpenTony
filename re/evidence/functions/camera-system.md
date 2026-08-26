@@ -1,10 +1,10 @@
 # Camera system and rendered-frame boundary
 
-Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the common projected-vertex completion boundary are established; projection scale semantics and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the ordinary common-vertex projection contract are established; projection producers, special vertex paths, and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture), and `build/debug/camera-transformed-live7.jsonl` (completed common projected-vertex capture)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture), `build/debug/camera-transformed-live7.jsonl` (completed common projected-vertex capture), and `build/debug/camera-transform-tail.jsonl` (raw source/coefficient/completed-output validation)
 
 ## Result
 
@@ -1474,7 +1474,11 @@ negative experiment, not evidence that the actor path is bypassed. The later
 `camera-render-handoff` run reused the proven level-entry sequence and supplies
 the positive live world/object observations above.
 
-The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
+The static path proves the view/projection handoff, and the ordinary common
+vertex path now has a live numerical projection/clip contract. The per-call
+linear-row/bias producer, the special flagged-vertex branch, non-default
+viewport state, and world-axis handedness still need validation before
+matching visual output exactly.
 
 ### Raster-tail boundary: `0x004d11d0` -> `0x004d14c7`
 
@@ -1588,6 +1592,60 @@ read before the current call had written the shared scratch and are retained
 only as a rejected diagnostic experiment. The return-tail probe preserves the
 same call arguments while sampling the completed transform output.
 
+### Ordinary common-vertex projection contract
+
+The standard branch of `Render_TransformVertices 0x004d29e0` now has a
+numerically validated native contract. Its input pointer advances eight bytes
+per vertex and supplies signed-short `x/y/z` at `+0/+2/+4`, followed by a
+packed source word at `+6`. The branch applies the three rows at
+`0x0056e84c..0x0056e86c` and the three biases at `0x0058f318..0x0058f320`.
+Each linear result is stored to f32 scratch before the perspective stage:
+
+```text
+pre[i]       = f32(dot(linear_row[i], s16(x,y,z)) + bias[i])
+reciprocal   = f32(depth_scale / pre[2])
+projected_x  = f32(reciprocal * pre[0] + center_x)
+projected_y  = f32(reciprocal * pre[1] + center_y)
+projected_z  = pre[2]
+```
+
+For the ordinary Warehouse state, the live constants at the completed
+transform tail were linear rows
+`[[1, 0.000244140625, -0.001708984375],
+[-0.000732421875, 0.98388671875, -0.1796875],
+[0.001220703125, 0.1796875, 0.98388671875]]`, biases
+`[-641.56201171875, -1580.8857421875, 2868.30078125]`, screen center
+`(320,240)`, and depth scale `384`. The completed 42-vertex call in
+`camera-transform-tail.jsonl` matched this reconstruction with maximum
+absolute errors of `1.5e-5` in X, `2.7e-5` in Y, zero in stored Z, and
+`8.3e-9` in reciprocal depth. The first vertex, source `(0,1328,92,0)`,
+produced `(242.971054,205.074249,3197.443359,0.120095953)` in both the
+retail scratch and the native calculation within those bounds.
+
+The completed record remains seven raw words at `0x00570878`. In the
+ordinary branch, clip bits are: `0x01/0x02` for X outside left/right,
+`0x04/0x08` for Y outside top/bottom, `0x10` for Z below the near limit at
+`0x0058089c` (live value `10`), and `0x20` for Z at or beyond the far limit
+at `0x0059d33c`, unless state flag `0x0057e884 & 0x10` suppresses that test.
+The native `project_common_vertex` helper preserves the raw source flags and
+clip bits rather than converting them to a host renderer enum. The source
+flag `0x10` branch remains separate and is not covered by this formula.
+
+Promotion audit for the standard transform state:
+
+| address | exact behavior | callers/callees and runtime experiment | hit frequency / import or string evidence | confidence / falsifier |
+|---|---|---|---|---|
+| `0x004d29e0` | consumes packed s16 model vertices and writes seven-word completed records | called by common submitter `0x004d14d0`; tail-paired Warehouse call with 42 inputs | one accepted call in the bounded tail validation; no direct import/string | high for ordinary branch formula; a source-flag `0x10` or alternate state could select another branch |
+| `0x0056e84c` | three f32 linear rows consumed by the ordinary vertex transform | loaded by `0x004d29e0`; captured at its completion tail | 42 vertices in the accepted call; no import/string | high for arithmetic role, not a permanent camera-only matrix; a per-object basis change is expected |
+| `0x0058f318` | three f32 pre-perspective biases | loaded by `0x004d29e0`; captured with the same completed call | 42 vertices; no import/string | high for arithmetic role; a different renderer state could replace the values |
+| `0x005808a0` / `0x005808a8` | screen center X/Y and reciprocal-depth scale | loaded by `0x004d29e0`; live values `(320,240,384)` reproduce all 42 outputs | 42 vertices; no import/string | high for the standard path; split-screen or alternate projection state is the falsifier |
+| `0x0057e884`, `0x0058089c`, `0x0059d33c` | state flag, near-depth limit, and far-depth limit used for clip bits | read by `0x004d29e0`; live tail had `0x800`, `10`, and `20512000` | 42 clip evaluations; no import/string | high for observed clip tests; special/indexed paths may use different limits |
+
+This closes the numerical camera-to-projected-vertex stage for the ordinary
+model path. It does not yet prove the producer meaning of the per-call linear
+rows/biases, the special source-flag branch, or the final polygon/material
+backend behavior.
+
 ### Native default smoothing-stage adapter
 
 The value-level implementation now promotes the camera-owned common portion of
@@ -1687,11 +1745,20 @@ The names in this contract are reconstruction interfaces, not claims that the or
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
-1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
+1. Validate the renderer’s per-object production of the recovered
+   `0x0056e84c` rows and `0x0058f318` biases with controlled X/Y/Z basis
+   inputs; the final ordinary projection math is now numerically closed, but
+   the producer’s object/view composition and world-axis handedness remain to
+   be separated.
 2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates; the newly decoded framing globals and rotation/axis controls likewise need a gameplay run that exercises their flags. Their relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
-5. Use the now-established input/player/camera frame contract for stationary projection calibration: vary one camera/viewport input at a time and compare known basis-object coordinates, clipping, depth, and present-to-present output. The live word-6 perturbation already closes the dataflow part of this gate.
+5. Use the now-established input/player/camera frame contract for stationary
+   producer calibration: vary one camera/viewport input at a time and compare
+   the per-call rows/biases, completed vertices, clipping, depth, and
+   present-to-present output. The live word-6 perturbation and ordinary
+   42-vertex numerical match already close the projection-consumer part of
+   this gate.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
 
