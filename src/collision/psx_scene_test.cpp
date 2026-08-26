@@ -351,6 +351,17 @@ void check_packaged_scene(const char* path) {
     assert(dynamic_replay.query.hit_face_record != 0);
 }
 
+void check_parseable_scene(const char* path) {
+    std::ifstream stream(path, std::ios::binary);
+    assert(stream);
+    const std::vector<char> raw_bytes{std::istreambuf_iterator<char>(stream),
+                                      std::istreambuf_iterator<char>()};
+    const std::vector<std::uint8_t> bytes(raw_bytes.begin(), raw_bytes.end());
+    std::string error;
+    const auto scene = PsxScene::parse(bytes, &error);
+    assert(scene && error.empty());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -358,6 +369,11 @@ int main(int argc, char** argv) {
     check_wrapped_blockmap_bounds();
     if (argc == 2) {
         check_packaged_scene(argv[1]);
+    } else if (argc > 2) {
+        check_packaged_scene(argv[1]);
+        for (int index = 2; index < argc; ++index) {
+            check_parseable_scene(argv[index]);
+        }
     }
     std::cout << "native PSX collision scene checks passed\n";
 }
