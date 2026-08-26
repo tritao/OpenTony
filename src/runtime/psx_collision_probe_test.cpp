@@ -107,6 +107,14 @@ void check_packaged_scene(const char* path) {
         *scene, {-4100096, -8822784, 11472896});
     const auto hit = probe.query({-4100096, 23945216, 11472896});
     assert(hit.has_value());
+
+    const opentony::assets::PsxCollisionWorld legacy_world =
+        opentony::assets::PsxCollisionWorld::build(archive);
+    const opentony::runtime::PsxPositionCollisionProbe legacy_probe(
+        legacy_world, {-4100096, -8822784, 11472896});
+    const auto legacy_hit = legacy_probe.query(
+        {-4100096, 23945216, 11472896});
+    assert(legacy_hit.has_value());
     assert(hit->object_index == 170);
     assert(hit->model_index == 171);
     assert(hit->hit_parameter_q14 == 61);
@@ -114,6 +122,12 @@ void check_packaged_scene(const char* path) {
         -4100096, -8700784, 11472896}));
     assert(hit->normal == (opentony::runtime::FixedPosition{
         1, -3867, -1351}));
+    assert(hit->position == legacy_hit->position);
+    assert(hit->hit_parameter_q14 == legacy_hit->hit_parameter_q14);
+    assert(hit->surface_flags == legacy_hit->surface_flags);
+    assert(hit->normal[0] == legacy_hit->normal[0]);
+    assert(hit->normal[1] == legacy_hit->normal[1]);
+    assert(hit->normal[2] == legacy_hit->normal[2]);
 }
 
 } // namespace
