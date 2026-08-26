@@ -27,7 +27,18 @@ COLLISION_FLAG_RETURN = 0x0048EB02
 COLLISION_DYNAMIC_QUERY = 0x00463E50
 COLLISION_DYNAMIC_RETURN = 0x004641F2
 COLLISION_DYNAMIC_TRANSFORM = 0x004F5540
-COLLISION_DYNAMIC_TRANSFORM_RETURNS = (0x00464067, 0x0046409A)
+# Direct return PCs for every observed call to the reusable matrix helper.
+# The final two are the linked-object collision path; the earlier callers are
+# other model/object transform users and are retained for reuse discovery.
+COLLISION_DYNAMIC_TRANSFORM_RETURNS = (
+    0x0045FCC1,
+    0x0045FDA1,
+    0x00460DD3,
+    0x00460EB4,
+    0x00461C64,
+    0x00464067,
+    0x0046409A,
+)
 COLLISION_DYNAMIC_CULL = 0x004F43E0
 COLLISION_DYNAMIC_CULL_RETURN = 0x004F492C
 COLLISION_FLAG_GLOBALS = {
@@ -106,6 +117,12 @@ def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
                 "model_index": memory.u16(address + 0x1A),
                 "model_kind": memory.u8(address + 0x1F),
                 "next": f"0x{next_address:08x}" if next_address else None,
+                "matrix_scale_q12": (
+                    [_signed16(memory.u16(address + offset))
+                     for offset in (0x28, 0x2A, 0x2C)]
+                    if memory.readable(address + 0x2C, 2)
+                    else None
+                ),
                 "previous": (
                     f"0x{memory.u32(address + 0x34):08x}"
                     if memory.readable(address + 0x34, 4)
@@ -672,6 +689,12 @@ def _dynamic_object_snapshot(address: int | None, memory) -> dict | None:
             if memory.u32(address + 0x20)
             else None
         ),
+        "matrix_scale_q12": (
+            [_signed16(memory.u16(address + offset))
+             for offset in (0x28, 0x2A, 0x2C)]
+            if memory.readable(address + 0x2C, 2)
+            else None
+        ),
     }
 
 
@@ -804,7 +827,7 @@ def _dynamic_transform_snapshot(address: int | None, memory) -> dict | None:
 
 
 class CollisionDynamicTransformProbe:
-    """Capture the opaque 0x0400 matrix-transform tail boundary."""
+    """Capture the opaque 0x0200 matrix-transform tail boundary."""
 
     def __init__(self, count: int | None = None, writer=None):
         self.remaining = count

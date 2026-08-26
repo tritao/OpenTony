@@ -89,8 +89,18 @@ The next 15 linked records were contiguous at a 0x4c-byte stride and carried
 model indices 172 through 186, all with model kind 6. The level-building path
 also computes `count*0x4c + 4`, stores the count in the leading word, and
 writes each element through `+0x4a`. The runtime and static evidence therefore
-identify the full element stride and count-prefixed array shape, while the
+identify the full element stride and count-prefixed array shape. The
+constructor initializes the scale words at `+0x28/+0x2a/+0x2c` to Q12
+identity (`0x1000`), and the loader copies them field-for-field; the remaining
 tail field meanings remain open.
+
+The follow-up three-call `collision-cull-scale1` Hangar capture sampled the
+same linked-root path at `0x004f43e0`/`0x0046297e`. Every readable sampled node
+had `matrix_scale_q12 = [4096, 4096, 4096]`; the observed flags were `0x110`
+and `0x111`, and all three cull returns reported zero face-test survivors.
+This is negative evidence for a non-identity transform in the normal Hangar
+object set, but it confirms that the newly exposed tail reads are valid on the
+live 0x4c-byte records.
 
 The query result independently reported model index 171/kind 6. The same
 record resolved through the live kind-6 table at `0x05da6d18` to model data

@@ -71,6 +71,10 @@ struct PsxLinkedCollisionObject {
     std::array<std::int16_t, 3> angles{};
     std::uint16_t model_index = 0;  // caller-resolved scene model index
     std::uint8_t model_kind = 0;    // original type-table selector, retained as metadata
+    // +0x28/+0x2a/+0x2c in the PC 0x4c-byte element. These are signed Q12
+    // column factors consumed by 0x004f5540 when flags has 0x0200.
+    std::array<std::int16_t, 3> matrix_scale_q12 =
+        reference::identity_q12_scale();
 };
 
 struct PsxBlockmapCell {
@@ -379,18 +383,19 @@ public:
     // Compose the recovered fast/oriented branch selection from 0x00463e50.
     // The query must already have been passed through reference::prepare so
     // its line basis, line length, and vertical direction flag are available.
-    // The full PC 0x0400 path also scales this temporary matrix from opaque
-    // heap-tail words at +0x28/+0x2c; those loader fields are intentionally
-    // outside this PSX-facing view until their exact write-back permutation is
-    // captured.
+    // The full PC 0x0200 path scales this temporary matrix from the signed
+    // Q12 heap-tail words at +0x28/+0x2a/+0x2c. The native caller can supply
+    // those factors directly; the PC loader's values remain unresolved.
     static PsxDynamicObjectPreprocess preprocess_dynamic_object(
         const PsxModel& model, const QueryRecord& prepared_query,
         const RawVec3& object_position_raw,
         const std::array<std::int16_t, 3>& object_angles,
-        bool force_oriented_path = false) {
+        bool force_oriented_path = false,
+        const std::array<std::int16_t, 3>& matrix_scale_q12 =
+            reference::identity_q12_scale()) {
         const auto transform = reference::build_dynamic_object_transform(
             prepared_query, object_position_raw, object_angles,
-            force_oriented_path);
+            force_oriented_path, matrix_scale_q12);
         PsxDynamicObjectPreprocess result;
         result.query_object_basis = transform.normal_basis;
         result.final_object_basis = transform.final_basis;
@@ -487,9 +492,13 @@ public:
             const auto model_header = collision_model_header(model);
             const auto object_offset = relative_position(
                 object.position, start);
+            const auto matrix_scale =
+                reference::linked_object_uses_matrix_transform(object.flags)
+                    ? object.matrix_scale_q12
+                    : reference::identity_q12_scale();
             const auto bounds = reference::build_object_bounds(
                 model_header, ordered_start, ordered_end, object_offset,
-                reflection_mask);
+                reflection_mask, matrix_scale);
             if (!reference::object_broadphase_test(
                     ordered_start, ordered_end, bounds)) {
                 continue;
@@ -497,7 +506,8 @@ public:
 
             const auto preprocess = preprocess_dynamic_object(
                 model, best.query, object.position, object.angles,
-                (object.flags & 0x0400u) != 0);
+                reference::linked_object_uses_matrix_transform(object.flags),
+                matrix_scale);
             const auto body_id = object.body_id != 0
                                      ? object.body_id
                                      : static_cast<std::uint32_t>(object_index + 1);

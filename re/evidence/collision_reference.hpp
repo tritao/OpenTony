@@ -224,6 +224,11 @@ inline constexpr std::size_t kCandidateCellSourceTerminatorBytes = 0x04;
 inline constexpr std::size_t kLinkedCollisionObjectElementStride = 0x4c;
 inline constexpr std::size_t kLinkedCollisionObjectArrayHeaderBytes = 0x04;
 
+// The transform helper tests byte +0x05 with immediate 0x02. Since flags is
+// a little-endian uint16 at +0x04, this is word bit 0x0200 (not 0x0400).
+// The latter is written by unrelated object-appearance setters.
+inline constexpr std::uint16_t kLinkedObjectMatrixTransformFlag = 0x0200u;
+
 #pragma pack(push, 1)
 struct CollisionCandidateCellSourceHeader {
     std::uint32_t unknown_00 = 0;
@@ -621,13 +626,32 @@ struct CollisionBounds {
     RawVec3 max{};
 };
 
+inline constexpr std::array<std::int16_t, 3> identity_q12_scale() {
+    return {0x1000, 0x1000, 0x1000};
+}
+
+inline Raw scale_q12_trunc(Raw value, std::int16_t scale_q12) {
+    // The linked broad phase uses x87 fild/fimul/fmul followed by the game's
+    // truncate-toward-zero conversion helper, unlike 0x004f5540's integer
+    // SAR-12 matrix helper.
+    const auto scaled = static_cast<std::int64_t>(value) * scale_q12 / 0x1000;
+    if (scaled < std::numeric_limits<Raw>::min()) {
+        return std::numeric_limits<Raw>::min();
+    }
+    if (scaled > std::numeric_limits<Raw>::max()) {
+        return std::numeric_limits<Raw>::max();
+    }
+    return static_cast<Raw>(scaled);
+}
+
 // 0x004f4130 expands a model's local bounds by two units and optionally
 // reflects each axis around the query endpoint sum.  The reflection mask is
 // produced by 0x004f4050 when the query endpoints are ordered oppositely.
 inline CollisionBounds build_object_bounds(
     const CollisionModelHeader& model, const RawVec3& query_start,
     const RawVec3& query_end, const RawVec3& object_offset,
-    std::uint8_t reflection_mask = 0) {
+    std::uint8_t reflection_mask = 0,
+    const std::array<std::int16_t, 3>& scale_q12 = identity_q12_scale()) {
     CollisionBounds result;
     const std::array<Raw, 3> model_min{
         model.x_min, model.y_min, model.z_min};
@@ -646,6 +670,8 @@ inline CollisionBounds build_object_bounds(
             result.min[axis] = wrapping_sub(endpoint_sum, old_max);
             result.max[axis] = wrapping_sub(endpoint_sum, old_min);
         }
+        result.min[axis] = scale_q12_trunc(result.min[axis], scale_q12[axis]);
+        result.max[axis] = scale_q12_trunc(result.max[axis], scale_q12[axis]);
     }
     return result;
 }
@@ -855,7 +881,7 @@ inline CandidateHeadArrayRead visit_candidate_head_array(
 #pragma pack(push, 1)
 struct LinkedCollisionObjectLayout {
     std::uint32_t unknown_00 = 0;
-    std::uint16_t flags = 0;          // +0x04; byte +0x05 selects a transform path
+    std::uint16_t flags = 0;          // +0x04; high-byte bit 0x02 selects matrix scaling
     std::uint16_t query_stamp = 0;    // +0x06
     Raw position[3]{};                // +0x08, fixed-point
     std::int16_t angles[3]{};         // +0x14, x/y/z angle units
@@ -879,11 +905,16 @@ static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
 // low byte must not contain bit 0x20, and the low-byte pair 0x41 must not
 // both be set. The high byte is ignored by this admission test. Objects
 // failing this gate are stamped as tested and never reach the transformed-
-// face routine at 0x00463e50. The separate 0x0400 transform-path bit is
+// face routine at 0x00463e50. The separate 0x0200 matrix-transform bit is
 // consumed later by 0x00463e50 and is intentionally not part of this gate.
 inline constexpr bool linked_object_flag_gate(std::uint16_t flags) {
     const auto low = static_cast<std::uint8_t>(flags);
     return (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
+}
+
+inline constexpr bool linked_object_uses_matrix_transform(
+    std::uint16_t flags) {
+    return (flags & kLinkedObjectMatrixTransformFlag) != 0;
 }
 
 // The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
@@ -906,15 +937,17 @@ static_assert(offsetof(LinkedCollisionObjectListLinksLayout, previous) == 0x34);
 // The level-building path around 0x0043d88e allocates
 // `element_count * 0x4c + 4`, stores the count in the leading word, and
 // constructs elements beginning at allocation+4.  Its copy loop advances by
-// 0x4c and writes through +0x4a.  The collision fields in the first 0x24
-// bytes are the same fields used by the query; the remaining values are
-// intentionally opaque until their consumers are identified.
+// 0x4c and writes through +0x4a. The collision fields in the first 0x24
+// bytes are the same fields used by the query. The matrix-scale words at
+// +0x28/+0x2a/+0x2c are consumed as signed Q12 factors when the +0x05 bit
+// 0x02 transform flag is set; the remaining values are opaque.
 #pragma pack(push, 1)
 struct LinkedCollisionObjectElementLayout {
     LinkedCollisionObjectLayout collision{};  // +0x00..+0x23
     std::uint32_t unknown_24 = 0;              // +0x24
-    std::uint32_t unknown_28 = 0;              // +0x28
-    std::uint16_t unknown_2c = 0;              // +0x2c
+    std::int16_t matrix_scale_x_q12 = 0x1000; // +0x28
+    std::int16_t matrix_scale_y_q12 = 0x1000; // +0x2a
+    std::int16_t matrix_scale_z_q12 = 0x1000; // +0x2c
     std::uint8_t unknown_2e[2]{};              // +0x2e
     std::uint32_t unknown_30 = 0;              // +0x30
     std::uint32_t previous = 0;                // +0x34
@@ -932,6 +965,12 @@ struct LinkedCollisionObjectElementLayout {
 static_assert(sizeof(LinkedCollisionObjectElementLayout) ==
               kLinkedCollisionObjectElementStride);
 static_assert(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_x_q12) == 0x28);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_y_q12) == 0x2a);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_z_q12) == 0x2c);
 static_assert(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
 
 struct LinkedCollisionObjectListLinks {
@@ -1533,6 +1572,21 @@ inline constexpr std::array<std::int16_t, 9> identity_q12_basis() {
             0, 0, 0x1000};
 }
 
+inline std::array<std::int16_t, 9> scale_q12_basis_columns(
+    const std::array<std::int16_t, 9>& basis,
+    const std::array<std::int16_t, 3>& scale_q12) {
+    std::array<std::int16_t, 9> result{};
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t column = 0; column < 3; ++column) {
+            const auto product = static_cast<std::int64_t>(
+                basis[row * 3 + column]) * scale_q12[column];
+            result[row * 3 + column] = clamp_to_s16(
+                arithmetic_shift_right_12(wrapping_from_i64(product)));
+        }
+    }
+    return result;
+}
+
 struct DynamicObjectTransform {
     // The fast path feeds the object/query displacement into 0x004f4b00 as
     // model-origin input. The oriented path instead adds a line-space
@@ -1548,7 +1602,9 @@ inline DynamicObjectTransform build_dynamic_object_transform(
     const QueryRecord& query,
     const RawVec3& object_position_raw,
     const std::array<std::int16_t, 3>& object_angles,
-    bool force_oriented_path = false) {
+    bool force_oriented_path = false,
+    const std::array<std::int16_t, 3>& matrix_scale_q12 =
+        identity_q12_scale()) {
     DynamicObjectTransform result;
     RawVec3 displacement{};
     for (std::size_t axis = 0; axis < displacement.size(); ++axis) {
@@ -1564,10 +1620,11 @@ inline DynamicObjectTransform build_dynamic_object_transform(
         return result;
     }
 
-    result.vertex_basis = transpose_q12_basis(
-        build_object_rotation_basis(object_angles));
+    const auto scaled_object_basis = scale_q12_basis_columns(
+        build_object_rotation_basis(object_angles), matrix_scale_q12);
+    result.vertex_basis = transpose_q12_basis(scaled_object_basis);
     result.normal_basis = result.vertex_basis;
-    result.final_basis = build_object_rotation_basis(object_angles);
+    result.final_basis = scaled_object_basis;
     if (query.direction_flag != 0) {
         // This is the explicit special-case permutation in 0x00463e50 for a
         // downward/vertical query. It is equivalent to the prepared vertical
