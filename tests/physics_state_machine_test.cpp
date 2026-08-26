@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using namespace opentony::physics;
@@ -16,6 +17,14 @@ struct CallbackLog {
     DispatchResult last_dispatch{};
     std::vector<int> frame_stages;
 };
+
+void frame_ground_dispatch(PhysicsState&, const DispatchResult&, void*);
+bool frame_ground_leave_air_input(PhysicsStateMachine&,
+                                  GroundAirTransitionInput&, void*);
+bool frame_ground_leave_air_rejected(PhysicsStateMachine&,
+                                     GroundAirTransitionInput&, void*);
+bool frame_ground_leave_air_missing(PhysicsStateMachine&,
+                                    GroundAirTransitionInput&, void*);
 
 void test_retail_fixed12_math_and_orientation_layout() {
     assert(fixed12_dot(FixedVec3{2048, 0, 0}, FixedVec3{1, 0, 0}) == 0);
@@ -333,8 +342,17 @@ void test_ground_to_air_leave_ground_transition() {
     machine.state().raw_state = retail::kPhysicsOnGround;
     machine.state().velocity.y = -1234;
 
+    const auto ground_dispatch = machine.dispatch();
+    assert(ground_dispatch.kind == DispatchKind::Ground);
+    assert(ground_dispatch.handler_count == 4);
+    assert(ground_dispatch.handler_pcs[0] == 0x0049dad0);
+    assert(ground_dispatch.handler_pcs[1] == 0x00496550);
+    assert(ground_dispatch.handler_pcs[2] == 0x00495cc0);
+    assert(ground_dispatch.handler_pcs[3] == 0x0049d9c0);
+
     const auto transitioned = machine.try_ground_to_air(
         GroundAirTransitionInput{100, 0x100, 1001, 0x5001, 0});
+    assert(transitioned.predicate_evaluated);
     assert(transitioned.eligible);
     assert(transitioned.transitioned);
     assert(transitioned.vertical_velocity_clamped);
@@ -355,6 +373,10 @@ void test_ground_to_air_leave_ground_transition() {
     assert(machine.state().off_ground.marker_3204 == 0x28);
     assert(machine.state().phase_state == retail::kPhysicsInAir);
     assert(machine.requests().size() == 2);
+    assert(machine.requests()[0].request_callsite ==
+           retail::kGroundLeaveAirRequestCallsite);
+    assert(machine.requests()[1].request_callsite ==
+           retail::kOffGroundStateRequestCallsite);
     assert(machine.state().velocity.y == 0);
 
     PhysicsStateMachine recent;
@@ -362,6 +384,7 @@ void test_ground_to_air_leave_ground_transition() {
     recent.state().velocity.y = 4;
     const auto recent_result = recent.try_ground_to_air(
         GroundAirTransitionInput{100, 0x100, 1001, 0x5000, 99});
+    assert(recent_result.predicate_evaluated);
     assert(recent_result.eligible);
     assert(recent_result.transitioned);
     assert(!recent_result.vertical_velocity_clamped);
@@ -370,8 +393,100 @@ void test_ground_to_air_leave_ground_transition() {
     rejected.state().raw_state = retail::kPhysicsOnGround;
     const auto rejected_result = rejected.try_ground_to_air(
         GroundAirTransitionInput{100, 0x100, 1000, 0x5001, 0});
+    assert(rejected_result.predicate_evaluated);
     assert(!rejected_result.eligible);
     assert(rejected.state().raw_state == retail::kPhysicsOnGround);
+}
+
+void test_ground_to_air_predicate_boundaries() {
+    GroundAirTransitionInput input{
+        100, 0x100, retail::kGroundLeaveAirSlopeThreshold + 1,
+        retail::kGroundLeaveAirRecoveryThreshold, 94};
+
+    // (100 - 94) == ((0x100 * 6) >> 8), so the recent-window comparison is
+    // false at equality. The recovery comparison is also false at 0x5000.
+    assert(!ground_leave_air_predicate(input));
+
+    input.last_landing_frame = 95;
+    assert(ground_leave_air_predicate(input));
+
+    input.last_landing_frame = 94;
+    input.recovery_progress = retail::kGroundLeaveAirRecoveryThreshold + 1;
+    assert(ground_leave_air_predicate(input));
+
+    input.recovery_progress = retail::kGroundLeaveAirRecoveryThreshold;
+    input.slope_metric = retail::kGroundLeaveAirSlopeThreshold;
+    assert(!ground_leave_air_predicate(input));
+    input.slope_metric = retail::kGroundLeaveAirSlopeThreshold + 1;
+
+    // A genuinely negative signed age satisfies the strict '< recent_window'
+    // branch before the frame counter wraps.
+    input.current_frame = 99;
+    input.last_landing_frame = 100;
+    assert(ground_leave_air_predicate(input));
+
+    // This also checks the 32-bit wrap at INT32_MAX -> INT32_MIN without
+    // relying on host signed overflow; the wrapped age is one frame.
+    input.current_frame = std::numeric_limits<std::int32_t>::min();
+    input.last_landing_frame = std::numeric_limits<std::int32_t>::max();
+    assert(ground_leave_air_predicate(input));
+}
+
+void test_ground_leave_air_frame_dispatch_boundary() {
+    PhysicsStateMachine machine;
+    machine.state().raw_state = retail::kPhysicsOnGround;
+    machine.state().velocity.y = -1234;
+
+    CallbackLog log;
+    PhysicsFrameCallbacks callbacks;
+    callbacks.dispatcher = frame_ground_dispatch;
+    callbacks.ground_leave_air_input = frame_ground_leave_air_input;
+
+    const auto result = machine.step_frame(0, callbacks, &log);
+    assert(result.raw_state == retail::kPhysicsOnGround);
+    assert(result.kind == DispatchKind::Ground);
+    assert(result.ground_leave_air.predicate_evaluated);
+    assert(result.ground_leave_air.eligible);
+    assert(result.ground_leave_air.transitioned);
+    assert(result.ground_leave_air.request.from == retail::kPhysicsOnGround);
+    assert(result.ground_leave_air.request.to == retail::kPhysicsInAir);
+    assert(result.ground_leave_air.request.reason ==
+           retail::kGroundLeaveAirReason);
+    assert(result.ground_leave_air.off_ground.handled);
+    assert((log.frame_stages == std::vector<int>{30, 31}));
+    assert(machine.state().raw_state == retail::kPhysicsInAir);
+    assert(machine.state().phase_state == retail::kPhysicsInAir);
+    assert(machine.state().velocity.y == 0);
+    assert(machine.state().prephysics_blocked == 1);
+    assert(machine.state().off_ground.marker_3204 ==
+           retail::kGroundLeaveAirMarker);
+    assert(machine.requests().size() == 2);
+    assert(machine.requests()[0].request_callsite ==
+           retail::kGroundLeaveAirRequestCallsite);
+    assert(machine.requests()[1].request_callsite ==
+           retail::kOffGroundStateRequestCallsite);
+
+    PhysicsStateMachine rejected;
+    rejected.state().raw_state = retail::kPhysicsOnGround;
+    PhysicsFrameCallbacks rejected_callbacks;
+    rejected_callbacks.ground_leave_air_input =
+        frame_ground_leave_air_rejected;
+    const auto rejected_result = rejected.step_frame(0, rejected_callbacks);
+    assert(rejected_result.raw_state == retail::kPhysicsOnGround);
+    assert(rejected_result.ground_leave_air.predicate_evaluated);
+    assert(!rejected_result.ground_leave_air.eligible);
+    assert(rejected.state().raw_state == retail::kPhysicsOnGround);
+    assert(rejected.requests().empty());
+
+    PhysicsStateMachine missing;
+    missing.state().raw_state = retail::kPhysicsOnGround;
+    PhysicsFrameCallbacks missing_callbacks;
+    missing_callbacks.ground_leave_air_input =
+        frame_ground_leave_air_missing;
+    const auto missing_result = missing.step_frame(0, missing_callbacks);
+    assert(!missing_result.ground_leave_air.predicate_evaluated);
+    assert(missing.state().raw_state == retail::kPhysicsOnGround);
+    assert(missing.requests().empty());
 }
 
 void test_off_ground_reset_boundary() {
@@ -773,6 +888,43 @@ void frame_dispatch(PhysicsState&, const DispatchResult& result, void* opaque) {
     auto& log = *static_cast<CallbackLog*>(opaque);
     log.frame_stages.push_back(4);
     assert(result.kind == DispatchKind::InAir);
+}
+
+void frame_ground_dispatch(PhysicsState&, const DispatchResult& result,
+                           void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(30);
+    assert(result.kind == DispatchKind::Ground);
+    assert(result.handler_count == 4);
+    assert(result.handler_pcs[0] == 0x0049dad0);
+    assert(result.handler_pcs[1] == 0x00496550);
+    assert(result.handler_pcs[2] == 0x00495cc0);
+    assert(result.handler_pcs[3] == 0x0049d9c0);
+}
+
+bool frame_ground_leave_air_input(PhysicsStateMachine& machine,
+                                  GroundAirTransitionInput& input,
+                                  void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(31);
+    assert(machine.state().raw_state == retail::kPhysicsOnGround);
+    input = GroundAirTransitionInput{100, 0x100, 1001, 0x5001, 0};
+    return true;
+}
+
+bool frame_ground_leave_air_rejected(PhysicsStateMachine& machine,
+                                     GroundAirTransitionInput& input,
+                                     void*) {
+    assert(machine.state().raw_state == retail::kPhysicsOnGround);
+    input = GroundAirTransitionInput{
+        100, 0x100, retail::kGroundLeaveAirSlopeThreshold, 0x5001, 0};
+    return true;
+}
+
+bool frame_ground_leave_air_missing(PhysicsStateMachine& machine,
+                                    GroundAirTransitionInput&, void*) {
+    assert(machine.state().raw_state == retail::kPhysicsOnGround);
+    return false;
 }
 
 void frame_air_motion(PhysicsStateMachine& machine, void* opaque) {
@@ -1694,6 +1846,8 @@ int main() {
     test_cross_build_physics_state_labels();
     test_observed_state4_transition_path();
     test_ground_to_air_leave_ground_transition();
+    test_ground_to_air_predicate_boundaries();
+    test_ground_leave_air_frame_dispatch_boundary();
     test_off_ground_reset_boundary();
     test_landing_cleanup_boundary();
     test_ground_surface_acceleration_contract();

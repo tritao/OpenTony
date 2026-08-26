@@ -133,6 +133,10 @@ constexpr std::uint32_t kGroundLeaveAirRequestCallsite = 0x0049ddcf;
 constexpr std::uint32_t kGroundLeaveAirOffGroundCallsite = 0x0049dde1;
 constexpr std::uint32_t kOffGroundReset = 0x004904d0;
 constexpr std::uint32_t kOffGroundMarkerWriter = 0x0049dde6;
+constexpr std::int32_t kGroundLeaveAirSlopeThreshold = 1000;
+constexpr std::int32_t kGroundLeaveAirRecoveryThreshold = 0x5000;
+constexpr std::int32_t kGroundLeaveAirFrameWindowMultiplier = 6;
+constexpr std::int32_t kGroundLeaveAirMarker = 0x28;
 constexpr std::uint32_t kLandingRecoveryOffGroundCallsite = 0x004916a9;
 constexpr std::uint32_t kAlternateStateTimeoutRequestCallsite = 0x0049de9e;
 constexpr std::uint32_t kVelocityDamping = 0x0049d480;
@@ -696,12 +700,21 @@ struct GroundAirTransitionInput {
 };
 
 struct GroundAirTransitionResult {
+    // Distinguishes a supplied input that failed the strict predicate from a
+    // frame without a caller-owned producer observation.
+    bool predicate_evaluated = false;
     bool eligible = false;
     bool transitioned = false;
     bool vertical_velocity_clamped = false;
     StateRequest request{};
     OffGroundTransitionResult off_ground{};
 };
+
+// Exact post-case-0 predicate at 0x0049dd6b-0x0049dd91. This is pure so a
+// replay can exercise the strict boundaries without mutating the player. The
+// caller still owns the raw-state gate and the producers of these values.
+bool ground_leave_air_predicate(
+    const GroundAirTransitionInput& input) noexcept;
 
 struct OlliePrePhysicsInput {
     // The outer frame supplies these values. They are kept separate from the
@@ -912,6 +925,10 @@ struct DispatchResult {
     std::array<std::uint32_t, 4> handler_pcs{};
     std::size_t handler_count = 0;
     std::uint32_t dispatcher_pc = retail::kDispatcher;
+    // Populated by step_frame() after the case-0 handlers have returned. The
+    // standalone dispatch() call has no caller-owned slope/recovery producer,
+    // so it leaves this result at its default value.
+    GroundAirTransitionResult ground_leave_air{};
 };
 
 using DispatchCallback = void (*)(PhysicsState&, const DispatchResult&, void*);
@@ -924,6 +941,11 @@ class PhysicsStateMachine;
 using FrameStageCallback = void (*)(PhysicsStateMachine&, void*);
 using AirContactCallback = bool (*)(PhysicsStateMachine&, FixedVec3&, void*);
 using State6PreAirCallback = void (*)(PhysicsStateMachine&, void*);
+// The case-0 tail consumes values produced by collision/outer-frame code. The
+// callback only publishes those values; the state machine owns the predicate,
+// request, reset, and marker ordering after it returns true.
+using GroundAirTransitionInputCallback = bool (*)(
+    PhysicsStateMachine&, GroundAirTransitionInput&, void*);
 
 struct PhysicsFrameCallbacks {
     // 0x0049e680 publishes +0x2dac before the action/ollie stage. The
@@ -943,6 +965,11 @@ struct PhysicsFrameCallbacks {
     FrameStageCallback ground_preparation = nullptr;
     FrameStageCallback collision_preparation = nullptr;
     DispatchCallback dispatcher = nullptr;
+    // 0x0049dd6b-0x0049dd91 runs after the four case-0 handlers and before the
+    // outer post-dispatch work. The callback supplies the already-published
+    // slope/recovery/frame values; returning false means that this frame has
+    // no producer observation and the predicate is not evaluated.
+    GroundAirTransitionInputCallback ground_leave_air_input = nullptr;
     // Dispatcher case 6 enters 0x004993f0 before falling through to the
     // common in-air handler. The callback supplies the five retail random
     // draws to run_state6_preair_setup() without inventing RNG ownership.
