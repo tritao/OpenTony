@@ -3,7 +3,8 @@
 This document is the canonical process for turning retail THPS2 behavior into
 exact matching source and maintainable native OpenTony code. It complements
 the observation workflow in `docs/WORKFLOW.md` and the byte-ownership rules in
-`match/POLICY.md`.
+`match/POLICY.md`. For the compact operational entry point, use
+`docs/SLICE_WORKFLOW.md`.
 
 ## Separate outcomes
 
@@ -32,11 +33,12 @@ Do not copy native C++ into `match/cpp` unless the pinned matching compiler
 emits the exact retail bytes. Do not treat matching assembly as the final
 native implementation.
 
-## Work by subsystem
+## Work by slice
 
-Choose a vertical gameplay or engine slice such as collision, player physics,
-TRG scripting, assets, or rendering. Do not select functions merely because
-they are adjacent or easy to transcribe.
+A slice is the smallest independently reviewable reconstruction outcome. It may
+cover one function, a call chain, a data format, or a vertical gameplay/engine
+feature; it does not need to be an entire subsystem. Do not select functions
+merely because they are adjacent or easy to transcribe.
 
 For each target, establish:
 
