@@ -51,7 +51,7 @@ struct CameraStateRaw {
     std::uint32_t point_camera_tick{};  // camera +0x55c
     Q16Vec3 point_start_position{};     // camera +0x564..+0x56c
     std::uint8_t point_acceleration_flag{}; // camera +0x560
-    std::uint32_t follow_distance_counter{};
+    Raw follow_effect_counter_raw{}; // camera +0x5e8
     std::uint32_t follow_preparation_counter{};
     // Camera +0x5d8. This is an effect-ramp counter, not the follow
     // preparation counter at +0x60c.
@@ -789,8 +789,8 @@ inline CameraFollowSnapshot prepare_follow_target(
         camera.follow_transition_active = 0;
     }
 
-    camera.follow_distance_counter = add_s32(
-        static_cast<Raw>(camera.follow_distance_counter), 1);
+    camera.follow_effect_counter_raw = add_s32(
+        camera.follow_effect_counter_raw, 1);
     if (target.tripod_state != 1 && target.tripod_state != 2
         && target.tripod_state != 3) {
         camera.follow_state_flag = 0;
@@ -816,11 +816,11 @@ inline CameraFollowSnapshot prepare_follow_target(
         if (camera.follow_preparation_counter < 4) {
             camera.mode_vector = direction_to_q16(snapshot.direction_raw);
             camera.follow_transition_active = 1;
-            camera.follow_distance_counter = 0;
+            camera.follow_effect_counter_raw = 0;
         } else {
             camera.mode_vector = {0, 0x1000000, 0};
             camera.follow_transition_active = 1;
-            camera.follow_distance_counter = 0;
+            camera.follow_effect_counter_raw = 0;
         }
     } else {
         const Raw direction_metric_band = absolute_s32(snapshot.offset_dot_raw)
@@ -831,12 +831,12 @@ inline CameraFollowSnapshot prepare_follow_target(
             camera.follow_preparation_counter = 0;
             camera.mode_vector = direction_to_q16(snapshot.direction_raw);
             if (near_vertical_offset && prior_transition) {
-                camera.follow_distance_counter = 0;
+                camera.follow_effect_counter_raw = 0;
             }
         } else {
             camera.follow_preparation_counter = 0;
             if (near_vertical_offset && prior_transition) {
-                camera.follow_distance_counter = 0;
+                camera.follow_effect_counter_raw = 0;
             }
         }
         camera.follow_transition_active = 0;

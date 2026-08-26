@@ -263,9 +263,10 @@ fields:
     type: u8
     confidence: observed
   - offset: 0x5e8
-    name: follow_distance_counter
-    type: u32_raw
+    name: follow_effect_counter_raw
+    type: s32_raw
     confidence: observed
+    description: Camera_FollowTarget increments this counter on entry and resets it in transition/dot-band branches; it is not the distance-smoothing word
   - offset: 0x60c
     name: follow_preparation_counter
     type: u32_raw

@@ -132,6 +132,7 @@ def camera_record(ctx: Context, camera: int) -> dict:
             "smoothing_counter_b": _field_words(memory, camera, 0x5DC),
             "smoothing_counter_c": _field_words(memory, camera, 0x5E0),
             "smoothing_counter_d": _field_words(memory, camera, 0x5E4),
+            "follow_effect_counter_raw": _field_words(memory, camera, 0x5E8),
             "alternate_follow_phase_a_raw": _short(memory, camera + 0x434),
             "alternate_follow_phase_b_raw": _short(memory, camera + 0x436),
             "alternate_follow_integrator_raw": _field_words(memory, camera, 0x5EC),

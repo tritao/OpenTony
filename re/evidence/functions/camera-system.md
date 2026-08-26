@@ -393,6 +393,7 @@ The evidence-backed layout is recorded separately in [re/types/camera.yml](../..
 | `+0x510` | per-update/mode tick | observed; increments once per update in mode `1` |
 | `+0x570` | death-camera interpolation tick | observed |
 | `+0x5d8..+0x5e4` | smoothing/history counters | observed |
+| `+0x5e8` | follow-effect counter incremented on `0x00410610` entry and reset by its transition/dot-band branches | observed; not a distance value |
 | `+0x5ec`, `+0x5f0` | mode-25 alternate-follow integrator/counter pair | observed; producer scalar is tripod-owned |
 
 Numeric conclusion:

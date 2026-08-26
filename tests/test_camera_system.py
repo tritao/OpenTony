@@ -685,7 +685,7 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || follow_state.follow_state_flag != 1
                     || follow_state.follow_transition_active != 1
                     || follow_state.follow_preparation_counter != 1
-                    || follow_state.follow_distance_counter != 0
+                    || follow_state.follow_effect_counter_raw != 0
                     || follow_state.mode_vector.x
                         != transition.direction_raw.x
                     || follow_state.mode_vector.y
