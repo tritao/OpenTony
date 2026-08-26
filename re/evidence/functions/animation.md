@@ -15,6 +15,9 @@ Worktree: `/home/joao/dev/OpenTony-animation`, branch `re/animation`.
 The minimal pipeline is:
 
 ```text
+game clock (0x00468b30)
+    ├── global time scale (DAT_0056865c)
+    └── integer animation clock (DAT_005685f4)
 skater physics / steering state
     ↓
 animation request wrapper (0x004903f0 / 0x00490420 / 0x00490450 / 0x00490480)
@@ -43,6 +46,7 @@ The recovered API seam is:
 
 | Retail/source role | PC body | Status for recreation |
 | --- | ---: | --- |
+| global animation clock update | `0x00468b30` | Exact timer-smoothing, global-scale, and integer-clock update boundary. |
 | `CSuper::RunAnim` | `0x00480730` | Exact request initialization, validation, clamping, direction, and endpoint setup. |
 | `CSuper::CycleAnim` | `0x00480890` | Exact looping cursor initialization. |
 | `CSuper::UpdateFrame` | `0x00480950` | Exact fixed-point advancement and five-mode dispatch. |
@@ -98,6 +102,14 @@ After changing `+0xf4` directly, the selector requests
 `RunAnim(turn_id, frame, frame, -1)`. Equal start/end frames intentionally
 freeze the requested pose; this is why turning is not just ordinary playback
 of a looping clip.
+
+The target-frame helper at `0x00492ed0` is exact and should be kept as a
+separate integer helper: it moves the current frame toward its target by
+`5` when the absolute difference is greater than `12`, by `3` when it is
+greater than `3`, and by `1` otherwise. It preserves the sign of the target
+minus current value and does not overshoot. The selector is reached from the
+skater action update (`0x00493370`) in the normal gameplay frame, before the
+physics-frame rate derivation described below.
 
 When steering returns to zero, IDs `6`/`7` request idle ID `0`. Crouched
 turn IDs `9`/`10` request ID `8` over frames `0x13..0x1a`, with the alternate
@@ -158,7 +170,7 @@ The decompilation of `0x00480730` shows these writes on the same skater/`CSuper`
 | `+0xf8` | playback mode | Selects stop/range, loop, ping-pong, and reverse behavior in `0x00480950`. |
 | `+0x100` | playback direction | Set to forward/reverse from the requested start/end range. |
 | `+0x101` | endpoint frame | Stored by `RunAnim` and used by the mode logic. |
-| `+0x102` | alternate/next endpoint | If `>= 1`, replaces `+0x101` when the current endpoint is reached and reverses direction; byte `0` is the finish sentinel. This is endpoint-swap/ping-pong state, not a blend amount. |
+| `+0x102` | alternate/next endpoint | If the signed byte is `>= 1`, replaces `+0x101` when the current endpoint is reached and reverses direction; `0` and negative values (including the wrapper's `-1`) are finish sentinels. This is endpoint-swap/ping-pong state, not a blend amount. |
 | `+0xfa` | mode-3 target frame | Used by the special target-frame oscillator path in `UpdateFrame`; not part of ordinary `RunAnim` range requests. |
 | `+0xfc` | mode-3 second target/phase value | Written by the mode-3 setup path and consumed by the special oscillator. Its exact gameplay meaning is not needed by the ordinary idle/push/turn path. |
 | `+0xfe` | mode-3 captured clock value | Sampled from the global animation clock when mode 3 is entered and used by its timing calculation. |
@@ -186,6 +198,13 @@ The pose-side fields that complete the object contract are:
 | `+0x14c` | animation-order dirty flag | Set by `SetAnimOrder`. |
 | `+0x150..` | model/render part ID → animation-part order map | `SetAnimOrder(render_id, render_order)` writes one byte per model/render part. |
 
+The object flag byte at `+0x04` participates in the lifecycle rather than
+being animation data: the constructor sets bit `1`, which allows the
+per-object dispatcher to enter its animation-update gate, and bit `2` selects
+the prepared pose-buffer path in the pose/render code. A C++ recreation should
+model these as explicit lifecycle flags instead of treating every update as a
+guaranteed decode.
+
 `0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. The dispatch table at `0x00480c18` is exact: mode `0` goes to the stop/clamp path at `0x00480a53`, mode `1` wraps at the selected frame count at `0x00480be5`, mode `2` has no post-advance endpoint rule, mode `3` uses the target/clock oscillator at `0x00480ae8`, and mode `4` uses the reverse/saved-endpoint path at `0x00480a92`. Modes `2` and `3` zero the ordinary frame delta before their special handling. This is the reproducible time/frame advancement path.
 
 The per-skater rate is also mutable from the physics frame. `0x0049d8a0`,
@@ -198,10 +217,15 @@ requests reset it to `0x10000`, while this gameplay path can derive a faster
 rate before the next animation update.
 
 `DAT_0056865c` is a global frame-time scale, not a per-skater value. It is
-initialized to `0x100` during object/player setup and can be recomputed by the
-game clock at `0x00468b30`; `UpdateFrame` therefore has both a local playback
-rate (`+0x108`) and a global time-scale input. A faithful engine should pass
-the sampled scale into the cursor rather than bake `1.0` into animation code.
+initialized to `0x100` during object/player setup and recomputed by the game
+clock at `0x00468b30`. That clock keeps three recent timer deltas, sums them,
+clamps the sum to `0xf`, computes `scale = (sum << 8) / 6`, optionally applies
+the observed quarter-speed condition for active physics states, and advances
+the global accumulator `DAT_00568810` by `scale * 2`; the integer clock used by
+mode 3 is `DAT_005685f4 = DAT_00568810 >> 8`. `UpdateFrame` therefore has both
+a local playback rate (`+0x108`) and a sampled global time-scale input. A
+faithful engine should reproduce this clock boundary and pass the sampled
+scale into the cursor rather than bake `1.0` into animation code.
 
 The recovered debug/source symbol inventory gives the corresponding retail
 member names: `mAnim` (`+0xf6`), `mAnimMode` (`+0xf8`), `mAnimDir`
@@ -315,7 +339,25 @@ consumer. The base `CSuper` vtable entries observed at
 performed by the model-side rebuild path below rather than being inferred
 from those callback slots.
 
+The outer level-loop order matters for a faithful fixed-step recreation:
+`0x00469de0` updates the object list first, and the later `0x0046a0f0` tail
+calls `0x00468b30` to recompute the global animation scale and clock. The
+player's physics callback can likewise rewrite `+0x108` after that player's
+`UpdateFrame` call. Consequently, the scale and derived per-skater rate
+produced during one loop iteration are consumed by the next animation update;
+moving the clock or rate write to the beginning of the same frame changes the
+observed cursor phase.
+
 `0x00430920` is the recovered `Decomp_GetAnimTransform` body. It consumes the same object's `+0x1f`, `+0xf6`, and `+0xf4`, validates the animation table and frame, resolves the compressed frame data, and—when needed—allocates/prepares hierarchy and calculation-order arrays. Its diagnostics include “Hierarchy required to decompress anim”, “Bad anim number in pSuper”, and “Bad frame number in pSuper”. That establishes the animation-to-hierarchy/bone-transform boundary without decoding the full animation packet format or renderer internals.
+
+The concrete render-side consumer is `0x004610f0` (with a parallel path at
+`0x004604f0`). It checks the model/part-set resource, then either uses the
+prepared `+0x138` pose buffer when the object flag requests it or calls
+`Decomp_GetAnimTransform` for the current ID/frame. It iterates model parts
+and applies the `+0x150` model-to-animation order map. Therefore the faithful
+frame boundary is `UpdateFrame` during object update followed by pose decode
+or cached-pose consumption during model rendering; `ApplyPose` is a setup
+seam, not a claim that every object update rebuilds bones.
 
 The next pose stages are also statically bounded:
 
