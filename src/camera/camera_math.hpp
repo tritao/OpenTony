@@ -54,12 +54,13 @@ struct Q12Vec4 {
 using TransformQ12 = Q12Vec4;
 using MatrixQ12 = std::array<std::int16_t, 9>;
 
-// Render_SetViewProjection receives a ten-short viewport record. The original
-// routine mutates fields 5, 7, 8, and 9 before building its Q12 basis. Keep
-// these as raw shorts: the runtime globals that feed the record are not yet
-// portable display/FOV concepts.
+// Render_SetViewProjection receives a fourteen-short view-input record. The
+// projection formulas consume fields 0..9 and mutate 5, 7, 8, and 9; fields
+// 10..13 are still part of the live handoff and must be preserved for replay
+// parity. Keep every word raw: the runtime globals are not yet portable
+// display/FOV concepts.
 struct ViewportInputRaw {
-    std::array<std::uint16_t, 10> words{};
+    std::array<std::uint16_t, 14> words{};
 };
 
 struct ProjectionBasisQ12 {

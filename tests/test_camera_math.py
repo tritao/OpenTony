@@ -130,14 +130,17 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                     return 24;
                 }
                 ViewportProjectionRaw projection;
-                const ViewportInputRaw viewport{{640, 480, 0, 0, 0x10, 0, 0x100, 0, 0, 0}};
+                const ViewportInputRaw viewport{{640, 480, 0, 0, 0x10, 0, 0x100, 0, 0, 0,
+                                                  0x111, 0x222, 0x333, 0x444}};
                 if (!build_viewport_projection(viewport, 0x33, 0x1000, 0x1000, projection)) {
                     return 7;
                 }
                 if (projection.viewport.words[5] != 0x33
                     || projection.viewport.words[7] != 0x1400
                     || projection.viewport.words[8] != 320
-                    || projection.viewport.words[9] != 240) {
+                    || projection.viewport.words[9] != 240
+                    || projection.viewport.words[10] != 0x111
+                    || projection.viewport.words[13] != 0x444) {
                     return 8;
                 }
                 if (projection.basis.blocks[0][2] != -0x1000
