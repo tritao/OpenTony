@@ -109,8 +109,9 @@ types:
         confidence: observed
         evidence: [re/evidence/functions/blockmap-collision.md]
   - name: CollisionModelDataHeader
+    kind: fixed_layout
     size: 0x1c
-    confidence: strong
+    confidence: confirmed
     description: >-
       Packed model-data header followed by 8-byte vertex records, 8-byte
       normal records, and variable-length face records. The counts and
@@ -118,65 +119,71 @@ types:
     fields:
       - offset: 0x00
         name: unknown_flags
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x02
         name: vertex_count
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: normal_count
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x06
         name: face_count
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: radius
-        type: uint32
+        type: u32
         confidence: provisional
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: bounds
-        type: int16[6]
+        type: array<i16,6>
         confidence: provisional
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x18
         name: unknown_value
-        type: uint32
+        type: u32
         confidence: provisional
         evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionVertexRecord
+    kind: fixed_layout
     size: 0x08
-    confidence: strong
+    confidence: confirmed
     description: three signed 16-bit model components plus a 16-bit padding word
     fields:
       - offset: 0x00
         name: x
-        type: int16
+        type: i16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x02
         name: y
-        type: int16
+        type: i16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: z
-        type: int16
+        type: i16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x06
         name: padding
-        type: uint16
+        type: u16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionFacePrefix
+    kind: fixed_layout
     size: 0x10
-    confidence: strong
+    confidence: confirmed
     description: >-
       First 16 bytes of a variable-length face record. The encoded upper
       halfword is the byte stride; the static walker reaches the same value
@@ -184,89 +191,109 @@ types:
     fields:
       - offset: 0x00
         name: base_flags
-        type: uint16
+        type: u16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x02
         name: length_bytes
-        type: uint16
+        type: u16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: vertex_indices
-        type: uint8[4]
+        type: array<u8,4>
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: render_payload
-        type: uint8[4]
+        type: array<u8,4>
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: normal_index_shifted
-        type: uint16
+        type: u16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x0e
         name: surface_flags
-        type: uint16
+        type: u16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionModelCacheEntry
+    kind: fixed_layout
     size: 0x10
-    confidence: strong
+    confidence: confirmed
     description: >-
       One of the 20 reusable model-cache slots at DAT_00567a70.
     fields:
       - offset: 0x00
         name: model
-        type: pointer
+        type: pointer<void>
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: model_data
-        type: pointer
+        type: pointer<void>
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: face_count
-        type: uint32
+        type: u32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: face_aabb_start
-        type: uint32
+        type: u32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionFaceAabbRecord
+    kind: fixed_layout
     size: 0x1c
-    confidence: strong
+    confidence: confirmed
     description: low-16-bit face flags followed by min/max X/Y/Z bounds
     fields:
       - offset: 0x00
         name: base_flags
-        type: uint32
+        type: u32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: min_x
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: min_y
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: min_z
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x10
         name: max_x
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x14
         name: max_y
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x18
         name: max_z
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionZoneGridRecord
+    kind: fixed_layout
     size: 0x20
-    confidence: strong
+    confidence: confirmed
     description: >-
       Collision-facing prefix of one 0x660-byte zone-table record at
       DAT_00567f80 + zone_index*0x660. The remaining bytes in the stride are
@@ -274,37 +301,44 @@ types:
     fields:
       - offset: 0x00
         name: present
-        type: uint32
+        type: u32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: min_x
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: min_z
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x0c
         name: max_x
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x10
         name: max_z
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x14
         name: cell_divisor
-        type: fixed32
+        type: i32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x1c
         name: cell_count_x
-        type: int16
+        type: i16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x1e
         name: cell_count_z
-        type: int16
+        type: i16
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
 
   - name: SLineInfo
     kind: fixed_layout
@@ -452,51 +486,53 @@ types:
         evidence: [re/evidence/functions/collision.md]
 
   - name: LinkedCollisionObjectPrefix
+    kind: fixed_layout
     size: 0x24
-    confidence: strong
+    confidence: confirmed
     description: >-
       Collision-facing prefix of the heap-linked object record traversed by
       0x004628f0. The complete allocation may contain additional fields.
     fields:
       - offset: 0x04
         name: flags
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x06
         name: query_stamp
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: position
-        type: fixed32[3]
+        type: array<i32,3>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x14
         name: angles
-        type: int16[3]
+        type: array<i16,3>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x1a
         name: model_index
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x1f
         name: model_kind
-        type: uint8
+        type: u8
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x20
         name: next
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionCandidateHeadArrayEntry
+    kind: fixed_layout
     size: 0x04
-    confidence: strong
+    confidence: confirmed
     description: >-
       One 32-bit entry in the null-terminated per-cell array walked by
       0x004638d0; the pointer names the head of a linked collision-object
@@ -504,13 +540,14 @@ types:
     fields:
       - offset: 0x00
         name: object_head
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
 
   - name: CollisionCandidateCellSourceHeader
+    kind: fixed_layout
     size: 0x0c
-    confidence: strong
+    confidence: confirmed
     description: >-
       Intermediate per-cell level-loader block observed by 0x004667e0. The
       entry count is at +0x08; raw entries begin at +0x0c and are followed by
@@ -518,21 +555,24 @@ types:
     fields:
       - offset: 0x00
         name: unknown_00
-        type: uint32
+        type: u32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x04
         name: unknown_04
-        type: uint32
+        type: u32
         confidence: observed
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: entry_count
-        type: uint32
+        type: u32
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
 
   - name: LinkedCollisionObjectListLinks
+    kind: fixed_layout
     size: 0x38
-    confidence: strong
+    confidence: confirmed
     description: >-
       Partial linked-list view established by the 0x0048001d0 insertion and
       0x0048001f0 removal primitives. Bytes between the two links are not
@@ -540,18 +580,19 @@ types:
     fields:
       - offset: 0x20
         name: next
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x34
         name: previous
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
 
   - name: LinkedCollisionObjectElement
+    kind: fixed_layout
     size: 0x4c
-    confidence: strong
+    confidence: confirmed
     description: >-
       Full element stride emitted by the level-building allocation path:
       count*0x4c+4 bytes with the element array beginning after the leading
@@ -560,41 +601,41 @@ types:
     fields:
       - offset: 0x04
         name: flags
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x06
         name: query_stamp
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x08
         name: position
-        type: fixed32[3]
+        type: array<i32,3>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x14
         name: angles
-        type: int16[3]
+        type: array<i16,3>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x1a
         name: model_index
-        type: uint16
+        type: u16
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x1f
         name: model_kind
-        type: uint8
+        type: u8
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x20
         name: next
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x34
         name: previous
-        type: pointer
+        type: pointer<void>
         confidence: observed
         evidence: [re/evidence/functions/collision.md]

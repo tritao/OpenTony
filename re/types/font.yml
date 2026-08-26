@@ -57,6 +57,7 @@ types:
           - re/evidence/functions/font-runtime.md
 
   - name: RuntimeFontDiskGlyphRecord
+    kind: fixed_layout
     size: 0x10
     confidence: observed
     description: Four-word glyph record in an FNT file before the shared 16-colour table and packed glyph data.
@@ -91,6 +92,7 @@ types:
           - re/evidence/functions/font-runtime.md
 
   - name: RuntimeFontGlyphImage
+    kind: fixed_layout
     size: 0x5c
     confidence: observed
     description: Image object allocated for one decoded FNT glyph and attached to the font glyph entry.

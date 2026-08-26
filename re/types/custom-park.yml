@@ -70,13 +70,14 @@ types:
           - re/evidence/functions/custom-park-runtime.md
 
   - name: RuntimeCustomParkDiskItemRecord
+    kind: fixed_layout
     size: 0x24
     confidence: observed
     description: Packed 36-byte PRK item record. The two adjacent item/name bytes differ between the old/current load branches and the serializer.
     fields:
       - offset: 0x00
         name: endpoint_axis_indices
-        type: u8[6]
+        type: array<u8,6>
         confidence: confirmed
         description: Two endpoint triplets, stored as three two-byte columns.
         evidence:
@@ -89,12 +90,14 @@ types:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x08
         name: packed_two_bit_word
+        overlay_group: packed_item_word
         type: u16
         confidence: confirmed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x09
         name: legacy_load_item_byte
+        overlay_group: packed_item_word
         type: u8
         confidence: confirmed
         description: Byte read into the expanded runtime item byte by the older 0x4e24 load branch.
@@ -109,7 +112,7 @@ types:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x0b
         name: name_bytes
-        type: u8[25]
+        type: array<u8,25>
         confidence: observed
         description: NUL-terminated name payload beginning at the visible text in the PARK0 witness; copied into the expanded runtime name field.
         evidence:
@@ -147,6 +150,8 @@ types:
         type: array<u8,2>
         confidence: confirmed
         description: First two expanded values extracted from the low four bits of disk word +0x08; each runtime byte retains one two-bit value.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
       - offset: 0x08
         name: expanded_nibble_values
         type: array<u8,4>
@@ -246,7 +251,7 @@ types:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x18
         name: generated_model_state
-        type: bytes[0x40]
+        type: bytes<64>
         confidence: observed
         description: Cleared state area initialized by the generated-piece constructor before geometry generation.
         evidence:

@@ -939,6 +939,7 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/camera-system.md
   - address: 0x004014a0
     name: TRG_SkipConditionalBlock
     description: scan nested conditional script opcodes until the matching 0x4100 terminator
@@ -2129,10 +2130,12 @@ functions:
       - re/evidence/functions/animation-runtime.md
   - address: 0x00430920
     name: Animation_GetDecompressedPose
+    gdb_aliases: [animation_decompress_pose]
     description: decompress one selected animation frame, build hierarchy order, and return per-part pose records
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00452390
     name: PSX_ShareAnimationRegion
     description: share animation and hierarchy tables between loaded regions
@@ -2151,6 +2154,7 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00464c00
     name: M3D_ReadLinksPacket
     description: bind a link packet and allocate per-part pose and hook-link buffers
@@ -2193,24 +2197,31 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00480f50
     name: Animation_UpdatePoseFrame
+    gdb_aliases: [animation_apply_pose]
     description: initialize pose buffers, update animation interpolation, and optionally build the object pose
     confidence: observed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00480890
     name: Animation_Cycle
+    gdb_aliases: [animation_cycle]
     description: reset a runtime animation and select its cycle/direction byte
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00480730
     name: Animation_Start
+    gdb_aliases: [animation_run]
     description: select and start an animation on a runtime object
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00469a30
     name: Skater_UpdateAnimationObjects
     description: walk active skater objects and start state-selected animations
@@ -2219,16 +2230,20 @@ functions:
       - re/evidence/functions/animation-runtime.md
   - address: 0x00480950
     name: Animation_Advance
+    gdb_aliases: [animation_update]
     description: advance runtime animation frame and playback mode state
     confidence: inferred
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x00480fa0
     name: Animation_InvokeUpdateHooks
+    gdb_aliases: [animation_dispatch]
     description: invoke runtime-object update hooks after advancing animation state
     confidence: observed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x004b18a0
     name: Skater_SelectManagerSlot
     description: select a skater-manager resource slot
@@ -2319,12 +2334,6 @@ functions:
     name: Camera_RegisterPoint
     description: appends a camera point identifier to the runtime camera-point table
     confidence: observed
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x0040bd40
-    name: Camera_Shake
-    description: selects camera shake parameters by EShakeType and applies them to camera state
-    confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
   - address: 0x0040be70
@@ -2499,31 +2508,39 @@ functions:
       - re/evidence/functions/physics.md
   - address: 0x00492f20
     name: Skater_UpdateHeading
+    gdb_aliases: [animation_selector]
     description: interpolate the player heading/angle field from the movement target
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/animation.md
   - address: 0x00492ed0
     name: Skater_ApproachHeadingFrame
+    gdb_aliases: [animation_approach_frame]
     description: move a heading frame toward its target using 5/3/1 unit signed steps
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
       - re/evidence/functions/physics-states.md
+      - re/evidence/functions/animation.md
   - address: 0x00493370
     name: Skater_ActionPhysicsStep
     gdb_aliases:
       - skater_action_step
+      - skater_action_update
     description: per-frame skater action/steering step; consumes directional action records and updates movement targets before prephysics
     confidence: observed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/animation.md
   - address: 0x0049d8a0
     name: Skater_BlockedPhysicsReset
+    gdb_aliases: [animation_rate]
     description: control-blocked post-dispatch acceleration, launch-latch, and velocity reset
     confidence: inferred
     evidence:
       - re/evidence/functions/physics-states.md
+      - re/evidence/functions/animation.md
   - address: 0x0049a280
     name: Skater_PrePhysicsOllie
     description: prephysics ollie/trick launch impulse, bookkeeping, and raw-state request
@@ -2893,10 +2910,12 @@ functions:
       - re/evidence/functions/skater-asset-runtime.md
   - address: 0x00480cd0
     name: Skater_AssignModelPartOrder
+    gdb_aliases: [animation_set_order]
     description: store a matched animation/model part index correspondence in the PSH runtime record
     confidence: confirmed
     evidence:
       - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/animation.md
   - address: 0x004ddf30
     name: Skater_RegisterPlayer
     description: register the newly created skater in network/player-role globals
@@ -2971,18 +2990,6 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
-  - address: 0x004c8050
-    name: Trig_RunAutoexec
-    description: find and execute the level autoexec node
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
-  - address: 0x004c77f0
-    name: Trig_SendVisible
-    description: apply a visible-state command to linked level objects
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
   - address: 0x004c4e30
     name: Trig_ExecuteRestart
     description: reset players and execute a restart-node command stream
@@ -2995,66 +3002,6 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/scripting.md
-  - address: 0x004c5b60
-    name: Trig_SendSignal
-    description: send a signal through linked object nodes
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
-  - address: 0x004c5c70
-    name: Trig_SendSuspendActivate
-    description: suspend or activate linked gameplay objects
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
-  - address: 0x004c7c50
-    name: Trig_SkipCommandBlock
-    description: advance over one trigger command for conditional execution
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
-  - address: 0x00430920
-    name: Decomp_GetAnimTransform
-    description: animation-frame decode and per-part transform cache
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00464bb0
-    name: M3dUtils_ClearPoseStuff
-    description: release pose and model-part mapping allocations
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00465300
-    name: M3dUtils_BuildPose
-    description: root-first skeleton hierarchy pose composition boundary
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00480730
-    name: CSuper_RunAnim
-    gdb_aliases:
-      - animation_run
-    description: select and initialize the current animation cursor
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00480890
-    name: CSuper_CycleAnim
-    gdb_aliases:
-      - animation_cycle
-    description: initialize a looping animation cursor
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00480950
-    name: CSuper_UpdateFrame
-    gdb_aliases:
-      - animation_update
-    description: advance the fixed-point animation cursor
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
   - address: 0x00480c30
     name: CSuper_FrameReached
     gdb_aliases:
@@ -3063,86 +3010,6 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation.md
-  - address: 0x00480cd0
-    name: CSuper_SetAnimOrder
-    gdb_aliases:
-      - animation_set_order
-    description: map model/render parts to animation parts
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00480f50
-    name: CSuper_ApplyPose
-    gdb_aliases:
-      - animation_apply_pose
-    description: bind model resources and build the pose stages
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00480fa0
-    name: CSuper_AnimationUpdate
-    gdb_aliases:
-      - animation_dispatch
-    description: per-object animation update and callback dispatcher
-    confidence: observed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00492f20
-    name: Skater_SteeringAnimationSelector
-    gdb_aliases:
-      - animation_selector
-    description: grounded steering animation and target-frame selector
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00492ed0
-    name: Skater_ApproachAnimationFrame
-    gdb_aliases:
-      - animation_approach_frame
-    description: move a steering pose toward its target by 1, 3, or 5 frames
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00493370
-    name: Skater_ActionUpdate
-    gdb_aliases:
-      - skater_action_update
-    description: update smoothed steering state before the animation selector
-    confidence: confirmed
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x0049d8a0
-    name: Skater_DeriveAnimationRate
-    gdb_aliases:
-      - animation_rate
-    description: derive per-skater animation rate from recent physics records
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/animation.md
-  - address: 0x00463d50
-    name: Collision_FinalizeHit
-    description: finalize hit normal and return whether a query hit exists
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x004638d0
-    name: Collision_VisitModelFaces
-    description: traverse zone/model face candidates for a query
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00466090
-    name: Collision_QueryWrapper
-    description: shared swept collision query wrapper
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x004660b0
-    name: Collision_QueryScene
-    description: zone/block scene traversal underneath the query wrapper
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
   - address: 0x004f43e0
     name: Collision_CullLinkedObjects
     description: linked-object flag and object-space broad-phase cull
@@ -3164,12 +3031,6 @@ functions:
   - address: 0x004f4c50
     name: Collision_TestLinkedModelFaces
     description: projected face test and nearest dynamic hit update
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x0048ea80
-    name: Collision_ConsumeHitFlags
-    description: consume query face metadata into collision/surface flags
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md

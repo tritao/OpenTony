@@ -14,7 +14,7 @@ types:
           - re/evidence/functions/audio-runtime.md
       - offset: 0x0c
         name: wav_resource_name
-        type: char[32]
+        type: array<char,32>
         confidence: confirmed
         evidence:
           - re/evidence/functions/audio-runtime.md

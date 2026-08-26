@@ -172,8 +172,9 @@ void append_record(
 
 [[nodiscard]] std::uint16_t processed_filter_flags(
     std::span<const std::uint16_t> actions,
-    std::uint16_t raw_flags) noexcept {
-    std::uint16_t filter_flags = source_type_mask(actions);
+    std::uint16_t raw_flags,
+    std::optional<std::uint16_t> stream_filter = std::nullopt) noexcept {
+    std::uint16_t filter_flags = stream_filter.value_or(source_type_mask(actions));
 
     // FUN_004bba50 promotes only these source-record bits into the processed
     // +0x24 mask.  0x4000 first removes a provisional 0x0800 classification.
@@ -194,6 +195,36 @@ void append_record(
         filter_flags = static_cast<std::uint16_t>(filter_flags | 0x1000U);
     }
     return filter_flags;
+}
+
+[[nodiscard]] std::optional<std::uint16_t> action_stream_filter(
+    std::span<const std::uint8_t> image,
+    std::uint16_t stream_relative) noexcept {
+    if (stream_relative >= image.size()) {
+        return std::nullopt;
+    }
+
+    std::uint16_t filter = 0x007b;
+    std::size_t cursor = stream_relative;
+    while (cursor < image.size()) {
+        const std::uint8_t opcode = image[cursor];
+        if (opcode == kEndActionStreamOpcode) {
+            return filter;
+        }
+        const auto width = retail_action_command_width(image, cursor);
+        if (!width.has_value()) {
+            return std::nullopt;
+        }
+        if (opcode == 0x51) {
+            if (*width < 3 || image.size() - cursor < 3) {
+                return std::nullopt;
+            }
+            filter = static_cast<std::uint16_t>(image[cursor + 1])
+                | static_cast<std::uint16_t>(image[cursor + 2]) << 8;
+        }
+        cursor += *width;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -372,7 +403,10 @@ parse_retail_action_resources(
             processed_filter_flags(
                 std::span<const std::uint16_t>(
                     record->actions.data(), record->length),
-                record->flags),
+                record->flags,
+                image.empty()
+                    ? std::nullopt
+                    : action_stream_filter(image, record->stream_relative)),
             record->flags,
         });
         cursor += (static_cast<std::size_t>(record->length) + 3U) * 2U;

@@ -1,6 +1,7 @@
 version: 1
 types:
   - name: RuntimeTricksSectionPointers
+    kind: fixed_layout
     confidence: observed
     description: Seven globals published by the TRICKS.BIN loader; each points into one raw loaded buffer.
     fields:
@@ -48,6 +49,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTextureSetManagerPrefix
+    kind: fixed_layout
     size: 0x6608
     confidence: confirmed
     description: CRETEX texture-set manager prefix. It owns 0x180 inline 0x44-byte set records beginning at +0x04 and publishes the committed count at +0x6604.
@@ -67,13 +69,14 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeCreateTextureManagerPrefix
+    kind: fixed_layout
     size: 0x408
     confidence: confirmed
     description: CRETEX individual-texture database prefix. It stores a sorted pointer array followed by its count.
     fields:
       - offset: 0x04
         name: textures_by_name
-        type: pointer<RuntimeCreateTextureRecord>[256]
+        type: array<pointer<RuntimeCreateTextureRecord>,256>
         confidence: confirmed
         description: Sorted pointers to allocated 0x1c-byte texture records.
         evidence:
@@ -86,6 +89,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeCreateAppearanceContext
+    kind: fixed_layout
     confidence: observed
     description: Proven create/customization appearance-state slice populated from CRETEX texture records; the complete surrounding object is not yet typed.
     fields:
@@ -98,7 +102,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x70
         name: selected_body_part_group_indices
-        type: u32[3]
+        type: array<u32,3>
         confidence: confirmed
         description: Indices returned by the source part-name lookup for the three create body-group cases; written at +0x70, +0x74, and +0x78.
         evidence:
@@ -112,14 +116,15 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x8c
         name: part_palette_buffers
-        type: pointer<void>[9]
+        type: array<pointer<void>,9>
         confidence: observed
         description: Per-part palette-buffer pointers consumed by the create texture-animation and palette helpers.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x140
         name: part_palette_handles
-        type: pointer<void>[9]
+        overlay_group: appearance_handles
+        type: array<pointer<void>,9>
         confidence: confirmed
         description: Per-part palette/material handles; 0x00422460 writes the handle resolved from the selected texture checksum here.
         evidence:
@@ -133,6 +138,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x144
         name: group0_secondary_runtime_handle
+        overlay_group: appearance_handles
         type: pointer<void>
         confidence: observed
         description: Secondary group-0 appearance handle; the consumer clears it when set flag +0x41 is zero.
@@ -140,6 +146,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x150
         name: group1_secondary_runtime_handle
+        overlay_group: appearance_handles
         type: pointer<void>
         confidence: observed
         description: Secondary group-1 appearance handle; the consumer clears it when set flag +0x41 is zero.
@@ -147,20 +154,21 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x288
         name: applied_part_texture_names
-        type: char[9][16]
+        type: array<array<char,16>,9>
         confidence: confirmed
         description: Nine 16-byte inline names, one per create texture part; 0x004221a0 compares and updates the selected slot.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x318
         name: part_texture_animation_bytes
-        type: u8[4]
+        type: array<u8,4>
         confidence: observed
         description: Bytes read by the texture-animation update for parts 1, 2, 3, and 6; their public animation semantics remain open.
         evidence:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickManagerPrefix
+    kind: fixed_layout
     size: 0x140c
     confidence: confirmed
     description: "Fixed prefix of the TRICKS runtime manager: inline trick records, record count, and the loaded raw resource pointer."
@@ -187,6 +195,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickDescriptor
+    kind: variable_record
     confidence: observed
     description: Variable-length descriptor in the GTricks section; the stream data and fixed trick record remain separate.
     fields:
@@ -199,7 +208,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: variable
         name: prefix_words
-        type: u16[variable]
+        type: sequence<u16>
         confidence: observed
         description: Prefix words between the count and type; their complete button encoding remains open.
         evidence:
@@ -226,13 +235,14 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickRecord
+    kind: fixed_layout
     size: 0x28
     confidence: confirmed
     description: Fixed runtime database record appended by the GTricks parser.
     fields:
       - offset: 0x00
         name: name
-        type: char[32]
+        type: array<char,32>
         confidence: confirmed
         description: NUL-terminated name copied with a maximum length below 32 bytes.
         evidence:
@@ -266,6 +276,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTrickKeyTableEntry
+    kind: variable_record
     size: null
     confidence: confirmed
     description: Variable-length per-player trick-selection entry materialized from TRICKS.BIN key data.
@@ -279,7 +290,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x02
         name: button_codes
-        type: u16[button_count]
+        type: sequence<u16>
         confidence: confirmed
         evidence:
           - re/evidence/functions/bin-runtime.md
@@ -306,6 +317,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeSkaterTrickScriptState
+    kind: fixed_layout
     confidence: observed
     description: Trick-script state fields embedded in the gameplay skater object after a TRICKS.BIN script is selected.
     fields:
@@ -432,14 +444,14 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x2c94
         name: trick_movement_rate_words
-        type: i32[3]
+        type: array<i32,3>
         confidence: observed
         description: Indexed words written by command 0x2b alongside the pending movement words.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x2ca0
         name: trick_pending_movement_words
-        type: i32[3]
+        type: array<i32,3>
         confidence: confirmed
         description: Indexed words written by command 0x2b and polled by commands 0x16 and 0x2c.
         evidence:
@@ -516,6 +528,7 @@ types:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeCharacterTrickConfig
+    kind: fixed_layout
     size: 0x104
     confidence: confirmed
     description: Per-character runtime trick configuration returned by the global character-index mapper; TRICKS.BIN population uses this fixed 0x104-byte stride.
@@ -536,27 +549,28 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x38
         name: trick_costs
-        type: u8[10]
+        type: array<u8,10>
         confidence: confirmed
         description: Ten per-character cost bytes copied from the static character metadata table.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0xac
         name: trick_unlock_bits
-        type: u32[8]
+        type: array<u32,8>
         confidence: observed
         description: Bitfield storage used by the runtime trick consumer; the observed helper addresses indices through 0x7f.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0xcc
         name: assignable_trick_indices
-        type: u8[53]
+        type: array<u8,53>
         confidence: confirmed
         description: Button-combination slots populated from TRICKS.BIN; unset entries use 0xff.
         evidence:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeCreateTextureRecord
+    kind: fixed_layout
     size: 0x1c
     confidence: confirmed
     description: Individual texture record allocated while parsing CRETEX.BIN.
@@ -577,7 +591,7 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x08
         name: texture_name
-        type: char[16]
+        type: array<char,16>
         confidence: confirmed
         description: Inline NUL-terminated name key compared by the texture database lookup and normalized before insertion.
         evidence:
@@ -591,12 +605,13 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x19
         name: record_tail
-        type: u8[3]
+        type: array<u8,3>
         confidence: observed
         evidence:
           - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeTextureSetRecord
+    kind: fixed_layout
     size: 0x44
     confidence: observed
     description: Assembled CRETEX texture-set record copied into the set manager.
@@ -616,14 +631,14 @@ types:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x08
         name: source_label_0
-        type: char[16]
+        type: array<char,16>
         confidence: observed
         description: First copied parser label field.
         evidence:
           - re/evidence/functions/bin-runtime.md
       - offset: 0x18
         name: source_label_1
-        type: char[24]
+        type: array<char,24>
         confidence: observed
         description: Second copied parser label field.
         evidence:

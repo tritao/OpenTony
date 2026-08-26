@@ -40,26 +40,28 @@ types:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationDecompressedChannelFrame
+    kind: fixed_layout
     size: 0x0c
     confidence: confirmed
     description: Six signed 16-bit channel samples decoded for one model part and animation frame.
     fields:
       - offset: 0x00
         name: channel_words
-        type: array<i16, 6>
+        type: array<i16,6>
         confidence: confirmed
         description: Six consecutive channel samples written by Animation_DecompressStream; rotation/translation order is not assigned.
         evidence:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationPoseJoint
+    kind: fixed_layout
     size: 0x18
     confidence: confirmed
     description: Per-part pose record returned by animation decompression and used by pose/hook position consumers.
     fields:
       - offset: 0x00
         name: basis_matrix
-        type: array<i16, 9>
+        type: array<i16,9>
         confidence: observed
         description: 3x3 fixed-point basis written by the pose builder or inherited from decompressed pose data.
         evidence:
@@ -84,18 +86,20 @@ types:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationLinkPoseRecord
+    kind: fixed_layout
     size: 0x0c
     confidence: observed
     description: Six-word per-link record allocated by the links-packet reader; individual link/pose meanings are not yet assigned.
     fields:
       - offset: 0x00
         name: link_words
-        type: array<i16, 6>
+        type: array<i16,6>
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimePlayerHookPacketRecord
+    kind: fixed_layout
     size: 0x08
     confidence: observed
     description: Four-word hook record exposed by the static player hook-packet table. The first three signed words are passed unchanged to the hook-transform helper; the final word selects the animation part.
@@ -134,25 +138,27 @@ types:
           - re/evidence/functions/skater-asset-runtime.md
 
   - name: RuntimePlayerHookPacketTemplate
+    kind: fixed_layout
     size: 0x14
     confidence: observed
     description: Static player hook-packet template selected by object +0x2cc0 and bound through M3D_ReadHooksPacket.
     fields:
       - offset: 0x00
         name: packet_header
-        type: array<u16, 2>
+        type: array<u16,2>
         confidence: observed
         description: Four-byte packet prefix; its semantic fields are not assigned.
         evidence:
           - re/evidence/functions/skater-asset-runtime.md
       - offset: 0x04
         name: hook_records
-        type: array<RuntimePlayerHookPacketRecord, 2>
+        type: array<RuntimePlayerHookPacketRecord,2>
         confidence: observed
         evidence:
           - re/evidence/functions/skater-asset-runtime.md
 
   - name: RuntimeAnimationObjectPoseState
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Pose/deformation-related fields embedded in an animation-capable runtime object.
@@ -218,6 +224,7 @@ types:
           - re/evidence/functions/animation-runtime.md
 
   - name: RuntimeAnimationObjectRenderState
+    kind: fixed_layout
     size: null
     confidence: observed
     description: Per-part render-selection fields used when an animation-capable object is converted to model packets.
@@ -230,7 +237,7 @@ types:
           - re/evidence/functions/renderer.md
       - offset: 0x150
         name: render_part_order
-        type: array<u8>
+        type: sequence<u8>
         confidence: observed
         description: One-byte per-part remapping table consulted by the per-part renderer when render_order_enabled is nonzero; extent is not established here.
         evidence:

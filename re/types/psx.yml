@@ -85,6 +85,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
       - offset: 0x18
         name: rotation_component_z
+        overlay_group: rotation_or_feature_flags
         type: i16
         confidence: confirmed
         description: Disk object word +0x14 copied as the third collision-tested transform component.
@@ -106,6 +107,7 @@ types:
           - re/evidence/functions/renderer.md
       - offset: 0x19
         name: model_feature_flags
+        overlay_group: rotation_or_feature_flags
         type: u8
         confidence: confirmed
         description: Finalization sets bit 0x20 here when the selected model header carries bit 0x10.
@@ -243,6 +245,7 @@ types:
           - re/evidence/functions/blockmap-collision.md
 
   - name: RuntimePsxGeometryRecord
+    kind: fixed_layout
     size: 0x08
     confidence: confirmed
     description: Version-4 PSX vertex or normal record retained in the relocated model packet. The renderer derives the normal base by advancing vertex_count records.
@@ -273,6 +276,7 @@ types:
           - re/evidence/functions/renderer.md
 
   - name: RuntimePsxFaceHeader
+    kind: fixed_layout
     size: 0x04
     confidence: confirmed
     description: Variable-face prefix used by the version-4 PSX model stream; the length includes this prefix and bounds the remaining face payload.
@@ -451,13 +455,14 @@ types:
           - re/evidence/functions/asset-loading.md
 
   - name: RuntimePsxRegionSlot
+    kind: fixed_layout
     size: 0x44
     confidence: confirmed
     description: One of twenty slot records at DAT_0056d428 + region * 0x44. The first ten bytes hold the bounded region name; the remaining fields publish parser products and teardown state.
     fields:
       - offset: 0x00
         name: region_name
-        type: char[10]
+        type: array<char,10>
         confidence: confirmed
         description: Case-insensitive bounded name used by the named-region lookup and cleared during slot teardown.
         evidence:
