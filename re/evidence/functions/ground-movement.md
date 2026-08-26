@@ -79,6 +79,14 @@ basis = {
     matrix.column(0), // player +0x3100..+0x3108
     matrix.column(1), // player +0x310c..+0x3114
 };
+// Ordinary state 0 passes param_3 == 1 to 0x0049b500.  That second phase
+// transforms velocity through the saved pre-frame matrix and rescales it to
+// the old integer magnitude; state-2/special state-1 passes zero.
+if (ordinary_state0)
+    velocity_4c = rotate_and_rescale_velocity(velocity_4c,
+                                               saved_old_matrix,
+                                               angle12,
+                                               0);
 correction = grounded_projection_and_collision(velocity_4c, basis, surface);
 position = commit_candidate(position, history, correction);
 ```
@@ -158,7 +166,27 @@ The `0x0049b500` writer is the strongest orientation evidence:
    basis_2 = matrix column 1 -> player+0x310c/+0x3110/+0x3114
    ```
 
-The normal grounded call passes `param_3 == 0`, so this call is primarily the orientation/basis rotation. The optional velocity rotation in `0x0049b500` is behind the `param_3 != 0` branch and is not part of this normal call.
+For ordinary grounded state 0, `0x00496360` passes `param_3 == 1` (`!bVar1`) to `0x0049b500`; the state-2 / special state-1 path passes zero. Therefore the normal grounded call takes the function's second phase as well: after the matrix rotation it transforms `player+0x4c/+0x50/+0x54` through the saved pre-frame matrix and rescales the result using the pre/post vector magnitudes. That velocity update affects the following frame's position add. The first matrix rotation and basis write remain the direct orientation evidence; the velocity phase is kept separate in the C++ core because its saved-matrix transform is not itself the orientation candidate.
+
+The second phase's supported fixed-point shape is:
+
+```text
+phase        = R_y((angle12 - param_4) & 0xfff)
+local_phase  = transpose(saved_old_matrix) * phase
+effective    = saved_old_matrix * local_phase
+rotated_v    = effective * velocity_4c
+
+old_ratio = (sqrt(dot_q12(velocity_4c, velocity_4c)) * 0x40) >> 8
+new_ratio = (sqrt(dot_q12(rotated_v, rotated_v)) * 0x40) >> 8
+if (new_ratio > 0)
+    velocity_4c = rotated_v * old_ratio / new_ratio
+```
+
+The matrix products and vector transforms use the same Q12 short/integer
+helpers as the orientation writer. A first-Left runtime sample with saved
+matrix `[-4096,0,-6; 0,-4096,0; 6,0,-4096]` and velocity `(282,0,192408)`
+therefore yields `(-2066,0,192364)` at this phase boundary; the later ground
+surface/collision code can change that value before the final commit.
 
 ## Basis to grounded movement
 
@@ -269,6 +297,19 @@ The short matrix and fixed basis are not merely pose snapshots: the static write
 As a sign/order check, the first Left sample records `turn_accum = -0x7800`. With the ordinary `0x78` turn branch at `DAT_0056865c = 0x100`, `angle12 = -8`; applying the Q12 `R_y(-8)` matrix to the preceding short matrix predicts the observed first-turn entries (`row_0.z = +44`, `row_2.x = -45`). This ties the measured accumulator to the measured basis rotation, rather than only correlating both with the input mask.
 
 The trace footer says `complete: false` because the debugger was stopped after collection, but all 17 controlled position records are present and all are state 0 at the target callsite. The later seven state-2 records were excluded.
+
+## Native reference core
+
+The supported arithmetic is implemented in the focused native reference core:
+[ground_movement.hpp](../../../src/ground_movement.hpp) and
+[ground_movement.cpp](../../../src/ground_movement.cpp). `step_grounded`
+preserves the recovered order through the prephysics correction, initial
+position integration, turn-derived matrix/basis refresh, ordinary velocity
+phase, optional grounded projection, and the candidate resolver standing in
+for the geometry-dependent portion of `0x00496060`. The resolver boundary is
+intentional: the trace and disassembly establish the commit call and its
+component fallbacks, but not one portable Warehouse geometry query that can be
+embedded in this small core.
 
 ## What is and is not established
 
