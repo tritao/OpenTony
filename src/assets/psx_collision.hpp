@@ -27,6 +27,22 @@ struct PsxCollisionMaskView {
         const PsxCollisionMaskView&) = default;
 };
 
+// Query-time face-word policy recovered from FUN_004660b0/FUN_00462a20.
+// `accept_mask` retains the retail OR-mask spelling: every bit clear in it
+// must be present in the raw face word. The unresolved global masks remain
+// caller-owned so a gameplay mode can supply the values it observed.
+struct PsxCollisionQueryOptions {
+    bool apply_retail_face_filter{false};
+    bool apply_retail_plane_test{false};
+    std::uint32_t reject_mask{};
+    std::uint32_t accept_mask{0xffffffffU};
+    bool include_trigger_faces{false};
+};
+
+[[nodiscard]] bool accepts_retail_collision_face(
+    std::uint32_t raw_collision_word,
+    const PsxCollisionQueryOptions& options) noexcept;
+
 [[nodiscard]] PsxCollisionMaskView decode_collision_mask(
     std::uint32_t raw_collision_word,
     std::uint16_t face_flags) noexcept;
@@ -103,7 +119,8 @@ public:
     // surface response, slope limits, or skater-radius rules.
     [[nodiscard]] std::optional<PsxCollisionHit> trace_segment(
         std::array<std::int32_t, 3> start,
-        std::array<std::int32_t, 3> end) const;
+        std::array<std::int32_t, 3> end,
+        const PsxCollisionQueryOptions& options = {}) const;
 
 private:
     std::vector<PsxCollisionFace> faces_;

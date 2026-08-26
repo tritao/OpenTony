@@ -128,6 +128,53 @@ int main() {
     assert(mask.surface_bit_8_clear);
     assert(mask.raw_type_bits_9_12 == 9);
     assert(!mask.face_flag_80);
+    opentony::assets::PsxCollisionQueryOptions retail_filter{};
+    retail_filter.apply_retail_face_filter = true;
+    assert(opentony::assets::accepts_retail_collision_face(
+        0x12340000U,
+        retail_filter));
+    assert(!opentony::assets::accepts_retail_collision_face(
+        0x00010000U,
+        retail_filter));
+    assert(!opentony::assets::accepts_retail_collision_face(
+        0x00020000U,
+        retail_filter));
+    retail_filter.include_trigger_faces = true;
+    assert(opentony::assets::accepts_retail_collision_face(
+        0x00020000U,
+        retail_filter));
+    retail_filter.reject_mask = 0x12340000U;
+    assert(!opentony::assets::accepts_retail_collision_face(
+        0x12340000U,
+        retail_filter));
+    retail_filter.reject_mask = 0;
+    retail_filter.accept_mask = 0xfffffffeU;
+    assert(!opentony::assets::accepts_retail_collision_face(
+        0x12340000U,
+        retail_filter));
+    assert(opentony::assets::accepts_retail_collision_face(
+        0x12340001U,
+        retail_filter));
+    assert(!world.trace_segment(
+        {0, 4096, 0},
+        {0, -4096, 0},
+        [] {
+            opentony::assets::PsxCollisionQueryOptions options{};
+            options.apply_retail_face_filter = true;
+            options.reject_mask = 0x12340000U;
+            return options;
+        }()).has_value());
+    opentony::assets::PsxCollisionQueryOptions retail_geometry{};
+    retail_geometry.apply_retail_face_filter = true;
+    retail_geometry.apply_retail_plane_test = true;
+    assert(!world.trace_segment(
+        {0, 4096, 0},
+        {0, -4096, 0},
+        retail_geometry).has_value());
+    assert(world.trace_segment(
+        {0, -4096, 0},
+        {0, 4096, 0},
+        retail_geometry).has_value());
     const auto quantized_hit = world.trace_segment({0, 4097, 0}, {0, -4095, 0});
     assert(quantized_hit.has_value());
     assert(quantized_hit->hit_parameter_q14 == 0x2000);
