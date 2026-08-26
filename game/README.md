@@ -1,6 +1,12 @@
 # Game inputs (not tracked)
 
-Place user-owned original material here. `.gitignore` excludes everything in this directory except this README.
+Provision the recorded disc image with:
+
+```bash
+tony setup media
+```
+
+`.gitignore` excludes everything in this directory except this README.
 
 Initial expected media path:
 

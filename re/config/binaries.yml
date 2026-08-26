@@ -2,6 +2,7 @@ version: 1
 media:
   thps2_pc_disc:
     path: game/THPS2.img
+    source_url: https://archive.org/download/thps-2/THPS2.img
     size: 830514720
     sha256: d7cb5caaa9751b9afced2ebbca68b74fdc0f7a0df70fa4d550230cd7ac33a66e
     file_description: data

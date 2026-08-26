@@ -18,6 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
     setup_sub = setup.add_subparsers(dest="setup_command", required=True)
     p = setup_sub.add_parser("ghidra", help="download pinned Ghidra and install bundled PyGhidra")
     p.set_defaults(func=commands.setup_ghidra)
+    p = setup_sub.add_parser("media", help="download and verify the recorded THPS2 disc image")
+    p.set_defaults(func=commands.setup_media)
 
     media = sub.add_parser("media", help="inspect original disc media")
     media_sub = media.add_subparsers(dest="media_command", required=True)

@@ -34,7 +34,7 @@ Game-specific code and tools are **not** copied from either project.
 
 ## First setup
 
-Place your image here:
+The bootstrap downloads and verifies the recorded image here:
 
 ```text
 game/THPS2.img
@@ -45,6 +45,12 @@ On supported Linux distributions (Ubuntu/Linux Mint and Arch-family in this star
 ```bash
 ./scripts/bootstrap-linux.sh
 source .tools/venv/bin/activate
+```
+
+To provision only the media (or retry its download), run:
+
+```bash
+./tony.sh setup media
 ```
 
 For a lightweight per-command setup, use the repository wrapper instead:
@@ -105,6 +111,7 @@ The extracted PC data also includes a `CD.HED` hash table, a matching `CD.HET` f
 ```bash
 tony doctor
 tony setup ghidra
+tony setup media
 
 tony media identify [path] [--record]
 tony media tracks [path]

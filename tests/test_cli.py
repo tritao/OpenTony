@@ -24,6 +24,11 @@ def test_gdb_generate_parse():
     assert callable(args.func)
 
 
+def test_setup_media_parse():
+    args = build_parser().parse_args(["setup", "media"])
+    assert callable(args.func)
+
+
 def test_media_tracks_parse():
     args = build_parser().parse_args(["media", "tracks"])
     assert callable(args.func)

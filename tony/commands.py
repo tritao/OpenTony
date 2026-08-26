@@ -29,6 +29,7 @@ from .media import (
     media_list,  # noqa: F401 - command handlers are consumed by cli.py
     media_tracks,  # noqa: F401 - command handlers are consumed by cli.py
 )
+from .media_setup import install_media
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
@@ -116,6 +117,11 @@ def doctor(_args) -> int:
 
 def setup_ghidra(_args) -> int:
     install_ghidra()
+    return 0
+
+
+def setup_media(_args) -> int:
+    install_media()
     return 0
 
 
