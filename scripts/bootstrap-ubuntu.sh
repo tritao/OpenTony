@@ -45,6 +45,10 @@ sudo wget -q -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-
 sudo wget -q -O "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \
   "https://dl.winehq.org/wine-builds/ubuntu/dists/${CODENAME}/winehq-${CODENAME}.sources"
 sudo apt-get update
+# Ubuntu's JACK1 amd64 package conflicts with the JACK2 i386 library pulled in
+# by Wine through libasound2-plugins:i386. Select JACK2 for both architectures
+# explicitly so APT can perform the provider transition instead of holding Wine.
+sudo apt-get install -y libjack-jackd2-0:amd64 libjack-jackd2-0:i386
 sudo apt-get install -y --install-recommends winehq-stable
 
 echo "[3/6] OpenTony virtual environment"
