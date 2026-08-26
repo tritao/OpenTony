@@ -53,6 +53,25 @@ int main() {
 
     assert(candidate_cell_source_bytes(0) == 0x10);
     assert(candidate_cell_source_bytes(2) == 0x18);
+    std::array<std::uint8_t, 0x18> candidate_source{};
+    const auto put_source32 = [&candidate_source](std::size_t offset,
+                                                   std::uint32_t value) {
+        candidate_source[offset] = static_cast<std::uint8_t>(value);
+        candidate_source[offset + 1] = static_cast<std::uint8_t>(value >> 8u);
+        candidate_source[offset + 2] = static_cast<std::uint8_t>(value >> 16u);
+        candidate_source[offset + 3] = static_cast<std::uint8_t>(value >> 24u);
+    };
+    put_source32(0x08, 2);
+    put_source32(0x0c, 0x1010);
+    put_source32(0x10, 0x2020);
+    std::vector<std::uint32_t> source_values;
+    const auto source_read = visit_candidate_cell_source(
+        candidate_source,
+        [&source_values](std::size_t, std::uint32_t value) {
+            source_values.push_back(value);
+        });
+    assert(source_read && source_read->terminated && source_read->count == 2);
+    assert((source_values == std::vector<std::uint32_t>{0x1010, 0x2020}));
 
     std::array<std::uint8_t, sizeof(LinkedCollisionObjectListLinksLayout)>
         linked_links_bytes{};

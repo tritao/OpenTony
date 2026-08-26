@@ -776,7 +776,46 @@ inline std::optional<Raw> read_le_i32(std::span<const std::uint8_t> bytes,
                                        std::size_t offset) {
     const auto value = read_le_u32(bytes, offset);
     return value ? std::optional<Raw>(static_cast<Raw>(*value))
-                 : std::nullopt;
+           : std::nullopt;
+}
+
+struct CandidateCellSourceRead {
+    std::size_t count = 0;
+    bool terminated = false;
+};
+
+// Read the intermediate block consumed by 0x004667e0.  The callback sees
+// raw source values before the loader rewrites them to linked-object
+// pointers; the kind/model-table conversion is intentionally left to the
+// caller because its mapping depends on the surrounding level state.
+template <typename Visitor>
+inline std::optional<CandidateCellSourceRead> visit_candidate_cell_source(
+    std::span<const std::uint8_t> bytes, Visitor&& visitor) {
+    const auto count = read_le_u32(bytes, 0x08);
+    if (!count) {
+        return std::nullopt;
+    }
+    const auto required = candidate_cell_source_bytes(*count);
+    if (!required || bytes.size() < *required) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < *count; ++index) {
+        const auto value = read_le_u32(
+            bytes, kCandidateCellSourceHeaderBytes +
+                       index * kCandidateHeadArrayEntryStride);
+        if (!value) {
+            return std::nullopt;
+        }
+        visitor(index, *value);
+    }
+    const auto terminator = read_le_u32(
+        bytes, kCandidateCellSourceHeaderBytes +
+                   static_cast<std::size_t>(*count) *
+                       kCandidateHeadArrayEntryStride);
+    if (!terminator || *terminator != 0) {
+        return std::nullopt;
+    }
+    return CandidateCellSourceRead{.count = *count, .terminated = true};
 }
 
 struct CandidateHeadArrayRead {
