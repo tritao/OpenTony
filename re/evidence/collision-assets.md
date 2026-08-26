@@ -128,7 +128,9 @@ dynamic path produced a positive result through `0x00463e50`,
 The dynamic path left `q+0x8c` at its sentinel and derived contact from
 `q+0x40`, unlike the static path's `0x4000` parameter. This is the positive
 runtime linkage from a live linked node through transformed model vertices and
-faces to a hit result.
+faces to a hit result. The native replay resolves that dynamic candidate as
+model face 5, with final normal `[1, -4093, -160]` and surface/normal word
+`0x00100028`.
 
 Static loader ownership is now partly separated as well. `0x004667e0`, called
 from `0x0043e03c` and `0x004b29e6` and carrying `m3dzone.cpp` diagnostics,

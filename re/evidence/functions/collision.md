@@ -726,11 +726,13 @@ face walker to run. It published `q+0x68 = linked_object`,
 `q+0x80 = 0x05db87e4`, `q+0x84 = 171`, and `q+0x40 = 29`. The dynamic contact
 was `[-4100096, -8710784, 11472896]`; `q+0x8c` remained its initialized
 `0x7fffffff` sentinel because this path orders candidates by traveled distance
-and reconstructs contact from `q+0x40`. The face pointer matched the model-171
-face used by the static result. This is a positive end-to-end runtime
-confirmation of the linked dynamic primitive; the temporary field mutation is
-why it is labeled controlled rather than a claim about ordinary gameplay
-objects at every position.
+and reconstructs contact from `q+0x40`. The native asset replay resolves this
+dynamic candidate as model face 5, with surface/normal word `0x00100028` and
+finalized normal `[1, -4093, -160]`; the static replay selects its own nearest
+face and `0x4000` parameter independently. This is a positive end-to-end
+runtime confirmation of the linked dynamic primitive; the temporary field
+mutation is why it is labeled controlled rather than a claim about ordinary
+gameplay objects at every position.
 
 The executable's direct cull disassembly sharpens the flag interpretation:
 both `0x004f43e0` (linked objects) and `0x004f4940` (static candidates) test
