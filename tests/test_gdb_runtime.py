@@ -26,18 +26,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "re/gdb"))
 
 generated_knowledge = types.ModuleType("knowledge")
 generated_knowledge.BUILD_SHA256 = "test"
-generated_knowledge.FUNCTIONS = {"Skater_PhysicsDispatcher": 0x300}
-generated_knowledge.GLOBALS = {"Player": 0x200}
+generated_knowledge.FUNCTIONS = {
+    "Skater_PhysicsDispatcher": 0x300,
+    "Camera_Update": 0x350,
+    "Render_SetViewProjection": 0x360,
+}
+generated_knowledge.GLOBALS = {"Player": 0x200, "CurrentLevel": 0x204}
 generated_knowledge.DATA = {}
 generated_knowledge.STRINGS = {}
 generated_knowledge.FUNCTIONS_METADATA = {}
 generated_knowledge.GLOBALS_METADATA = {}
-generated_knowledge.FUNCTIONS_ALIASES = {"physics_dispatch": "Skater_PhysicsDispatcher"}
+generated_knowledge.FUNCTIONS_ALIASES = {
+    "physics_dispatch": "Skater_PhysicsDispatcher",
+    "camera_update": "Camera_Update",
+    "view_projection": "Render_SetViewProjection",
+}
 generated_knowledge.GLOBALS_ALIASES = {}
 sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
+from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -241,6 +250,120 @@ def test_player_diff_probe_records_changed_relative_words():
     assert {entry["offset"] for entry in events[1]["changed_words"]} == {"0x0104"}
     assert events[1]["changed_words"][0]["before"] == 0
     assert events[1]["changed_words"][0]["after"] == 0x12345678
+
+
+def test_camera_record_keeps_raw_and_scale_candidates():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
+    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", player)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[camera + 0x510:camera + 0x514] = struct.pack("<I", 7)
+    inferior.data[camera + 0x448:camera + 0x458] = struct.pack(
+        "<4I", 0x1000, 0xFFFFF000, 0x00008000, 0x00001000
+    )
+    inferior.data[camera + 0x45C:camera + 0x468] = struct.pack("<3I", 11, 22, 33)
+    inferior.data[camera + 0x468:camera + 0x46C] = struct.pack("<I", 0x1000)
+    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 0x10000, 0x20000, 0x30000)
+    inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
+        memory,
+    )
+
+    record = camera_record(context, camera)
+
+    assert record["camera"] == "0x00000800"
+    assert record["camera_vtable"] == "0x005184b8"
+    assert record["tripod"] == "0x00000600"
+    assert record["camera_fields"]["mode"] == 1
+    assert record["camera_fields"]["update_tick"] == 7
+    current = record["camera_fields"]["current_vector"]
+    assert current["raw"] == [0x1000, 0xFFFFF000, 0x8000, 0x1000]
+    assert current["q12"] == [1.0, -1.0, 8.0, 1.0]
+    assert current["q12_candidate"] == [1.0, -1.0, 8.0, 1.0]
+    assert record["player_position"]["fixed16"] == [1.0, 2.0, 3.0]
+    assert record["player_position"]["fixed16_candidate"] == [1.0, 2.0, 3.0]
+
+
+def test_camera_probe_samples_this_pointer_and_writes_trace_event():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
+    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", 0)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CameraProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert probe.remaining == 0
+    assert probe.enabled is False
+    assert events[0]["type"] == "camera"
+    assert events[0]["function"] == "Camera_Update"
+
+
+def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    viewport = 0xA00
+    view_input = 0xB00
+    render_state = 0xC00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x14:camera + 0x1A] = struct.pack("<3H", 0x123, 0xF80, 0)
+    inferior.data[camera + 0x3F0:camera + 0x3FC] = struct.pack("<3I", 1, 2, 3)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 12)
+    inferior.data[viewport:viewport + 0x70] = bytes(range(0x70))
+    inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
+    inferior.data[render_state:render_state + 0x20] = bytes(range(0x40, 0x60))
+    inferior.data[0x100:0x110] = struct.pack("<4I", 0x1234, viewport, view_input, render_state)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "eip": 0x360},
+        ),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert events[0]["type"] == "view_projection"
+    assert events[0]["viewport_block"]["raw"].startswith("00010203")
+    assert events[0]["camera_angles"]["angle_units"] == [0x123, 0xF80, 0]
+    assert events[0]["camera_look_target"]["raw"] == [1, 2, 3]
 
 
 def test_snapshot_diff_is_raw_first_with_all_word_heuristics():

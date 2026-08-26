@@ -172,10 +172,13 @@ class Memory:
         if address < 0 or size < 0:
             return False
         try:
-            self.inferior.read_memory(address, size)
+            data = self.inferior.read_memory(address, size)
         except gdb.error:
             return False
-        return True
+        # Test doubles and a few remote targets can return a short slice
+        # instead of raising for an unmapped tail. Treat that as unreadable;
+        # callers use this predicate before decoding typed fields.
+        return len(data) == size
 
     def valid(self, pointer: int) -> bool:
         return pointer != 0 and self.readable(pointer)

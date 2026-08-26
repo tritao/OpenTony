@@ -1553,6 +1553,120 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/game-loop.md
+  - address: 0x0040b650
+    name: Camera_Constructor
+    description: camera object constructor; initializes a 0x674-byte camera and tripod links
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040e090
+    name: Camera_SmoothAndValidate
+    gdb_aliases:
+      - camera_smooth
+    description: camera target/position smoothing and final position write helper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040f850
+    name: Camera_Update
+    gdb_aliases:
+      - camera_update
+    description: camera vtable per-frame update dispatcher; entry is recovered from the runtime vtable
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040c370
+    name: Camera_ApplyEffects
+    gdb_aliases:
+      - camera_effects
+    description: camera follow/death/effect and smoothing state helper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410c90
+    name: Camera_DeathMode
+    description: death-camera mode handler; requires a tripod and interpolates camera state
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00411fc0
+    name: Camera_PointSelect
+    description: selects/interpolates a registered camera point for a player object
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00411f30
+    name: Camera_RegisterPoint
+    description: appends a camera point identifier to the runtime camera-point table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040bd40
+    name: Camera_Shake
+    description: selects camera shake parameters by EShakeType and applies them to camera state
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004c9770
+    name: Camera_BuildLookAngles
+    description: builds two 12-bit look-at angles from Q16 camera and target positions
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e39a0
+    name: Fixed_MatrixMultiplyQ12
+    description: multiplies a signed Q12 3x3 matrix by a signed three-component vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e85a0
+    name: Fixed_MatrixConvertQ12
+    description: converts a signed Q12 3x3 matrix and integer vector into transformed integer output
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0045e8e0
+    name: Render_SetViewProjection
+    gdb_aliases:
+      - view_projection
+    description: converts the active viewport/camera state into render transform data
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00467c90
+    name: Render_World
+    gdb_aliases:
+      - render_world
+    description: world-render entry that selects a viewport, sets view state, and traverses scene objects
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0045f530
+    name: Render_SubmitActor
+    description: game-owned actor/skater submission path reached from Render_World
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00460a90
+    name: Render_SubmitObjectList
+    description: adjacent scene/object-list submission helper reached by the render traversal
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004d11d0
+    name: Render_ConvertSubmitGeometry
+    description: converts prepared signed fixed-point geometry into backend-ready values
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004d0ca4
+    name: Render_Present
+    gdb_aliases:
+      - render_present
+    description: game-owned DirectDraw surface Flip callsite; promoted rendered-frame boundary
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004699f0
     name: Game_InputUpdate
     gdb_aliases:
