@@ -1885,6 +1885,19 @@ void Renderer::present() {
 
 The names in this contract are reconstruction interfaces, not claims that the original binary used the same C++ class names. Mode dispatch, fixed-point rounding, camera-point transitions, death-camera interpolation, and projection conversion must be implemented as separate testable pieces.
 
+The executable version of that boundary is now available in
+[camera_frame.hpp](../../../src/camera/camera_frame.hpp). `advance_camera_frame`
+accepts the gameplay-owned raw producer inputs, runs the camera, copies the
+resulting transform into render preparation, and advances the timing producer
+after the camera update. `present_camera_frame` is a separate operation that
+increments the native present serial only after scene/backend submission has
+succeeded. This keeps the confirmed `0x004d0ca4` boundary explicit without
+choosing a graphics API or pretending that the camera owns gameplay updates.
+
+The frame fixture also verifies the one-update timing latency: the first frame
+uses the seeded Q8 step `0x100`, the render-preparation stage runs before the
+present marker, and a second present increments the serial exactly once.
+
 ## What remains before visual-faithful recreation
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:

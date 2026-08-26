@@ -6,6 +6,79 @@ from pathlib import Path
 import pytest
 
 
+def test_camera_frame_contract_keeps_present_explicit(tmp_path):
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("g++ is not installed")
+    source = tmp_path / "camera_frame_contract.cpp"
+    source.write_text(
+        textwrap.dedent(
+            """
+            #include "src/camera/camera_frame.hpp"
+
+            int main() {
+                using namespace opentony::camera;
+                CameraFrameStateRaw state;
+                CameraFrameInputRaw input;
+                input.timestamp_ms = 1000;
+                input.render_input.viewport.words = {
+                    0, 640, 0, 480, 0, 20512, 3410, 12,
+                    320, 240, 0, 0, 320, 480};
+                input.render_input.scale_x = 0x1000;
+                input.render_input.scale_y = 0x1000;
+                input.target.tripod_state = 2;
+                input.target.follow_offset = {0, -0x1000, 0};
+
+                auto first = advance_camera_frame(state, input);
+                if (!first.camera_updated || !first.render_prepared
+                    || first.presented
+                    || state.camera_timing.simulation_delta_q8 != 0x100) {
+                    return 1;
+                }
+                if (!present_camera_frame(state, first)
+                    || first.presented_frame_serial != 1
+                    || present_camera_frame(state, first)) {
+                    return 2;
+                }
+
+                input.timestamp_ms = 1017;
+                auto second = advance_camera_frame(state, input);
+                if (second.simulation_clock.tick_delta != 1
+                    || !present_camera_frame(state, second)
+                    || state.presented_frame_serial != 2) {
+                    return 3;
+                }
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            compiler,
+            "-std=c++20",
+            "-I",
+            str(Path(__file__).resolve().parents[1]),
+            str(source),
+            "-o",
+            str(tmp_path / "camera_frame_contract"),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        [str(tmp_path / "camera_frame_contract")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+
+
 def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
     compiler = shutil.which("g++")
     if compiler is None:
