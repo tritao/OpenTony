@@ -1,5 +1,18 @@
 version: 1
 functions:
+  - address: 0x00496060
+    name: Skater_PositionWritePath
+    slice: player-position-commit
+    status: tested
+    sources:
+      - src/runtime/position_commit.cpp
+      - src/runtime/position_commit.hpp
+    tests:
+      - src/runtime/position_commit_test.cpp
+    evidence:
+      - re/evidence/functions/position-write-path.md
+    notes: Candidate ordering and fallback behavior are tested; retail trace parity and the offset-0x3200 bypass meaning remain open.
+
   - address: 0x004624d0
     name: M3D_InitCollisionQuery
     slice: collision-query

@@ -1,0 +1,31 @@
+version: 1
+id: camera-update
+subsystem: camera
+status: active
+
+scope:
+  functions:
+    - 0x0040f850
+  types:
+    - CCamera
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/camera-system.md
+  native:
+    - src/camera/camera_math.hpp
+  tests: []
+
+open_questions:
+  - Recover the remaining CCamera fields accessed by the update path.
+  - Separate the update mode and state branches without guessing semantic names.
+  - Establish the target, anchor, smoothing, and viewport relationships.
+  - Determine which recovered behavior belongs in the existing native camera math boundary.
+
+completion:
+  - The Camera_Update boundary, ABI, callers, and callees are evidence-backed.
+  - Every accessed CCamera field is recorded with conservative confidence.
+  - Important update modes and state transitions have a semantic model and tests.
+  - Native camera behavior has an explicit progress mapping or a documented exclusion.
+  - Exact matching work remains byte-identical where pursued.

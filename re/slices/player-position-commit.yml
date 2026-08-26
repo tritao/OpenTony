@@ -1,0 +1,43 @@
+version: 1
+id: player-position-commit
+subsystem: player-physics
+status: active
+
+scope:
+  functions:
+    - 0x00496060
+    - 0x004624d0
+    - 0x00466090
+  types:
+    - RuntimeGameplaySkater
+    - SLineInfo
+  globals: []
+
+shared:
+  functions:
+    - 0x004624d0
+    - 0x00466090
+
+artifacts:
+  evidence:
+    - re/evidence/functions/position-write-path.md
+    - re/evidence/functions/collision-query.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/runtime/position_commit.cpp
+    - src/runtime/position_commit.hpp
+  tests:
+    - src/runtime/position_commit_test.cpp
+
+open_questions:
+  - Establish the meaning and writers of the skater field at offset 0x3200.
+  - Record which fallback candidate succeeds for grounded wall, floor, and airborne cases.
+  - Confirm the caller-side interpretation of the collision-query result.
+  - Compare the native candidate-selection sequence against retail traces.
+
+completion:
+  - The position-write ABI and all accessed skater/query fields are evidence-backed.
+  - Candidate ordering and fallback behavior have semantic tests.
+  - Representative retail traces identify successful candidates and bypass behavior.
+  - Native position commit reaches trace-validated progress.
+  - The exact matching implementation remains byte-identical.
