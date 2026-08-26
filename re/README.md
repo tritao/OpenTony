@@ -57,6 +57,10 @@ writes raw low-word action masks at the post-poll publish boundary
 `0x004e4650`. Use explicit masks (for example `0x8000`, `0`, `0x10`, `0`) and
 record the sequence in the trace; this drives the retail action-state
 consumers without relying on synthetic X/DirectInput keyboard events.
+`tony-frontend-play` is a separate level-entry control: it preserves the real
+frontend selection helper, then forces the returned main-menu result to
+`PLAY_GAME` at the verified caller result slot. Use it with a short trace when
+the headless frontend cannot be advanced reliably by input alone.
 
 For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
 samples the `0x004d29e0` transform contract at its post-transform return tail

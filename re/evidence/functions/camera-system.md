@@ -1467,6 +1467,28 @@ view basis, or projection constants, would falsify the stronger fixture claim.
 Evidence: `build/debug/camera-stationary-calibration10.jsonl` and the helper
 implementation in `re/gdb/opentony/commands.py`.
 
+The follow-up `camera-clean-pairing` run repeated the same level-entry setup
+without freezing the view-input record. It reached Warehouse and collected 61
+camera callbacks, 51 view setups, 100 geometry submissions, 100 raster-tail
+returns, 100 transformed-vertex returns, and 824 Flip events before the same
+retail fault at `0x004cd257`. The geometry and raster probes paired at the same
+six present-clock frames (`773..778`); the 100 transformed calls also occupied
+those frames. This confirms that the normal indexed/special geometry path and
+the ordinary transform path are both live under the level-gated experiment.
+
+It does not yet close the object pairing: the geometry probe’s `0x004d11d0`
+arguments identify changing geometry pointers and counts, while the completed
+transform probe returns shared scratch output and its producer snapshot is not
+yet guaranteed to belong to the same object on every call. The run therefore
+supports the existence and ordering of the two submission paths, but not a
+one-to-one mapping between a runtime scene object, its model basis, and every
+completed vertex packet.
+
+Evidence: `build/debug/camera-clean-pairing.jsonl`. Possible falsifier for the
+ordering claim: a clean run in which the geometry/raster callbacks occur without
+the intervening transform path, or in which a different caller owns the level
+submission for the same viewport.
+
 ### One actor submission path
 
 `Render_World` passes the active scene/player pointers through
