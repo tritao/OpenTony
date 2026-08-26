@@ -111,9 +111,41 @@ This is distinct from the KICK-gated ollie request at `0x0049ac9b`: it is a
 post-ground-helper leave-ground condition, with slope/recovery/frame values
 supplied by collision and outer-frame code. The native
 `try_ground_to_air()` boundary models the predicate, request metadata, and
-vertical clamp without claiming ownership of those producers. It is covered
-by a focused native regression test, but no additional semantic “jump” name is
+vertical clamp without claiming ownership of those producers. After that
+request it now also models the shared `FUN_004904d0(0x14, 0)` call at
+`0x0049dde1`: the helper resets its deterministic player/trick fields,
+re-requests raw state `1` with reason `0x0715` at `0x004905ab`, and the caller
+writes `+0x3204 = 0x28` at `0x0049dde6`. The second request is a same-state
+write, so it matters for phase/history and writer traces even though it is not
+a new semantic transition. Animation, sound, and speed-table side effects
+inside `FUN_004904d0` remain explicit external seams. It is covered by a
+focused native regression test, but no additional semantic “jump” name is
 assigned to this transition.
+
+### Shared off-ground reset (`0x004904d0`)
+
+The helper is broader than the state-4 label. Its two arguments are the
+mode/speed selector and the value copied to `+0x2f60`; the deterministic
+player-side stores are now retained in the native `OffGroundBookkeeping`
+record using raw offset names where semantics are not established:
+
+| Retail fields | Reset performed |
+| --- | --- |
+| `+0x2c64`, `+0x2c8c` | zeroed |
+| `+0x302c` | incremented |
+| `+0x29dc`, `+0x29e0`, `+0x2bd8`, `+0x2ec8`, `+0x2e90`, `+0x29d4`, `+0x29d0` | zeroed |
+| `+0x29f0`, `+0x29f4` | set to `0`, `100` |
+| `+0x2dd0`, `+0x2dd4`, `+0x29c8` | zeroed |
+| `+0x2f60`, `+0x2f68`, `+0x2f64` | copy second argument, zero, set to `1` |
+| `+0x2de0`, `+0x2de8`, `+0x2c68`, `+0x2e94` | zeroed |
+| `+0x29f2`, `+0x3034` | consumed as the recovery mode, then cleared/incremented by the nested landing-recovery branch |
+
+It then requests raw state `1` through `0x004900b0`, with reason `0x0715`
+and request instruction `0x004905ab`. The mode-dependent calls to
+`0x004de010`, `0x0048fb20`, `0x004904c0`, `0x00491b80`, and `0x004be450`
+remain external because they drive animation, sound, or speed-table state.
+This prevents the native transition from silently treating those effects as
+part of the verified physics enum.
 
 ### Observed state-4 collision path
 
@@ -142,7 +174,8 @@ dispatcher selects the dedicated `0x00494210` handler and the bundled PSX
 the raw transition path, but it does not by itself prove that every state-4
 entry is a rail entry or that `0x00494210` is fully equivalent across builds.
 The native `enter_state4_from_collision()` and `leave_state4_to_air()` methods
-therefore preserve only the exact request boundaries; rail geometry,
+therefore preserve the exact request and shared off-ground reset boundaries;
+rail geometry,
 collision selection, and the state-4 handler's large orientation/contact body
 remain explicit caller-owned seams.
 
@@ -325,6 +358,25 @@ GRIND `+0x10`, NOLLIE `+0x50`, SWITCH `+0x70`, and the spin/directional slots.
 This closes the JUMP-record consumer audit without claiming that the later
 action-history/trick system cannot make KICK the user-facing ollie control.
 
+### Action-history ring (`0x00492190` → `0x00491c90`)
+
+The action-history path is now modeled as a separate, exact bookkeeping seam.
+`FUN_00492190` calls `FUN_00491c90` in this order: indices `1` through `8`
+compare the opaque `FUN_00492120` result, then indices `9`, `10`, `11`, `12`,
+`14`, and `16` read GRAB, GRIND, KICK, JUMP, NOLLIE, and SWITCH respectively.
+Indices `0`, `13`, and `15` are not touched by this updater. The writer
+compares each value against the previous byte at `+0x2b18 + index`; unchanged
+values do not create events. A changed value writes index, pressed byte, and
+`DAT_005685f4` to the next eight-byte slot at `+0x2a14 + ring_index*8`, then
+increments `+0x2b14` modulo `0x20`.
+
+The native `update_action_history()` preserves this call order and ring
+behavior. Its `physics_action` argument is deliberately the unresolved
+`FUN_00492120` result, so this addition captures action edges without claiming
+that the producer is the jump/ollie transition. The regression covers a
+physics-action change, KICK release, and JUMP press with their exact event
+indices and frame timestamps.
+
 ## Dispatcher, handler, and position commit
 
 The dispatcher entry is `0x0049db80`. Static case selection and the dynamic
@@ -367,15 +419,54 @@ The ground/collision helper has additional recovery requests, but it is not
 necessary to explain this observed air → ground transition.
 
 The static contact branch also exposes a small landing handoff that the native
-slice preserves: ordinary accepted contact sets `+0x2ec0 = 1`, clears the
-shared movement target `+0x3144`, clears `+0x29dc`, stores the landing frame at
-`+0x2d98`, and copies a collision-side contact identity into `+0x30b0`. The
-exact writer PCs are `0x004991a4`, `0x004991b3`, `0x004991d4`, `0x004991f8`,
-and `0x00499255`, respectively. The collision identity and contact-normal work
-remain callback-owned. For raw state `3`, contact
+slice preserves: ordinary accepted contact sets `+0x2ec0 = 1`, calls the
+landing cleanup helper, then clears the shared movement target `+0x3144`,
+clears `+0x29dc`, stores the landing frame at `+0x2d98`, and copies a
+collision-side contact identity into `+0x30b0`. The exact writer PCs are
+`0x004991a4`, `0x004991b3`, `0x004991d4`, `0x004991f8`, and `0x00499255`,
+respectively. The collision identity and contact-normal work remain
+callback-owned. For raw state `3`, contact
 position is still committed, but the normal state-0 request is deferred while
 `frame - +0x2f34 <= 0x1e`; this launch-grace distinction is now covered by the
 native replay test.
+
+### Landing cleanup (`0x004914d0`)
+
+`FUN_004914d0` is both an in-air landing-branch helper and an outer-frame
+post-dispatch helper (called every frame except raw state `8`). It begins by
+calling the collision/grounding preparation routine `0x004aaf70`; that routine
+is kept as a caller-owned callback because its broadphase and cast selection
+are outside this state-machine slice. Its deterministic cleanup boundary is
+now explicit in the native model. It first clears `+0x2e34` when JUMP is
+released, clears `+0x2e30` when JUMP is released and `+0x2e90` is set,
+decrements nonzero `+0x2ec4`, and then consumes a positive landing marker at
+`+0x2ec0`: the marker is decremented and `+0x2e90`/`+0x2e94` are cleared before
+the contact identity or landing request is published. This is why the native
+accepted contact path calls `apply_landing_cleanup()` immediately after
+writing `+0x2ec0 = 1`.
+
+After the marker drains, the exact early gates clear `+0x2e94` when JUMP is
+not held, control is blocked (`+0x2f64`), raw state `2` has positive Y
+velocity, or `+0x2e34` is set. The deeper recovery/animation dispatch uses
+external animation and trick state and remains outside the native boundary.
+The outer-frame callback is placed after dispatch/blocked cleanup and before
+the final velocity integration; the native regression covers that ordering.
+
+The post-marker recovery decision is now split at its deterministic seam. An
+angle-window flag is true when `+0x2c88` is set and the low 12 bits of
+`+0x2c8c` are above `0x12c` for nonpositive `+0x2c90`, or below `0xed4` for
+positive `+0x2c90`. That flag, or the condition `+0x2c68 != 0` with
+`+0x2c6c == 0`, enters the recovery branch. If `+0x2e2c == 0`, or its signed
+byte/short comparison against `+0x100`, `+0x101`, and `+0xf4` passes, the
+branch calls `FUN_004904d0` at `0x004916a9`, clears short `+0x29f2`, increments
+`+0x3034`, and returns. The native result exposes this as
+`recovery_reset_requested` and retains the nested off-ground request.
+
+If that reset is not selected, `+0x2c70` is set when `+0x2c68` is nonzero, then
+`FUN_004925e0` scans the action-history/trick data. A nonzero `+0x3064` would
+dispatch `FUN_00490ef0` with a deterministic geometry hint. The native model
+reports both external calls and the hint but leaves their action/animation
+effects caller-owned.
 
 ### Raw in-air contact result
 
@@ -461,7 +552,12 @@ The distinction between raw states 1 and 3 matters for a recreation: the
 dispatcher has two separate cases, but both call `0x00497f40`. Case 3 also
 checks a frame counter and requests state 1 with reason `0x2bf2` if the raw
 state remains 3 for more than `0x19` updates. Do not collapse the two raw
-values merely because they share the in-air callee.
+values merely because they share the in-air callee. The ordering is also
+material: the case-3 handler call returns first, then the dispatcher tests
+whether raw state is still `3` before issuing the timeout request at
+`0x0049de9e`. The native standalone `dispatch()` closes that post-handler
+check immediately; `step_frame()` defers it until after the common air
+callbacks, matching the retail handler-before-timeout boundary.
 
 ## Transition callers and reason tags
 
@@ -595,15 +691,20 @@ main physics frame 0x0049e680
       → read KICK action subrecord (+0x30), charge/latch
       → ollie vertical impulse (+0x50)
       → request state 1/3 through 0x004900b0
-  → ground/collision preparation and recovery 0x00492ea0, 0x0049df00
+  → action-history update 0x00492190 → 0x00491c90
+  → remaining ground/collision preparation and recovery 0x00492ea0, 0x0049df00
   → copy phase state (+0x30c0 = +0x30b8)
   → copy current/old position history (+0x2e00..+0x2e08, +0xbc..+0xc4)
   → dispatcher 0x0049db80
       → state 0 ground path
       → state 1/3/6 in-air path 0x00497f40
+  → state-3 timeout check after 0x00497f40 returns
   → control-blocked reset 0x0049d8a0, when +0x2f64 is set
       → clear acceleration X/Z and launch latches
       → optional descending-Y clamp and component velocity decay
+  → landing/grounding helper 0x004914d0, except raw state 8
+      → collision preparation 0x004aaf70
+      → consume/clear deterministic landing and recovery markers
   → outer velocity integration 0x0049f206
   → position implementation 0x00496060
 ```
@@ -625,6 +726,7 @@ boundaries are intentionally named after the retail callsites:
 action-mask update
   → gravity/movement callbacks (0x0049e680 / 0x00493370)
   → prephysics callback (0x0049b010 / 0x0049a280)
+  → action-history callback (0x00492190 / 0x00491c90)
   → ground preparation callback (0x00492ea0 / 0x0049df00)
   → +0x30c0 = +0x30b8 and position-history rotation
   → collision-start callback (0x00490730)
@@ -633,6 +735,8 @@ action-mask update
   → air motion callback / fixed-point integration (0x004983c0)
   → optional accepted air contact: commit (0x00496060), then request state 0
   → gravity add (0x004992f0), unless accepted contact jumped over it
+  → landing collision-preparation callback (0x004aaf70)
+  → landing cleanup callback (0x004914d0), except raw state 8
   → velocity integration (0x0049f206)
   → postphysics callback / velocity-damping boundary (0x0049d480)
 ```
@@ -665,6 +769,16 @@ contact/gravity and before velocity integration. The same retail function
 continues into a recent-trick-event scan that writes `+0x108`; that event
 system is deliberately not promoted into the physics state machine.
 
+The adjacent `0x004914d0` cleanup is a separate frame boundary. The native
+`apply_landing_cleanup()` mirrors its marker countdown and exact early gates;
+`PhysicsFrameCallbacks::landing_collision_preparation` leaves the preceding
+`0x004aaf70` broadphase/cast selection caller-owned, and
+`PhysicsFrameCallbacks::landing_cleanup` places the cleanup callback after it,
+after the blocked reset, and before velocity integration. Accepted common-air
+contact invokes the same helper at the retail landing point, before the
+identity and state-request stores. The deeper animation/recovery branch
+remains caller-owned.
+
 The native boundary now also exposes the deterministic arithmetic behind those
 two callbacks. `copy_orientation_basis()` mirrors `0x0049c7d0`'s exact short
 permutation into `+0x30f4..+0x3114`; `fixed12_dot()` and
@@ -682,6 +796,15 @@ acceleration*dt update at `0x0049f206`; `step_frame()` exposes that point as the
 `velocity_integration` callback before postphysics.
 These helpers close arithmetic contracts; they do not claim to discover the
 surface normal, collision identity, or shared random-stream ownership.
+
+The postphysics cap path also consumes independent random values. In
+`FUN_0049d480`, the first type-3 draw gates the cap; if active, three fresh
+draws independently produce the X, Y, and Z rescale targets before the speed
+metric is recomputed. The native `VelocityDampingRandom` keeps `cap_x`,
+`cap_y`, and `cap_z` separate from the initial `cap`, and the regression
+exercises unequal component targets. Reusing the initial target for all three
+components changes both the velocity result and the shared random-stream
+position.
 
 The deterministic basis portion of the in-air preparation is now also native.
 `prepare_in_air_orientation()` mirrors `0x00497df0`: it advances or resets
@@ -771,8 +894,9 @@ to its caller.
 
 The air-contact landing path has the matching ordering: it commits the swept
 contact position first, clears `+0x3144` and `+0x29dc`, writes the landing
-marker, publishes the collision contact identity at `+0x30b0`, and requests
-raw state `0` at `0x004991fe` with reason `0x1fd6`. After that request, the
+marker, consumes it through `0x004914d0`, publishes the collision contact
+identity at `+0x30b0`, and requests raw state `0` at `0x004991fe` with reason
+`0x1fd6`. After that request, the
 non-raw-1 branch projects velocity with the contact normal and writes the
 packed-normal fields used by the next grounded pass. Raw state `3` contacts
 inside the first `0x1e` frames remain in the grace path and do not request the
@@ -837,6 +961,16 @@ the recovered decompilation. Thus the direct `0x0010` → `0x0040` alias is not
 present in this chain. A later gameplay/animation eligibility layer may still
 be what makes the KICK-gated path user-facing, so the native boundary keeps
 that decision explicit.
+
+A direct binary sweep for stores to `player+0x2de0` also closes the remaining
+obvious latch-writer gap. The normal gameplay latch lifecycle is limited to
+`0x0049a640`/`0x0049a6ac` (set), `0x0049a6ef` (stale clear), `0x0049a729`
+(cancel clear), and `0x0049a751` (launch consume). The other observed writers
+are initialization or recovery/reset paths: `0x0046c9e3`, `0x00490585`,
+`0x00490f5a`, `0x0049d8bf`, and `0x004c6af7`. No action-record updater or JUMP
+record consumer writes this latch. This is a negative result about the
+recovered executable path, not a claim about the unrecovered frontend that
+may map a user-facing JUMP command onto the KICK-gated prephysics action.
 
 ### Ground re-entry bookkeeping
 
