@@ -1,0 +1,253 @@
+version: 1
+types:
+  - name: RuntimePsxMaterialRecord
+    size: 0x2c
+    confidence: confirmed
+    description: Hash-bucketed PSX scene material record allocated while relocating a scene checksum table; distinct from the PC D3D texture record with the same allocation size.
+    fields:
+      - offset: 0x10
+        name: reference_count
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x12
+        name: material_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x14
+        name: pc_texture_record
+        type: pointer<RuntimePcTextureRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x1c
+        name: source_palette_record
+        type: pointer<RuntimeSourcePaletteLookupNode>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x18
+        name: checksum_key
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x24
+        name: next
+        type: pointer<RuntimePsxMaterialRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x28
+        name: previous
+        type: pointer<RuntimePsxMaterialRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+
+  - name: RuntimeSourcePaletteLookupNode
+    size: 0x18
+    confidence: observed
+    description: Source-palette lookup node used by the inline PSX texture path; distinct from the converted-color cache node.
+    fields:
+      - offset: 0x04
+        name: palette_state
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x06
+        name: ready
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x08
+        name: source_palette_key
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x10
+        name: next
+        type: pointer<RuntimeSourcePaletteLookupNode>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x14
+        name: previous
+        type: pointer<RuntimeSourcePaletteLookupNode>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+
+  - name: RuntimePaletteCacheRecord
+    size: 0x18
+    confidence: confirmed
+    description: Palette conversion/cache node allocated by the PC texture path and linked in a global doubly-linked list.
+    fields:
+      - offset: 0x00
+        name: source_palette_key
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x04
+        name: color_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x08
+        name: converted_color_buffer
+        type: pointer<u16>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x0c
+        name: source_color_buffer
+        type: pointer<u16>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x10
+        name: next
+        type: pointer<RuntimePaletteCacheRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x14
+        name: previous
+        type: pointer<RuntimePaletteCacheRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+
+  - name: RuntimePaletteRecord
+    size: null
+    confidence: observed
+    description: PSX palette metadata/handle record created for a 4-bit or 8-bit palette; distinct from RuntimePaletteCacheRecord.
+    fields:
+      - offset: 0x00
+        name: packed_palette_metadata
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x02
+        name: palette_index
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x03
+        name: format_flags
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x0c
+        name: source_palette_data
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x06
+        name: palette_ready
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+
+  - name: RuntimePcTextureRecord
+    size: 0x2c
+    confidence: confirmed
+    description: Zeroed PC texture record allocated by the D3D texture manager and linked in a global doubly-linked list.
+    fields:
+      - offset: 0x00
+        name: d3d_texture_resource
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x04
+        name: scene_material_owner
+        type: pointer<RuntimePsxMaterialRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x08
+        name: source_image_association
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x0c
+        name: name_or_checksum
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x10
+        name: texture_flags
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x14
+        name: declared_width
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x16
+        name: declared_height
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x18
+        name: normalized_width
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x1a
+        name: normalized_height
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x1c
+        name: realized_width
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x1e
+        name: realized_height
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x20
+        name: palette_cache_or_ready
+        type: pointer<RuntimePaletteCacheRecord>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x24
+        name: next
+        type: pointer<RuntimePcTextureRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x28
+        name: previous
+        type: pointer<RuntimePcTextureRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/texture-runtime.md

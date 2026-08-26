@@ -1,0 +1,122 @@
+version: 1
+types:
+  - name: RuntimeD3DPolygonCommandHeader
+    size: null
+    confidence: confirmed
+    description: Common linked command prefix consumed by the final polygon-list dispatcher.
+    fields:
+      - offset: 0x00
+        name: next
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x04
+        name: enabled_or_payload_word
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x07
+        name: opcode_and_format
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x08
+        name: render_flags
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimeD3DPrimitiveDispatchTable
+    size: 0x400
+    confidence: confirmed
+    description: 256-entry opcode-base dispatch table initialized by the renderer; uninstalled slots point to a no-op handler.
+    fields:
+      - offset: 0x00
+        name: handlers
+        type: array<pointer<void>,256>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimeD3DPolygonRecord
+    size: 0x30
+    confidence: observed
+    description: Fixed-size per-frame polygon record allocated after PSX face color and vertex resolution. The tail is a variable vertex/color/UV stream.
+    fields:
+      - offset: 0x00
+        name: next
+        type: pointer<RuntimeD3DPolygonRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x07
+        name: packet_format
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x08
+        name: packed_render_flags
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x10
+        name: material_or_pc_texture
+        type: pointer<RuntimePsxMaterialRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+          - re/evidence/functions/texture-runtime.md
+      - offset: 0x14
+        name: vertex_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x18
+        name: vertex_color_uv_stream
+        type: bytes
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimeM3DTransformedVertex
+    size: 0x1c
+    confidence: observed
+    description: Seven-float working record produced by the packed model vertex transformer. The first coordinates and clip/control values are stable; some later slots are mode-dependent.
+    fields:
+      - offset: 0x00
+        name: projected_x
+        type: f32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x04
+        name: projected_y
+        type: f32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x08
+        name: projected_z
+        type: f32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x0c
+        name: clip_flags
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x10
+        name: source_control
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md

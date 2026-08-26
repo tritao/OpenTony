@@ -1,0 +1,171 @@
+version: 1
+types:
+  - name: RuntimeTricksSectionPointers
+    confidence: observed
+    description: Seven globals published by the TRICKS.BIN loader; each points into one raw loaded buffer.
+    fields:
+      - offset: 0x00
+        name: section_0
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x04
+        name: section_1
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x08
+        name: section_2
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x0c
+        name: section_3
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x10
+        name: section_4
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x14
+        name: section_5
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x18
+        name: section_6
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTextureSetManagerPrefix
+    size: 0x6608
+    confidence: observed
+    description: Observed prefix/extent of the CRETEX texture-set manager; the entry array layout is not yet stable.
+    fields:
+      - offset: 0x6604
+        name: texture_set_count
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickDescriptor
+    confidence: observed
+    description: Variable-length descriptor in the GTricks section; the stream data and fixed trick record remain separate.
+    fields:
+      - offset: 0x00
+        name: prefix_count
+        type: u16
+        confidence: confirmed
+        description: The executable validates 1..4 and uses this value as the index of the type word.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: variable
+        name: prefix_words
+        type: u16[variable]
+        confidence: observed
+        description: Prefix words between the count and type; their complete button encoding remains open.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: variable
+        name: trick_type
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: variable
+        name: data_offset
+        type: i16
+        confidence: confirmed
+        description: Signed offset added to the raw TRICKS.BIN base.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: variable
+        name: descriptor_word
+        type: u16
+        confidence: confirmed
+        description: Raw word following the signed data offset; the executable propagates selected bits as flags.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickRecord
+    size: 0x28
+    confidence: confirmed
+    description: Fixed runtime database record appended by the GTricks parser.
+    fields:
+      - offset: 0x00
+        name: name
+        type: char[32]
+        confidence: confirmed
+        description: NUL-terminated name copied with a maximum length below 32 bytes.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x20
+        name: source_data_offset
+        type: u16
+        confidence: confirmed
+        description: 16-bit source offset and duplicate-lookup key.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x22
+        name: decoded_q_value
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x24
+        name: table_class_flags
+        type: u16
+        confidence: confirmed
+        description: Receives the type-selected table class and propagated flag bits.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x26
+        name: descriptor_flags
+        type: u16
+        confidence: confirmed
+        description: Receives the raw descriptor word and drives duplicate/listed flag propagation.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeCreateTextureRecord
+    size: 0x1c
+    confidence: observed
+    description: Individual texture record allocated while parsing CRETEX.BIN.
+    fields:
+      - offset: 0x08
+        name: texture_name
+        type: pointer<char>
+        confidence: confirmed
+        description: Name key compared by the texture database lookup and normalized before insertion.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTextureSetRecord
+    size: 0x44
+    confidence: observed
+    description: Assembled CRETEX texture-set record copied into the set manager.
+    fields:
+      - offset: 0x00
+        name: texture_set_id
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x40
+        name: texture_part_count
+        type: u8
+        confidence: confirmed
+        description: Input part-count byte copied into the committed record; commit rejects values of five or more.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
