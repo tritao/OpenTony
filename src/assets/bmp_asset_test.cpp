@@ -1,6 +1,6 @@
 #include "bmp_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -49,10 +49,10 @@ int main() {
     bytes[68] = std::byte{0};
     bytes[69] = std::byte{0};
     const auto asset = opentony::assets::BmpAsset::parse(std::move(bytes), "test.bmp");
-    assert(asset.image().width == 2);
-    assert(asset.image().height == 2);
-    assert(!asset.image().top_down);
-    assert(asset.image().rgb == std::vector<std::uint8_t>({
+    CHECK(asset.image().width == 2);
+    CHECK(asset.image().height == 2);
+    CHECK(!asset.image().top_down);
+    CHECK(asset.image().rgb == std::vector<std::uint8_t>({
         0xff, 0, 0, 0, 0xff, 0,
         0, 0, 0xff, 0xff, 0xff, 0xff}));
 
@@ -72,9 +72,9 @@ int main() {
         const auto path = root / witness.name;
         if (std::filesystem::is_regular_file(path)) {
             const auto real = opentony::assets::BmpAsset::load(path.string());
-            assert(real.image().width == witness.width);
-            assert(real.image().height == witness.height);
-            assert(real.image().rgb.size() ==
+            CHECK(real.image().width == witness.width);
+            CHECK(real.image().height == witness.height);
+            CHECK(real.image().rgb.size() ==
                 static_cast<std::size_t>(witness.width) * witness.height * 3U);
         }
     }

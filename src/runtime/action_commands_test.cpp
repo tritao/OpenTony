@@ -1,6 +1,6 @@
 #include "action_commands.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -18,13 +18,13 @@ int main() {
     QueuedMotionState motion{};
     std::size_t cursor = 0;
     const auto dispatched = dispatch_action_command(command, cursor, motion);
-    assert(dispatched.recognized);
-    assert(dispatched.opcode == kSetQueuedMotionOpcode);
-    assert(!dispatched.malformed);
-    assert(dispatched.bytes_consumed == 7);
-    assert(cursor == command.size());
-    assert(motion.pending[1] == 0x10);
-    assert(motion.rate[1] == 4);
+    CHECK(dispatched.recognized);
+    CHECK(dispatched.opcode == kSetQueuedMotionOpcode);
+    CHECK(!dispatched.malformed);
+    CHECK(dispatched.bytes_consumed == 7);
+    CHECK(cursor == command.size());
+    CHECK(motion.pending[1] == 0x10);
+    CHECK(motion.rate[1] == 4);
 
     std::size_t wait_cursor = 0;
     const std::vector<std::uint8_t> wait_command{kWaitQueuedMotionOpcode};
@@ -32,20 +32,20 @@ int main() {
         wait_command,
         wait_cursor,
         motion);
-    assert(waiting.recognized);
-    assert(waiting.yielded);
-    assert(wait_cursor == 0);
+    CHECK(waiting.recognized);
+    CHECK(waiting.yielded);
+    CHECK(wait_cursor == 0);
 
     const auto first = drain_queued_motion(motion);
-    assert(first.moved);
-    assert(first.local_delta[1] == 4);
-    assert(motion.pending[1] == 0xc);
-    assert(motion.accumulated[1] == 4);
+    CHECK(first.moved);
+    CHECK(first.local_delta[1] == 4);
+    CHECK(motion.pending[1] == 0xc);
+    CHECK(motion.accumulated[1] == 4);
 
     const auto second = drain_queued_motion(motion, 0x80);
-    assert(second.local_delta[1] == 2);
-    assert(motion.pending[1] == 0xa);
-    assert(motion.accumulated[1] == 6);
+    CHECK(second.local_delta[1] == 2);
+    CHECK(motion.pending[1] == 0xa);
+    CHECK(motion.accumulated[1] == 6);
 
     while (motion.pending[1] != 0) {
         static_cast<void>(drain_queued_motion(motion));
@@ -55,21 +55,21 @@ int main() {
         wait_command,
         wait_cursor,
         motion);
-    assert(released.recognized);
-    assert(!released.yielded);
-    assert(released.bytes_consumed == 1);
-    assert(wait_cursor == 1);
+    CHECK(released.recognized);
+    CHECK(!released.yielded);
+    CHECK(released.bytes_consumed == 1);
+    CHECK(wait_cursor == 1);
 
     QueuedMotionState reverse{};
-    assert(set_queued_motion_command(reverse, 0, 3, -4));
+    CHECK(set_queued_motion_command(reverse, 0, 3, -4));
     const auto reverse_delta = drain_queued_motion(reverse);
-    assert(reverse_delta.local_delta[0] == -3);
-    assert(reverse.pending[0] == 0);
+    CHECK(reverse_delta.local_delta[0] == -3);
+    CHECK(reverse.pending[0] == 0);
 
-    assert(set_queued_motion_command(reverse, 0, 10, 0));
-    assert(reverse.pending[0] == 0);
-    assert(reverse.accumulated[0] == 0);
-    assert(!set_queued_motion_command(reverse, 3, 1, 1));
+    CHECK(set_queued_motion_command(reverse, 0, 10, 0));
+    CHECK(reverse.pending[0] == 0);
+    CHECK(reverse.accumulated[0] == 0);
+    CHECK(!set_queued_motion_command(reverse, 3, 1, 1));
 
     ActionCommandRuntimeState raw_state{};
     const std::vector<std::uint8_t> raw_register_stream{
@@ -92,18 +92,18 @@ int main() {
             reverse,
             nullptr,
             &raw_state);
-        assert(raw_result.recognized);
-        assert(!raw_result.malformed);
+        CHECK(raw_result.recognized);
+        CHECK(!raw_result.malformed);
     }
-    assert(raw_state.word_f4 == 0);
-    assert(raw_state.word_f6 == 0x1234);
-    assert(raw_state.word_29c0 == -2);
-    assert(raw_state.word_2c64 == 0x5678);
-    assert(raw_state.mode_f8 == 4);
-    assert(raw_state.dword_29ec == 0x1234);
-    assert(raw_state.dword_2f00 == -2);
-    assert(raw_state.dword_2c0c == 0x5678);
-    assert(raw_state.dword_2e2c == 0x8000);
+    CHECK(raw_state.word_f4 == 0);
+    CHECK(raw_state.word_f6 == 0x1234);
+    CHECK(raw_state.word_29c0 == -2);
+    CHECK(raw_state.word_2c64 == 0x5678);
+    CHECK(raw_state.mode_f8 == 4);
+    CHECK(raw_state.dword_29ec == 0x1234);
+    CHECK(raw_state.dword_2f00 == -2);
+    CHECK(raw_state.dword_2c0c == 0x5678);
+    CHECK(raw_state.dword_2e2c == 0x8000);
 
     const std::vector<std::uint8_t> response_command{
         kSetResponseVectorOpcode,
@@ -118,16 +118,16 @@ int main() {
         cursor,
         reverse,
         &response);
-    assert(response_result.recognized);
-    assert(!response_result.malformed);
-    assert(response_result.bytes_consumed == 7);
-    assert(cursor == response_command.size());
+    CHECK(response_result.recognized);
+    CHECK(!response_result.malformed);
+    CHECK(response_result.bytes_consumed == 7);
+    CHECK(cursor == response_command.size());
     const std::array<std::int32_t, 3> expected_response{
         0x2000,
         -0x1000,
         0x10000,
     };
-    assert(response == expected_response);
+    CHECK(response == expected_response);
 
     // The now-recognized opcode 0x01 is a three-byte form; the runner must
     // reach the following terminator instead of treating its arguments as
@@ -142,19 +142,19 @@ int main() {
         fixed_unknown_stream,
         cursor,
         reverse);
-    assert(fixed_unknown.opcode == 0x01);
-    assert(fixed_unknown.recognized);
-    assert(!fixed_unknown.malformed);
-    assert(fixed_unknown.bytes_consumed == 3);
-    assert(cursor == 3);
+    CHECK(fixed_unknown.opcode == 0x01);
+    CHECK(fixed_unknown.recognized);
+    CHECK(!fixed_unknown.malformed);
+    CHECK(fixed_unknown.bytes_consumed == 3);
+    CHECK(cursor == 3);
     cursor = 0;
     const auto fixed_unknown_run = run_action_stream(
         fixed_unknown_stream,
         cursor,
         reverse);
-    assert(fixed_unknown_run.completed);
-    assert(fixed_unknown_run.commands_executed == 2);
-    assert(cursor == fixed_unknown_stream.size());
+    CHECK(fixed_unknown_run.completed);
+    CHECK(fixed_unknown_run.commands_executed == 2);
+    CHECK(cursor == fixed_unknown_stream.size());
 
     // Opcode 0x0b uses the retail NUL-terminated string form beginning at
     // the byte after the opcode.
@@ -167,11 +167,11 @@ int main() {
         string_unknown_stream,
         cursor,
         reverse);
-    assert(string_unknown.opcode == 0x0b);
-    assert(!string_unknown.recognized);
-    assert(!string_unknown.malformed);
-    assert(string_unknown.bytes_consumed == 4);
-    assert(cursor == 4);
+    CHECK(string_unknown.opcode == 0x0b);
+    CHECK(!string_unknown.recognized);
+    CHECK(!string_unknown.malformed);
+    CHECK(string_unknown.bytes_consumed == 4);
+    CHECK(cursor == 4);
 
     const std::vector<std::uint8_t> malformed_response{
         kSetResponseVectorOpcode,
@@ -183,8 +183,8 @@ int main() {
         cursor,
         reverse,
         &response);
-    assert(malformed_response_result.malformed);
-    assert(cursor == 0);
+    CHECK(malformed_response_result.malformed);
+    CHECK(cursor == 0);
 
     const std::vector<std::uint8_t> action_stream{
         kSetResponseVectorOpcode,
@@ -200,16 +200,16 @@ int main() {
         cursor,
         reverse,
         &response);
-    assert(stream_result.completed);
-    assert(!stream_result.malformed);
-    assert(stream_result.commands_executed == 2);
-    assert(cursor == action_stream.size());
+    CHECK(stream_result.completed);
+    CHECK(!stream_result.malformed);
+    CHECK(stream_result.commands_executed == 2);
+    CHECK(cursor == action_stream.size());
     const std::array<std::int32_t, 3> expected_stream_response{
         0x1000,
         0x2000,
         0x3000,
     };
-    assert(response == expected_stream_response);
+    CHECK(response == expected_stream_response);
 
     const std::vector<std::uint8_t> yielding_stream{
         kSetQueuedMotionOpcode,
@@ -223,10 +223,10 @@ int main() {
         yielding_stream,
         cursor,
         reverse);
-    assert(yielding_result.yielded);
-    assert(!yielding_result.completed);
-    assert(yielding_result.commands_executed == 2);
-    assert(cursor == 7);
+    CHECK(yielding_result.yielded);
+    CHECK(!yielding_result.completed);
+    CHECK(yielding_result.commands_executed == 2);
+    CHECK(cursor == 7);
 
     QueuedMotionState malformed_motion{};
     const std::vector<std::uint8_t> malformed{
@@ -237,8 +237,8 @@ int main() {
         malformed,
         cursor,
         malformed_motion);
-    assert(malformed_result.malformed);
-    assert(cursor == 0);
+    CHECK(malformed_result.malformed);
+    CHECK(cursor == 0);
 
     return 0;
 }

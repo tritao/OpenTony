@@ -1,6 +1,6 @@
 #include "ground_motion_threshold.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 
 int main() {
@@ -10,21 +10,21 @@ int main() {
     const auto decayed = update_ground_motion_threshold(
         0x2d000,
         GroundMotionThresholdInput{0, false});
-    assert(decayed.sampled_target == (0xaa * 0x2d000) / 0x118);
-    assert(decayed.threshold == 0x2cfff);
-    assert(decayed.changed);
+    CHECK(decayed.sampled_target == (0xaa * 0x2d000) / 0x118);
+    CHECK(decayed.threshold == 0x2cfff);
+    CHECK(decayed.changed);
 
     const auto held = update_ground_motion_threshold(
         0x100,
         GroundMotionThresholdInput{0x7f, false});
-    assert(held.threshold == 0x100);
-    assert(!held.changed);
+    CHECK(held.threshold == 0x100);
+    CHECK(!held.changed);
 
     const auto special = update_ground_motion_threshold(
         0,
         GroundMotionThresholdInput{0, true});
-    assert(special.threshold == (0xdc * 0x2d000) / 0x118);
-    assert(special.changed);
+    CHECK(special.threshold == (0xdc * 0x2d000) / 0x118);
+    CHECK(special.changed);
 
     std::cout << "Ground motion threshold tests passed\n";
 }

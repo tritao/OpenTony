@@ -1,7 +1,7 @@
 #include "trigger_factory_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -50,45 +50,45 @@ int main() {
     const auto cb_file = fixture(0xcb);
     opentony::trg::TriggerFactoryRuntimeList cb_list;
     cb_list.build(cb_file);
-    assert(cb_list.records().size() == 1);
+    CHECK(cb_list.records().size() == 1);
     const auto& cb = cb_list.records().front();
-    assert(cb.kind() == opentony::trg::TriggerFactoryRuntimeKind::ObjectCb);
-    assert(cb.allocation_size() == 0x1f4);
-    assert(cb.raw_record().size() == 0x1f4);
-    assert(cb.subtype() == 0xcb);
-    assert(cb.object_flags() == 0x41);
-    assert(cb.active_byte() == 1);
+    CHECK(cb.kind() == opentony::trg::TriggerFactoryRuntimeKind::ObjectCb);
+    CHECK(cb.allocation_size() == 0x1f4);
+    CHECK(cb.raw_record().size() == 0x1f4);
+    CHECK(cb.subtype() == 0xcb);
+    CHECK(cb.object_flags() == 0x41);
+    CHECK(cb.active_byte() == 1);
     const std::array<std::int32_t, 3> expected_position{
         40960, 81920, -122880};
-    assert(cb.position() == expected_position);
+    CHECK(cb.position() == expected_position);
     const std::array<std::uint16_t, 3> expected_parameters{
         0x1111, 0x2222, 0x3333};
-    assert(cb.constructor_parameters() == expected_parameters);
-    assert(cb_list.record_for_node(0) != nullptr);
-    assert(cb.activation_argument() == 0);
-    assert(cb.activation_flags() == 0);
-    assert(cb_list.activate_node(0, 0x10203040U));
-    assert(cb.activation_argument() == 0x10203040U);
-    assert((cb.activation_flags() & 1U) != 0);
-    assert(cb_list.deactivate_node(0));
-    assert((cb.activation_flags() & 1U) == 0);
+    CHECK(cb.constructor_parameters() == expected_parameters);
+    CHECK(cb_list.record_for_node(0) != nullptr);
+    CHECK(cb.activation_argument() == 0);
+    CHECK(cb.activation_flags() == 0);
+    CHECK(cb_list.activate_node(0, 0x10203040U));
+    CHECK(cb.activation_argument() == 0x10203040U);
+    CHECK((cb.activation_flags() & 1U) != 0);
+    CHECK(cb_list.deactivate_node(0));
+    CHECK((cb.activation_flags() & 1U) == 0);
 
     const auto object_file = fixture(0x192);
     opentony::trg::TriggerFactoryRuntimeList object_list;
     object_list.build(object_file);
     const auto& object = object_list.records().front();
-    assert(object.kind() == opentony::trg::TriggerFactoryRuntimeKind::Object192);
-    assert(object.allocation_size() == 0x218);
-    assert(object.raw_record().size() == 0x218);
-    assert(object.subtype() == 0x192);
-    assert(object.object_flags() == 0x111);
-    assert(object.active_byte() == 1);
-    assert(object.mode_word() == 0x20);
+    CHECK(object.kind() == opentony::trg::TriggerFactoryRuntimeKind::Object192);
+    CHECK(object.allocation_size() == 0x218);
+    CHECK(object.raw_record().size() == 0x218);
+    CHECK(object.subtype() == 0x192);
+    CHECK(object.object_flags() == 0x111);
+    CHECK(object.active_byte() == 1);
+    CHECK(object.mode_word() == 0x20);
 
     opentony::trg::LevelTriggerState state;
     state.on_spawn_node(0, 1, 0xcb, {10 * 4096, 20 * 4096, -30 * 4096}, {});
     cb_list.synchronize(state);
-    assert(cb_list.records().front().object_flags() == 0x41);
+    CHECK(cb_list.records().front().object_flags() == 0x41);
 
     std::cout << "Trigger factory runtime tests passed\n";
 }

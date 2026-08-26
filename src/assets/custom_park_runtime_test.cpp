@@ -1,6 +1,6 @@
 #include "custom_park_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -48,13 +48,13 @@ int main() {
 
     const auto archive = CustomParkArchive::parse(std::move(bytes), "park0.prk");
     auto runtime = CustomParkRuntimeRegion::build(archive);
-    assert(runtime.source_archive() == &archive);
-    assert(runtime.cells().size() == 256);
-    assert(runtime.cells()[0].translated_reference(0) == 7);
-    assert(runtime.cells()[0].translated_reference(1) == 0xffff);
-    assert(runtime.items().size() == 10);
-    assert(runtime.items()[0].item_byte() == 6);
-    assert(runtime.items()[0].item_name() == name);
+    CHECK(runtime.source_archive() == &archive);
+    CHECK(runtime.cells().size() == 256);
+    CHECK(runtime.cells()[0].translated_reference(0) == 7);
+    CHECK(runtime.cells()[0].translated_reference(1) == 0xffff);
+    CHECK(runtime.items().size() == 10);
+    CHECK(runtime.items()[0].item_byte() == 6);
+    CHECK(runtime.items()[0].item_name() == name);
 
     const auto first_object = runtime.append_generated_piece({
         .grid_position = {2, 4, 14},
@@ -70,12 +70,12 @@ int main() {
         .model_index = 0x24,
         .slot = 1,
     });
-    assert(first_object == 0);
+    CHECK(first_object == 0);
     const std::array<std::int32_t, 3> expected_position{2 << 12, 4 << 12, 14 << 12};
-    assert(runtime.published_objects()[0].position() == expected_position);
-    assert(runtime.published_objects()[0].model_index() == 0x23);
-    assert(runtime.published_objects()[0].slot() == 1);
-    assert(runtime.generated_pieces()[0][0x0b] == std::byte{3});
+    CHECK(runtime.published_objects()[0].position() == expected_position);
+    CHECK(runtime.published_objects()[0].model_index() == 0x23);
+    CHECK(runtime.published_objects()[0].slot() == 1);
+    CHECK(runtime.generated_pieces()[0][0x0b] == std::byte{3});
 
     runtime.append_gap_pair({
         .source_item = 0,
@@ -85,12 +85,12 @@ int main() {
         .second_object = second_object,
         .active = true,
     });
-    assert(runtime.gap_members().size() == 2);
-    assert(runtime.gap_members()[0].source_item() == 0);
-    assert(runtime.gap_members()[0].partner_index() == 1);
-    assert(runtime.gap_members()[1].partner_index() == 0);
-    assert(runtime.gap_members()[0].published_object_index() == 0);
-    assert(runtime.gap_members()[1].published_object_index() == 1);
-    assert(runtime.gap_members()[0].active());
+    CHECK(runtime.gap_members().size() == 2);
+    CHECK(runtime.gap_members()[0].source_item() == 0);
+    CHECK(runtime.gap_members()[0].partner_index() == 1);
+    CHECK(runtime.gap_members()[1].partner_index() == 0);
+    CHECK(runtime.gap_members()[0].published_object_index() == 0);
+    CHECK(runtime.gap_members()[1].published_object_index() == 1);
+    CHECK(runtime.gap_members()[0].active());
     return 0;
 }

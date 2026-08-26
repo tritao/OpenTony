@@ -4,7 +4,7 @@
 #include "resource_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -105,63 +105,63 @@ int main() {
 
     auto stream = opentony::assets::ResourceStream::open(
         package_backend, "data/FONT.FNT");
-    assert(stream.size() == font_bytes.size());
+    CHECK(stream.size() == font_bytes.size());
     std::array<std::byte, 4> first_words{};
-    assert(stream.read_elements(1, first_words.size(), first_words) == 4);
-    assert(first_words[0] == std::byte{1});
-    assert(stream.position() == 4);
+    CHECK(stream.read_elements(1, first_words.size(), first_words) == 4);
+    CHECK(first_words[0] == std::byte{1});
+    CHECK(stream.position() == 4);
     stream.seek(-2, opentony::assets::ResourceSeekOrigin::End);
     std::array<std::byte, 2> tail{};
-    assert(stream.read(tail) == 2);
-    assert(tail[0] == std::byte{0x62});
-    assert(tail[1] == std::byte{0x63});
+    CHECK(stream.read(tail) == 2);
+    CHECK(tail[0] == std::byte{0x62});
+    CHECK(tail[1] == std::byte{0x63});
     const opentony::assets::ResourceHandle stream_handle = 0;
-    assert(package_backend.is_open(stream_handle));
+    CHECK(package_backend.is_open(stream_handle));
     stream.close();
-    assert(!package_backend.is_open(stream_handle));
+    CHECK(!package_backend.is_open(stream_handle));
 
     opentony::assets::ResourceLoader package_loader(package_backend);
     const std::vector<std::byte> package_loaded =
         package_loader.load_owned("data/FONT.FNT");
-    assert(!package_loader.active());
-    assert(package_loaded == font_bytes);
+    CHECK(!package_loader.active());
+    CHECK(package_loaded == font_bytes);
     const auto package_font = opentony::assets::FntRuntimeFont::parse(
         package_loaded, "runtime.pkr/data/FONT.FNT");
-    assert(package_font.glyph_count() == 1);
-    assert(package_font.entries().back().sentinel);
+    CHECK(package_font.glyph_count() == 1);
+    CHECK(package_font.entries().back().sentinel);
 
     opentony::assets::PreRuntimeManager pre;
     pre.load("PANEL.PRE", make_pre(font_bytes));
     opentony::assets::ResourceLoader pre_loader(package_backend, &pre);
-    assert(pre_loader.open("FONT.FNT") == font_bytes.size());
-    assert(pre_loader.source_kind()
+    CHECK(pre_loader.open("FONT.FNT") == font_bytes.size());
+    CHECK(pre_loader.source_kind()
         == opentony::assets::ResourceSourceKind::PreEmbedded);
     std::vector<std::byte> pre_loaded(font_bytes.size());
     pre_loader.load(pre_loaded);
-    assert(pre_loader.load_started());
+    CHECK(pre_loader.load_started());
     pre_loader.synchronize();
     pre.unload("panel.pre");
-    assert(pre_loaded == font_bytes);
+    CHECK(pre_loaded == font_bytes);
     const auto pre_font = opentony::assets::FntRuntimeFont::parse(
         std::move(pre_loaded), "PANEL.PRE/FONT.FNT");
-    assert(pre_font.glyph_count() == 1);
+    CHECK(pre_font.glyph_count() == 1);
 
     const std::filesystem::path direct_path =
         std::filesystem::temp_directory_path() / "opentony_resource_runtime.bin";
     {
         std::ofstream output(direct_path, std::ios::binary);
-        assert(output);
+        CHECK(output);
         output.write("direct", 6);
     }
     opentony::assets::ResourceBackend direct_backend;
     opentony::assets::ResourceLoader direct_loader(direct_backend, &pre);
-    assert(direct_loader.open(direct_path.string()) == 6);
-    assert(direct_loader.source_kind()
+    CHECK(direct_loader.open(direct_path.string()) == 6);
+    CHECK(direct_loader.source_kind()
         == opentony::assets::ResourceSourceKind::DirectFile);
     std::array<std::byte, 6> direct_bytes{};
     direct_loader.load(direct_bytes);
     direct_loader.synchronize();
-    assert(std::string(reinterpret_cast<const char*>(direct_bytes.data()), 6)
+    CHECK(std::string(reinterpret_cast<const char*>(direct_bytes.data()), 6)
         == "direct");
     std::filesystem::remove(direct_path);
 
@@ -173,7 +173,7 @@ int main() {
     } catch (const opentony::assets::ResourceRuntimeError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
     rejected = false;
     try {
         auto bad = opentony::assets::ResourceStream::open(
@@ -183,13 +183,13 @@ int main() {
     } catch (const opentony::assets::ResourceRuntimeError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
     rejected = false;
     try {
         (void)package_loader.load_owned("missing.FNT");
     } catch (const opentony::assets::ResourceRuntimeError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
     return 0;
 }

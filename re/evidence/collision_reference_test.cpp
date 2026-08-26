@@ -1,6 +1,6 @@
 #include "collision_reference.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -9,12 +9,12 @@
 using namespace opentony::collision_reference;
 
 int main() {
-    assert(clamp_to_s16(-40000) == -32768);
-    assert(clamp_to_s16(-32768) == -32768);
-    assert(clamp_to_s16(32767) == 32767);
-    assert(clamp_to_s16(40000) == 32767);
-    assert(narrow_s16(-32769) == 32767);
-    assert(narrow_s16(32768) == -32768);
+    CHECK(clamp_to_s16(-40000) == -32768);
+    CHECK(clamp_to_s16(-32768) == -32768);
+    CHECK(clamp_to_s16(32767) == 32767);
+    CHECK(clamp_to_s16(40000) == 32767);
+    CHECK(narrow_s16(-32769) == 32767);
+    CHECK(narrow_s16(32768) == -32768);
 
     std::array<std::uint8_t, sizeof(LinkedCollisionObjectLayout)> linked_bytes{};
     const auto put_linked16 = [&linked_bytes](std::size_t offset,
@@ -41,27 +41,27 @@ int main() {
     linked_bytes[0x1f] = 6;
     put_linked32(0x20, 0x12345678);
     const auto linked = read_linked_collision_object(linked_bytes);
-    assert(linked);
-    assert(linked->flags == 0x0025);
-    assert(linked->query_stamp == 0x1234);
-    assert((linked->position == RawVec3{4096, -8192, 12288}));
-    assert((linked->angles == std::array<std::int16_t, 3>{0x0100, -0x0100,
+    CHECK(linked);
+    CHECK(linked->flags == 0x0025);
+    CHECK(linked->query_stamp == 0x1234);
+    CHECK((linked->position == RawVec3{4096, -8192, 12288}));
+    CHECK((linked->angles == std::array<std::int16_t, 3>{0x0100, -0x0100,
                                                            0x0200}));
-    assert(linked->model_index == 171);
-    assert(linked->model_kind == 6);
-    assert(linked->next == 0x12345678);
-    assert(linked_object_flag_gate(0x0110));
-    assert(linked_object_flag_gate(0x8110));
-    assert(linked_object_flag_gate(0x0410));
-    assert(linked_object_uses_matrix_transform(0x0200));
-    assert(linked_object_uses_matrix_transform(0x0600));
-    assert(!linked_object_uses_matrix_transform(0x0400));
-    assert(!linked_object_flag_gate(0x0130));
-    assert(!linked_object_flag_gate(0x0430));
-    assert(!linked_object_flag_gate(0x8171));
+    CHECK(linked->model_index == 171);
+    CHECK(linked->model_kind == 6);
+    CHECK(linked->next == 0x12345678);
+    CHECK(linked_object_flag_gate(0x0110));
+    CHECK(linked_object_flag_gate(0x8110));
+    CHECK(linked_object_flag_gate(0x0410));
+    CHECK(linked_object_uses_matrix_transform(0x0200));
+    CHECK(linked_object_uses_matrix_transform(0x0600));
+    CHECK(!linked_object_uses_matrix_transform(0x0400));
+    CHECK(!linked_object_flag_gate(0x0130));
+    CHECK(!linked_object_flag_gate(0x0430));
+    CHECK(!linked_object_flag_gate(0x8171));
 
-    assert(candidate_cell_source_bytes(0) == 0x10);
-    assert(candidate_cell_source_bytes(2) == 0x18);
+    CHECK(candidate_cell_source_bytes(0) == 0x10);
+    CHECK(candidate_cell_source_bytes(2) == 0x18);
     std::array<std::uint8_t, 0x18> candidate_source{};
     const auto put_source32 = [&candidate_source](std::size_t offset,
                                                    std::uint32_t value) {
@@ -79,8 +79,8 @@ int main() {
         [&source_values](std::size_t, std::uint32_t value) {
             source_values.push_back(value);
         });
-    assert(source_read && source_read->terminated && source_read->count == 2);
-    assert((source_values == std::vector<std::uint32_t>{0x1010, 0x2020}));
+    CHECK(source_read && source_read->terminated && source_read->count == 2);
+    CHECK((source_values == std::vector<std::uint32_t>{0x1010, 0x2020}));
 
     std::array<std::uint8_t, sizeof(LinkedCollisionObjectListLinksLayout)>
         linked_links_bytes{};
@@ -97,13 +97,13 @@ int main() {
     put_linked_links32(0x20, 0x11111111);
     put_linked_links32(0x34, 0x22222222);
     const auto linked_links = read_linked_collision_list_links(linked_links_bytes);
-    assert(linked_links);
-    assert(linked_links->next == 0x11111111);
-    assert(linked_links->previous == 0x22222222);
-    assert(sizeof(LinkedCollisionObjectElementLayout) == 0x4c);
-    assert(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
-    assert(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
-    assert(linked_collision_object_array_bytes(3) == 0xe8);
+    CHECK(linked_links);
+    CHECK(linked_links->next == 0x11111111);
+    CHECK(linked_links->previous == 0x22222222);
+    CHECK(sizeof(LinkedCollisionObjectElementLayout) == 0x4c);
+    CHECK(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
+    CHECK(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
+    CHECK(linked_collision_object_array_bytes(3) == 0xe8);
 
     std::array<std::uint8_t, 12> candidate_heads{};
     const auto put_candidate32 =
@@ -124,25 +124,25 @@ int main() {
         [&captured_heads](std::size_t, std::uint32_t head) {
             captured_heads.push_back(head);
         });
-    assert(candidate_read.terminated);
-    assert(candidate_read.count == 2);
-    assert((captured_heads == std::vector<std::uint32_t>{0xaaaa0001,
+    CHECK(candidate_read.terminated);
+    CHECK(candidate_read.count == 2);
+    CHECK((captured_heads == std::vector<std::uint32_t>{0xaaaa0001,
                                                           0xbbbb0002}));
-    assert(!visit_candidate_head_array(
+    CHECK(!visit_candidate_head_array(
                  std::span<const std::uint8_t>(candidate_heads).first(8),
                  [](std::size_t, std::uint32_t) {})
                 .terminated);
 
-    assert(face_record_stride_bytes(0x001c1083) == 0x1c);
-    assert(face_record_stride_bytes(0x00205823) == 0x20);
+    CHECK(face_record_stride_bytes(0x001c1083) == 0x1c);
+    CHECK(face_record_stride_bytes(0x00205823) == 0x20);
 
     CollisionModelHeader model;
     model.vertex_count = 14;
     model.normal_count = 6;
     model.face_count = 6;
-    assert(model_normal_offset(model) == 0x8c);
-    assert(model_face_offset(model) == 0xbc);
-    assert(model_record_offset(13) == 13u * 8u);
+    CHECK(model_normal_offset(model) == 0x8c);
+    CHECK(model_face_offset(model) == 0xbc);
+    CHECK(model_record_offset(13) == 13u * 8u);
 
     model.x_min = -10;
     model.x_max = 20;
@@ -152,52 +152,52 @@ int main() {
     model.z_max = 40;
     const auto object_bounds = build_object_bounds(
         model, {0, 0, 0}, {100, 100, 100}, {5, 6, 7});
-    assert((object_bounds.min == RawVec3{-7, -1, -25}));
-    assert((object_bounds.max == RawVec3{27, 23, 49}));
+    CHECK((object_bounds.min == RawVec3{-7, -1, -25}));
+    CHECK((object_bounds.max == RawVec3{27, 23, 49}));
     const auto reflected_bounds = build_object_bounds(
         model, {0, 0, 0}, {100, 100, 100}, {0, 0, 0}, 0x01);
-    assert(reflected_bounds.min[0] == 78);
-    assert(reflected_bounds.max[0] == 112);
+    CHECK(reflected_bounds.min[0] == 78);
+    CHECK(reflected_bounds.max[0] == 112);
     const auto scaled_bounds = build_object_bounds(
         model, {0, 0, 0}, {100, 100, 100}, {5, 6, 7}, 0,
         std::array<std::int16_t, 3>{0x0800, 0x1000, 0x1000});
-    assert(scaled_bounds.min[0] == -3);  // x87 conversion truncates -3.5
-    assert(scaled_bounds.max[0] == 13);
+    CHECK(scaled_bounds.min[0] == -3);  // x87 conversion truncates -3.5
+    CHECK(scaled_bounds.max[0] == 13);
 
     const CollisionBounds broadphase_bounds{
         .min = {4, -1, -1}, .max = {6, 1, 1}};
-    assert(object_broadphase_test({0, 0, 0}, {10, 0, 0},
+    CHECK(object_broadphase_test({0, 0, 0}, {10, 0, 0},
                                   broadphase_bounds));
-    assert(!object_broadphase_test({0, 3, 0}, {10, 3, 0},
+    CHECK(!object_broadphase_test({0, 3, 0}, {10, 3, 0},
                                    broadphase_bounds));
 
-    assert(sizeof(CollisionQueryLayout) == 0x90);
-    assert(offsetof(CollisionQueryLayout, line_basis) == 0x48);
-    assert(offsetof(CollisionQueryLayout, hit_parameter) == 0x8c);
-    assert(kCollisionModelCacheCapacity == 20);
-    assert(kCollisionFaceCacheCapacity == 500);
-    assert(kCollisionFaceCacheRecordStride == 0x1c);
-    assert(kCollisionFaceCacheBytes == 0x36b0);
-    assert(collision_face_cache_span_fits(0, 500));
-    assert(collision_face_cache_span_fits(499, 1));
-    assert(!collision_face_cache_span_fits(500, 1));
-    assert(!collision_face_cache_span_fits(499, 2));
+    CHECK(sizeof(CollisionQueryLayout) == 0x90);
+    CHECK(offsetof(CollisionQueryLayout, line_basis) == 0x48);
+    CHECK(offsetof(CollisionQueryLayout, hit_parameter) == 0x8c);
+    CHECK(kCollisionModelCacheCapacity == 20);
+    CHECK(kCollisionFaceCacheCapacity == 500);
+    CHECK(kCollisionFaceCacheRecordStride == 0x1c);
+    CHECK(kCollisionFaceCacheBytes == 0x36b0);
+    CHECK(collision_face_cache_span_fits(0, 500));
+    CHECK(collision_face_cache_span_fits(499, 1));
+    CHECK(!collision_face_cache_span_fits(500, 1));
+    CHECK(!collision_face_cache_span_fits(499, 2));
 
     CollisionFacePrefix face;
     face.base_flags = 0x1083;
     face.length_bytes = 0x1c;
     face.normal_index_shifted = 0x20;
     face.surface_flags = 0x10;
-    assert(face_record_stride_bytes(0x001c1083) == 0x1c);
-    assert(face_normal_index(face.normal_index_shifted) == 4);
+    CHECK(face_record_stride_bytes(0x001c1083) == 0x1c);
+    CHECK(face_normal_index(face.normal_index_shifted) == 4);
 
     CollisionModelCacheEntry cache_entry;
     cache_entry.face_aabb_start = 17;
-    assert(cache_entry.face_aabb_start == 17);
+    CHECK(cache_entry.face_aabb_start == 17);
     CollisionFaceAabbRecord aabb;
     aabb.min_x = -10;
     aabb.max_z = 20;
-    assert(aabb.min_x == -10 && aabb.max_z == 20);
+    CHECK(aabb.min_x == -10 && aabb.max_z == 20);
 
     QueryRecord query;
     query.start = {-4098781, -647119, -16628281};
@@ -205,25 +205,25 @@ int main() {
     prepare(query, 0x1234);
 
     // This is the airborne runtime hit recorded in collision-air4.trace.ndjson.
-    assert(query.line_length == 71);
-    assert(query.query_stamp == 0x1234);
-    assert(record_nearest_plane_candidate(query, 2101, -14283, 0x05f2dcfc,
+    CHECK(query.line_length == 71);
+    CHECK(query.query_stamp == 0x1234);
+    CHECK(record_nearest_plane_candidate(query, 2101, -14283, 0x05f2dcfc,
                                           0x05db3534, 132));
-    assert(query.hit_parameter == 2101);
-    assert(query.hit_distance == 9);
+    CHECK(query.hit_parameter == 2101);
+    CHECK(query.hit_distance == 9);
     const RawVec3 expected_contact{-4098777, -618090, -16652057};
-    assert(query.hit_position == expected_contact);
-    assert(query.hit_body == 0x05f2dcfc);
-    assert(query.hit_face_record == 0x05db3534);
-    assert(query.hit_model_index == 132);
+    CHECK(query.hit_position == expected_contact);
+    CHECK(query.hit_body == 0x05f2dcfc);
+    CHECK(query.hit_face_record == 0x05db3534);
+    CHECK(query.hit_model_index == 132);
 
     const auto raw_query = to_query_layout(query);
     const auto round_trip = from_query_layout(raw_query);
-    assert(round_trip.start == query.start);
-    assert(round_trip.end == query.end);
-    assert(round_trip.line_basis == query.line_basis);
-    assert(round_trip.hit_position == query.hit_position);
-    assert(round_trip.hit_parameter == query.hit_parameter);
+    CHECK(round_trip.start == query.start);
+    CHECK(round_trip.end == query.end);
+    CHECK(round_trip.line_basis == query.line_basis);
+    CHECK(round_trip.hit_position == query.hit_position);
+    CHECK(round_trip.hit_parameter == query.hit_parameter);
 
     QueryRecord triangle_query;
     triangle_query.start = {1 << 12, 1 << 12, 4096 << 12};
@@ -237,12 +237,12 @@ int main() {
     triangle.vertex2 = {10, 0, 0};
     triangle.plane_normal = {0, 0, 1};
     triangle.is_triangle = true;
-    assert(record_nearest_face_candidate(triangle_query, triangle, {0, 0, 0},
+    CHECK(record_nearest_face_candidate(triangle_query, triangle, {0, 0, 0},
                                          0x10, 0x20, 7));
-    assert(triangle_query.hit_parameter == 8192);
-    assert(triangle_query.hit_distance == 4096);
+    CHECK(triangle_query.hit_parameter == 8192);
+    CHECK(triangle_query.hit_distance == 4096);
     const RawVec3 expected_triangle_contact{4096, 4096, 0};
-    assert(triangle_query.hit_position == expected_triangle_contact);
+    CHECK(triangle_query.hit_position == expected_triangle_contact);
 
     QueryRecord quad_query;
     quad_query.start = triangle_query.start;
@@ -252,27 +252,27 @@ int main() {
     quad.vertex2 = {10, 10, 0};
     quad.vertex3 = {10, 0, 0};
     quad.is_triangle = false;
-    assert(record_nearest_face_candidate(quad_query, quad, {0, 0, 0},
+    CHECK(record_nearest_face_candidate(quad_query, quad, {0, 0, 0},
                                          0x11, 0x21, 8));
-    assert(quad_query.hit_parameter == 8192);
+    CHECK(quad_query.hit_parameter == 8192);
 
     QueryRecord arithmetic_shift;
     arithmetic_shift.start = {0, 0, 0};
     arithmetic_shift.end = {0, 0, -1};
     prepare(arithmetic_shift);
-    assert(arithmetic_shift.line_length == 1);
-    assert(arithmetic_shift.bounds_min[2] == -1);
-    assert(arithmetic_shift.bounds_max[2] == 0);
+    CHECK(arithmetic_shift.line_length == 1);
+    CHECK(arithmetic_shift.bounds_min[2] == -1);
+    CHECK(arithmetic_shift.bounds_max[2] == 0);
 
     QueryRecord vertical;
     vertical.start = {0, 0, 0};
     vertical.end = {0, 4096, 0};
     prepare(vertical);
-    assert(vertical.line_length == 1);
-    assert(vertical.direction_flag == 1);
+    CHECK(vertical.line_length == 1);
+    CHECK(vertical.direction_flag == 1);
     const std::array<std::int16_t, 9> expected_vertical_basis{
         0x1000, 0, 0, 0, 0, -0x1000, 0, 0x1000, 0};
-    assert(vertical.line_basis == expected_vertical_basis);
+    CHECK(vertical.line_basis == expected_vertical_basis);
 
     // Exercise the recovered model-data and variable-length face record
     // views without involving a level-file parser.
@@ -323,56 +323,56 @@ int main() {
         .body_id = 0x1234,
         .face_address_base = 0x5000,
     };
-    assert(model_view.face(0));
-    assert(model_view.face(0)->record_offset == face_offset);
+    CHECK(model_view.face(0));
+    CHECK(model_view.face(0)->record_offset == face_offset);
     std::vector<CollisionFaceAabbRecord> model_aabbs;
     visit_model_face_aabbs(model_view, {100, 200, 300},
                            [&model_aabbs](std::uint16_t, const CollisionFaceAabbRecord& aabb) {
                                model_aabbs.push_back(aabb);
                            });
-    assert(model_aabbs.size() == 1);
-    assert(model_aabbs[0].min_x == 100);
-    assert(model_aabbs[0].min_y == 200);
-    assert(model_aabbs[0].min_z == 300);
-    assert(model_aabbs[0].max_x == 100 + 10 * 0x1000);
-    assert(model_aabbs[0].max_y == 200 + 10 * 0x1000);
-    assert(model_aabbs[0].max_z == 300);
-    assert(query_model_faces(model_query, model_view, {0, 0, 0}, 9) == 1);
-    assert(model_query.hit_body == 0x1234);
-    assert(model_query.hit_face_record == 0x5000u + face_offset);
+    CHECK(model_aabbs.size() == 1);
+    CHECK(model_aabbs[0].min_x == 100);
+    CHECK(model_aabbs[0].min_y == 200);
+    CHECK(model_aabbs[0].min_z == 300);
+    CHECK(model_aabbs[0].max_x == 100 + 10 * 0x1000);
+    CHECK(model_aabbs[0].max_y == 200 + 10 * 0x1000);
+    CHECK(model_aabbs[0].max_z == 300);
+    CHECK(query_model_faces(model_query, model_view, {0, 0, 0}, 9) == 1);
+    CHECK(model_query.hit_body == 0x1234);
+    CHECK(model_query.hit_face_record == 0x5000u + face_offset);
     const RawVec3 expected_model_contact{4096, 4096, 0};
-    assert(model_query.hit_position == expected_model_contact);
+    CHECK(model_query.hit_position == expected_model_contact);
 
     std::array<DynamicVertexRecord, 4> transformed_vertices{};
     const std::array<std::int16_t, 9> identity_q12{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
-    assert(transform_model_vertices(model_view, {0, 0, 0}, identity_q12,
+    CHECK(transform_model_vertices(model_view, {0, 0, 0}, identity_q12,
                                      20, transformed_vertices) == 0);
-    assert(transformed_vertices[1].x == 0);
-    assert(transformed_vertices[1].y == 10);
-    assert(transformed_vertices[2].x == 10);
-    assert(transformed_vertices[2].y == 0);
+    CHECK(transformed_vertices[1].x == 0);
+    CHECK(transformed_vertices[1].y == 10);
+    CHECK(transformed_vertices[2].x == 10);
+    CHECK(transformed_vertices[2].y == 0);
     const auto dynamic_indices = dynamic_face_indices(0x03020100);
-    assert(dynamic_indices.vertex0 == 0);
-    assert(dynamic_indices.vertex1 == 1);
-    assert(dynamic_indices.vertex2 == 2);
-    assert(dynamic_indices.vertex3 == 3);
-    assert(dynamic_face_clip_accepts(transformed_vertices[0],
+    CHECK(dynamic_indices.vertex0 == 0);
+    CHECK(dynamic_indices.vertex1 == 1);
+    CHECK(dynamic_indices.vertex2 == 2);
+    CHECK(dynamic_indices.vertex3 == 3);
+    CHECK(dynamic_face_clip_accepts(transformed_vertices[0],
                                      transformed_vertices[1],
                                      transformed_vertices[2],
                                      transformed_vertices[3]));
     std::array<DynamicVertexRecord, 4> saturated_vertices{};
-    assert(transform_model_vertices(model_view, {40000, 40000, 40000},
+    CHECK(transform_model_vertices(model_view, {40000, 40000, 40000},
                                     identity_q12, 20, saturated_vertices) ==
            0x608);
-    assert(saturated_vertices[0].x == 32767);
-    assert(saturated_vertices[0].y == 32767);
-    assert(saturated_vertices[0].z == 32767);
-    assert(saturated_vertices[0].clip_mask == 0x608);
+    CHECK(saturated_vertices[0].x == 32767);
+    CHECK(saturated_vertices[0].y == 32767);
+    CHECK(saturated_vertices[0].z == 32767);
+    CHECK(saturated_vertices[0].clip_mask == 0x608);
     const auto projected_triangle = dynamic_projected_face(
         transformed_vertices[0], transformed_vertices[1],
         transformed_vertices[2], transformed_vertices[3], true);
-    assert(!projected_triangle.accepted);
+    CHECK(!projected_triangle.accepted);
     std::array<DynamicVertexRecord, 4> quad_vertices{
         DynamicVertexRecord{0, 0, 0, 0},
         DynamicVertexRecord{10, 0, 0, 0},
@@ -382,8 +382,8 @@ int main() {
     const auto projected_quad = dynamic_projected_face(
         quad_vertices[0], quad_vertices[1], quad_vertices[2],
         quad_vertices[3], false);
-    assert(projected_quad.accepted);
-    assert(projected_quad.first_vertex == 0);
+    CHECK(projected_quad.accepted);
+    CHECK(projected_quad.first_vertex == 0);
 
     std::array<DynamicVertexRecord, 4> candidate_vertices{
         DynamicVertexRecord{0, 0, 10, 0},
@@ -395,21 +395,21 @@ int main() {
     const auto dynamic_candidate = dynamic_face_candidate(
         candidate_vertices[0], candidate_vertices[1], candidate_vertices[2],
         candidate_vertices[3], false, candidate_normal, identity_q12, 100);
-    assert(dynamic_candidate);
-    assert(dynamic_candidate->distance == 10);
-    assert(dynamic_candidate->query_normal == candidate_normal);
+    CHECK(dynamic_candidate);
+    CHECK(dynamic_candidate->distance == 10);
+    CHECK(dynamic_candidate->query_normal == candidate_normal);
 
     QueryRecord dynamic_query;
     dynamic_query.start = {0, 0, 0};
     dynamic_query.end = {0, 0, 409600};
     prepare(dynamic_query);
-    assert(record_nearest_dynamic_candidate(dynamic_query, *dynamic_candidate,
+    CHECK(record_nearest_dynamic_candidate(dynamic_query, *dynamic_candidate,
                                             7, 9, 11));
-    assert(dynamic_query.hit_body == 7);
-    assert(dynamic_query.hit_distance == 10);
+    CHECK(dynamic_query.hit_body == 7);
+    CHECK(dynamic_query.hit_distance == 10);
     const auto dynamic_contact = dynamic_contact_at_distance(dynamic_query);
-    assert(dynamic_contact);
-    assert(dynamic_contact->at(2) == 40900);
+    CHECK(dynamic_contact);
+    CHECK(dynamic_contact->at(2) == 40900);
 
     QueryRecord dynamic_transform_query;
     dynamic_transform_query.start = {0, 0, 0};
@@ -418,35 +418,35 @@ int main() {
     const RawVec3 dynamic_object_position{4096, 8192, 12288};
     const auto fast_transform = build_dynamic_object_transform(
         dynamic_transform_query, dynamic_object_position, {0, 0, 0});
-    assert((fast_transform.model_origin_units == RawVec3{1, 2, 3}));
-    assert(fast_transform.vertex_basis == dynamic_transform_query.line_basis);
-    assert(fast_transform.final_basis == identity_q12_basis());
+    CHECK((fast_transform.model_origin_units == RawVec3{1, 2, 3}));
+    CHECK(fast_transform.vertex_basis == dynamic_transform_query.line_basis);
+    CHECK(fast_transform.final_basis == identity_q12_basis());
     const auto oriented_transform = build_dynamic_object_transform(
         dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true);
-    assert((oriented_transform.model_origin_units == RawVec3{0, 0, 0}));
-    assert((oriented_transform.transformed_translation == RawVec3{1, -3, 2}));
-    assert(oriented_transform.vertex_basis == dynamic_transform_query.line_basis);
-    assert(oriented_transform.normal_basis == dynamic_transform_query.line_basis);
-    assert(oriented_transform.final_basis == identity_q12_basis());
+    CHECK((oriented_transform.model_origin_units == RawVec3{0, 0, 0}));
+    CHECK((oriented_transform.transformed_translation == RawVec3{1, -3, 2}));
+    CHECK(oriented_transform.vertex_basis == dynamic_transform_query.line_basis);
+    CHECK(oriented_transform.normal_basis == dynamic_transform_query.line_basis);
+    CHECK(oriented_transform.final_basis == identity_q12_basis());
     const auto scaled_transform = build_dynamic_object_transform(
         dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true,
         std::array<std::int16_t, 3>{0x0800, 0x1000, 0x2000});
     const std::array<std::int16_t, 9> expected_scaled_basis{
         0x0800, 0, 0, 0, 0, static_cast<std::int16_t>(-0x2000),
         0, 0x1000, 0};
-    assert(scaled_transform.vertex_basis == expected_scaled_basis);
-    assert(scaled_transform.normal_basis == expected_scaled_basis);
-    assert(scaled_transform.final_basis == identity_q12_basis());
+    CHECK(scaled_transform.vertex_basis == expected_scaled_basis);
+    CHECK(scaled_transform.normal_basis == expected_scaled_basis);
+    CHECK(scaled_transform.final_basis == identity_q12_basis());
 
     const auto rotated_transform = build_dynamic_object_transform(
         dynamic_transform_query, dynamic_object_position, {0x0400, 0x0800,
                                                             0x0c00}, true);
     const auto rotated_object_basis = build_object_rotation_basis(
         {0x0400, 0x0800, 0x0c00});
-    assert(rotated_transform.vertex_basis == compose_q12_basis(
+    CHECK(rotated_transform.vertex_basis == compose_q12_basis(
         dynamic_transform_query.line_basis, rotated_object_basis));
-    assert(rotated_transform.normal_basis == rotated_transform.vertex_basis);
-    assert(rotated_transform.final_basis == rotated_object_basis);
+    CHECK(rotated_transform.normal_basis == rotated_transform.vertex_basis);
+    CHECK(rotated_transform.final_basis == rotated_object_basis);
 
     // A quad whose first projected determinant is negative takes the v3
     // alternate triangle path in 0x004f4c50. Give v0 and v3 different depth
@@ -460,21 +460,21 @@ int main() {
     const auto alternate_projected = dynamic_projected_face(
         alternate_quad[0], alternate_quad[1], alternate_quad[2],
         alternate_quad[3], false);
-    assert(alternate_projected.accepted);
-    assert(alternate_projected.first_vertex == 3);
+    CHECK(alternate_projected.accepted);
+    CHECK(alternate_projected.first_vertex == 3);
     const auto alternate_candidate = dynamic_face_candidate(
         alternate_quad[0], alternate_quad[1], alternate_quad[2],
         alternate_quad[3], false, candidate_normal, identity_q12, 100);
-    assert(alternate_candidate);
-    assert(alternate_candidate->distance == 20);
+    CHECK(alternate_candidate);
+    CHECK(alternate_candidate->distance == 20);
 
     QueryRecord translated_query;
     translated_query.start = {8192, 8192, 4096};
     translated_query.end = {8192, 8192, -4096};
     prepare(translated_query);
-    assert(query_model_faces(translated_query, model_view, {0, 0, 0}, 9) == 1);
+    CHECK(query_model_faces(translated_query, model_view, {0, 0, 0}, 9) == 1);
     const RawVec3 expected_translated_contact{8192, 8192, 0};
-    assert(translated_query.hit_position == expected_translated_contact);
+    CHECK(translated_query.hit_position == expected_translated_contact);
 
     CollisionZoneGrid zone{
         .min_x = -5000,
@@ -485,9 +485,9 @@ int main() {
         .cell_count_x = 20,
         .cell_count_z = 10,
     };
-    assert(zone_overlaps_query(zone, model_query));
-    assert(zone_candidate_index(3, 4, 5, zone) == 3 * 0x198 + 4 * 0x14 + 5);
-    assert(!zone_candidate_index(3, 20, 0, zone));
+    CHECK(zone_overlaps_query(zone, model_query));
+    CHECK(zone_candidate_index(3, 4, 5, zone) == 3 * 0x198 + 4 * 0x14 + 5);
+    CHECK(!zone_candidate_index(3, 20, 0, zone));
 
     CollisionZoneGrid walk_zone{
         .min_x = 0,
@@ -507,55 +507,55 @@ int main() {
                      [&horizontal_cells](std::size_t index, std::int32_t, std::int32_t) {
                          horizontal_cells.push_back(index);
                      });
-    assert(horizontal_cells.size() == 10);
-    assert(horizontal_cells.front() == 2 * 0x198);
-    assert(horizontal_cells.back() == 2 * 0x198 + 9 * 0x14);
+    CHECK(horizontal_cells.size() == 10);
+    CHECK(horizontal_cells.front() == 2 * 0x198);
+    CHECK(horizontal_cells.back() == 2 * 0x198 + 9 * 0x14);
 
-    assert(arithmetic_shift_right_12(-33'554'432) == -8192);
+    CHECK(arithmetic_shift_right_12(-33'554'432) == -8192);
 
     const std::array<std::int16_t, 3> airborne_normal{1, -2897, 2897};
-    assert(finalize_hit(query, airborne_normal));
-    assert(query.hit_normal == airborne_normal);
+    CHECK(finalize_hit(query, airborne_normal));
+    CHECK(query.hit_normal == airborne_normal);
     const std::array<std::int16_t, 9> identity_basis{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
-    assert(finalize_hit(query, identity_basis, airborne_normal));
-    assert(query.hit_normal == airborne_normal);
+    CHECK(finalize_hit(query, identity_basis, airborne_normal));
+    CHECK(query.hit_normal == airborne_normal);
     const std::array<std::int16_t, 3> zero_angles{0, 0, 0};
-    assert(build_object_rotation_basis(zero_angles) == identity_basis);
-    assert(finalize_hit(query, zero_angles, airborne_normal));
-    assert(query.hit_normal == airborne_normal);
+    CHECK(build_object_rotation_basis(zero_angles) == identity_basis);
+    CHECK(finalize_hit(query, zero_angles, airborne_normal));
+    CHECK(query.hit_normal == airborne_normal);
     const auto normal_squared =
         static_cast<std::uint64_t>(std::int64_t{airborne_normal[0]} * airborne_normal[0]) +
         static_cast<std::uint64_t>(std::int64_t{airborne_normal[1]} * airborne_normal[1]) +
         static_cast<std::uint64_t>(std::int64_t{airborne_normal[2]} * airborne_normal[2]);
-    assert(normal_squared > std::uint64_t{4096} * 4096);
-    assert(normal_squared < std::uint64_t{4098} * 4098);
+    CHECK(normal_squared > std::uint64_t{4096} * 4096);
+    CHECK(normal_squared < std::uint64_t{4098} * 4098);
 
     QueryRecord no_hit;
-    assert(!finalize_hit(no_hit, airborne_normal));
+    CHECK(!finalize_hit(no_hit, airborne_normal));
 
     // q+0x8c is the nearest-candidate comparator, not just a last-hit field.
-    assert(!record_nearest_plane_candidate(query, 4202, 0, 1, 2, 3));
-    assert(record_nearest_plane_candidate(query, 1000, -15384, 4, 5, 6));
-    assert(query.hit_parameter == 1000);
+    CHECK(!record_nearest_plane_candidate(query, 4202, 0, 1, 2, 3));
+    CHECK(record_nearest_plane_candidate(query, 1000, -15384, 4, 5, 6));
+    CHECK(query.hit_parameter == 1000);
 
     const auto flags = decode_face_flags(0x80, 0x04200008);
-    assert(!flags.surface_bit_40);
-    assert(!flags.is_triangle);
-    assert(flags.base_nonphysical);
-    assert(!flags.surface_wallrideable);
-    assert(!flags.surface_large_polygon);
-    assert(flags.surface_skateable);
-    assert(flags.inverse_bit_23);
-    assert(flags.face_bit_80);
-    assert(flags.inverse_bit_24);
-    assert(flags.surface_class == 2);
+    CHECK(!flags.surface_bit_40);
+    CHECK(!flags.is_triangle);
+    CHECK(flags.base_nonphysical);
+    CHECK(!flags.surface_wallrideable);
+    CHECK(!flags.surface_large_polygon);
+    CHECK(flags.surface_skateable);
+    CHECK(flags.inverse_bit_23);
+    CHECK(flags.face_bit_80);
+    CHECK(flags.inverse_bit_24);
+    CHECK(flags.surface_class == 2);
 
     const auto surface_flags = decode_face_flags(0, 0x04700000);
-    assert(surface_flags.surface_bit_40);
-    assert(surface_flags.surface_large_polygon);
-    assert(surface_flags.surface_wallrideable);
-    assert(surface_flags.surface_class == 2);
+    CHECK(surface_flags.surface_bit_40);
+    CHECK(surface_flags.surface_large_polygon);
+    CHECK(surface_flags.surface_wallrideable);
+    CHECK(surface_flags.surface_class == 2);
 
     std::cout << "collision reference checks passed\n";
 }

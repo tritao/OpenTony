@@ -1,6 +1,6 @@
 #include "trg_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -188,29 +188,29 @@ void test_visible_pulse_and_record_layout() {
         std::vector<std::byte>{std::byte{0xff}, std::byte{0}},
     });
     TrgFile file = TrgFile::parse(file_bytes);
-    assert(file.nodes().size() == 3);
-    assert(file.nodes()[0].offset == 24);
-    assert(file.node_bytes(0).size() == type6_node(links, 0, stream).size());
-    assert(file.script(0).offset == 36);
-    assert(file.links(0) == std::vector<std::uint16_t>{1});
-    assert(file.node_spawn_options(1) == std::vector<std::uint8_t>({2, 4}));
-    assert(file.node_factory_cursor_offset(1) == file.node(1).offset + 32);
+    CHECK(file.nodes().size() == 3);
+    CHECK(file.nodes()[0].offset == 24);
+    CHECK(file.node_bytes(0).size() == type6_node(links, 0, stream).size());
+    CHECK(file.script(0).offset == 36);
+    CHECK(file.links(0) == std::vector<std::uint16_t>{1});
+    CHECK(file.node_spawn_options(1) == std::vector<std::uint8_t>({2, 4}));
+    CHECK(file.node_factory_cursor_offset(1) == file.node(1).offset + 32);
 
     Recorder recorder;
     TriggerRuntime runtime(std::move(file), recorder);
     runtime.build();
     runtime.pulse_node(0);
-    assert(recorder.objects == 1);
+    CHECK(recorder.objects == 1);
     const std::vector<std::vector<std::uint8_t>> expected_spawn_options{{2, 4}};
-    assert(recorder.spawn_options == expected_spawn_options);
+    CHECK(recorder.spawn_options == expected_spawn_options);
     const std::vector<std::pair<std::size_t, std::uint32_t>> expected_factory_cursors{{1, 32}};
-    assert((recorder.factory_cursors == expected_factory_cursors));
-    assert(recorder.visible_values == std::vector<std::uint16_t>{1});
-    assert(recorder.visible_links == std::vector<std::vector<std::uint16_t>>{{1}});
+    CHECK((recorder.factory_cursors == expected_factory_cursors));
+    CHECK(recorder.visible_values == std::vector<std::uint16_t>{1});
+    CHECK(recorder.visible_links == std::vector<std::vector<std::uint16_t>>{{1}});
     const CommandPointRuntime* point = runtime.command_point(0);
-    assert(point != nullptr);
-    assert(point->source_node == 0);
-    assert(point->pulse_count == 1);
+    CHECK(point != nullptr);
+    CHECK(point->source_node == 0);
+    CHECK(point->pulse_count == 1);
 }
 
 void test_c9_alignment_and_gap_dispatch() {
@@ -232,11 +232,11 @@ void test_c9_alignment_and_gap_dispatch() {
     runtime.build();
     runtime.pulse_node(0);
     const std::vector<std::pair<std::uint32_t, std::uint16_t>> expected_gaps{{0xf3abdf8e, 10}};
-    assert(recorder.gaps == expected_gaps);
-    assert(recorder.diagnostics.empty());
+    CHECK(recorder.gaps == expected_gaps);
+    CHECK(recorder.diagnostics.empty());
     // The following opcode is reached only if the aligned c9 payload consumed
     // exactly six bytes after its alignment pad.
-    assert(runtime.command_point(0)->state == 7);
+    CHECK(runtime.command_point(0)->state == 7);
 }
 
 void test_c9_rejects_checksum_mismatch_without_side_effects() {
@@ -257,9 +257,9 @@ void test_c9_rejects_checksum_mismatch_without_side_effects() {
     runtime.build();
     runtime.pulse_node(0);
 
-    assert(recorder.gaps.empty());
-    assert(recorder.node_pulses.empty());
-    assert(recorder.diagnostics
+    CHECK(recorder.gaps.empty());
+    CHECK(recorder.node_pulses.empty());
+    CHECK(recorder.diagnostics
         == std::vector<std::string>{"gap command checksum does not match its command point"});
 }
 
@@ -280,8 +280,8 @@ void test_c9_rejects_truncated_aligned_payload() {
     } catch (const FormatError&) {
         threw = true;
     }
-    assert(threw);
-    assert(recorder.gaps.empty());
+    CHECK(threw);
+    CHECK(recorder.gaps.empty());
 }
 
 void test_c9_skip_consumes_aligned_payload() {
@@ -305,9 +305,9 @@ void test_c9_skip_consumes_aligned_payload() {
     runtime.build();
     runtime.pulse_node(0);
 
-    assert(recorder.gaps.empty());
-    assert(recorder.diagnostics.empty());
-    assert(runtime.command_point(0)->state == 9);
+    CHECK(recorder.gaps.empty());
+    CHECK(recorder.diagnostics.empty());
+    CHECK(runtime.command_point(0)->state == 9);
 }
 
 void test_initial_pulses_and_timer() {
@@ -331,18 +331,18 @@ void test_initial_pulses_and_timer() {
     runtime.build();
     runtime.pulse_node(0);
     const CommandPointRuntime* point = runtime.command_point(0);
-    assert(point != nullptr);
-    assert(point->initialized == 1);
-    assert(point->state == 0);
-    assert(point->pulse_count == 1);
+    CHECK(point != nullptr);
+    CHECK(point->initialized == 1);
+    CHECK(point->state == 0);
+    CHECK(point->pulse_count == 1);
     const std::vector<std::pair<std::uint16_t, std::uint16_t>> expected_globals{
         {0x00a6, 512},
         {0x00a9, 1000},
     };
-    assert(recorder.global_words == expected_globals);
+    CHECK(recorder.global_words == expected_globals);
     runtime.pulse_node(0);
-    assert(recorder.node_pulses == std::vector<std::size_t>{1});
-    assert(point->pulse_count == 2);
+    CHECK(recorder.node_pulses == std::vector<std::size_t>{1});
+    CHECK(point->pulse_count == 2);
 }
 
 void test_counted_link_command_payloads_are_not_node_links() {
@@ -377,10 +377,10 @@ void test_counted_link_command_payloads_are_not_node_links() {
         {0x0004, {1}},
         {0x0005, {1}},
     };
-    assert(recorder.suspend_activate_lists == expected_suspend);
-    assert(recorder.signal_lists == std::vector<std::vector<std::uint16_t>>{{2}});
-    assert(runtime.command_point(0)->initialized == 1);
-    assert(runtime.command_point(0)->state == 7);
+    CHECK(recorder.suspend_activate_lists == expected_suspend);
+    CHECK(recorder.signal_lists == std::vector<std::vector<std::uint16_t>>{{2}});
+    CHECK(runtime.command_point(0)->initialized == 1);
+    CHECK(runtime.command_point(0)->state == 7);
 }
 
 void test_counted_link_command_skip_and_truncation() {
@@ -406,10 +406,10 @@ void test_counted_link_command_skip_and_truncation() {
     })), skipped_recorder);
     skipped_runtime.build();
     skipped_runtime.pulse_node(0);
-    assert(skipped_recorder.suspend_activate_lists.empty());
-    assert(skipped_recorder.signal_lists.empty());
-    assert(skipped_runtime.command_point(0)->state == 9);
-    assert(skipped_recorder.diagnostics.empty());
+    CHECK(skipped_recorder.suspend_activate_lists.empty());
+    CHECK(skipped_recorder.signal_lists.empty());
+    CHECK(skipped_runtime.command_point(0)->state == 9);
+    CHECK(skipped_recorder.diagnostics.empty());
 
     std::vector<std::byte> truncated_stream;
     u16(truncated_stream, 0x0005);
@@ -427,7 +427,7 @@ void test_counted_link_command_skip_and_truncation() {
     } catch (const FormatError&) {
         threw = true;
     }
-    assert(threw);
+    CHECK(threw);
 }
 
 void test_conditional_skip_consumes_music_and_sound_operands() {
@@ -449,7 +449,7 @@ void test_conditional_skip_consumes_music_and_sound_operands() {
     })), recorder);
     runtime.build();
     runtime.pulse_node(0);
-    assert(recorder.diagnostics.empty());
+    CHECK(recorder.diagnostics.empty());
 }
 
 void test_conditional_skip_consumes_a7_pair() {
@@ -483,8 +483,8 @@ void test_conditional_skip_consumes_a7_pair() {
     runtime.pulse_node(0);
     const std::vector<std::pair<std::uint16_t, std::uint16_t>> expected_globals{
         {0x00a6, 9}};
-    assert(recorder.global_words == expected_globals);
-    assert(recorder.diagnostics.empty());
+    CHECK(recorder.global_words == expected_globals);
+    CHECK(recorder.diagnostics.empty());
 }
 
 void test_restart_selection_and_checksum_lookup() {
@@ -526,18 +526,18 @@ void test_restart_selection_and_checksum_lookup() {
     Recorder recorder;
     TriggerRuntime runtime(TrgFile::parse(file_bytes), recorder);
     runtime.initialize();
-    assert(runtime.selected_restart() == 2);
-    assert(recorder.selected_restarts == std::vector<std::size_t>{2});
+    CHECK(runtime.selected_restart() == 2);
+    CHECK(recorder.selected_restarts == std::vector<std::size_t>{2});
     runtime.pulse_node(1);
     const std::vector<std::size_t> expected_selected{2, 2};
-    assert(recorder.selected_restarts == expected_selected);
+    CHECK(recorder.selected_restarts == expected_selected);
     const CommandPointRuntime* point = runtime.command_point_by_checksum(0x12345678);
-    assert(point != nullptr);
-    assert(point->source_node == 1);
+    CHECK(point != nullptr);
+    CHECK(point->source_node == 1);
     runtime.execute_restart(2);
-    assert(recorder.applied_restarts == std::vector<std::size_t>{2});
+    CHECK(recorder.applied_restarts == std::vector<std::size_t>{2});
     const std::vector<std::pair<std::uint32_t, std::uint16_t>> expected_applied_data{{0x44556677, 0x8899}};
-    assert(recorder.applied_restart_data == expected_applied_data);
+    CHECK(recorder.applied_restart_data == expected_applied_data);
 }
 
 void test_two_player_restart_selection_command() {
@@ -567,14 +567,14 @@ void test_two_player_restart_selection_command() {
         {std::byte{0xff}, std::byte{0}},
     })), recorder);
     runtime.initialize(true);
-    assert(runtime.selected_restart() == 1);
-    assert(recorder.selected_restarts == std::vector<std::size_t>{1});
+    CHECK(runtime.selected_restart() == 1);
+    CHECK(recorder.selected_restarts == std::vector<std::size_t>{1});
 
     // The same opcode is consumed but does not select a restart outside the
     // retail two-player mode.
     runtime.run_autoexec(false);
-    assert(runtime.selected_restart() == 1);
-    assert(recorder.selected_restarts == std::vector<std::size_t>{1});
+    CHECK(runtime.selected_restart() == 1);
+    CHECK(recorder.selected_restarts == std::vector<std::size_t>{1});
 }
 
 void test_kill_bruce_applies_linked_restart() {
@@ -603,11 +603,11 @@ void test_kill_bruce_applies_linked_restart() {
     })), recorder);
     runtime.build();
     runtime.pulse_node(0);
-    assert(recorder.applied_restarts == std::vector<std::size_t>{1});
+    CHECK(recorder.applied_restarts == std::vector<std::size_t>{1});
     const std::vector<std::pair<std::uint32_t, std::uint16_t>> expected_data{
         {0x44556677, 0x8899},
     };
-    assert(recorder.applied_restart_data == expected_data);
+    CHECK(recorder.applied_restart_data == expected_data);
 }
 
 void test_script_object_command() {
@@ -640,7 +640,7 @@ void test_script_object_command() {
     const std::vector<std::tuple<std::size_t, std::uint32_t, std::array<std::uint16_t, 3>>> expected{
         {0, 0xf6e32d0e, {0x1111, 0x2222, 0x3333}},
     };
-    assert(recorder.script_objects == expected);
+    CHECK(recorder.script_objects == expected);
 }
 
 void test_load_ai_reports_retail_unsupported_diagnostic() {
@@ -665,7 +665,7 @@ void test_load_ai_reports_retail_unsupported_diagnostic() {
     const std::vector<std::string> expected_diagnostics{
         "LoadAI command not supported",
     };
-    assert(recorder.diagnostics == expected_diagnostics);
+    CHECK(recorder.diagnostics == expected_diagnostics);
 }
 
 void test_type10_type11_runtime_list_state() {
@@ -684,20 +684,20 @@ void test_type10_type11_runtime_list_state() {
     Recorder recorder;
     TriggerRuntime runtime(TrgFile::parse(trg_file({trigger, {std::byte{0xff}, std::byte{0}}})), recorder);
     runtime.build();
-    assert(recorder.special_states.size() == 1);
-    assert(std::get<0>(recorder.special_states[0]) == 0);
-    assert(std::get<1>(recorder.special_states[0]) == 10);
-    assert(std::get<2>(recorder.special_states[0]) == 0x0042);
+    CHECK(recorder.special_states.size() == 1);
+    CHECK(std::get<0>(recorder.special_states[0]) == 0);
+    CHECK(std::get<1>(recorder.special_states[0]) == 10);
+    CHECK(std::get<2>(recorder.special_states[0]) == 0x0042);
     const std::array<std::int32_t, 3> expected_position{
         0x1000 << 12,
         0x2000 << 12,
         0x3000 << 12,
     };
-    assert(std::get<3>(recorder.special_states[0]) == expected_position);
-    assert(runtime.file().node_trigger_flags(0) == 0x0042);
+    CHECK(std::get<3>(recorder.special_states[0]) == expected_position);
+    CHECK(runtime.file().node_trigger_flags(0) == 0x0042);
 
     runtime.pulse_node(0);
-    assert(recorder.node_pulses == std::vector<std::size_t>{0});
+    CHECK(recorder.node_pulses == std::vector<std::size_t>{0});
 }
 
 void test_restart_view_and_autoexec() {
@@ -720,9 +720,9 @@ void test_restart_view_and_autoexec() {
     TriggerRuntime runtime(TrgFile::parse(file_bytes), recorder);
     runtime.build();
     const std::vector<std::pair<std::size_t, std::string>> expected_restarts{{0, "R"}};
-    assert(recorder.restarts == expected_restarts);
+    CHECK(recorder.restarts == expected_restarts);
     const std::vector<std::pair<std::uint32_t, std::uint16_t>> expected_restart_data{{0x11223344, 0x5566}};
-    assert(recorder.restart_data == expected_restart_data);
+    CHECK(recorder.restart_data == expected_restart_data);
 }
 
 void test_unknown_opcode_matches_retail_fallthrough() {
@@ -739,9 +739,9 @@ void test_unknown_opcode_matches_retail_fallthrough() {
     const std::vector<std::tuple<std::uint16_t, std::uint32_t, std::size_t>> expected_unknown{
         {0x1234, 28, 0},
     };
-    assert(recorder.unknown_commands == expected_unknown);
-    assert(!recorder.diagnostics.empty());
-    assert(runtime.command_point(0)->initialized == 1);
+    CHECK(recorder.unknown_commands == expected_unknown);
+    CHECK(!recorder.diagnostics.empty());
+    CHECK(runtime.command_point(0)->initialized == 1);
 }
 
 } // namespace

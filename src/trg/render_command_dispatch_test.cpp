@@ -1,7 +1,7 @@
 #include "render_command_dispatch.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 #include <vector>
 
@@ -37,11 +37,11 @@ int main() {
     for (const ExpectedHandler& expected : expected_handlers) {
         const auto record = RenderCommandDispatcher::dispatch_one(
             {1, expected.opcode_base, 0, 0, 0, false});
-        assert(record.opcode_base == expected.opcode_base);
-        assert(record.handler_address == expected.address);
-        assert(record.primitive == expected.primitive);
-        assert(record.vertex_count == expected.vertex_count);
-        assert(record.textured == expected.textured);
+        CHECK(record.opcode_base == expected.opcode_base);
+        CHECK(record.handler_address == expected.address);
+        CHECK(record.primitive == expected.primitive);
+        CHECK(record.vertex_count == expected.vertex_count);
+        CHECK(record.textured == expected.textured);
     }
 
     const std::vector<RenderCommandRecord> commands{
@@ -53,54 +53,54 @@ int main() {
     };
     const auto records = RenderCommandDispatcher::dispatch(commands);
 
-    assert(records.size() == commands.size());
+    CHECK(records.size() == commands.size());
     for (std::size_t index = 0; index < records.size(); ++index) {
-        assert(records[index].command_index == index);
-        assert(records[index].polygon_index == commands[index].polygon_index);
+        CHECK(records[index].command_index == index);
+        CHECK(records[index].polygon_index == commands[index].polygon_index);
     }
-    assert(records[0].command_index == 0);
-    assert(records[0].polygon_index == 11);
-    assert(records[0].enabled_or_payload == 1);
-    assert(records[0].render_flags == 0x1234);
-    assert(records[0].opcode_base == 0x24);
-    assert(records[0].handler_address == 0x004d45f0);
-    assert(records[0].primitive == RenderPrimitiveKind::TexturedTriangle);
-    assert(records[0].vertex_count == 3);
-    assert(records[0].textured);
-    assert(records[0].state.format_mode_bit == 1);
-    assert(records[0].state.alpha_or_texture_state);
-    assert(records[0].state.texture_blend_setup);
+    CHECK(records[0].command_index == 0);
+    CHECK(records[0].polygon_index == 11);
+    CHECK(records[0].enabled_or_payload == 1);
+    CHECK(records[0].render_flags == 0x1234);
+    CHECK(records[0].opcode_base == 0x24);
+    CHECK(records[0].handler_address == 0x004d45f0);
+    CHECK(records[0].primitive == RenderPrimitiveKind::TexturedTriangle);
+    CHECK(records[0].vertex_count == 3);
+    CHECK(records[0].textured);
+    CHECK(records[0].state.format_mode_bit == 1);
+    CHECK(records[0].state.alpha_or_texture_state);
+    CHECK(records[0].state.texture_blend_setup);
 
-    assert(records[1].opcode_base == 0x3c);
-    assert(records[1].handler_address == 0x004d5960);
-    assert(records[1].primitive == RenderPrimitiveKind::TexturedGouraudQuad);
-    assert(records[1].vertex_count == 4);
-    assert(records[1].state.format_mode_bit == 1);
-    assert(records[1].state.alpha_or_texture_state);
-    assert(records[1].state.texture_blend_setup);
-    assert(records[1].state.alternate_texture_word);
+    CHECK(records[1].opcode_base == 0x3c);
+    CHECK(records[1].handler_address == 0x004d5960);
+    CHECK(records[1].primitive == RenderPrimitiveKind::TexturedGouraudQuad);
+    CHECK(records[1].vertex_count == 4);
+    CHECK(records[1].state.format_mode_bit == 1);
+    CHECK(records[1].state.alpha_or_texture_state);
+    CHECK(records[1].state.texture_blend_setup);
+    CHECK(records[1].state.alternate_texture_word);
 
-    assert(records[2].opcode_base == 0xb0);
-    assert(records[2].handler_address == 0x004d68b0);
-    assert(records[2].primitive == RenderPrimitiveKind::GeneralPolygon);
-    assert(records[2].vertex_count == 7);
-    assert(records[2].textured);
+    CHECK(records[2].opcode_base == 0xb0);
+    CHECK(records[2].handler_address == 0x004d68b0);
+    CHECK(records[2].primitive == RenderPrimitiveKind::GeneralPolygon);
+    CHECK(records[2].vertex_count == 7);
+    CHECK(records[2].textured);
 
     // Disabled commands retain their position in the trace but do not reach
     // a concrete geometry handler.
-    assert(records[3].command_index == 3);
-    assert(!records[3].active);
-    assert(records[3].primitive == RenderPrimitiveKind::NoOp);
-    assert(records[3].handler_address == kRetailNoOpPolygonHandler);
-    assert(records[3].vertex_count == 0);
+    CHECK(records[3].command_index == 3);
+    CHECK(!records[3].active);
+    CHECK(records[3].primitive == RenderPrimitiveKind::NoOp);
+    CHECK(records[3].handler_address == kRetailNoOpPolygonHandler);
+    CHECK(records[3].vertex_count == 0);
 
     // Uninstalled opcode-base slots are the same no-op target as disabled
     // records, with the original opcode still available for diagnosis.
-    assert(records[4].opcode == 0x44);
-    assert(records[4].opcode_base == 0x44);
-    assert(records[4].active);
-    assert(records[4].primitive == RenderPrimitiveKind::NoOp);
-    assert(records[4].handler_address == kRetailNoOpPolygonHandler);
+    CHECK(records[4].opcode == 0x44);
+    CHECK(records[4].opcode_base == 0x44);
+    CHECK(records[4].active);
+    CHECK(records[4].primitive == RenderPrimitiveKind::NoOp);
+    CHECK(records[4].handler_address == kRetailNoOpPolygonHandler);
 
     std::cout << "Render command dispatch tests passed\n";
 }

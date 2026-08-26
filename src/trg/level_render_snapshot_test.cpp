@@ -2,7 +2,7 @@
 #include "level_runtime.hpp"
 
 #include <algorithm>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -34,43 +34,43 @@ int main() {
             level.scene_asset(),
             level.asset_catalog());
 
-    assert(snapshot.entities().size() == level.scene().entities().size());
+    CHECK(snapshot.entities().size() == level.scene().entities().size());
     std::size_t expected_faces = 0;
     for (const auto& entity : snapshot.entities()) {
         if (entity.psx_object_index == opentony::trg::CommandPointRuntime::npos) {
             if (entity.kind == opentony::trg::LevelSceneEntityKind::Pickup
                 && !entity.model_resource.empty()) {
-                assert(entity.face_count > 0);
+                CHECK(entity.face_count > 0);
                 expected_faces += level.asset_catalog()->load(
                     entity.model_resource).models()[entity.resource_model_index].faces.size();
             } else {
-                assert(entity.face_count == 0);
+                CHECK(entity.face_count == 0);
             }
             continue;
         }
-        assert(entity.first_face != opentony::trg::CommandPointRuntime::npos);
+        CHECK(entity.first_face != opentony::trg::CommandPointRuntime::npos);
         expected_faces += level.scene_asset().models()[entity.model_index].faces.size();
     }
-    assert(expected_faces == snapshot.faces().size());
-    assert(!snapshot.faces().empty());
-    assert(snapshot.faces()[0].vertex_count == 3
+    CHECK(expected_faces == snapshot.faces().size());
+    CHECK(!snapshot.faces().empty());
+    CHECK(snapshot.faces()[0].vertex_count == 3
         || snapshot.faces()[0].vertex_count == 4);
 
     const auto* pickup_binding = level.scene().binding(17);
-    assert(pickup_binding != nullptr);
+    CHECK(pickup_binding != nullptr);
     const auto* pickup_source = level.scene().entity(pickup_binding->entities.front());
-    assert(pickup_source != nullptr);
+    CHECK(pickup_source != nullptr);
     const auto pickup_render = std::find_if(
         snapshot.entities().begin(),
         snapshot.entities().end(),
         [pickup_source](const opentony::trg::LevelRenderEntitySnapshot& entity) {
             return entity.entity == pickup_source->entity;
         });
-    assert(pickup_render != snapshot.entities().end());
-    assert(pickup_render->model_resource == "items");
-    assert(pickup_render->resource_model_index == 5);
-    assert(pickup_render->model_index == 5);
-    assert(pickup_render->face_count
+    CHECK(pickup_render != snapshot.entities().end());
+    CHECK(pickup_render->model_resource == "items");
+    CHECK(pickup_render->resource_model_index == 5);
+    CHECK(pickup_render->model_index == 5);
+    CHECK(pickup_render->face_count
         == level.asset_catalog()->load("ITEMS").models()[5].faces.size());
 
     std::cout << "Level render snapshot tests passed\n";

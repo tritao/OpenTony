@@ -107,6 +107,7 @@ target_link_libraries(opentony_runtime PUBLIC opentony_trg)
 
 if(OPENTONY_BUILD_TESTS)
     enable_testing()
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR})
     add_executable(opentony_physics_state_machine_test
         tests/physics_state_machine_test.cpp
         src/physics_state_machine.cpp

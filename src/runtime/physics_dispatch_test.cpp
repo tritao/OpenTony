@@ -1,6 +1,6 @@
 #include "physics_dispatch.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 #include <vector>
 
@@ -21,35 +21,35 @@ int main() {
     player.set_physics_state(0);
     player.set_ground_update_state(9);
     auto result = PhysicsDispatcher::dispatch(player, hooks);
-    assert(result.handled);
-    assert(player.ground_update_state() == 0);
-    assert(stages.size() == 4);
-    assert(stages[0] == PhysicsDispatchStage::GroundPreparation_9dad0);
-    assert(stages[1] == PhysicsDispatchStage::GroundCollision_96550);
-    assert(stages[2] == PhysicsDispatchStage::GroundPost_95cc0);
-    assert(stages[3] == PhysicsDispatchStage::GroundFinal_9d9c0);
+    CHECK(result.handled);
+    CHECK(player.ground_update_state() == 0);
+    CHECK(stages.size() == 4);
+    CHECK(stages[0] == PhysicsDispatchStage::GroundPreparation_9dad0);
+    CHECK(stages[1] == PhysicsDispatchStage::GroundCollision_96550);
+    CHECK(stages[2] == PhysicsDispatchStage::GroundPost_95cc0);
+    CHECK(stages[3] == PhysicsDispatchStage::GroundFinal_9d9c0);
 
     stages.clear();
     player.set_previous_position({10, 20, 30});
     player.set_position({40, 50, 60});
     player.set_physics_state(7);
     result = PhysicsDispatcher::dispatch(player, hooks);
-    assert(result.restored_previous_position);
-    assert(player.position() == opentony::runtime::FixedPosition({10, 20, 30}));
-    assert(stages.size() == 5);
-    assert(stages[3] == PhysicsDispatchStage::RestorePreviousPosition);
-    assert(stages[4] == PhysicsDispatchStage::GroundFinal_9d9c0);
+    CHECK(result.restored_previous_position);
+    CHECK(player.position() == opentony::runtime::FixedPosition({10, 20, 30}));
+    CHECK(stages.size() == 5);
+    CHECK(stages[3] == PhysicsDispatchStage::RestorePreviousPosition);
+    CHECK(stages[4] == PhysicsDispatchStage::GroundFinal_9d9c0);
 
     stages.clear();
     player.set_physics_state(6);
     result = PhysicsDispatcher::dispatch(player, hooks);
-    assert(result.handled);
-    assert(stages.size() == 2);
-    assert(stages[0] == PhysicsDispatchStage::State6Routine_993f0);
-    assert(stages[1] == PhysicsDispatchStage::InAir_97f40);
+    CHECK(result.handled);
+    CHECK(stages.size() == 2);
+    CHECK(stages[0] == PhysicsDispatchStage::State6Routine_993f0);
+    CHECK(stages[1] == PhysicsDispatchStage::InAir_97f40);
 
     player.set_physics_state(99);
     result = PhysicsDispatcher::dispatch(player, hooks);
-    assert(!result.handled);
+    CHECK(!result.handled);
     std::cout << "Physics dispatch tests passed\n";
 }

@@ -1,7 +1,7 @@
 #include "fnt_asset.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -73,60 +73,60 @@ int main() {
     const opentony::assets::FntRuntimeFont font =
         opentony::assets::FntRuntimeFont::parse(
             std::move(bytes), "font.fnt", 0x1234);
-    assert(font.glyph_count() == 2);
-    assert(font.records()[0].words[0] == 5);
-    assert(font.records()[0].words[3] == 19);
-    assert(font.palette_bytes()[0] == std::byte{0x11});
-    assert(font.packed_glyph_data().size() == 5);
-    assert(font.packed_glyph_data()[4] == std::byte{0xe4});
-    assert(font.entries().size() == 3);
-    assert(font.entries()[0].source_byte_0 == 19);
-    assert(font.entries()[0].source_byte_1 == 14);
-    assert(font.entries()[0].source_byte_2 == 14);
-    assert(!font.entries()[0].sentinel);
-    assert(font.entries()[2].sentinel);
-    assert(font.atlas_format_word() == 0x1234);
-    assert(font.font_allocation_size() == 0x14c);
-    assert(font.entry_table_allocation_size() == 3 * 8);
-    assert(font.glyph_image_allocation_size() == 3 * 0x5c);
+    CHECK(font.glyph_count() == 2);
+    CHECK(font.records()[0].words[0] == 5);
+    CHECK(font.records()[0].words[3] == 19);
+    CHECK(font.palette_bytes()[0] == std::byte{0x11});
+    CHECK(font.packed_glyph_data().size() == 5);
+    CHECK(font.packed_glyph_data()[4] == std::byte{0xe4});
+    CHECK(font.entries().size() == 3);
+    CHECK(font.entries()[0].source_byte_0 == 19);
+    CHECK(font.entries()[0].source_byte_1 == 14);
+    CHECK(font.entries()[0].source_byte_2 == 14);
+    CHECK(!font.entries()[0].sentinel);
+    CHECK(font.entries()[2].sentinel);
+    CHECK(font.atlas_format_word() == 0x1234);
+    CHECK(font.font_allocation_size() == 0x14c);
+    CHECK(font.entry_table_allocation_size() == 3 * 8);
+    CHECK(font.glyph_image_allocation_size() == 3 * 0x5c);
 
     opentony::assets::PreRuntimeManager pre;
     pre.load("PANEL.PRE", make_pre_with_font(make_font()));
     opentony::assets::FntRuntimeManager fonts;
     const std::size_t slot = fonts.load_embedded(
         pre, "s2tricks.fnt", "S2TRICKS.FNT", 0x1234);
-    assert(slot == 0);
-    assert(fonts.loaded_count() == 1);
+    CHECK(slot == 0);
+    CHECK(fonts.loaded_count() == 1);
     const auto* found = fonts.find("S2TRICKS.FNT");
-    assert(found != nullptr);
-    assert(found->glyph_count() == 2);
+    CHECK(found != nullptr);
+    CHECK(found->glyph_count() == 2);
     const auto text = fonts.text_view("s2tricks.fnt");
-    assert(text.glyph_count == 2);
-    assert(text.atlas_format_word == 0x1234);
-    assert(text.entries.size() == 3);
-    assert(text.entries[0].source_byte_0 == 19);
-    assert(text.entries[2].sentinel);
-    assert(&fonts.font(slot) == found);
-    assert(fonts.font_name(slot) == "s2tricks.fnt");
+    CHECK(text.glyph_count == 2);
+    CHECK(text.atlas_format_word == 0x1234);
+    CHECK(text.entries.size() == 3);
+    CHECK(text.entries[0].source_byte_0 == 19);
+    CHECK(text.entries[2].sentinel);
+    CHECK(&fonts.font(slot) == found);
+    CHECK(fonts.font_name(slot) == "s2tricks.fnt");
     pre.unload("PANEL.PRE");
-    assert(fonts.find("S2TRICKS.FNT") == found);
-    assert(fonts.text_view("s2tricks.fnt").entries.back().sentinel);
+    CHECK(fonts.find("S2TRICKS.FNT") == found);
+    CHECK(fonts.text_view("s2tricks.fnt").entries.back().sentinel);
     fonts.unload("S2TRICKS.FNT");
-    assert(fonts.loaded_count() == 0);
+    CHECK(fonts.loaded_count() == 0);
 
     const std::filesystem::path temp_path =
         std::filesystem::temp_directory_path() / "opentony_fnt_runtime_test.fnt";
     const std::vector<std::byte> disk_bytes = make_font();
     {
         std::ofstream output(temp_path, std::ios::binary);
-        assert(output);
+        CHECK(output);
         output.write(
             reinterpret_cast<const char*>(disk_bytes.data()),
             static_cast<std::streamsize>(disk_bytes.size()));
     }
     const std::size_t direct_slot = fonts.load_file(
         "direct.fnt", temp_path.string(), 0x4321);
-    assert(fonts.font(direct_slot).atlas_format_word() == 0x4321);
+    CHECK(fonts.font(direct_slot).atlas_format_word() == 0x4321);
     fonts.unload("DIRECT.FNT");
     std::filesystem::remove(temp_path);
 
@@ -135,14 +135,14 @@ int main() {
     for (unsigned index = 0; index < opentony::assets::kRuntimeFontSlotCount; ++index) {
         capacity.load("F" + std::to_string(index), make_font());
     }
-    assert(capacity.loaded_count() == opentony::assets::kRuntimeFontSlotCount);
+    CHECK(capacity.loaded_count() == opentony::assets::kRuntimeFontSlotCount);
     rejected = false;
     try {
         capacity.load("overflow", make_font());
     } catch (const opentony::assets::FntFormatError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
 
     rejected = false;
     try {
@@ -153,17 +153,17 @@ int main() {
     } catch (const opentony::assets::FntFormatError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
 
     const std::filesystem::path retail_font =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data/S2TRICKS.FNT";
     if (std::filesystem::is_regular_file(retail_font)) {
         const auto retail = opentony::assets::FntRuntimeFont::load(retail_font.string());
-        assert(retail.glyph_count() == 59);
+        CHECK(retail.glyph_count() == 59);
         const std::array<std::uint32_t, 4> first_record{5, 14, 14, 19};
-        assert(retail.records()[0].words == first_record);
-        assert(retail.packed_glyph_data().size() == 9104 - 0x3d4);
-        assert(retail.entries().size() == 60);
+        CHECK(retail.records()[0].words == first_record);
+        CHECK(retail.packed_glyph_data().size() == 9104 - 0x3d4);
+        CHECK(retail.entries().size() == 60);
     }
     return 0;
 }

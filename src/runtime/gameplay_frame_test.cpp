@@ -2,7 +2,7 @@
 
 #include "../trg/level_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -22,7 +22,7 @@ public:
         std::uint64_t,
         const opentony::runtime::InputState& input) override {
         order.push_back(1);
-        assert(input.held(opentony::runtime::movement_bit(
+        CHECK(input.held(opentony::runtime::movement_bit(
             opentony::runtime::MovementAction::Left)));
     }
 
@@ -32,9 +32,9 @@ public:
         const opentony::runtime::InputState& input,
         const opentony::trg::LevelRuntime& level) override {
         order.push_back(2);
-        assert(input.held(opentony::runtime::movement_bit(
+        CHECK(input.held(opentony::runtime::movement_bit(
             opentony::runtime::MovementAction::Left)));
-        assert(level.state().time_ms() == 16);
+        CHECK(level.state().time_ms() == 16);
     }
 
     std::vector<int> order;
@@ -68,7 +68,7 @@ int main() {
         opentony::runtime::PhysicsDispatchStage,
         opentony::runtime::PlayerState&,
         const opentony::runtime::InputState& input) {
-        assert(input.held(opentony::runtime::movement_bit(
+        CHECK(input.held(opentony::runtime::movement_bit(
             opentony::runtime::MovementAction::Left)));
     };
 
@@ -82,20 +82,20 @@ int main() {
         &observer,
         0x80);
 
-    assert(observer.order == std::vector<int>({1, 2}));
-    assert(result.frame_index == 1);
-    assert(result.elapsed_ms == 16);
-    assert(result.frame_scale_q8 == 0x80);
-    assert(result.input.held(opentony::runtime::movement_bit(
+    CHECK(observer.order == std::vector<int>({1, 2}));
+    CHECK(result.frame_index == 1);
+    CHECK(result.elapsed_ms == 16);
+    CHECK(result.frame_scale_q8 == 0x80);
+    CHECK(result.input.held(opentony::runtime::movement_bit(
         opentony::runtime::MovementAction::Left)));
-    assert(result.trigger_event_count_after
+    CHECK(result.trigger_event_count_after
         >= result.trigger_event_count_before);
-    assert(result.trigger_events.size()
+    CHECK(result.trigger_events.size()
         == result.trigger_event_count_after
             - result.trigger_event_count_before);
-    assert(result.physics.dispatch.state == 0);
-    assert(result.physics.dispatch.handled);
-    assert(player.frame_counter() == 1);
+    CHECK(result.physics.dispatch.state == 0);
+    CHECK(result.physics.dispatch.handled);
+    CHECK(player.frame_counter() == 1);
 
     DirectInputKeyboardState keyboard{};
     keyboard[kDikLeft] = 0x80;
@@ -106,8 +106,8 @@ int main() {
         physics_hooks,
         nullptr,
         0x100);
-    assert(keyboard_result.frame_index == 2);
-    assert(keyboard_result.input.action_mask()
+    CHECK(keyboard_result.frame_index == 2);
+    CHECK(keyboard_result.input.action_mask()
         == movement_bit(MovementAction::Left));
 
     std::cout << "gameplay frame ok\n";

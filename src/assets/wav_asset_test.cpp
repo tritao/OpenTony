@@ -1,6 +1,6 @@
 #include "wav_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -54,14 +54,14 @@ int main() {
 
     const opentony::assets::WavPcmAsset asset =
         opentony::assets::WavPcmAsset::parse(std::move(bytes), "sample.wav");
-    assert(asset.format().format_tag == 1);
-    assert(asset.format().channels == 1);
-    assert(asset.format().samples_per_second == 44100);
-    assert(asset.format().bits_per_sample == 16);
-    assert(asset.sample_size() == 5);
-    assert(asset.allocated_sample_size() == 8);
-    assert(asset.samples()[4] == std::byte{0x34});
-    assert(asset.samples()[5] == std::byte{0});
+    CHECK(asset.format().format_tag == 1);
+    CHECK(asset.format().channels == 1);
+    CHECK(asset.format().samples_per_second == 44100);
+    CHECK(asset.format().bits_per_sample == 16);
+    CHECK(asset.sample_size() == 5);
+    CHECK(asset.allocated_sample_size() == 8);
+    CHECK(asset.samples()[4] == std::byte{0x34});
+    CHECK(asset.samples()[5] == std::byte{0});
 
     bool rejected = false;
     try {
@@ -70,18 +70,18 @@ int main() {
     } catch (const opentony::assets::WavFormatError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
 
     const std::filesystem::path retail_wav =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data/audio/BULLROAR2.WAV";
     if (std::filesystem::is_regular_file(retail_wav)) {
         const auto retail = opentony::assets::WavPcmAsset::load(retail_wav.string());
-        assert(retail.format().format_tag == 1);
-        assert(retail.format().channels == 1);
-        assert(retail.format().samples_per_second == 44100);
-        assert(retail.format().bits_per_sample == 16);
-        assert(retail.sample_size() == 100664);
-        assert(retail.allocated_sample_size() == 100664);
+        CHECK(retail.format().format_tag == 1);
+        CHECK(retail.format().channels == 1);
+        CHECK(retail.format().samples_per_second == 44100);
+        CHECK(retail.format().bits_per_sample == 16);
+        CHECK(retail.sample_size() == 100664);
+        CHECK(retail.allocated_sample_size() == 100664);
     }
     return 0;
 }

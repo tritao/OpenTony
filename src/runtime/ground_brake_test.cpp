@@ -1,6 +1,6 @@
 #include "ground_brake.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstdint>
 #include <iostream>
 
@@ -22,12 +22,12 @@ int main() {
         0,
         true,
     });
-    assert(flat.speed_threshold == 0xa000);
-    assert(flat.magnitude_q12 == 0x800);
-    assert(flat.speed_metric == 0x20000);
-    assert(flat.decelerated);
-    assert(flat.response == FixedPosition({0x1e000, 0, 0}));
-    assert(!flat.requested_state7);
+    CHECK(flat.speed_threshold == 0xa000);
+    CHECK(flat.magnitude_q12 == 0x800);
+    CHECK(flat.speed_metric == 0x20000);
+    CHECK(flat.decelerated);
+    CHECK(flat.response == FixedPosition({0x1e000, 0, 0}));
+    CHECK(!flat.requested_state7);
 
     const auto parameterized = GroundBrake::apply(GroundBrakeInput{
         FixedPosition{0x10000, -0x10000, 0x08000},
@@ -38,9 +38,9 @@ int main() {
         0,
         true,
     });
-    assert(parameterized.decelerated);
+    CHECK(parameterized.decelerated);
     // brake_parameter 0x10 gives factor one, then Q8 frame scaling halves it.
-    assert(parameterized.response == FixedPosition({0x0ff00, -0x0ff00, 0x07f80}));
+    CHECK(parameterized.response == FixedPosition({0x0ff00, -0x0ff00, 0x07f80}));
 
     const auto stopped = GroundBrake::apply(GroundBrakeInput{
         FixedPosition{0, 0, 0},
@@ -51,9 +51,9 @@ int main() {
         0,
         true,
     });
-    assert(stopped.stopped);
-    assert(stopped.requested_state7);
-    assert(stopped.response == FixedPosition({0, 0, 0}));
+    CHECK(stopped.stopped);
+    CHECK(stopped.requested_state7);
+    CHECK(stopped.response == FixedPosition({0, 0, 0}));
 
     const auto ineligible = GroundBrake::apply(GroundBrakeInput{
         FixedPosition{0x20000, 0, 0},
@@ -64,9 +64,9 @@ int main() {
         0,
         false,
     });
-    assert(!ineligible.decelerated);
-    assert(!ineligible.requested_state7);
-    assert(ineligible.response == FixedPosition({0x20000, 0, 0}));
+    CHECK(!ineligible.decelerated);
+    CHECK(!ineligible.requested_state7);
+    CHECK(ineligible.response == FixedPosition({0x20000, 0, 0}));
 
     std::cout << "ground brake tests passed\n";
 }

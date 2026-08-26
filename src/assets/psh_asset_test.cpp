@@ -1,6 +1,6 @@
 #include "psh_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -18,23 +18,23 @@ int main() {
     }
     const auto manifest = opentony::assets::PshManifest::parse(
         std::move(bytes), "TEST.PSH");
-    assert(manifest.base_name() == "TEST");
-    assert(manifest.parts().size() == 2);
-    assert(manifest.parts()[0].name == "ROOT");
-    assert(manifest.parts()[1].name == "BOARD");
-    assert(manifest.parts()[1].model_name.empty());
-    assert(manifest.parts()[1].index == 1);
+    CHECK(manifest.base_name() == "TEST");
+    CHECK(manifest.parts().size() == 2);
+    CHECK(manifest.parts()[0].name == "ROOT");
+    CHECK(manifest.parts()[1].name == "BOARD");
+    CHECK(manifest.parts()[1].model_name.empty());
+    CHECK(manifest.parts()[1].index == 1);
 
     const std::filesystem::path root =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data";
     const auto hawk_path = root / "HAWK2.PSH";
     if (std::filesystem::is_regular_file(hawk_path)) {
         const auto hawk = opentony::assets::PshManifest::load(hawk_path.string());
-        assert(hawk.parts().size() == 19);
-        assert(hawk.parts()[0].index == 0);
-        assert(hawk.parts()[1].name == "RIGHT_SHOE");
-        assert(hawk.parts()[1].model_name == "HAWK");
-        assert(!hawk.parts()[0].name.empty());
+        CHECK(hawk.parts().size() == 19);
+        CHECK(hawk.parts()[0].index == 0);
+        CHECK(hawk.parts()[1].name == "RIGHT_SHOE");
+        CHECK(hawk.parts()[1].model_name == "HAWK");
+        CHECK(!hawk.parts()[0].name.empty());
     }
     const auto animation_path = root / "SK2ANIM.PSH";
     if (std::filesystem::is_regular_file(animation_path)
@@ -43,19 +43,19 @@ int main() {
             animation_path.string());
         const auto model = opentony::assets::PshManifest::load(hawk_path.string());
         const auto matches = opentony::assets::match_psh_parts(animation, model);
-        assert(matches.size() == 19);
-        assert(matches[0].animation_index == 0);
-        assert(matches[0].model_index == 0);
-        assert(matches[1].animation_index == 1);
-        assert(matches[1].model_index == 3);
-        assert(matches[2].model_index == 1);
-        assert(matches[3].model_index == 2);
-        assert(matches[18].model_index == 18);
+        CHECK(matches.size() == 19);
+        CHECK(matches[0].animation_index == 0);
+        CHECK(matches[0].model_index == 0);
+        CHECK(matches[1].animation_index == 1);
+        CHECK(matches[1].model_index == 3);
+        CHECK(matches[2].model_index == 1);
+        CHECK(matches[3].model_index == 2);
+        CHECK(matches[18].model_index == 18);
     }
     const auto taxi_path = root / "C_TAXI.PSH";
     if (std::filesystem::is_regular_file(taxi_path)) {
         const auto taxi = opentony::assets::PshManifest::load(taxi_path.string());
-        assert(taxi.parts().size() == 6);
+        CHECK(taxi.parts().size() == 6);
     }
     if (std::filesystem::is_directory(root)) {
         std::size_t manifest_count = 0;
@@ -63,11 +63,11 @@ int main() {
             if (entry.path().extension() == ".PSH") {
                 const auto manifest = opentony::assets::PshManifest::load(
                     entry.path().string());
-                assert(!manifest.parts().empty());
+                CHECK(!manifest.parts().empty());
                 ++manifest_count;
             }
         }
-        assert(manifest_count == 106);
+        CHECK(manifest_count == 106);
     }
     return 0;
 }

@@ -2,7 +2,7 @@
 #include "player_state.hpp"
 
 #include <bit>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 
 int main() {
@@ -18,10 +18,10 @@ int main() {
     profile_table.player_index = 2;
     profile_table.mode = 7;
     profile_table.mode7_selector = 1;
-    assert(profile_table.selected_index() == 3);
-    assert(profile_table.selected_value_nonzero());
+    CHECK(profile_table.selected_index() == 3);
+    CHECK(profile_table.selected_value_nonzero());
     profile_table.mode = 0;
-    assert(!profile_table.selected_value_nonzero());
+    CHECK(!profile_table.selected_value_nonzero());
 
     GroundMotionProfileRecords records{};
     records.primary_field_10[0] = 1;
@@ -31,17 +31,17 @@ int main() {
     records.player_index = 0;
     const auto materialized =
         opentony::runtime::materialize_ground_motion_profile_table(records);
-    assert(materialized.values[0] == 1);
-    assert(materialized.values[1] == 0);
-    assert(materialized.secondary_values[0] == 0);
-    assert(materialized.secondary_values[1] == 1);
-    assert(materialized.selected_value_nonzero());
-    assert(!materialized.selected_secondary_value_nonzero());
+    CHECK(materialized.values[0] == 1);
+    CHECK(materialized.values[1] == 0);
+    CHECK(materialized.secondary_values[0] == 0);
+    CHECK(materialized.secondary_values[1] == 1);
+    CHECK(materialized.selected_value_nonzero());
+    CHECK(!materialized.selected_secondary_value_nonzero());
 
     PlayerState player;
-    assert(player.ground_motion_threshold() == 0x2e9b6);
+    CHECK(player.ground_motion_threshold() == 0x2e9b6);
     player.set_collision_response({0x1000, 0, 0});
-    assert(player.ground_motion_speed_metric() == 0x1000);
+    CHECK(player.ground_motion_speed_metric() == 0x1000);
     player.set_collision_response({});
     GroundMotionInput ordinary{};
     ordinary.producer_enabled = true;
@@ -51,37 +51,37 @@ int main() {
     ordinary.response_speed_threshold = 0x10000;
     ordinary.forward_basis_y = 0;
     const auto ordinary_result = player.apply_ground_motion(ordinary);
-    assert(ordinary_result.applied);
-    assert(ordinary_result.branch == GroundMotionBranch::Ordinary);
-    assert(ordinary_result.scale == 1);
-    assert(player.motion_correction() == FixedPosition({0, 0, -0x1000}));
+    CHECK(ordinary_result.applied);
+    CHECK(ordinary_result.branch == GroundMotionBranch::Ordinary);
+    CHECK(ordinary_result.scale == 1);
+    CHECK(player.motion_correction() == FixedPosition({0, 0, -0x1000}));
 
     GroundMotionInput metric_limit = ordinary;
     metric_limit.response_speed_metric = 0x4e20;
     player.clear_motion_correction();
     const auto metric_limit_result =
         player.apply_ground_motion(metric_limit);
-    assert(metric_limit_result.applied);
-    assert(metric_limit_result.branch == GroundMotionBranch::Ordinary);
+    CHECK(metric_limit_result.applied);
+    CHECK(metric_limit_result.branch == GroundMotionBranch::Ordinary);
 
     GroundMotionInput threshold_limit = ordinary;
     threshold_limit.response_speed_metric = 0x10000;
     threshold_limit.response_speed_threshold = 0x10000;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(threshold_limit).applied);
+    CHECK(!player.apply_ground_motion(threshold_limit).applied);
 
     GroundMotionInput basis_limit = ordinary;
     basis_limit.forward_basis_y = 0x1f3;
     player.clear_motion_correction();
-    assert(player.apply_ground_motion(basis_limit).applied);
+    CHECK(player.apply_ground_motion(basis_limit).applied);
     basis_limit.forward_basis_y = 0x1f4;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(basis_limit).applied);
+    CHECK(!player.apply_ground_motion(basis_limit).applied);
 
     GroundMotionInput closed_correction_gate = ordinary;
     closed_correction_gate.correction_gate_open = false;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(closed_correction_gate).applied);
+    CHECK(!player.apply_ground_motion(closed_correction_gate).applied);
 
     // FUN_0049b010 stores the low word of the 32-bit basis*scale product;
     // it does not saturate a fixed-point component at INT32_MAX/MIN.
@@ -95,24 +95,24 @@ int main() {
             {},
         },
         wide_basis);
-    assert(wrapped_basis.applied);
-    assert(wrapped_correction[0]
+    CHECK(wrapped_basis.applied);
+    CHECK(wrapped_correction[0]
         == std::bit_cast<std::int32_t>(std::uint32_t{0xc0000000U}));
 
     GroundMotionInput over_speed = ordinary;
     over_speed.response_speed_metric = 0x4e21;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(over_speed).applied);
+    CHECK(!player.apply_ground_motion(over_speed).applied);
 
     GroundMotionInput uphill = ordinary;
     uphill.forward_basis_y = 0x1f4;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(uphill).applied);
+    CHECK(!player.apply_ground_motion(uphill).applied);
 
     GroundMotionInput no_profile = ordinary;
     no_profile.profile_table_value_nonzero = false;
     player.clear_motion_correction();
-    assert(!player.apply_ground_motion(no_profile).applied);
+    CHECK(!player.apply_ground_motion(no_profile).applied);
 
     player.clear_motion_correction();
 
@@ -122,10 +122,10 @@ int main() {
     animation.strong_profile = true;
     animation.cooldown_active = true;
     const auto animation_result = player.apply_ground_motion(animation);
-    assert(animation_result.applied);
-    assert(animation_result.branch == GroundMotionBranch::Animation2Or3);
-    assert(animation_result.scale == 8);
-    assert(player.motion_correction() == FixedPosition({0, 0, -0x8000}));
+    CHECK(animation_result.applied);
+    CHECK(animation_result.branch == GroundMotionBranch::Animation2Or3);
+    CHECK(animation_result.scale == 8);
+    CHECK(player.motion_correction() == FixedPosition({0, 0, -0x8000}));
 
     GroundMotionInput rearm = ordinary;
     rearm.apply_control_side_effects = true;
@@ -133,33 +133,33 @@ int main() {
     rearm.rearm_random_available = true;
     rearm.rearm_random_roll = 0;
     const auto rearm_result = player.apply_ground_motion(rearm);
-    assert(rearm_result.cooldown_written);
-    assert(rearm_result.cooldown_value == 0x14);
-    assert(rearm_result.threshold_written);
-    assert(rearm_result.threshold_value == (0xaa * 0x2d000) / 0x118);
-    assert(rearm_result.event_reason == 0x2570);
-    assert(player.ground_motion_cooldown() == 0x14);
-    assert(player.ground_motion_event_pending());
-    assert(player.ground_motion_animation_speed() == 0x14000);
+    CHECK(rearm_result.cooldown_written);
+    CHECK(rearm_result.cooldown_value == 0x14);
+    CHECK(rearm_result.threshold_written);
+    CHECK(rearm_result.threshold_value == (0xaa * 0x2d000) / 0x118);
+    CHECK(rearm_result.event_reason == 0x2570);
+    CHECK(player.ground_motion_cooldown() == 0x14);
+    CHECK(player.ground_motion_event_pending());
+    CHECK(player.ground_motion_animation_speed() == 0x14000);
 
     GroundMotionInput animation_event{};
     animation_event.animation_event_enabled = true;
     animation_event.animation_state = 1;
     const auto animation_event_result =
         player.apply_ground_motion(animation_event);
-    assert(animation_event_result.animation_event_written);
-    assert(animation_event_result.animation_event_parameter == 3);
-    assert(animation_event_result.event_reason == 0x2531);
-    assert(animation_event_result.animation_speed == 0x14000);
-    assert(player.ground_motion_event_reason() == 0x2531);
-    assert(player.ground_motion_event_parameter() == 3);
+    CHECK(animation_event_result.animation_event_written);
+    CHECK(animation_event_result.animation_event_parameter == 3);
+    CHECK(animation_event_result.event_reason == 0x2531);
+    CHECK(animation_event_result.animation_speed == 0x14000);
+    CHECK(player.ground_motion_event_reason() == 0x2531);
+    CHECK(player.ground_motion_event_parameter() == 3);
 
     animation_event.animation_state = 3;
     const auto animation_event_2537 =
         player.apply_ground_motion(animation_event);
-    assert(animation_event_2537.animation_event_written);
-    assert(animation_event_2537.animation_event_parameter == 0);
-    assert(animation_event_2537.event_reason == 0x2537);
+    CHECK(animation_event_2537.animation_event_written);
+    CHECK(animation_event_2537.animation_event_parameter == 0);
+    CHECK(animation_event_2537.event_reason == 0x2537);
 
     GroundMotionInput event = ordinary;
     event.animation_state = 3;
@@ -167,16 +167,16 @@ int main() {
     event.pending_animation_event = true;
     event.response_speed_metric = 0x100;
     const auto event_result = player.apply_ground_motion(event);
-    assert(event_result.event_reason == 0x22);
-    assert(event_result.pending_animation_event_written);
-    assert(!event_result.pending_animation_event);
-    assert(!player.ground_motion_event_pending());
+    CHECK(event_result.event_reason == 0x22);
+    CHECK(event_result.pending_animation_event_written);
+    CHECK(!event_result.pending_animation_event);
+    CHECK(!player.ground_motion_event_pending());
 
     GroundMotionInput blocked = ordinary;
     blocked.physics_locked = true;
     const auto blocked_result = player.apply_ground_motion(blocked);
-    assert(!blocked_result.applied);
-    assert(player.motion_correction() == FixedPosition({0, 0, -0x4000}));
+    CHECK(!blocked_result.applied);
+    CHECK(player.motion_correction() == FixedPosition({0, 0, -0x4000}));
 
     std::cout << "Ground motion tests passed\n";
 }

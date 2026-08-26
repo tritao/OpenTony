@@ -1,6 +1,6 @@
 #include "render_packet_builder.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cmath>
 #include <iostream>
 #include <vector>
@@ -39,25 +39,25 @@ int main() {
     trg::RenderPacketBuildOptions options;
     options.texture_dimensions = [](std::size_t index, std::uint32_t checksum)
         -> std::optional<trg::RenderTextureDimensions> {
-        assert(index == 3);
-        assert(checksum == 0x12345678);
+        CHECK(index == 3);
+        CHECK(checksum == 0x12345678);
         return trg::RenderTextureDimensions{64, 32};
     };
     const trg::RenderPolygonPacket packet = trg::RenderPacketBuilder::build_face(
         face, {0x1000, 0x2000, 0x3000}, camera, projector, options);
 
-    assert(packet.format == trg::kRenderPolygonPacketFormat);
-    assert(packet.object_index == 17);
-    assert(packet.vertex_count == 3);
-    assert(packet.vertices.size() == 3);
-    assert(packet.vertices[0].projected.x == 0x2000);
-    assert(packet.vertices[0].projected.y == 0x4000);
-    assert(packet.vertices[0].projected.z == 0x6000);
-    assert(packet.vertices[0].uv_normalized);
+    CHECK(packet.format == trg::kRenderPolygonPacketFormat);
+    CHECK(packet.object_index == 17);
+    CHECK(packet.vertex_count == 3);
+    CHECK(packet.vertices.size() == 3);
+    CHECK(packet.vertices[0].projected.x == 0x2000);
+    CHECK(packet.vertices[0].projected.y == 0x4000);
+    CHECK(packet.vertices[0].projected.z == 0x6000);
+    CHECK(packet.vertices[0].uv_normalized);
     const std::array<std::uint16_t, 2> expected_source_uv{0, 0};
-    assert(packet.vertices[0].source_uv == expected_source_uv);
-    assert(std::fabs(packet.vertices[0].uv[0] - (0.5F / 64.0F)) < 0.00001F);
-    assert(std::fabs(packet.vertices[1].uv[1] - (16.5F / 32.0F)) < 0.00001F);
+    CHECK(packet.vertices[0].source_uv == expected_source_uv);
+    CHECK(std::fabs(packet.vertices[0].uv[0] - (0.5F / 64.0F)) < 0.00001F);
+    CHECK(std::fabs(packet.vertices[1].uv[1] - (16.5F / 32.0F)) < 0.00001F);
 
     trg::LevelRenderEntitySnapshot entity{};
     entity.entity = face.entity;
@@ -76,18 +76,18 @@ int main() {
     const std::vector<trg::LevelRenderFaceSnapshot> faces{face, second};
     const auto result = trg::RenderPacketBuilder::build(
         entities, faces, camera, projector, options);
-    assert(result.polygons.size() == 2);
-    assert(result.working_vertices.size() == 6);
-    assert(result.polygons[0].face_index == 2);
-    assert(result.polygons[1].face_index == 9);
-    assert(result.polygons[0].working_vertex_offset == 0);
-    assert(result.polygons[1].working_vertex_offset == 3);
-    assert(result.polygons[0].vertex_count == 3);
-    assert(result.polygons[1].vertex_count == 3);
+    CHECK(result.polygons.size() == 2);
+    CHECK(result.working_vertices.size() == 6);
+    CHECK(result.polygons[0].face_index == 2);
+    CHECK(result.polygons[1].face_index == 9);
+    CHECK(result.polygons[0].working_vertex_offset == 0);
+    CHECK(result.polygons[1].working_vertex_offset == 3);
+    CHECK(result.polygons[0].vertex_count == 3);
+    CHECK(result.polygons[1].vertex_count == 3);
     const std::array<std::int32_t, 3> first_position{0x2000, 0x4000, 0x6000};
     const std::array<std::int32_t, 3> second_position{0x8000, 0xa000, 0xc000};
-    assert(result.working_vertices[0].input.position_q16 == first_position);
-    assert(result.working_vertices[3].input.position_q16 == second_position);
+    CHECK(result.working_vertices[0].input.position_q16 == first_position);
+    CHECK(result.working_vertices[3].input.position_q16 == second_position);
 
     std::cout << "Render packet builder tests passed\n";
 }

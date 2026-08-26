@@ -1,7 +1,7 @@
 #include "save_asset.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -35,28 +35,28 @@ int main() {
         blocks,
         career,
         "career.sav");
-    assert(save.bytes().size() == 0x2000);
-    assert(save.card_block_count() == 1);
-    assert(save.header().action_type == opentony::assets::SaveActionType::career);
-    assert(std::string(save.header().name.data(), 4) == "TEST");
-    assert(save.header().blocks[0][0] == std::byte{0x12});
-    assert(save.payload().size() == opentony::assets::kCareerRegisteredSize);
+    CHECK(save.bytes().size() == 0x2000);
+    CHECK(save.card_block_count() == 1);
+    CHECK(save.header().action_type == opentony::assets::SaveActionType::career);
+    CHECK(std::string(save.header().name.data(), 4) == "TEST");
+    CHECK(save.header().blocks[0][0] == std::byte{0x12});
+    CHECK(save.payload().size() == opentony::assets::kCareerRegisteredSize);
 
     const auto image = opentony::assets::CareerSaveImage::parse(
         save.payload(), "career.sav payload");
-    assert(image.format_magic() == opentony::assets::kCareerFormatMagic);
+    CHECK(image.format_magic() == opentony::assets::kCareerFormatMagic);
     const std::array<std::uint8_t, 2> expected_skaters{4, 5};
     const std::array<std::uint8_t, 2> expected_costumes{2, 3};
-    assert(image.active_skater_selectors() == expected_skaters);
-    assert(image.active_costume_selectors() == expected_costumes);
-    assert(image.skater_records().size() == 20);
-    assert(image.skater_records()[0].trick_unlock_bits() == 0x12345678);
-    assert(image.skater_records()[0].custom_appearance()[0] == std::byte{0xa1});
-    assert(image.image_bytes().size() == opentony::assets::kCareerImageSize);
+    CHECK(image.active_skater_selectors() == expected_skaters);
+    CHECK(image.active_costume_selectors() == expected_costumes);
+    CHECK(image.skater_records().size() == 20);
+    CHECK(image.skater_records()[0].trick_unlock_bits() == 0x12345678);
+    CHECK(image.skater_records()[0].custom_appearance()[0] == std::byte{0xa1});
+    CHECK(image.image_bytes().size() == opentony::assets::kCareerImageSize);
 
     const auto reparsed = opentony::assets::SaveGameFile::parse(
         save.bytes(), "career.sav");
-    assert(reparsed.payload().size() == career.size());
-    assert(reparsed.payload()[0x1870] == std::byte{4});
+    CHECK(reparsed.payload().size() == career.size());
+    CHECK(reparsed.payload()[0x1870] == std::byte{4});
     return 0;
 }

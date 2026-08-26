@@ -1,6 +1,6 @@
 #include "camera_point_registry.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -49,30 +49,30 @@ int main() {
         opentony::trg::TrgFile::parse(bytes);
     const auto first = file.camera_point(0);
     const std::array<std::int32_t, 3> expected_position{100 << 12, 200 << 12, 300 << 12};
-    assert(first.position == expected_position);
-    assert(first.selection_state_word == 1);
-    assert(first.transition_variant == 7);
+    CHECK(first.position == expected_position);
+    CHECK(first.selection_state_word == 1);
+    CHECK(first.transition_variant == 7);
 
     opentony::trg::CameraPointRegistry registry;
     registry.build(file);
-    assert(registry.entries().size() == 2);
+    CHECK(registry.entries().size() == 2);
     const auto selected = registry.select_nearest(
         [](const opentony::trg::CameraPointEntry& entry)
             -> std::optional<std::int32_t> {
             return entry.source_node == 0 ? 400 : 100;
         });
-    assert(selected.has_value());
-    assert(selected->source_node == 1);
-    assert(selected->camera_mode == 2);
-    assert(selected->camera_state_bit == 0x800U);
-    assert(selected->transition_variant == 9);
-    assert(selected->distance == 100);
+    CHECK(selected.has_value());
+    CHECK(selected->source_node == 1);
+    CHECK(selected->camera_mode == 2);
+    CHECK(selected->camera_state_bit == 0x800U);
+    CHECK(selected->transition_variant == 9);
+    CHECK(selected->distance == 100);
 
     const auto strict_boundary = registry.select_nearest(
         [](const opentony::trg::CameraPointEntry&)
             -> std::optional<std::int32_t> {
             return opentony::trg::CameraPointRegistry::kRetailDistanceLimit;
         });
-    assert(!strict_boundary.has_value());
+    CHECK(!strict_boundary.has_value());
     return 0;
 }

@@ -1,6 +1,6 @@
 #include "position_commit.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 
 int main() {
@@ -19,8 +19,8 @@ int main() {
         0,
         0,
     };
-    assert(opentony::runtime::accepts_retail_ground_contact(floor_hit));
-    assert(!opentony::runtime::accepts_retail_ground_contact(slope_limit_hit));
+    CHECK(opentony::runtime::accepts_retail_ground_contact(floor_hit));
+    CHECK(!opentony::runtime::accepts_retail_ground_contact(slope_limit_hit));
     const auto slide = opentony::runtime::PositionCommitter::commit(
         current,
         desired,
@@ -28,27 +28,27 @@ int main() {
             return position[0] > 100;
         });
     const opentony::runtime::FixedPosition expected_slide{0, 300, 400};
-    assert(slide.position == expected_slide);
-    assert(slide.collided);
-    assert(!slide.blocked);
-    assert(slide.probes == 2);
+    CHECK(slide.position == expected_slide);
+    CHECK(slide.collided);
+    CHECK(!slide.blocked);
+    CHECK(slide.probes == 2);
 
     const auto blocked = opentony::runtime::PositionCommitter::commit(
         current,
         desired,
         [](const opentony::runtime::FixedPosition&) { return true; });
-    assert(blocked.position == current);
-    assert(blocked.collided);
-    assert(blocked.blocked);
-    assert(blocked.probes == 7);
+    CHECK(blocked.position == current);
+    CHECK(blocked.collided);
+    CHECK(blocked.blocked);
+    CHECK(blocked.probes == 7);
 
     const auto bypassed = opentony::runtime::PositionCommitter::commit(
         current,
         desired,
         [](const opentony::runtime::FixedPosition&) { return true; },
         true);
-    assert(bypassed.position == desired);
-    assert(!bypassed.collided);
-    assert(bypassed.probes == 0);
+    CHECK(bypassed.position == desired);
+    CHECK(!bypassed.collided);
+    CHECK(bypassed.probes == 0);
     std::cout << "Position commit tests passed\n";
 }

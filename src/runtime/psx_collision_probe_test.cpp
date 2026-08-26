@@ -2,7 +2,7 @@
 
 #include "../assets/psx_collision.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -101,12 +101,12 @@ void check_packaged_scene(const char* path) {
     const auto scene = opentony::collision::PsxScene::parse(
         std::span<const std::byte>(
             archive.bytes().data(), archive.bytes().size()));
-    assert(scene.has_value());
+    CHECK(scene.has_value());
 
     const opentony::runtime::PsxScenePositionCollisionProbe probe(
         *scene, {-4100096, -8822784, 11472896});
     const auto hit = probe.query({-4100096, 23945216, 11472896});
-    assert(hit.has_value());
+    CHECK(hit.has_value());
 
     const opentony::assets::PsxCollisionWorld legacy_world =
         opentony::assets::PsxCollisionWorld::build(archive);
@@ -114,20 +114,20 @@ void check_packaged_scene(const char* path) {
         legacy_world, {-4100096, -8822784, 11472896});
     const auto legacy_hit = legacy_probe.query(
         {-4100096, 23945216, 11472896});
-    assert(legacy_hit.has_value());
-    assert(hit->object_index == 170);
-    assert(hit->model_index == 171);
-    assert(hit->hit_parameter_q14 == 61);
-    assert(hit->position == (opentony::runtime::FixedPosition{
+    CHECK(legacy_hit.has_value());
+    CHECK(hit->object_index == 170);
+    CHECK(hit->model_index == 171);
+    CHECK(hit->hit_parameter_q14 == 61);
+    CHECK(hit->position == (opentony::runtime::FixedPosition{
         -4100096, -8700784, 11472896}));
-    assert(hit->normal == (opentony::runtime::FixedPosition{
+    CHECK(hit->normal == (opentony::runtime::FixedPosition{
         1, -3867, -1351}));
-    assert(hit->position == legacy_hit->position);
-    assert(hit->hit_parameter_q14 == legacy_hit->hit_parameter_q14);
-    assert(hit->surface_flags == legacy_hit->surface_flags);
-    assert(hit->normal[0] == legacy_hit->normal[0]);
-    assert(hit->normal[1] == legacy_hit->normal[1]);
-    assert(hit->normal[2] == legacy_hit->normal[2]);
+    CHECK(hit->position == legacy_hit->position);
+    CHECK(hit->hit_parameter_q14 == legacy_hit->hit_parameter_q14);
+    CHECK(hit->surface_flags == legacy_hit->surface_flags);
+    CHECK(hit->normal[0] == legacy_hit->normal[0]);
+    CHECK(hit->normal[1] == legacy_hit->normal[1]);
+    CHECK(hit->normal[2] == legacy_hit->normal[2]);
 }
 
 } // namespace
@@ -141,45 +141,45 @@ int main(int argc, char** argv) {
     const opentony::runtime::PsxPositionCollisionProbe probe(world, {0, 4096, 0});
 
     const auto hit = probe.hit({0, -4096, 0});
-    assert(hit.has_value());
-    assert(hit->object_index == 0);
-    assert(hit->model_index == 0);
-    assert(hit->model_face_index == 0);
-    assert(hit->normal[1] == 4096);
-    assert(hit->surface_flags == 0x1234);
+    CHECK(hit.has_value());
+    CHECK(hit->object_index == 0);
+    CHECK(hit->model_index == 0);
+    CHECK(hit->model_face_index == 0);
+    CHECK(hit->normal[1] == 4096);
+    CHECK(hit->surface_flags == 0x1234);
     const auto runtime_hit = probe.query({0, -4096, 0});
-    assert(runtime_hit.has_value());
-    assert(!runtime_hit->surface_bit_6);
-    assert(runtime_hit->surface_bit_7_clear);
-    assert(runtime_hit->surface_bit_8_clear);
-    assert(runtime_hit->raw_type_bits_9_12 == 9);
-    assert(!runtime_hit->face_flag_80);
-    assert(probe({0, -4096, 0}));
+    CHECK(runtime_hit.has_value());
+    CHECK(!runtime_hit->surface_bit_6);
+    CHECK(runtime_hit->surface_bit_7_clear);
+    CHECK(runtime_hit->surface_bit_8_clear);
+    CHECK(runtime_hit->raw_type_bits_9_12 == 9);
+    CHECK(!runtime_hit->face_flag_80);
+    CHECK(probe({0, -4096, 0}));
 
     const opentony::runtime::PositionCommitResult result =
         opentony::runtime::PositionCommitter::commit(
             {0, 4096, 0},
             {0, -4096, 0},
             probe);
-    assert(result.position[1] == 4096);
-    assert(result.collided);
-    assert(!result.blocked);
-    assert(result.probes == 4);
+    CHECK(result.position[1] == 4096);
+    CHECK(result.collided);
+    CHECK(!result.blocked);
+    CHECK(result.probes == 4);
 
     const auto recovered_scene = opentony::collision::PsxScene::parse(
         std::span<const std::byte>(bytes.data(), bytes.size()));
-    assert(recovered_scene.has_value());
+    CHECK(recovered_scene.has_value());
     const opentony::runtime::PsxScenePositionCollisionProbe recovered_probe(
         *recovered_scene, {0, 4096, 0});
     const auto recovered_hit = recovered_probe.query({0, -4096, 0});
-    assert(recovered_hit.has_value());
-    assert(recovered_hit->object_index == 0);
-    assert(recovered_hit->model_index == 0);
-    assert(recovered_hit->model_face_index == 0);
-    assert(recovered_hit->normal[1] == 4096);
-    assert(recovered_hit->surface_flags == 0x1234);
-    assert(recovered_hit->hit_parameter_q14 == 0x2000);
-    assert(recovered_hit->position[1] == 0);
+    CHECK(recovered_hit.has_value());
+    CHECK(recovered_hit->object_index == 0);
+    CHECK(recovered_hit->model_index == 0);
+    CHECK(recovered_hit->model_face_index == 0);
+    CHECK(recovered_hit->normal[1] == 4096);
+    CHECK(recovered_hit->surface_flags == 0x1234);
+    CHECK(recovered_hit->hit_parameter_q14 == 0x2000);
+    CHECK(recovered_hit->position[1] == 0);
 
     if (argc > 1) {
         check_packaged_scene(argv[1]);

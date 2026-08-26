@@ -1,6 +1,6 @@
 #include "camera_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 
 int main() {
     using namespace opentony::camera;
@@ -12,39 +12,39 @@ int main() {
     } catch (const CameraRuntimeError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
 
     CameraTargetRaw target{};
     target.position = {0x10000, 0, 0};
     target.follow_offset = {0, 0, -0x4000};
     target.tripod_state = 1;
     runtime.reset(target);
-    assert(runtime.configured());
-    assert(runtime.state().mode == 1);
-    assert(runtime.state().anchor_target.x == 0x10000);
+    CHECK(runtime.configured());
+    CHECK(runtime.state().mode == 1);
+    CHECK(runtime.state().anchor_target.x == 0x10000);
 
     const auto first = runtime.update(target, {});
-    assert(runtime.state().update_tick == 1);
-    assert(runtime.last_commit().current_transform.x == first.current_transform.x);
-    assert(runtime.last_commit().current_transform.y == first.current_transform.y);
-    assert(runtime.last_commit().current_transform.z == first.current_transform.z);
-    assert(runtime.last_commit().current_transform.w == first.current_transform.w);
-    assert(runtime.state().look_angles.third == 0);
-    assert(runtime.last_commit().rendered_position.y == 0);
+    CHECK(runtime.state().update_tick == 1);
+    CHECK(runtime.last_commit().current_transform.x == first.current_transform.x);
+    CHECK(runtime.last_commit().current_transform.y == first.current_transform.y);
+    CHECK(runtime.last_commit().current_transform.z == first.current_transform.z);
+    CHECK(runtime.last_commit().current_transform.w == first.current_transform.w);
+    CHECK(runtime.state().look_angles.third == 0);
+    CHECK(runtime.last_commit().rendered_position.y == 0);
     ViewportInputRaw viewport{};
     viewport.words = {640, 480, 0, 0, 10, 0, 3413, 12, 320, 240, 0, 0, 320, 480};
-    assert(runtime.prepare_viewport_projection(viewport, 20512, 3413, 3413));
-    assert(runtime.viewport_projection().viewport.words[5] == 20512);
-    assert(runtime.viewport_projection().viewport.words[8] == 320);
-    assert(runtime.viewport_projection().viewport.words[9] == 240);
+    CHECK(runtime.prepare_viewport_projection(viewport, 20512, 3413, 3413));
+    CHECK(runtime.viewport_projection().viewport.words[5] == 20512);
+    CHECK(runtime.viewport_projection().viewport.words[8] == 320);
+    CHECK(runtime.viewport_projection().viewport.words[9] == 240);
 
     CameraMode25ProducerInputRaw mode25{};
     mode25.tripod_present = true;
     mode25.tripod_follow_offset_y_raw = 0x65;
     mode25.tripod_physics_state = 1;
     const auto second = runtime.update(target, {}, {}, {}, {}, mode25);
-    assert(runtime.state().mode == 25);
-    assert(second.current_transform.w != 0);
+    CHECK(runtime.state().mode == 25);
+    CHECK(second.current_transform.w != 0);
 
     CameraStateRaw alternate_basis;
     alternate_basis.mode = 25;
@@ -61,11 +61,11 @@ int main() {
     };
     const auto alternate_basis_result = apply_camera_mode25_alternate(
         alternate_basis, alternate_basis_input);
-    assert(alternate_basis_result.transformed_offset_applied);
-    assert(alternate_basis.mode_vector.x == -0x1000);
-    assert(alternate_basis.mode_vector.y == 0);
-    assert(alternate_basis.mode_vector.z == 0);
-    assert(alternate_basis.history_b.x == -0x1000 * 0x1000);
+    CHECK(alternate_basis_result.transformed_offset_applied);
+    CHECK(alternate_basis.mode_vector.x == -0x1000);
+    CHECK(alternate_basis.mode_vector.y == 0);
+    CHECK(alternate_basis.mode_vector.z == 0);
+    CHECK(alternate_basis.history_b.x == -0x1000 * 0x1000);
 
     CameraStateRaw alternate_scalar;
     alternate_scalar.mode = 25;
@@ -82,10 +82,10 @@ int main() {
     alternate_scalar_input.tripod_scalar_raw = 0x2000;
     update_camera(
         alternate_scalar, {}, {}, {}, {}, {}, {}, alternate_scalar_input);
-    assert(alternate_scalar.alternate_counter_raw == 2);
-    assert(alternate_scalar.alternate_integrator_raw == -6);
-    assert(alternate_scalar.alternate_shared_angle_raw == 0x1fe);
-    assert(alternate_scalar.anchor_target.y == 994);
+    CHECK(alternate_scalar.alternate_counter_raw == 2);
+    CHECK(alternate_scalar.alternate_integrator_raw == -6);
+    CHECK(alternate_scalar.alternate_shared_angle_raw == 0x1fe);
+    CHECK(alternate_scalar.anchor_target.y == 994);
 
     CameraRuntime point_runtime;
     point_runtime.reset(target, 23);
@@ -95,7 +95,7 @@ int main() {
     point.point_start_valid = true;
     point.point_start_position = target.position;
     const auto point_commit = point_runtime.update(target, {}, {}, {}, point);
-    assert(point_runtime.state().point_camera_tick == 1);
-    assert(point_commit.rendered_position.x >= 0);
+    CHECK(point_runtime.state().point_camera_tick == 1);
+    CHECK(point_commit.rendered_position.x >= 0);
     return 0;
 }

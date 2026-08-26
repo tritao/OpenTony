@@ -1,7 +1,7 @@
 #include "psx_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -58,25 +58,25 @@ int main() {
         opentony::assets::PsxArchive::parse(std::move(bytes), "runtime.psx");
     const opentony::assets::PsxRuntimeEnvironment runtime =
         opentony::assets::PsxRuntimeEnvironment::build(archive, 6);
-    assert(runtime.slot() == 6);
-    assert(runtime.object_count() == 1);
-    assert(runtime.model_count() == 1);
-    assert(runtime.allocation_size() ==
+    CHECK(runtime.slot() == 6);
+    CHECK(runtime.object_count() == 1);
+    CHECK(runtime.model_count() == 1);
+    CHECK(runtime.allocation_size() ==
         4 + opentony::assets::kPsxRuntimeObjectStride);
     const std::array<std::int32_t, 3> expected_position{
         0x01020304, static_cast<std::int32_t>(0xf0001000U), 0x55667788};
-    assert(runtime.object_record_offset(0) == 4);
-    assert(runtime.object(0).flags() == 0x12345678U);
-    assert(runtime.object(0).position() == expected_position);
-    assert(runtime.object(0).model_index() == 0);
-    assert(runtime.object(0).source_word_at_14() == 0x11223344U);
-    assert(runtime.object(0).source_transform_component() == 0x1357);
-    assert(runtime.object(0).source_transform_tail() == 0x0003fffeU);
-    assert(runtime.object(0).source_rgbx() == 0xaabbccddU);
+    CHECK(runtime.object_record_offset(0) == 4);
+    CHECK(runtime.object(0).flags() == 0x12345678U);
+    CHECK(runtime.object(0).position() == expected_position);
+    CHECK(runtime.object(0).model_index() == 0);
+    CHECK(runtime.object(0).source_word_at_14() == 0x11223344U);
+    CHECK(runtime.object(0).source_transform_component() == 0x1357);
+    CHECK(runtime.object(0).source_transform_tail() == 0x0003fffeU);
+    CHECK(runtime.object(0).source_rgbx() == 0xaabbccddU);
     const std::array<std::uint16_t, 3> expected_scale{0x1000, 0x1000, 0x1000};
-    assert(runtime.object(0).runtime_scale_q12() == expected_scale);
-    assert(runtime.model_pointer(0) == &archive.models()[0]);
-    assert(&runtime.model_for_object(0) == &archive.models()[0]);
+    CHECK(runtime.object(0).runtime_scale_q12() == expected_scale);
+    CHECK(runtime.model_pointer(0) == &archive.models()[0]);
+    CHECK(&runtime.model_for_object(0) == &archive.models()[0]);
 
     // Two textured faces share one checksum even though they address
     // different source texture-name entries. The finalizer's hash table
@@ -133,13 +133,13 @@ int main() {
             std::move(textured_bytes), "textured-runtime.psx");
     const opentony::assets::PsxRuntimeEnvironment textured_runtime =
         opentony::assets::PsxRuntimeEnvironment::build(textured_archive);
-    assert(textured_runtime.materials().records().size() == 1);
-    assert(textured_runtime.materials().material_index_for_texture(0) == 0);
-    assert(textured_runtime.materials().material_index_for_texture(1) == 0);
-    assert(textured_runtime.materials().texture_index_for_material(0) == 0);
+    CHECK(textured_runtime.materials().records().size() == 1);
+    CHECK(textured_runtime.materials().material_index_for_texture(0) == 0);
+    CHECK(textured_runtime.materials().material_index_for_texture(1) == 0);
+    CHECK(textured_runtime.materials().texture_index_for_material(0) == 0);
     const auto& textured_material = textured_runtime.materials().record(0);
-    assert(textured_material.checksum() == 0xabcdef01U);
-    assert(textured_material.reference_count() == 2);
-    assert(textured_material.raw_record().size() == 0x2c);
+    CHECK(textured_material.checksum() == 0xabcdef01U);
+    CHECK(textured_material.reference_count() == 2);
+    CHECK(textured_material.raw_record().size() == 0x2c);
     return 0;
 }
