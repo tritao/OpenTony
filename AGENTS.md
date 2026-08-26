@@ -7,6 +7,11 @@ Before changing `match/`, `re/`, or `src/`, read and follow
 `match/POLICY.md`. These are the canonical sources; do not redefine their rules
 elsewhere.
 
+Before substantial reversing work, use `tony slice list`, claim the relevant
+slice with `tony slice claim ID`, and follow the checklist from
+`tony slice show ID`. Release it when the work session is finished. Slice
+claims are local coordination state, not evidence.
+
 In particular, never mark a naked inline-assembly block as semantic `cpp`; use
 the status required by `match/POLICY.md`.
 

@@ -49,6 +49,19 @@ Compiler/runtime glue and import thunks may remain matching-only. Gameplay,
 collision, input, scripting, and asset behavior normally need both exact
 evidence and a native implementation.
 
+Represent active vertical work in `re/slices/`. Before substantial work, claim
+the slice locally and use its command-generated checklist:
+
+```bash
+tony slice claim ID
+tony slice show ID
+tony ghidra gaps --slice ID
+```
+
+Release the claim when the session ends. Claims under `build/slices/leases/`
+coordinate parallel sessions only; committed manifests remain the reviewable
+scope and completion contract.
+
 ## Reconstruction stages
 
 ### 1. Analyze before transcribing

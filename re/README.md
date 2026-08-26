@@ -6,6 +6,7 @@ Everything under `re/` should be reviewable evidence or a reproducible input to 
 - `symbols/` — names and addresses we want reapplied to generated Ghidra projects
 - `types/` — recovered type layouts (initially documentation/schema)
 - `native/` — explicit retail-function to native-progress mappings
+- `slices/` — committed vertical work scope and completion criteria
 - `experiments/` — named runtime experiments
 - `evidence/` — evidence records and confidence rules
 - `notes/` — subsystem narratives and open questions

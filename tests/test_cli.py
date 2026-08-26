@@ -88,6 +88,21 @@ def test_native_verify_parse():
     assert callable(build_parser().parse_args(["native", "verify"]).func)
 
 
+def test_slice_commands_parse():
+    assert callable(build_parser().parse_args(["slice", "list"]).func)
+    assert callable(build_parser().parse_args(["slice", "show", "collision-query"]).func)
+    assert callable(build_parser().parse_args(["slice", "verify"]).func)
+    claim = build_parser().parse_args(["slice", "claim", "collision-query", "--owner", "worker-a"])
+    release = build_parser().parse_args(["slice", "release", "collision-query", "--force"])
+    assert claim.owner == "worker-a"
+    assert release.force is True
+
+
+def test_ghidra_gaps_slice_parse():
+    args = build_parser().parse_args(["ghidra", "gaps", "--slice", "collision-query"])
+    assert args.slice_id == "collision-query"
+
+
 def test_wine_disc_commands_parse():
     for command in ("mount-disc", "unmount-disc"):
         args = build_parser().parse_args(["wine", command])

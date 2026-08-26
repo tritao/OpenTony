@@ -7,6 +7,7 @@ from pathlib import Path
 from .common import ROOT, load_yaml, resolve
 from .identity import recorded_executable
 from .native_progress import load_native_progress
+from .slices import load_slices, slice_for_address
 
 
 def _require_pyghidra():
@@ -139,6 +140,7 @@ def inspect_function(address: int, output: Path | None = None) -> dict:
             "evidence": tracked.get("evidence", []),
             "confidence": tracked.get("confidence"),
             "subsystem": _subsystem_for_address(address),
+            "slice": slice_for_address(address),
             "native": native or {"status": "not_recorded", "sources": [], "tests": [], "evidence": []},
         }
     text = json.dumps(result, indent=2) + "\n"
@@ -151,11 +153,17 @@ def inspect_function(address: int, output: Path | None = None) -> dict:
     return result
 
 
-def gaps(output: Path | None = None, limit: int = 50) -> list[dict]:
+def gaps(output: Path | None = None, limit: int = 50, slice_id: str | None = None) -> list[dict]:
     exe = _exe_path()
     pyghidra = _require_pyghidra()
     spec = load_yaml("re/config/ghidra.yml")["ghidra"]
     tracked = load_yaml("re/symbols/functions.yml").get("functions", [])
+    if slice_id is not None:
+        selected = load_slices().get(slice_id)
+        if selected is None:
+            raise SystemExit(f"unknown reconstruction slice: {slice_id}")
+        selected_addresses = {int(value) for value in selected.get("scope", {}).get("functions", [])}
+        tracked = [item for item in tracked if int(item["address"]) in selected_addresses]
     native_progress = load_native_progress()
     modules = load_yaml("match/manifest.yml").get("modules", [])
     subsystem_ranges = []
@@ -383,4 +391,3 @@ def decompile_function(address: int, output: Path | None = None) -> Path | None:
     output.write_text(text, encoding="utf-8")
     print(f"Decompiled 0x{address:08x}: {output}")
     return output
-

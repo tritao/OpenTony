@@ -2,6 +2,7 @@ version: 1
 functions:
   - address: 0x004624d0
     name: M3D_InitCollisionQuery
+    slice: collision-query
     status: tested
     sources:
       - re/evidence/collision_reference.hpp
@@ -13,6 +14,7 @@ functions:
 
   - address: 0x00462a20
     name: M3D_CollisionFaceTest
+    slice: collision-query
     status: tested
     sources:
       - re/evidence/collision_reference.hpp
@@ -26,6 +28,7 @@ functions:
 
   - address: 0x00466090
     name: M3D_QueryZoneCollision
+    slice: collision-query
     status: modeled
     sources:
       - src/runtime/psx_collision_probe.cpp

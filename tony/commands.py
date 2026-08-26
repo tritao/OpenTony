@@ -41,6 +41,13 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_list,
     sessions_stop,
 )
+from .slices import (  # noqa: F401 - command handlers are consumed by cli.py
+    slice_claim,
+    slice_list,
+    slice_release,
+    slice_show,
+    slice_verify,
+)
 from .split import (  # noqa: F401 - command handlers are consumed by cli.py
     split_accept_proposal,
     split_accept_proposals,
@@ -183,6 +190,8 @@ def verify(_args) -> int:
         failed = True
     if native_verify(_args):
         failed = True
+    if slice_verify(_args):
+        failed = True
     if getattr(_args, "all", False):
         split_args = SimpleNamespace(
             no_build=False,
@@ -215,7 +224,7 @@ def ghidra_inspect(args) -> int:
 
 
 def ghidra_gaps(args) -> int:
-    ghidra_inspection.gaps(resolve(args.output) if args.output else None, args.limit)
+    ghidra_inspection.gaps(resolve(args.output) if args.output else None, args.limit, args.slice_id)
     return 0
 
 

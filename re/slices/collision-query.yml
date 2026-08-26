@@ -1,0 +1,49 @@
+version: 1
+id: collision-query
+subsystem: collision
+status: active
+
+scope:
+  functions:
+    - 0x004624d0
+    - 0x004628f0
+    - 0x00462a20
+    - 0x004638d0
+    - 0x00463d50
+    - 0x00466090
+    - 0x004660b0
+    - 0x0048ea80
+  types:
+    - RuntimeCollisionObject
+    - SColCache
+    - SFaceCache
+    - SLineInfo
+  globals:
+    - CollisionModelCache
+    - CollisionFaceCache
+    - GameObjectListHead
+
+artifacts:
+  evidence:
+    - re/evidence/functions/collision.md
+    - re/evidence/functions/blockmap-collision.md
+  native:
+    - re/evidence/collision_reference.hpp
+    - src/assets/psx_collision.cpp
+    - src/runtime/psx_collision_probe.cpp
+  tests:
+    - re/evidence/collision_reference_test.cpp
+    - src/assets/psx_collision_test.cpp
+    - src/runtime/psx_collision_probe_test.cpp
+
+open_questions:
+  - Recover the SLineInfo short basis fields at offsets 0x48 through 0x58.
+  - Establish the complete retail face-filtering and zone-selection policy.
+  - Determine the shared face-cache capacity without inventing an array bound.
+
+completion:
+  - All scoped function boundaries and ABIs are evidence-backed.
+  - Accessed retail fields and globals have validated types.
+  - Query initialization, candidate testing, and result publication have semantic tests.
+  - Retail/native observations agree at the collision-query boundary.
+  - Exact matching implementations retain a byte-identical executable.
