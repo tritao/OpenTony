@@ -174,6 +174,14 @@ int main() {
     assert(sizeof(CollisionQueryLayout) == 0x90);
     assert(offsetof(CollisionQueryLayout, line_basis) == 0x48);
     assert(offsetof(CollisionQueryLayout, hit_parameter) == 0x8c);
+    assert(kCollisionModelCacheCapacity == 20);
+    assert(kCollisionFaceCacheCapacity == 500);
+    assert(kCollisionFaceCacheRecordStride == 0x1c);
+    assert(kCollisionFaceCacheBytes == 0x36b0);
+    assert(collision_face_cache_span_fits(0, 500));
+    assert(collision_face_cache_span_fits(499, 1));
+    assert(!collision_face_cache_span_fits(500, 1));
+    assert(!collision_face_cache_span_fits(499, 2));
 
     CollisionFacePrefix face;
     face.base_flags = 0x1083;
@@ -324,7 +332,11 @@ int main() {
                            });
     assert(model_aabbs.size() == 1);
     assert(model_aabbs[0].min_x == 100);
+    assert(model_aabbs[0].min_y == 200);
+    assert(model_aabbs[0].min_z == 300);
+    assert(model_aabbs[0].max_x == 100 + 10 * 0x1000);
     assert(model_aabbs[0].max_y == 200 + 10 * 0x1000);
+    assert(model_aabbs[0].max_z == 300);
     assert(query_model_faces(model_query, model_view, {0, 0, 0}, 9) == 1);
     assert(model_query.hit_body == 0x1234);
     assert(model_query.hit_face_record == 0x5000u + face_offset);

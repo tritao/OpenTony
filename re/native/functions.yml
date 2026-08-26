@@ -102,6 +102,25 @@ functions:
       - re/evidence/functions/collision.md
     notes: Geometry and nearest-hit arithmetic are tested; exact retail face filters remain open.
 
+  - address: 0x004638d0
+    name: M3D_CollisionCell
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/blockmap-collision.md
+    notes: >-
+      Native coverage reproduces the recovered signed-short basis layout,
+      model-face fixed-point AABB generation, and scene traversal boundary;
+      the PC heap linked-list loader and exact retail face filters remain
+      outside this adapter.
+
   - address: 0x00466090
     name: M3D_QueryZoneCollision
     slice: collision-query
