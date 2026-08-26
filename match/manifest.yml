@@ -3973,12 +3973,36 @@ modules:
 - id: text_004e78f6
   section: .text
   start_va: 5142774
-  end_va: 5143392
+  end_va: 5143248
   file_offset: 948470
-  size: 618
+  size: 474
   status: raw
   source: match/modules/text/text_004e78f6.asm
-  sha256: 8f3aacc79cd80741933e1829b76edaf3d544b6a218f5c12efda55f0cb313850d
+  sha256: 0c34f94aefe554591e9f1fcc1b5b826615665b1bf537ab0f03ebc90120b63d9a
+- id: text_004e7ad0
+  section: .text
+  start_va: 5143248
+  end_va: 5143380
+  file_offset: 948944
+  size: 132
+  status: cpp
+  source: match/modules/text/text_004e7ad0.asm
+  cpp_source: match/cpp/FUN_004e7ad0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 7eda0fd3c66f253f42c86772d6cad10ca76dd726544332473ef00a574b4b4a2c
+- id: text_004e7b54
+  section: .text
+  start_va: 5143380
+  end_va: 5143392
+  file_offset: 949076
+  size: 12
+  status: raw
+  source: match/modules/text/text_004e7b54.asm
+  sha256: ab16a4264a14a2fd326c262e20ab7a8d0e67bc1658371fe45c446f311cdb6dbd
 - id: text_004e7b60
   section: .text
   start_va: 5143392
@@ -3997,12 +4021,36 @@ modules:
 - id: text_004e7bb7
   section: .text
   start_va: 5143479
-  end_va: 5143632
+  end_va: 5143488
   file_offset: 949175
-  size: 153
+  size: 9
   status: raw
   source: match/modules/text/text_004e7bb7.asm
-  sha256: 440c3d9c7ce43e4ade680206eff52ce79795c86864dd593e76464d754748ad3d
+  sha256: f56642978961c41b24911838d549a9957c25a0dee0914c9230b5f17a3567418b
+- id: text_004e7bc0
+  section: .text
+  start_va: 5143488
+  end_va: 5143626
+  file_offset: 949184
+  size: 138
+  status: cpp
+  source: match/modules/text/text_004e7bc0.asm
+  cpp_source: match/cpp/FUN_004e7bc0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: f1aa5701c8c22e738db821b40b7f47b700edfa44e4f721da6af07b27ce11e736
+- id: text_004e7c4a
+  section: .text
+  start_va: 5143626
+  end_va: 5143632
+  file_offset: 949322
+  size: 6
+  status: raw
+  source: match/modules/text/text_004e7c4a.asm
+  sha256: ff35ffe14925642da6f3a258b35811e08101c03f8b5db346e5afcca448677564
 - id: text_004e7c50
   section: .text
   start_va: 5143632
