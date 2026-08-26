@@ -204,6 +204,51 @@ void check_synthetic_scene() {
     assert(decoded_flags.inverse_bit_23);
     assert(decoded_flags.inverse_bit_24);
 
+    // 0x00466090 is a caller-record wrapper, not a hit predicate: it
+    // publishes the static result and returns zero for both outcomes.
+    QueryRecord wrapper_hit;
+    wrapper_hit.start = {4096, 4096, 4096};
+    wrapper_hit.end = {4096, 4096, -4096};
+    reference::prepare(wrapper_hit, 0x0042);
+    assert(scene->execute_query_wrapper(wrapper_hit, 0) == 0);
+    assert(wrapper_hit.query_stamp == 0x0042);
+    assert(wrapper_hit.hit_body == 1);
+    assert(wrapper_hit.hit_model_index == 0);
+    assert(wrapper_hit.hit_position == expected_position);
+
+    QueryRecord wrapper_miss;
+    wrapper_miss.start = {500000, 500000, 500000};
+    wrapper_miss.end = {500000, 500000, 499000};
+    reference::prepare(wrapper_miss, 0x0043);
+    assert(scene->execute_query_wrapper(wrapper_miss, 0) == 0);
+    assert(wrapper_miss.query_stamp == 0x0043);
+    assert(wrapper_miss.hit_body == 0);
+    assert(wrapper_miss.hit_distance == reference::kUnhit);
+    assert(wrapper_miss.hit_parameter == reference::kUnhit);
+
+    PsxLinkedCollisionObject wrapper_linked;
+    wrapper_linked.body_id = 0xfeed1234;
+    wrapper_linked.flags = 0x0110;
+    wrapper_linked.position = {409600, 0, 409600};
+    wrapper_linked.model_index = 0;
+    const std::array<PsxLinkedCollisionObject, 1> wrapper_linked_span{
+        wrapper_linked};
+
+    QueryRecord mode_zero;
+    mode_zero.start = {409600, 4096, 409600};
+    mode_zero.end = {409600, -4096, 409600};
+    reference::prepare(mode_zero, 0x0044);
+    assert(scene->execute_query_wrapper(
+               mode_zero, 0, wrapper_linked_span) == 0);
+    assert(mode_zero.hit_body == 0);
+
+    QueryRecord mode_one = mode_zero;
+    reference::prepare(mode_one, 0x0045);
+    assert(scene->execute_query_wrapper(
+               mode_one, 1, wrapper_linked_span) == 0);
+    assert(mode_one.query_stamp == 0x0045);
+    assert(mode_one.hit_body == 0xfeed1234);
+
     const auto linked_source = scene->linked_collision_object_from_source(
         0, 6, 0x12345678, 0x0110);
     assert(linked_source.has_value());

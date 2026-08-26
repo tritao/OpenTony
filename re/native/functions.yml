@@ -102,18 +102,39 @@ functions:
       - re/evidence/functions/collision.md
     notes: Geometry and nearest-hit arithmetic are tested; exact retail face filters remain open.
 
+  - address: 0x004638d0
+    name: M3D_CollisionCell
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/blockmap-collision.md
+    notes: >-
+      Native coverage reproduces the recovered signed-short basis layout,
+      model-face fixed-point AABB generation, and scene traversal boundary;
+      the PC heap linked-list loader and exact retail face filters remain
+      outside this adapter.
+
   - address: 0x00466090
     name: M3D_QueryZoneCollision
     slice: collision-query
-    status: modeled
+    status: tested
     sources:
+      - src/collision/psx_scene.hpp
       - src/runtime/psx_collision_probe.cpp
       - src/assets/psx_collision.cpp
     tests:
+      - src/collision/psx_scene_test.cpp
       - src/runtime/psx_collision_probe_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: Portable query boundary exists, but the retail wrapper and complete zone policy are not integrated.
+    notes: Caller-prepared query records are populated through the native scene wrapper, which returns zero unconditionally like retail; mode-gated linked traversal and static blockmap behavior are covered, while unresolved retail zone ownership remains outside the native scene adapter.
 
   - address: 0x004b2450
     name: PSX_ParseEnvironment

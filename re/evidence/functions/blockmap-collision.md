@@ -119,6 +119,11 @@ maximum world-space X, Y, and Z values. A 20-entry working table at
 cache-base index for recently visited models; this is why repeated objects can
 reach the face test without rebuilding the bounds.
 
+The shared face-cache storage is bounded at 500 `0x1c`-byte records:
+`0x00463580` uses the literal `0x1f4` for its allocation/cursor checks, so the
+cache occupies `0x36b0` bytes from `DAT_005643b0` before the 16-byte gap to the
+model-cache base.
+
 The face test applies the query's fixed-point bounds/segment against the
 cached face AABB before reading the model vertices. It uses the face's normal
 and vertex indices for the oriented intersection test and, on a hit, writes

@@ -37,9 +37,7 @@ artifacts:
     - src/runtime/psx_collision_probe_test.cpp
 
 open_questions:
-  - Recover the SLineInfo short basis fields at offsets 0x48 through 0x58.
   - Establish the complete retail face-filtering and zone-selection policy.
-  - Determine the shared face-cache capacity without inventing an array bound.
 
 completion:
   - All scoped function boundaries and ABIs are evidence-backed.
