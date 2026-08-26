@@ -1,8 +1,8 @@
 # PC input initialization and binding load
 
-Status: observed
+Status: confirmed action-mask/action-state path and first action-dependent movement producer; downstream movement semantics remain partial
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`, `0x00469de0`
+Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`, `0x00469de0`, `0x00489930`, `0x00489a10`
 
 ## Observation
 
@@ -23,8 +23,8 @@ Addresses: `0x004e4690`, `0x004e4d10`, `0x004e4a90`, `0x004e42c0`, `0x004699f0`,
 
 ## Interpretation
 
-`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll, action-mask construction, complete movement mapping, and movement-record edge behavior are now identified. The next step is to follow the later player-state writer after the action-history copy.
+`PCInput_LoadBindings` is a verified naming anchor for configuration parsing. The per-loop poll, action-mask construction, complete movement mapping, movement-record edge behavior, and first action-dependent skater step are now identified. The records feed `0x00493370`, documented in [physics.md](physics.md); exact facing and acceleration semantics remain open.
 
 ## Open questions / falsifiers
 
-- Follow the movement consumer that reads these confirmed action-state transitions into acceleration and rotation state.
+- Correlate the target/steering writes at `0x00493370` with the later state-specific position handoff and acceleration updates.
