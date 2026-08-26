@@ -1,8 +1,11 @@
 #include "level_runtime.hpp"
 
+#include "../assets/resource_runtime.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <vector>
 
 namespace {
 
@@ -45,6 +48,14 @@ namespace {
     return nullptr;
 }
 
+[[nodiscard]] std::vector<std::byte> load_package_resource(
+    const opentony::assets::PkrArchive& package,
+    std::string_view name) {
+    opentony::assets::ResourceBackend backend(package);
+    opentony::assets::ResourceLoader loader(backend);
+    return loader.load_owned(name);
+}
+
 } // namespace
 
 namespace opentony::trg {
@@ -74,8 +85,9 @@ LevelRuntime::LevelRuntime(
     std::string_view psx_entry,
     const std::string& asset_root)
     : state_(),
-      runtime_(TrgFile::parse(package.decode(trg_entry)), state_),
-      archive_(assets::PsxArchive::parse(package.decode(psx_entry), std::string(psx_entry))),
+      runtime_(TrgFile::parse(load_package_resource(package, trg_entry)), state_),
+      archive_(assets::PsxArchive::parse(
+          load_package_resource(package, psx_entry), std::string(psx_entry))),
       scene_runtime_(assets::PsxRuntimeEnvironment::build(archive_)),
       collision_(assets::PsxCollisionWorld::build(archive_)),
       asset_root_(asset_root),

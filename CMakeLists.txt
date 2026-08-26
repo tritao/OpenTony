@@ -11,6 +11,7 @@ add_library(opentony_assets STATIC
     src/assets/pre_asset.cpp
     src/assets/pre_runtime.cpp
     src/assets/pkr_asset.cpp
+    src/assets/resource_runtime.cpp
     src/assets/custom_park_asset.cpp
     src/assets/custom_park_runtime.cpp
     src/assets/replay_asset.cpp
@@ -523,6 +524,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_pkr_asset_test PRIVATE cxx_std_20)
     target_compile_options(opentony_pkr_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_pkr_asset_test COMMAND opentony_pkr_asset_test)
+
+    add_executable(opentony_resource_runtime_test
+        src/assets/resource_runtime_test.cpp
+    )
+    target_link_libraries(opentony_resource_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_resource_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_resource_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_resource_runtime_test COMMAND opentony_resource_runtime_test)
 
     add_executable(opentony_custom_park_asset_test
         src/assets/custom_park_asset_test.cpp

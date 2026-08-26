@@ -563,3 +563,187 @@ functions:
     evidence:
       - re/evidence/functions/font-runtime.md
     notes: Native unload drops the value-owned parsed font and its modeled glyph/image allocation products from the matching slot; graphics resources remain backend-owned.
+
+  - address: 0x00449030
+    name: FileIO_OpenResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native loader preserves short-name PRE selection and direct/package fallback while returning an owned resource boundary; path normalization remains open.
+
+  - address: 0x004e75b0
+    name: FileIO_BackendOpen
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native backend allocates reusable abstract slots for direct file images or decoded PKR2 payloads without exposing platform handles.
+
+  - address: 0x004e79f0
+    name: FileIO_BackendSeek
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native seek preserves begin/current/end origins and rejects signed overflow or positions outside the owned resource.
+
+  - address: 0x004e7ad0
+    name: FileIO_BackendRead
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native read advances the abstract slot cursor and exposes partial-read versus exact-read failure explicitly.
+
+  - address: 0x004e7bc0
+    name: FileIO_BackendClose
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native close releases slot-owned bytes and permits lowest-free slot reuse; platform descriptor cleanup remains an adapter.
+
+  - address: 0x004e9940
+    name: PKR2_OpenResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+      - src/assets/pkr_asset.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+      - src/assets/pkr_asset_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native package mode resolves one validated PKR2 record and owns its decoded resource bytes through the common handle.
+
+  - address: 0x005013c8
+    name: ResourceStream_Open
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: ResourceStream owns the backend handle through move-safe RAII while leaving the observed 0x38-byte buffer fields as implementation details.
+
+  - address: 0x0050229f
+    name: PKR2_SeekResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Package-stream seek delegates to the same bounded cursor contract as the ordinary backend.
+
+  - address: 0x005022cb
+    name: ResourceStream_SeekState
+    slice: resource-stream-runtime
+    status: modeled
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native stream preserves observable cursor movement but intentionally leaves retail buffer-state flags and refill policy open.
+
+  - address: 0x00502358
+    name: PKR2_ReadResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Package-stream reads use the owned decoded entry and preserve partial-read and exact-read boundaries.
+
+  - address: 0x00502387
+    name: ResourceStream_ReadElements
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native element reads check count-size multiplication, destination extent, and full cursor advancement before handing bytes to parsers.
+
+  - address: 0x00500e7b
+    name: ResourceStream_Close
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Stream destruction/close releases its backend slot exactly once; destructor cleanup is no-throw while explicit backend close reports invalid handles.
+
+  - address: 0x00449230
+    name: FileIO_LoadResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native load copies PRE spans or reads backend handles into caller-owned storage and tears down the active operation on failure.
+
+  - address: 0x00449660
+    name: FileIO_SyncResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/assets/resource_runtime.hpp
+      - src/assets/resource_runtime.cpp
+    tests:
+      - src/assets/resource_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Native synchronization is an immediate completion adapter that closes the active handle before the owned bytes reach a format parser.

@@ -1,0 +1,50 @@
+version: 1
+id: resource-stream-runtime
+subsystem: asset-runtime
+status: active
+
+scope:
+  functions:
+    - 0x00449030
+    - 0x004e75b0
+    - 0x004e79f0
+    - 0x004e7ad0
+    - 0x004e7bc0
+    - 0x004e9940
+    - 0x005013c8
+    - 0x0050229f
+    - 0x005022cb
+    - 0x00502358
+    - 0x00502387
+    - 0x00500e7b
+    - 0x0046f490
+    - 0x00449230
+    - 0x00449660
+  types:
+    - RuntimeResourceStream
+    - RuntimePkrFileRecord
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/fileio-runtime.md
+  native:
+    - src/assets/resource_runtime.hpp
+    - src/assets/resource_runtime.cpp
+    - src/trg/level_runtime.cpp
+    - re/native/functions.yml
+  tests:
+    - src/assets/resource_runtime_test.cpp
+    - src/trg/level_runtime_test.cpp
+
+open_questions:
+  - Confirm the backend slot capacity and exact path normalization rules.
+  - Recover asynchronous spool error cleanup and the individual stream flag bits.
+  - Confirm the count-prefix allocation header used by the platform allocator.
+
+completion:
+  - Direct and PKR-backed resource handles expose bounded seek/read/close lifetime.
+  - PRE short-name lookup and package/file fallback share one caller-owned load buffer.
+  - Stream element reads preserve checked multiplication and cursor advancement.
+  - Loaded bytes reach PSX and FNT parsers without retaining backend or PRE storage.
+  - Platform file handles, allocator internals, and asynchronous scheduling remain explicit adapters.
