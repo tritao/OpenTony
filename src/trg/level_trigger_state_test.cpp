@@ -371,6 +371,15 @@ void test_objectives_and_timers() {
     assert(state.object(13)->spawn_family == TriggerSpawnFamily::Object192);
     assert(state.object(13)->flags == 0x0111);
 
+    const std::array<std::byte, 4> constructor_bytes{
+        std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
+    state.on_spawn_node(13, 1, 0x0192, {0, 0, 0}, constructor_bytes);
+    assert(state.object(13)->factory_node_bytes
+        == std::vector<std::byte>(constructor_bytes.begin(), constructor_bytes.end()));
+    state.on_spawn_factory_cursor(13, 30);
+    assert(state.object(13)->has_factory_cursor_offset);
+    assert(state.object(13)->factory_cursor_offset == 30);
+
     state.set_career_flag(3);
     state.mark_goal_complete(5);
     assert(state.career_flag(3));

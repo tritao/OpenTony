@@ -224,6 +224,11 @@ inline constexpr std::size_t kCandidateCellSourceTerminatorBytes = 0x04;
 inline constexpr std::size_t kLinkedCollisionObjectElementStride = 0x4c;
 inline constexpr std::size_t kLinkedCollisionObjectArrayHeaderBytes = 0x04;
 
+// The transform helper tests byte +0x05 with immediate 0x02. Since flags is
+// a little-endian uint16 at +0x04, this is word bit 0x0200 (not 0x0400).
+// The latter is written by unrelated object-appearance setters.
+inline constexpr std::uint16_t kLinkedObjectMatrixTransformFlag = 0x0200u;
+
 #pragma pack(push, 1)
 struct CollisionCandidateCellSourceHeader {
     std::uint32_t unknown_00 = 0;
@@ -621,13 +626,32 @@ struct CollisionBounds {
     RawVec3 max{};
 };
 
+inline constexpr std::array<std::int16_t, 3> identity_q12_scale() {
+    return {0x1000, 0x1000, 0x1000};
+}
+
+inline Raw scale_q12_trunc(Raw value, std::int16_t scale_q12) {
+    // The linked broad phase uses x87 fild/fimul/fmul followed by the game's
+    // truncate-toward-zero conversion helper, unlike 0x004f5540's integer
+    // SAR-12 matrix helper.
+    const auto scaled = static_cast<std::int64_t>(value) * scale_q12 / 0x1000;
+    if (scaled < std::numeric_limits<Raw>::min()) {
+        return std::numeric_limits<Raw>::min();
+    }
+    if (scaled > std::numeric_limits<Raw>::max()) {
+        return std::numeric_limits<Raw>::max();
+    }
+    return static_cast<Raw>(scaled);
+}
+
 // 0x004f4130 expands a model's local bounds by two units and optionally
 // reflects each axis around the query endpoint sum.  The reflection mask is
 // produced by 0x004f4050 when the query endpoints are ordered oppositely.
 inline CollisionBounds build_object_bounds(
     const CollisionModelHeader& model, const RawVec3& query_start,
     const RawVec3& query_end, const RawVec3& object_offset,
-    std::uint8_t reflection_mask = 0) {
+    std::uint8_t reflection_mask = 0,
+    const std::array<std::int16_t, 3>& scale_q12 = identity_q12_scale()) {
     CollisionBounds result;
     const std::array<Raw, 3> model_min{
         model.x_min, model.y_min, model.z_min};
@@ -646,6 +670,8 @@ inline CollisionBounds build_object_bounds(
             result.min[axis] = wrapping_sub(endpoint_sum, old_max);
             result.max[axis] = wrapping_sub(endpoint_sum, old_min);
         }
+        result.min[axis] = scale_q12_trunc(result.min[axis], scale_q12[axis]);
+        result.max[axis] = scale_q12_trunc(result.max[axis], scale_q12[axis]);
     }
     return result;
 }
@@ -855,7 +881,7 @@ inline CandidateHeadArrayRead visit_candidate_head_array(
 #pragma pack(push, 1)
 struct LinkedCollisionObjectLayout {
     std::uint32_t unknown_00 = 0;
-    std::uint16_t flags = 0;          // +0x04; byte +0x05 has a cull bit
+    std::uint16_t flags = 0;          // +0x04; high-byte bit 0x02 selects matrix scaling
     std::uint16_t query_stamp = 0;    // +0x06
     Raw position[3]{};                // +0x08, fixed-point
     std::int16_t angles[3]{};         // +0x14, x/y/z angle units
@@ -876,17 +902,22 @@ static_assert(offsetof(LinkedCollisionObjectLayout, model_kind) == 0x1f);
 static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
 
 // Exact flag gate at 0x004f43e0 before the object-space broad phase. The
-// low byte must not contain bit 0x20, the high byte must not contain bit
-// 0x02 (full-word mask 0x400), and the low-byte pair 0x41 must not both be
-// set. Objects failing this gate are stamped as tested and never reach the
-// transformed-face routine at 0x00463e50.
+// low byte must not contain bit 0x20, and the low-byte pair 0x41 must not
+// both be set. The high byte is ignored by this admission test. Objects
+// failing this gate are stamped as tested and never reach the transformed-
+// face routine at 0x00463e50. The separate 0x0200 matrix-transform bit is
+// consumed later by 0x00463e50 and is intentionally not part of this gate.
 inline constexpr bool linked_object_flag_gate(std::uint16_t flags) {
     const auto low = static_cast<std::uint8_t>(flags);
-    return (static_cast<std::uint16_t>(flags) & 0x0400u) == 0 &&
-           (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
+    return (low & 0x20u) == 0 && (low & 0x41u) != 0x41u;
 }
 
-// The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
+inline constexpr bool linked_object_uses_matrix_transform(
+    std::uint16_t flags) {
+    return (flags & kLinkedObjectMatrixTransformFlag) != 0;
+}
+
+// The list insertion/removal primitive at 0x004801d0/0x004801f0 writes
 // the reciprocal link at +0x34.  The bytes between the collision prefix and
 // that link are not recovered, so this is a partial link view rather than a
 // claim about the complete object type or allocation size.
@@ -906,15 +937,17 @@ static_assert(offsetof(LinkedCollisionObjectListLinksLayout, previous) == 0x34);
 // The level-building path around 0x0043d88e allocates
 // `element_count * 0x4c + 4`, stores the count in the leading word, and
 // constructs elements beginning at allocation+4.  Its copy loop advances by
-// 0x4c and writes through +0x4a.  The collision fields in the first 0x24
-// bytes are the same fields used by the query; the remaining values are
-// intentionally opaque until their consumers are identified.
+// 0x4c and writes through +0x4a. The collision fields in the first 0x24
+// bytes are the same fields used by the query. The matrix-scale words at
+// +0x28/+0x2a/+0x2c are consumed as signed Q12 factors when the +0x05 bit
+// 0x02 transform flag is set; the remaining values are opaque.
 #pragma pack(push, 1)
 struct LinkedCollisionObjectElementLayout {
     LinkedCollisionObjectLayout collision{};  // +0x00..+0x23
     std::uint32_t unknown_24 = 0;              // +0x24
-    std::uint32_t unknown_28 = 0;              // +0x28
-    std::uint16_t unknown_2c = 0;              // +0x2c
+    std::int16_t matrix_scale_x_q12 = 0x1000; // +0x28
+    std::int16_t matrix_scale_y_q12 = 0x1000; // +0x2a
+    std::int16_t matrix_scale_z_q12 = 0x1000; // +0x2c
     std::uint8_t unknown_2e[2]{};              // +0x2e
     std::uint32_t unknown_30 = 0;              // +0x30
     std::uint32_t previous = 0;                // +0x34
@@ -932,6 +965,12 @@ struct LinkedCollisionObjectElementLayout {
 static_assert(sizeof(LinkedCollisionObjectElementLayout) ==
               kLinkedCollisionObjectElementStride);
 static_assert(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_x_q12) == 0x28);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_y_q12) == 0x2a);
+static_assert(offsetof(LinkedCollisionObjectElementLayout,
+                       matrix_scale_z_q12) == 0x2c);
 static_assert(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
 
 struct LinkedCollisionObjectListLinks {
@@ -1231,12 +1270,15 @@ inline std::optional<DynamicFaceCandidate> dynamic_face_candidate(
 
     // 0x004f4c50 runs 0x004e24b0 followed by 0x004e2930. The latter has
     // only its first column populated here, so its three outputs reduce to
-    // dot(v0, transformed_normal), 0, and (line_length + 2) * normal.z.
+    // dot(first_vertex, transformed_normal), 0, and
+    // (line_length + 2) * normal.z. For the alternate quad winding the
+    // first vertex is v3, as selected by 0x004e2f80.
     const auto query_normal = transform_normal_q12(query_basis, model_normal);
+    const auto& first_vertex = projected.first_vertex == 3 ? vertex3 : vertex0;
     const Raw dot = wrapping_from_i64(
-        static_cast<std::int64_t>(vertex0.x) * query_normal[0] +
-        static_cast<std::int64_t>(vertex0.y) * query_normal[1] +
-        static_cast<std::int64_t>(vertex0.z) * query_normal[2]);
+        static_cast<std::int64_t>(first_vertex.x) * query_normal[0] +
+        static_cast<std::int64_t>(first_vertex.y) * query_normal[1] +
+        static_cast<std::int64_t>(first_vertex.z) * query_normal[2]);
     const auto line_limit = static_cast<std::int16_t>(static_cast<std::uint16_t>(
         static_cast<std::uint32_t>(wrapping_add(line_length, 2))));
     const Raw lower_bound = wrapping_from_i64(
@@ -1282,8 +1324,9 @@ inline std::optional<RawVec3> dynamic_contact_at_distance(
     }
     // The dynamic fallback first computes (distance << 12) / line_length,
     // then multiplies that parameter by each endpoint delta after SAR 12.
+    constexpr Raw kCoordinateScale = 0x1000;
     const auto shifted_distance = wrapping_from_i64(
-        static_cast<std::int64_t>(query.hit_distance) * kParameterScale);
+        static_cast<std::int64_t>(query.hit_distance) * kCoordinateScale);
     const auto parameter = trunc_div_checked(
         static_cast<std::int64_t>(shifted_distance), query.line_length);
     if (!parameter) {
@@ -1309,7 +1352,8 @@ inline Raw q12_transform_component_raw(const std::array<std::int16_t, 9>& basis,
     const auto sum = static_cast<std::int64_t>(basis[offset]) * x +
                      static_cast<std::int64_t>(basis[offset + 1]) * y +
                      static_cast<std::int64_t>(basis[offset + 2]) * z;
-    return wrapping_from_i64(sum >> 12u);
+    // x86 accumulates in 32-bit registers before SAR 12.
+    return arithmetic_shift_right_12(wrapping_from_i64(sum));
 }
 
 // Reference reconstruction of 0x004f4b00.  model_origin_units is the
@@ -1463,16 +1507,29 @@ inline std::int16_t q12_matrix_component(std::int16_t a,
     return clamp_to_s16(arithmetic_shift_right_12(wrapping_from_i64(sum)));
 }
 
+inline std::int16_t object_angle_trig_q12(std::int16_t angle, bool sine) {
+    // 0x004e7c60/0x004e7de0/0x004e7f60 load these as a float 1/4096 and a
+    // float 2*pi, in that order, before executing the x87 fcos/fsin. The
+    // result is multiplied by the double 4096.0 and converted with the
+    // game's truncate-toward-zero helper. Keep the constants and operation
+    // order distinct from an idealized double-precision 2*pi so angle-unit
+    // edge cases follow the PC executable more closely.
+    constexpr float kAngleUnit = 0.000244140625f;       // 0x518910
+    constexpr float kFullTurn = 6.283185482025146484375f;  // 0x519a08
+    const long double radians = static_cast<long double>(angle) *
+                                static_cast<long double>(kAngleUnit);
+    const long double scaled = radians * static_cast<long double>(kFullTurn);
+    const long double value = (sine ? std::sin(scaled) : std::cos(scaled)) *
+                              4096.0L;
+    return static_cast<std::int16_t>(static_cast<Raw>(value));
+}
+
 inline std::int16_t object_angle_cos_q12(std::int16_t angle) {
-    constexpr double kFullTurn = 6.283185307179586476925286766559;
-    return static_cast<std::int16_t>(static_cast<Raw>(
-        std::cos(static_cast<double>(angle) * kFullTurn / 4096.0) * 4096.0));
+    return object_angle_trig_q12(angle, false);
 }
 
 inline std::int16_t object_angle_sin_q12(std::int16_t angle) {
-    constexpr double kFullTurn = 6.283185307179586476925286766559;
-    return static_cast<std::int16_t>(static_cast<Raw>(
-        std::sin(static_cast<double>(angle) * kFullTurn / 4096.0) * 4096.0));
+    return object_angle_trig_q12(angle, true);
 }
 
 inline std::array<std::int16_t, 9> compose_q12_basis(
@@ -1516,9 +1573,10 @@ inline std::array<std::int16_t, 9> build_object_rotation_basis(
 
 inline std::array<std::int16_t, 9> transpose_q12_basis(
     const std::array<std::int16_t, 9>& basis) {
-    // 0x004f53e0 transposes the 0x004e80e0 object matrix before it is used to
-    // transform dynamic model vertices. The normal finalizer consumes the
-    // untransposed matrix, so expose both forms explicitly.
+    // 0x004f53e0 is a reusable matrix-copy transpose helper. The linked
+    // collision path itself then composes the prepared query basis with the
+    // object matrix through 0x004f5780; retain this helper for callers that
+    // need to model the other direct users of 0x004f53e0.
     return {
         basis[0], basis[3], basis[6],
         basis[1], basis[4], basis[7],
@@ -1530,6 +1588,21 @@ inline constexpr std::array<std::int16_t, 9> identity_q12_basis() {
     return {0x1000, 0, 0,
             0, 0x1000, 0,
             0, 0, 0x1000};
+}
+
+inline std::array<std::int16_t, 9> scale_q12_basis_columns(
+    const std::array<std::int16_t, 9>& basis,
+    const std::array<std::int16_t, 3>& scale_q12) {
+    std::array<std::int16_t, 9> result{};
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t column = 0; column < 3; ++column) {
+            const auto product = static_cast<std::int64_t>(
+                basis[row * 3 + column]) * scale_q12[column];
+            result[row * 3 + column] = clamp_to_s16(
+                arithmetic_shift_right_12(wrapping_from_i64(product)));
+        }
+    }
+    return result;
 }
 
 struct DynamicObjectTransform {
@@ -1547,7 +1620,9 @@ inline DynamicObjectTransform build_dynamic_object_transform(
     const QueryRecord& query,
     const RawVec3& object_position_raw,
     const std::array<std::int16_t, 3>& object_angles,
-    bool force_oriented_path = false) {
+    bool force_oriented_path = false,
+    const std::array<std::int16_t, 3>& matrix_scale_q12 =
+        identity_q12_scale()) {
     DynamicObjectTransform result;
     RawVec3 displacement{};
     for (std::size_t axis = 0; axis < displacement.size(); ++axis) {
@@ -1563,10 +1638,19 @@ inline DynamicObjectTransform build_dynamic_object_transform(
         return result;
     }
 
-    result.vertex_basis = transpose_q12_basis(
-        build_object_rotation_basis(object_angles));
-    result.normal_basis = result.vertex_basis;
-    result.final_basis = build_object_rotation_basis(object_angles);
+    const auto object_basis = build_object_rotation_basis(object_angles);
+    const auto scaled_object_basis = scale_q12_basis_columns(
+        object_basis, matrix_scale_q12);
+    // 0x004f5780 multiplies the temporary object matrix on the left by the
+    // prepared query basis. The resulting C*(R*S) matrix is used both for
+    // vertex projection and for the candidate normal in 0x004f4c50. The
+    // post-query normal finalizer instead rebuilds R from the object angles;
+    // it does not include the query basis or the collision scale tail.
+    const auto composed_basis = compose_q12_basis(
+        query.line_basis, scaled_object_basis);
+    result.vertex_basis = composed_basis;
+    result.normal_basis = composed_basis;
+    result.final_basis = object_basis;
     if (query.direction_flag != 0) {
         // This is the explicit special-case permutation in 0x00463e50 for a
         // downward/vertical query. It is equivalent to the prepared vertical
@@ -1895,8 +1979,15 @@ struct CollisionFaceFilter {
     std::uint32_t reject_mask = 0;       // DAT_00567a60
     std::uint32_t required_bits = 0xffffffffu;  // DAT_00567a68
     bool query_mask_mode = false;        // q+0x88
+    // The retail query always evaluates these predicates. Native callers
+    // that are comparing against an unfiltered geometry pass can disable the
+    // policy while retaining the same candidate/plane arithmetic.
+    bool apply_retail_face_filter = true;
 
     bool accepts(std::uint32_t surface_word) const {
+        if (!apply_retail_face_filter) {
+            return true;
+        }
         return (surface_word & reject_mask) == 0 &&
                (surface_word | required_bits) == 0xffffffffu &&
                ((surface_word ^ 0x10000u) & 0x30000u) != 0 &&

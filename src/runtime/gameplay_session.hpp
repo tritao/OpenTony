@@ -48,6 +48,10 @@ struct GameplaySessionConfig {
     std::array<std::uint8_t, 5> tricks_mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
     assets::PsxCollisionQueryOptions collision_query_options{};
+    // Use the recovered fixed-point PsxScene query at the physics boundary.
+    // Leave this opt-in until frame-by-frame parity against the legacy asset
+    // wrapper is measured.
+    bool use_recovered_collision_scene{false};
     bool apply_collision_response_bias{false};
     std::int32_t collision_response_bias_q12{0xcd};
 };
@@ -117,6 +121,16 @@ public:
     void pulse_node(std::size_t node);
     void pulse_checksum(std::uint32_t checksum);
 
+    // Supplies caller-owned recovered linked-list records for the dynamic
+    // collision branch. The model index/body identity remain explicit because
+    // the PC heap loader and model-kind table are not reconstructed here.
+    void set_recovered_linked_collision_objects(
+        std::vector<collision::PsxLinkedCollisionObject> objects);
+    [[nodiscard]] const std::vector<collision::PsxLinkedCollisionObject>&
+    recovered_linked_collision_objects() const noexcept {
+        return recovered_linked_collision_objects_;
+    }
+
     [[nodiscard]] FixedStepAdvanceResult advance(
         std::uint32_t elapsed_ms,
         const DirectInputKeyboardState& keyboard,
@@ -167,6 +181,9 @@ private:
     PlayerState player_;
     GameplayFrame gameplay_;
     GameplaySessionConfig config_;
+    std::optional<collision::PsxScene> collision_scene_;
+    std::vector<collision::PsxLinkedCollisionObject>
+        recovered_linked_collision_objects_;
     std::optional<assets::TricksBinArchive> tricks_archive_;
     std::optional<assets::TricksBinView> tricks_view_;
     std::vector<std::uint8_t> tricks_sequence_table_{};

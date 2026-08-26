@@ -386,6 +386,8 @@ functions:
       - re/evidence/functions/collision-query.md
   - address: 0x0048ea80
     name: M3D_ReadSurfaceFlags
+    gdb_aliases:
+      - Collision_ConsumeHitFlags
     signature:
       calling_convention: cdecl
       return: void
@@ -3031,6 +3033,22 @@ functions:
   - address: 0x004f4c50
     name: Collision_TestLinkedModelFaces
     description: projected face test and nearest dynamic hit update
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x004f5540
+    name: Collision_ScaleLinkedObjectMatrix
+    description: apply linked-object Q12 scale factors to a 3x3 matrix
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x00420fa0
+    name: Collision_InitModelCacheSlot
+    signature:
+      calling_convention: thiscall
+      return: void
+      parameters: []
+    description: initialize one object-selected 0x44-byte model/cache slot
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md

@@ -73,6 +73,10 @@ public:
     // available instead of folding it into a guessed gameplay meaning.
     [[nodiscard]] std::uint16_t node_trigger_flags(std::size_t index) const;
     [[nodiscard]] std::array<std::uint16_t, 3> node_orientation(std::size_t index) const;
+    // The type-1/type-5/type-7 constructors store the cursor returned after
+    // their three position words and three u16 parameters. This is the
+    // absolute file offset corresponding to retail object +0x17c.
+    [[nodiscard]] std::uint32_t node_factory_cursor_offset(std::size_t index) const;
 
     // The retail loader uses this conditional 2-byte alignment for type-6
     // command-point payloads. The result is an offset within the file.
@@ -164,6 +168,9 @@ public:
         std::size_t,
         std::uint16_t,
         std::span<const std::uint8_t>) {}
+    // Offset is relative to the source node bytes, because the native state
+    // retains that byte span rather than a raw retail heap pointer.
+    virtual void on_spawn_factory_cursor(std::size_t, std::uint32_t) {}
     virtual void on_spawn_orientation(std::size_t, std::array<std::uint16_t, 3>) {}
     virtual void on_special_node(
         std::size_t,

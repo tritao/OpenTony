@@ -21,27 +21,39 @@ from .camera import (
 from .collision import (
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
+    CollisionDynamicTransformProbe,
     CollisionFlagProbe,
     CollisionLoaderProbe,
+    CollisionModelKindProbe,
     CollisionQueryProbe,
 )
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
 from .physics import (
+    GROUND_MOTION_CONTROL_WRITERS,
+    GROUND_MOTION_CORRECTION_WRITERS,
+    GROUND_MOTION_PROFILE_WRITERS,
+    GROUND_MOTION_RANDOM_SITES,
+    OLLIE_LATCH_WRITERS,
     AirCollisionQueryProbe,
+    GroundMotionControlWriterProbe,
+    GroundMotionProducerProbe,
+    GroundMotionProfileWriterProbe,
+    GroundMotionRandomProbe,
     InAirHandlerProbe,
     MovementPhysicsProbe,
+    OllieLatchProbe,
     PhysicsProbe,
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
-    OllieLatchProbe,
-    OLLIE_LATCH_WRITERS,
     PlayerDiffProbe,
 )
+from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
+from .trg import Type192CommandProbe
 from .watchpoint import watchpoints
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
@@ -1342,6 +1354,95 @@ class TonyMovementPhysicsProbe(gdb.Command):
         _write(f"movement physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyGroundMotionProbe(gdb.Command):
+    """tony-ground-motion-probe [COUNT] -- log B010 producer inputs."""
+
+    def __init__(self):
+        super().__init__("tony-ground-motion-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-ground-motion-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-ground-motion-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = GroundMotionProducerProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"ground-motion producer probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyGroundMotionWriters(gdb.Command):
+    """tony-ground-motion-writers [COUNT] [--correction] [--control]."""
+
+    def __init__(self):
+        super().__init__("tony-ground-motion-writers", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(
+            arg,
+            "tony-ground-motion-writers [COUNT] [--correction] [--control]",
+        ) if arg.strip() else []
+        flags = {value for value in values if value.startswith("--")}
+        if not flags.issubset({"--correction", "--control"}):
+            raise gdb.GdbError("usage: tony-ground-motion-writers [COUNT] [--correction] [--control]")
+        counts = [value for value in values if not value.startswith("--")]
+        if len(counts) > 1:
+            raise gdb.GdbError("usage: tony-ground-motion-writers [COUNT] [--correction] [--control]")
+        count = _integer(counts[0]) if counts else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        selected = flags or {"--correction", "--control"}
+        armed = []
+        if "--correction" in selected:
+            for address, spec in GROUND_MOTION_CORRECTION_WRITERS.items():
+                probe = GroundMotionCorrectionWriterProbe(
+                    address, spec, count=count, writer=_trace_writer)
+                _runtime_breakpoints.append(probe)
+                armed.append(address)
+        if "--control" in selected:
+            for address, spec in GROUND_MOTION_CONTROL_WRITERS.items():
+                probe = GroundMotionControlWriterProbe(
+                    address, spec, count=count, writer=_trace_writer)
+                _runtime_breakpoints.append(probe)
+                armed.append(address)
+            for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
+                probe = GroundMotionRandomProbe(
+                    address, purpose, count=count, writer=_trace_writer)
+                _runtime_breakpoints.append(probe)
+                armed.append(address)
+        limit = "until disabled" if count is None else f"for {count} hits per writer"
+        groups = ", ".join(sorted(flag[2:] for flag in selected))
+        _write(
+            f"ground-motion {groups} writer probes armed {limit}: "
+            + ", ".join(f"0x{address:08x}" for address in armed)
+        )
+
+
+class TonyGroundMotionProfileProbe(gdb.Command):
+    """tony-ground-motion-profile-probe [COUNT] -- trace B010 profile sources."""
+
+    def __init__(self):
+        super().__init__("tony-ground-motion-profile-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-ground-motion-profile-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-ground-motion-profile-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, spec in GROUND_MOTION_PROFILE_WRITERS.items():
+            probe = GroundMotionProfileWriterProbe(
+                address, spec, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per writer"
+        addresses = ", ".join(
+            f"0x{address:08x}" for address in GROUND_MOTION_PROFILE_WRITERS)
+        _write(f"ground-motion profile writer probes armed {limit}: {addresses}")
+
+
 class TonyInAirProbe(gdb.Command):
     """tony-in-air-probe [COUNT] -- log candidate in-air handler entries."""
 
@@ -1604,6 +1705,26 @@ class TonyCollisionLoaderProbe(gdb.Command):
         _write(f"collision loader probe armed for {count} completed calls")
 
 
+class TonyCollisionModelKindProbe(gdb.Command):
+    """tony-collision-model-kind-probe [COUNT] -- log model/cache setup."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-collision-model-kind-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-model-kind-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-model-kind-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionModelKindProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision model-kind probe armed for {count} completed calls")
+
+
 class TonyCollisionFlagsProbe(gdb.Command):
     """tony-collision-flags-probe [COUNT] -- log face flag decoding."""
 
@@ -1664,6 +1785,46 @@ class TonyCollisionDynamicCullProbe(gdb.Command):
         _write(f"collision dynamic cull probe armed for {count} completed calls")
 
 
+class TonyCollisionDynamicTransformProbe(gdb.Command):
+    """tony-collision-transform-probe [COUNT] -- log the 0x0200 matrix tail."""
+
+    DEFAULT_COUNT = 16
+
+    def __init__(self):
+        super().__init__("tony-collision-transform-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-transform-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-transform-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicTransformProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision transform probe armed for {count} completed calls")
+
+
+class TonyType192CommandProbe(gdb.Command):
+    """tony-trg-type192-probe [COUNT] -- trace type-192 command effects."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-trg-type192-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-trg-type192-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-trg-type192-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = Type192CommandProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"TRG type-192 command probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -1707,6 +1868,9 @@ def register_commands() -> None:
     TonyCameraEffectsProbe()
     TonyViewProjectionProbe()
     TonyMovementPhysicsProbe()
+    TonyGroundMotionProbe()
+    TonyGroundMotionWriters()
+    TonyGroundMotionProfileProbe()
     TonyInAirProbe()
     TonyAirCollisionProbe()
     TonyPhysicsStateRequestProbe()
@@ -1720,9 +1884,12 @@ def register_commands() -> None:
     TonyPositionCommitProbe()
     TonyCollisionProbe()
     TonyCollisionLoaderProbe()
+    TonyCollisionModelKindProbe()
     TonyCollisionFlagsProbe()
     TonyCollisionDynamicProbe()
     TonyCollisionDynamicCullProbe()
+    TonyCollisionDynamicTransformProbe()
+    TonyType192CommandProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -1739,10 +1906,14 @@ def register_commands() -> None:
         "tony-player-diff, tony-position-commit, "
         "tony-collision-probe, "
         "tony-movement-physics-probe, "
+        "tony-ground-motion-probe, tony-ground-motion-writers, "
+        "tony-ground-motion-profile-probe, "
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
         "tony-physics-state-writers, "
         "tony-ollie-latch-probe, "
         "tony-player-diff, tony-position-commit, "
-        "tony-collision-loader-probe, tony-collision-flags-probe, "
-        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe"
+        "tony-collision-loader-probe, tony-collision-model-kind-probe, "
+        "tony-collision-flags-probe, "
+        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
+        "tony-collision-transform-probe, tony-trg-type192-probe"
     )

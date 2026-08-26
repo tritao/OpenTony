@@ -89,8 +89,18 @@ The next 15 linked records were contiguous at a 0x4c-byte stride and carried
 model indices 172 through 186, all with model kind 6. The level-building path
 also computes `count*0x4c + 4`, stores the count in the leading word, and
 writes each element through `+0x4a`. The runtime and static evidence therefore
-identify the full element stride and count-prefixed array shape, while the
+identify the full element stride and count-prefixed array shape. The
+constructor initializes the scale words at `+0x28/+0x2a/+0x2c` to Q12
+identity (`0x1000`), and the loader copies them field-for-field; the remaining
 tail field meanings remain open.
+
+The follow-up three-call `collision-cull-scale1` Hangar capture sampled the
+same linked-root path at `0x004f43e0`/`0x0046297e`. Every readable sampled node
+had `matrix_scale_q12 = [4096, 4096, 4096]`; the observed flags were `0x110`
+and `0x111`, and all three cull returns reported zero face-test survivors.
+This is negative evidence for a non-identity transform in the normal Hangar
+object set, but it confirms that the newly exposed tail reads are valid on the
+live 0x4c-byte records.
 
 The query result independently reported model index 171/kind 6. The same
 record resolved through the live kind-6 table at `0x05da6d18` to model data
@@ -108,6 +118,19 @@ q+0x68 linked node
 The heap addresses are allocation-specific. The stable result is the field
 layout and the agreement between the node, model table, face geometry and
 query result.
+
+The controlled `collision-dynamic-positive5` run supplied that model-171
+origin to the first live linked node for one query, then restored the node
+prefix before rendering resumed. The node survived `0x004f43e0`, and the
+dynamic path produced a positive result through `0x00463e50`,
+`0x004f4b00`, and `0x004f4c50`: body `0x05f26c84`, face `0x05db87e4`, model
+171, traveled distance 29, and contact `[-4100096, -8710784, 11472896]`.
+The dynamic path left `q+0x8c` at its sentinel and derived contact from
+`q+0x40`, unlike the static path's `0x4000` parameter. This is the positive
+runtime linkage from a live linked node through transformed model vertices and
+faces to a hit result. The native replay resolves that dynamic candidate as
+model face 5, with final normal `[1, -4093, -160]` and surface/normal word
+`0x00100028`.
 
 Static loader ownership is now partly separated as well. `0x004667e0`, called
 from `0x0043e03c` and `0x004b29e6` and carrying `m3dzone.cpp` diagnostics,

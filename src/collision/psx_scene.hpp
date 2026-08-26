@@ -56,8 +56,35 @@ struct PsxModel {
 struct PsxObject {
     std::uint32_t flags = 0;
     RawVec3 position{};
+    // The PSX loader copies disk +0x10 low/high halves and disk +0x14 into
+    // runtime object +0x14/+0x16/+0x18.  Collision treats those words as
+    // signed rotation components, although their original asset names are
+    // not recovered yet.
+    std::array<std::int16_t, 3> collision_angles{};
     std::uint16_t model_index = 0;
     std::size_t source_index = 0;
+};
+
+// Collision-facing view of the heap node walked by 0x004628f0.  This is
+// intentionally separate from PsxObject: the PC node is a live linked-list
+// element with a 0x24-byte collision prefix, while the PSX scene object table
+// has a different on-disk record and no recovered angle fields.
+struct PsxLinkedCollisionObject {
+    std::uint32_t body_id = 0;
+    // Stable source-side identity when this node came from the parsed PSX
+    // object table. This is separate from the caller-owned span index used
+    // by PsxCollisionResult::object_index and from the retail heap pointer
+    // carried in q+0x68.
+    std::size_t source_object_index = std::numeric_limits<std::size_t>::max();
+    std::uint16_t flags = 0;
+    RawVec3 position{};
+    std::array<std::int16_t, 3> angles{};
+    std::uint16_t model_index = 0;  // caller-resolved scene model index
+    std::uint8_t model_kind = 0;    // original type-table selector, retained as metadata
+    // +0x28/+0x2a/+0x2c in the PC 0x4c-byte element. These are signed Q12
+    // column factors consumed by 0x004f5540 when flags has 0x0200.
+    std::array<std::int16_t, 3> matrix_scale_q12 =
+        reference::identity_q12_scale();
 };
 
 struct PsxBlockmapCell {
@@ -79,12 +106,28 @@ struct PsxBlockmap {
 struct PsxCollisionResult {
     QueryRecord query{};
     std::size_t object_index = std::numeric_limits<std::size_t>::max();
+    // Set for a dynamic hit when the linked node carries parsed-PSX
+    // provenance. Static hits continue to use object_index as their scene
+    // object identity.
+    std::size_t source_object_index = std::numeric_limits<std::size_t>::max();
     std::size_t face_index = std::numeric_limits<std::size_t>::max();
     std::uint16_t base_flags = 0;
     std::uint16_t surface_flags = 0;
     std::uint32_t surface_word = 0;
+    // The dynamic face walker treats surface bit 0x20000 as a query-mask
+    // sideband: with q+0x88 set it stores body+0x1a in DAT_00567a64 and does
+    // not publish a physical q+0x68 hit. Preserve that observable result
+    // without pretending the executable's global is part of QueryRecord.
+    std::optional<std::uint16_t> query_mask_model_index;
 
     bool hit() const { return query.hit_body != 0; }
+
+    // Keep the executable's raw face words authoritative while exposing the
+    // currently evidence-backed bit view for callers that need to classify a
+    // ground/wall result. The names in FaceFlagView remain provisional.
+    reference::FaceFlagView decoded_flags() const {
+        return reference::decode_face_flags(base_flags, surface_word);
+    }
 };
 
 struct PsxDynamicModelVertices {
@@ -112,7 +155,8 @@ public:
         const auto marker = reader.u16("marker");
         const auto tag_offset = reader.u32("tag offset");
         const auto object_count = reader.u32("object count");
-        if (!version || !marker || !tag_offset || !object_count) {
+        if (!version.has_value() || !marker.has_value() ||
+            !tag_offset.has_value() || !object_count.has_value()) {
             return std::nullopt;
         }
         if (*version != 4 || *marker != 2) {
@@ -142,20 +186,26 @@ public:
             const auto unknown_y = reader.i16("object unknown y");
             const auto unknown_3 = reader.u32("object unknown 3");
             const auto unknown_rgbx = reader.u32("object unknown rgbx");
-            if (!flags || !x || !y || !z || !unknown_1 || !unknown_2 ||
-                !model_index || !unknown_x || !unknown_y || !unknown_3 ||
-                !unknown_rgbx) {
+            if (!flags.has_value() || !x.has_value() || !y.has_value() ||
+                !z.has_value() || !unknown_1.has_value() ||
+                !unknown_2.has_value() || !model_index.has_value() ||
+                !unknown_x.has_value() || !unknown_y.has_value() ||
+                !unknown_3.has_value() || !unknown_rgbx.has_value()) {
                 return std::nullopt;
             }
             object.flags = *flags;
             object.position = {*x, *y, *z};
+            object.collision_angles = {
+                static_cast<std::int16_t>(*unknown_1 & 0xffffu),
+                static_cast<std::int16_t>((*unknown_1 >> 16u) & 0xffffu),
+                static_cast<std::int16_t>(*unknown_2)};
             object.model_index = *model_index;
             object.source_index = index;
             scene.objects_.push_back(object);
         }
 
         const auto model_count = reader.u32("model count");
-        if (!model_count || *model_count > bytes.size() / 4u) {
+        if (!model_count.has_value() || *model_count > bytes.size() / 4u) {
             reader.fail("model table is unreasonably large");
             return std::nullopt;
         }
@@ -163,7 +213,7 @@ public:
         model_offsets.reserve(*model_count);
         for (std::uint32_t index = 0; index < *model_count; ++index) {
             const auto offset = reader.u32("model offset");
-            if (!offset) {
+            if (!offset.has_value()) {
                 return std::nullopt;
             }
             model_offsets.push_back(*offset);
@@ -200,7 +250,9 @@ public:
             const auto normal_count = model_reader.u16("normal count");
             const auto face_count = model_reader.u16("face count");
             const auto radius = model_reader.u32("model radius");
-            if (!flags || !vertex_count || !normal_count || !face_count || !radius) {
+            if (!flags.has_value() || !vertex_count.has_value() ||
+                !normal_count.has_value() || !face_count.has_value() ||
+                !radius.has_value()) {
                 return std::nullopt;
             }
             model.flags = *flags;
@@ -210,12 +262,12 @@ public:
             model.radius = *radius;
             for (auto& bound : model.bounds) {
                 const auto value = model_reader.i16("model bound");
-                if (!value) {
+                if (!value.has_value()) {
                     return std::nullopt;
                 }
                 bound = *value;
             }
-            if (!model_reader.u32("model unknown header")) {
+            if (!model_reader.u32("model unknown header").has_value()) {
                 return std::nullopt;
             }
 
@@ -225,7 +277,8 @@ public:
                 const auto x = model_reader.i16("vertex x");
                 const auto y = model_reader.i16("vertex y");
                 const auto z = model_reader.i16("vertex z");
-                if (!x || !y || !z || !model_reader.skip(2, "vertex padding")) {
+                if (!x.has_value() || !y.has_value() || !z.has_value() ||
+                    !model_reader.skip(2, "vertex padding")) {
                     return std::nullopt;
                 }
                 model.vertices.push_back({*x, *y, *z});
@@ -236,7 +289,8 @@ public:
                 const auto x = model_reader.i16("normal x");
                 const auto y = model_reader.i16("normal y");
                 const auto z = model_reader.i16("normal z");
-                if (!x || !y || !z || !model_reader.skip(2, "normal padding")) {
+                if (!x.has_value() || !y.has_value() || !z.has_value() ||
+                    !model_reader.skip(2, "normal padding")) {
                     return std::nullopt;
                 }
                 model.normals.push_back({*x, *y, *z});
@@ -248,7 +302,8 @@ public:
                 const auto face_start = model_reader.position();
                 const auto base_flags = model_reader.u16("face flags");
                 const auto length_bytes = model_reader.u16("face length");
-                if (!base_flags || !length_bytes || *length_bytes < 0x10u ||
+                if (!base_flags.has_value() || !length_bytes.has_value() ||
+                    *length_bytes < 0x10u ||
                     face_start + *length_bytes > model_reader.size()) {
                     model_reader.fail("face record is invalid");
                     return std::nullopt;
@@ -259,7 +314,7 @@ public:
                 face.source_offset = model_start + face_start;
                 for (auto& vertex_index : face.vertex_indices) {
                     const auto value = model_reader.u8("face vertex index");
-                    if (!value || *value >= model.vertex_count) {
+                    if (!value.has_value() || *value >= model.vertex_count) {
                         model_reader.fail("face references a missing vertex");
                         return std::nullopt;
                     }
@@ -270,7 +325,8 @@ public:
                 }
                 const auto normal_index = model_reader.u16("face normal index");
                 const auto surface_flags = model_reader.u16("face surface flags");
-                if (!normal_index || !surface_flags || *normal_index >= model.normal_count) {
+                if (!normal_index.has_value() || !surface_flags.has_value() ||
+                    *normal_index >= model.normal_count) {
                     model_reader.fail("face references a missing normal");
                     return std::nullopt;
                 }
@@ -290,9 +346,43 @@ public:
         return scene;
     }
 
+    static std::optional<PsxScene> parse(std::span<const std::byte> bytes,
+                                          std::string* error = nullptr) {
+        return parse(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(bytes.data()),
+                bytes.size()),
+            error);
+    }
+
     const std::vector<PsxObject>& objects() const { return objects_; }
     const std::vector<PsxModel>& models() const { return models_; }
     const std::vector<PsxBlockmap>& blockmaps() const { return blockmaps_; }
+
+    // Construct the collision-facing portion of a linked runtime object from
+    // one parsed PSX object.  The finalizer at 0x004647c0 supplies the model
+    // region slot and augments flags from model metadata; the attachment path
+    // supplies the live body identity.  Keeping both explicit prevents this
+    // source-level constructor from inventing those unresolved values.
+    std::optional<PsxLinkedCollisionObject>
+    linked_collision_object_from_source(std::size_t object_index,
+                                        std::uint8_t model_region_slot,
+                                        std::uint32_t body_id,
+                                        std::uint16_t finalized_flags) const {
+        if (object_index >= objects_.size()) {
+            return std::nullopt;
+        }
+        const auto& source = objects_[object_index];
+        PsxLinkedCollisionObject result;
+        result.body_id = body_id;
+        result.source_object_index = object_index;
+        result.flags = finalized_flags;
+        result.position = source.position;
+        result.angles = source.collision_angles;
+        result.model_index = source.model_index;
+        result.model_kind = model_region_slot;
+        return result;
+    }
 
     // Query using the recovered static level path.  QueryRecord fields are
     // prepared here so this is the native equivalent of InitLineInfo plus
@@ -305,6 +395,7 @@ public:
         result.start = start;
         result.end = end;
         reference::prepare(result, query_stamp);
+        result.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         query(result, filter);
         return result;
     }
@@ -316,6 +407,7 @@ public:
         result.query.start = start;
         result.query.end = end;
         reference::prepare(result.query, query_stamp);
+        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         query(result.query, filter, &result);
         return result;
     }
@@ -356,17 +448,23 @@ public:
         return result;
     }
 
-    // Compose the exact fast/oriented split from 0x00463e50. The query must
-    // already have been passed through reference::prepare so its line basis,
-    // line length, and vertical direction flag are available.
+    // Compose the recovered fast/oriented branch selection from 0x00463e50.
+    // The query must already have been passed through reference::prepare so
+    // its line basis, line length, and vertical direction flag are available.
+    // The full PC 0x0200 path scales this temporary matrix from the signed
+    // Q12 heap-tail words at +0x28/+0x2a/+0x2c, then left-composes it with
+    // the query basis. The native caller can supply those factors directly;
+    // the PC loader's values remain unresolved.
     static PsxDynamicObjectPreprocess preprocess_dynamic_object(
         const PsxModel& model, const QueryRecord& prepared_query,
         const RawVec3& object_position_raw,
         const std::array<std::int16_t, 3>& object_angles,
-        bool force_oriented_path = false) {
+        bool force_oriented_path = false,
+        const std::array<std::int16_t, 3>& matrix_scale_q12 =
+            reference::identity_q12_scale()) {
         const auto transform = reference::build_dynamic_object_transform(
             prepared_query, object_position_raw, object_angles,
-            force_oriented_path);
+            force_oriented_path, matrix_scale_q12);
         PsxDynamicObjectPreprocess result;
         result.query_object_basis = transform.normal_basis;
         result.final_object_basis = transform.final_basis;
@@ -378,9 +476,10 @@ public:
 
     // Run the recovered 0x004f4c50 face pass over a caller-owned transformed
     // vertex stream. query_object_basis is the basis used by 0x004e24b0 for
-    // the candidate normal (the transposed object matrix for rotated linked
-    // objects, or the line basis on the fast unrotated path). The final basis
-    // is the untransposed object matrix consumed by 0x00463d50.
+    // the candidate normal: query_basis * object_rotation * scale on the
+    // oriented linked path, or the line basis on the fast unrotated path.
+    // The final basis is the unscaled object rotation consumed by
+    // 0x00463d50.
     PsxCollisionResult query_dynamic_object(
         RawVec3 start, RawVec3 end, std::size_t object_index,
         const PsxDynamicModelVertices& transformed_vertices,
@@ -400,11 +499,188 @@ public:
         if (object.model_index >= models_.size()) {
             return result;
         }
-        const auto& model = models_[object.model_index];
-        if (transformed_vertices.vertices.size() < model.vertices.size()) {
+        return query_dynamic_model(
+            models_[object.model_index], start, end, object_index,
+            static_cast<std::uint32_t>(object_index + 1), object.model_index,
+            transformed_vertices, query_object_basis, final_object_basis,
+            query_stamp, filter);
+    }
+
+    PsxCollisionResult query_dynamic_object(
+        RawVec3 start, RawVec3 end, std::size_t object_index,
+        const PsxDynamicObjectPreprocess& preprocess,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        return query_dynamic_object(
+            start, end, object_index, preprocess.vertices,
+            preprocess.query_object_basis, preprocess.final_object_basis,
+            query_stamp, filter);
+    }
+
+    // Run the recovered linked-object branch over caller-owned node data.
+    // The caller supplies a native view of the live PC list; no PC pointer is
+    // fabricated. Objects are first admitted by 0x004f43e0's flag gate and
+    // object-space broad phase, then the exact transformed-vertex/face pass
+    // is run. The returned query uses q+0x40 distance ordering, matching the
+    // dynamic routine rather than the static q+0x8c parameter ordering.
+    PsxCollisionResult query_linked_objects(
+        RawVec3 start, RawVec3 end,
+        std::span<const PsxLinkedCollisionObject> linked_objects,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        PsxCollisionResult best;
+        best.query.start = start;
+        best.query.end = end;
+        reference::prepare(best.query, query_stamp);
+        best.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
+
+        const RawVec3 relative_start{0, 0, 0};
+        RawVec3 relative_end{};
+        for (std::size_t axis = 0; axis < relative_end.size(); ++axis) {
+            relative_end[axis] = reference::arithmetic_shift_right_12(
+                reference::wrapping_sub(end[axis], start[axis]));
+        }
+
+        RawVec3 ordered_start = relative_start;
+        RawVec3 ordered_end = relative_end;
+        std::uint8_t reflection_mask = 0;
+        for (std::size_t axis = 0; axis < ordered_start.size(); ++axis) {
+            if (ordered_start[axis] > ordered_end[axis]) {
+                std::swap(ordered_start[axis], ordered_end[axis]);
+                reflection_mask = static_cast<std::uint8_t>(
+                    reflection_mask | (1u << axis));
+            }
+        }
+
+        std::optional<std::uint16_t> query_mask_model_index;
+        for (std::size_t object_index = 0; object_index < linked_objects.size();
+             ++object_index) {
+            const auto& object = linked_objects[object_index];
+            if (!reference::linked_object_flag_gate(object.flags) ||
+                object.model_index >= models_.size()) {
+                continue;
+            }
+            const auto& model = models_[object.model_index];
+            const auto model_header = collision_model_header(model);
+            const auto object_offset = relative_position(
+                object.position, start);
+            const auto matrix_scale =
+                reference::linked_object_uses_matrix_transform(object.flags)
+                    ? object.matrix_scale_q12
+                    : reference::identity_q12_scale();
+            const auto bounds = reference::build_object_bounds(
+                model_header, ordered_start, ordered_end, object_offset,
+                reflection_mask, matrix_scale);
+            if (!reference::object_broadphase_test(
+                    ordered_start, ordered_end, bounds)) {
+                continue;
+            }
+
+            const auto preprocess = preprocess_dynamic_object(
+                model, best.query, object.position, object.angles,
+                reference::linked_object_uses_matrix_transform(object.flags),
+                matrix_scale);
+            const auto body_id = object.body_id != 0
+                                     ? object.body_id
+                                     : static_cast<std::uint32_t>(object_index + 1);
+            auto candidate = query_dynamic_model(
+                model, start, end, object_index, body_id, object.model_index,
+                preprocess.vertices, preprocess.query_object_basis,
+                preprocess.final_object_basis, query_stamp, filter);
+            candidate.source_object_index = object.source_object_index;
+            if (candidate.query_mask_model_index) {
+                query_mask_model_index = candidate.query_mask_model_index;
+            }
+            if (candidate.hit() &&
+                candidate.query.hit_distance < best.query.hit_distance) {
+                best = candidate;
+            }
+        }
+        best.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
+        best.query_mask_model_index = query_mask_model_index;
+        return best;
+    }
+
+    // Compose the two branches reached by 0x004660b0. The executable runs
+    // linked objects and zone candidates through different nearest fields,
+    // but both paths leave the comparable traveled distance at q+0x40. A
+    // strict comparison preserves the static result on an exact tie, which
+    // matches the dynamic-before-static traversal order plus the original
+    // strict-nearer updates.
+    PsxCollisionResult query_with_linked_objects(
+        RawVec3 start, RawVec3 end,
+        std::span<const PsxLinkedCollisionObject> linked_objects,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        const auto static_result = query_with_metadata(
+            start, end, query_stamp, filter);
+        const auto linked_result = query_linked_objects(
+            start, end, linked_objects, query_stamp, filter);
+        if (!linked_result.hit() ||
+            (static_result.hit() &&
+             static_result.query.hit_distance <=
+                 linked_result.query.hit_distance)) {
+            auto result = static_result;
+            result.query_mask_model_index =
+                linked_result.query_mask_model_index;
             return result;
         }
-        for (std::size_t face_index = 0; face_index < model.faces.size(); ++face_index) {
+        return linked_result;
+    }
+
+    bool query(QueryRecord& query_record,
+               CollisionFaceFilter filter = {}) const {
+        return query(query_record, filter, nullptr);
+    }
+
+private:
+    static reference::CollisionModelHeader collision_model_header(
+        const PsxModel& model) {
+        return reference::CollisionModelHeader{
+            .unknown_flags = model.flags,
+            .vertex_count = model.vertex_count,
+            .normal_count = model.normal_count,
+            .face_count = model.face_count,
+            .radius = model.radius,
+            .x_max = model.bounds[0],
+            .x_min = model.bounds[1],
+            .y_max = model.bounds[2],
+            .y_min = model.bounds[3],
+            .z_max = model.bounds[4],
+            .z_min = model.bounds[5],
+            .unknown_value = 0,
+        };
+    }
+
+    static RawVec3 relative_position(const RawVec3& position,
+                                     const RawVec3& query_start) {
+        RawVec3 result{};
+        for (std::size_t axis = 0; axis < result.size(); ++axis) {
+            result[axis] = reference::arithmetic_shift_right_12(
+                reference::wrapping_sub(position[axis], query_start[axis]));
+        }
+        return result;
+    }
+
+    static PsxCollisionResult query_dynamic_model(
+        const PsxModel& model, RawVec3 start, RawVec3 end,
+        std::size_t object_index, std::uint32_t body_id,
+        std::uint16_t model_index,
+        const PsxDynamicModelVertices& transformed_vertices,
+        const std::array<std::int16_t, 9>& query_object_basis,
+        const std::array<std::int16_t, 9>& final_object_basis,
+        std::uint16_t query_stamp, CollisionFaceFilter filter) {
+        PsxCollisionResult result;
+        result.query.start = start;
+        result.query.end = end;
+        reference::prepare(result.query, query_stamp);
+        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
+        if ((transformed_vertices.clip_mask & 0x60fu) != 0 ||
+            transformed_vertices.vertices.size() < model.vertices.size()) {
+            return result;
+        }
+        for (std::size_t face_index = 0; face_index < model.faces.size();
+             ++face_index) {
             const auto& face = model.faces[face_index];
             const auto surface_word =
                 (static_cast<std::uint32_t>(face.surface_flags) << 16u) |
@@ -433,11 +709,23 @@ public:
                 (face.base_flags & 0x10u) != 0,
                 model.normals[face.normal_index], query_object_basis,
                 result.query.line_length);
-            if (!candidate || !reference::record_nearest_dynamic_candidate(
-                                   result.query, *candidate,
-                                   static_cast<std::uint32_t>(object_index + 1),
+            if (!candidate) {
+                continue;
+            }
+            if ((surface_word & 0x20000u) != 0) {
+                // 0x004f4c50's special surface branch is not a collision hit.
+                // It only records the model selector when q+0x88 is true;
+                // CollisionFaceFilter has already rejected this face in the
+                // ordinary mode.
+                if (filter.query_mask_mode) {
+                    result.query_mask_model_index = model_index;
+                }
+                continue;
+            }
+            if (!reference::record_nearest_dynamic_candidate(
+                                   result.query, *candidate, body_id,
                                    static_cast<std::uint32_t>(face.source_offset),
-                                   object.model_index)) {
+                                   model_index)) {
                 continue;
             }
             result.query.hit_normal = reference::transform_normal_q12(
@@ -457,23 +745,6 @@ public:
         return result;
     }
 
-    PsxCollisionResult query_dynamic_object(
-        RawVec3 start, RawVec3 end, std::size_t object_index,
-        const PsxDynamicObjectPreprocess& preprocess,
-        std::uint16_t query_stamp = 0,
-        CollisionFaceFilter filter = {}) const {
-        return query_dynamic_object(
-            start, end, object_index, preprocess.vertices,
-            preprocess.query_object_basis, preprocess.final_object_basis,
-            query_stamp, filter);
-    }
-
-    bool query(QueryRecord& query_record,
-               CollisionFaceFilter filter = {}) const {
-        return query(query_record, filter, nullptr);
-    }
-
-private:
     bool query(QueryRecord& query_record, CollisionFaceFilter filter,
                PsxCollisionResult* metadata) const {
         const auto candidates = candidate_objects(query_record);
@@ -703,20 +974,73 @@ private:
                    query_record.end[2] <= blockmap.max_z))) {
                 continue;
             }
+            // The PC zone walker performs these subtractions in 32-bit
+            // fixed-point registers. Keep the wrap explicit so a malformed
+            // or extreme-but-representable asset cannot invoke signed
+            // overflow in the native port.
             const auto width = blockmap.cell_count_x == 0
                                    ? 0
-                                   : (blockmap.max_x - blockmap.min_x) /
+                                   : reference::wrapping_sub(
+                                         blockmap.max_x, blockmap.min_x) /
                                          blockmap.cell_count_x;
             const auto depth = blockmap.cell_count_z == 0
                                    ? 0
-                                   : (blockmap.max_z - blockmap.min_z) /
+                                   : reference::wrapping_sub(
+                                         blockmap.max_z, blockmap.min_z) /
                                          blockmap.cell_count_z;
             if (width <= 0 || depth <= 0) {
                 continue;
             }
+            if (blockmap.cell_count_x <=
+                    static_cast<std::uint16_t>(
+                        std::numeric_limits<std::int16_t>::max()) &&
+                blockmap.cell_count_z <=
+                    static_cast<std::uint16_t>(
+                        std::numeric_limits<std::int16_t>::max())) {
+                // The PC table walk is a hand-written line/grid traversal,
+                // not a rectangular scan of every cell in the query AABB.
+                // Reuse the recovered DDA so cell visitation order (and
+                // therefore strict equal-distance tie behavior) matches the
+                // original. PSX blockmap storage is row-major x + z*width;
+                // the PC candidate table uses a different address stride,
+                // so only the emitted coordinates are used here.
+                const reference::CollisionZoneGrid zone{
+                    .min_x = blockmap.min_x,
+                    .min_z = blockmap.min_z,
+                    .max_x = blockmap.max_x,
+                    .max_z = blockmap.max_z,
+                    .cell_divisor = width,
+                    .cell_count_x = static_cast<std::int16_t>(
+                        blockmap.cell_count_x),
+                    .cell_count_z = static_cast<std::int16_t>(
+                        blockmap.cell_count_z),
+                };
+                reference::visit_zone_cells(
+                    query_record, 0, zone,
+                    [&add, &blockmap](std::size_t, std::int32_t cell_x,
+                                      std::int32_t cell_z) {
+                        if (cell_x < 0 || cell_z < 0 ||
+                            cell_x >= blockmap.cell_count_x ||
+                            cell_z >= blockmap.cell_count_z) {
+                            return;
+                        }
+                        const auto index = static_cast<std::size_t>(cell_x) +
+                                           static_cast<std::size_t>(cell_z) *
+                                               blockmap.cell_count_x;
+                        if (index >= blockmap.cells.size()) {
+                            return;
+                        }
+                        for (const auto object_index :
+                             blockmap.cells[index].object_indices) {
+                            add(object_index);
+                        }
+                    });
+                continue;
+            }
             const auto clamp_cell = [](Raw value, Raw minimum, Raw,
                                        Raw cell_size, std::uint16_t count) {
-                const auto raw = (value - minimum) / cell_size;
+                const auto raw = reference::wrapping_sub(value, minimum) /
+                                 cell_size;
                 return std::min<std::int32_t>(std::max<std::int32_t>(raw, 0), count - 1);
             };
             const auto min_x = std::min(query_record.start[0], query_record.end[0]);
@@ -755,7 +1079,7 @@ private:
         }
         while (reader.position() < reader.size()) {
             const auto type = reader.u32("tag type");
-            if (!type) {
+            if (!type.has_value()) {
                 return false;
             }
             if (*type == 0xffffffffu) {
@@ -763,7 +1087,7 @@ private:
             }
             const auto size = reader.u32("tag size");
             const auto payload_start = reader.position();
-            if (!size || payload_start > reader.size() ||
+            if (!size.has_value() || payload_start > reader.size() ||
                 *size > reader.size() - payload_start) {
                 reader.fail("tag payload");
                 return false;
@@ -790,8 +1114,10 @@ private:
         const auto max_z = reader.i32("blockmap max z");
         const auto cell_count_x = reader.u16("blockmap cell count x");
         const auto cell_count_z = reader.u16("blockmap cell count z");
-        if (!min_x || !min_z || !max_x || !max_z || !cell_count_x ||
-            !cell_count_z || *cell_count_x == 0 || *cell_count_z == 0) {
+        if (!min_x.has_value() || !min_z.has_value() || !max_x.has_value() ||
+            !max_z.has_value() || !cell_count_x.has_value() ||
+            !cell_count_z.has_value() || *cell_count_x == 0 ||
+            *cell_count_z == 0) {
             return false;
         }
         blockmap.min_x = *min_x;
@@ -808,7 +1134,8 @@ private:
             const auto unknown_1 = reader.u32("blockmap cell unknown 1");
             const auto unknown_2 = reader.u32("blockmap cell unknown 2");
             const auto reference_count = reader.u32("blockmap cell reference count");
-            if (!unknown_1 || !unknown_2 || !reference_count ||
+            if (!unknown_1.has_value() || !unknown_2.has_value() ||
+                !reference_count.has_value() ||
                 *reference_count > reader.size() / 4u) {
                 reader.fail("blockmap cell");
                 return false;
@@ -819,14 +1146,15 @@ private:
             for (std::uint32_t reference = 0; reference < *reference_count;
                  ++reference) {
                 const auto object_index = reader.u32("blockmap object index");
-                if (!object_index || *object_index >= objects_.size()) {
+                if (!object_index.has_value() ||
+                    *object_index >= objects_.size()) {
                     reader.fail("blockmap references a missing object");
                     return false;
                 }
                 cell.object_indices.push_back(*object_index);
             }
             const auto terminator = reader.u32("blockmap cell terminator");
-            if (!terminator || *terminator != 0) {
+            if (!terminator.has_value() || *terminator != 0) {
                 reader.fail("blockmap cell terminator");
                 return false;
             }

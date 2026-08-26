@@ -55,10 +55,13 @@ from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
 from opentony.collision import (
+    CollisionModelKindProbe,
     _candidate_source_snapshot,
     _dynamic_object_snapshot,
     _dynamic_query_snapshot,
     _linked_object_snapshots,
+    _model_kind_object_snapshot,
+    _model_kind_table_snapshot,
     _zone_entry_snapshot,
 )
 from opentony.frame import FrameClock
@@ -113,6 +116,37 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     assert memory.f32(0x34) == 0.25
     assert negative.x.signed == -65536
     assert negative.x.value == -1.0
+
+
+def test_ground_motion_context_reconstructs_indexed_local_profile_lookup(monkeypatch):
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x100
+    controller = 0x3800
+    mode = 0x3400
+    selector = 0x3404
+    profile_table = 0x3600
+    monkeypatch.setitem(physics.GROUND_MOTION_PROFILE_GLOBALS, "mode", mode)
+    monkeypatch.setitem(
+        physics.GROUND_MOTION_PROFILE_GLOBALS, "player_selector", selector)
+    monkeypatch.setitem(
+        physics.GROUND_MOTION_PROFILE_GLOBALS, "profile_table", profile_table)
+
+    struct.pack_into("<I", inferior.data, generated_knowledge.GLOBALS["Player"], player)
+    struct.pack_into("<I", inferior.data, player + 0x2CCC, controller)
+    struct.pack_into("<I", inferior.data, player + 0x2CC4, 1)
+    struct.pack_into("<I", inferior.data, mode, 7)
+    struct.pack_into("<I", inferior.data, selector, 1)
+    struct.pack_into("<i", inferior.data, profile_table, 0)
+    struct.pack_into("<i", inferior.data, profile_table + 4, 1)
+
+    snapshot = physics._ground_motion_context(player, memory)
+
+    assert snapshot["local_profile_lookup"]["lookup_index"] == 0
+    assert snapshot["local_profile_lookup"]["value"] == 0
+    assert snapshot["profile_slot_0x10_active"] == 0
+    assert snapshot["profile_gate"] is False
+    assert len(snapshot["controller_profile_slots"]) == 16
 
 
 def test_collision_probe_reads_bounded_linked_object_prefix():
@@ -209,6 +243,62 @@ def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
         "cell_count_x": 20,
         "cell_count_z": 20,
     }
+
+
+def test_model_kind_probe_pairs_selector_with_bounded_cache_slot(monkeypatch):
+    inferior = FakeInferior()
+    object_address = 0x500
+    table_base = 0x1000
+    table_index = 2
+    slot = table_base + table_index * 0x44
+    monkeypatch.setattr("opentony.collision.COLLISION_MODEL_TABLE", table_base)
+    struct.pack_into(
+        "<4I",
+        inferior.data,
+        object_address + 0x80,
+        0x11111111,
+        table_index,
+        0x33333333,
+        0x44444444,
+    )
+    struct.pack_into("<17I", inferior.data, slot, *range(17))
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x420E33)
+    memory = Memory(inferior)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CollisionModelKindProbe(count=1, writer=Writer())
+    entry = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": object_address, "eip": 0x420FA0},
+        ),
+        memory,
+    )
+    probe.begin(entry)
+    memory.write_u32(slot, 0xAABBCCDD)
+    returned = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": object_address, "eax": 0x1234, "eip": 0x421038},
+        ),
+        memory,
+    )
+    probe.finish(returned)
+
+    assert _model_kind_object_snapshot(object_address, memory)["table_index"] == table_index
+    assert _model_kind_table_snapshot(table_index, memory)["words"][0] == 0xAABBCCDD
+    assert events[0]["type"] == "collision_model_kind_load"
+    assert events[0]["caller"] == "0x00420e33"
+    assert events[0]["object"]["table_index"] == table_index
+    assert events[0]["table_before"]["words"][0] == 0
+    assert events[0]["table_after"]["words"][0] == 0xAABBCCDD
+    assert probe.remaining == 0
+    assert probe._entry.enabled is False
+    assert probe._return.enabled is False
 
 
 def test_collision_dynamic_snapshots_keep_object_transform_and_query_outputs():

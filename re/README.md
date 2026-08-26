@@ -89,6 +89,15 @@ the complete action-state bank alongside the action mask; the physics probe
 additionally captures the first player-relative movement handoff at
 `0x00493370`.
 
+For the grounded motion producer, `tony-ground-motion-probe [COUNT]` samples
+the raw inputs at `0x0049b010`, including all sixteen profile slots, the
+indexed local-profile table value, animation cursor, cooldown/threshold,
+turn gates, basis, response, and surface-side fields. Pair it with
+`tony-ground-motion-profile-probe [COUNT]` to trace the profile source flags
+through `0x0055fc2c` into `0x0056a3d8`, and
+`tony-ground-motion-writers [COUNT] [--correction] [--control]` to capture
+the exact correction/rearm stores and B010 random return sites.
+
 For the in-air landing boundary, `tony-air-collision-probe [COUNT]` samples the
 raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
 in-air-handler, state-request, and state-writer probes to correlate a nonzero
@@ -109,7 +118,12 @@ Collision experiments use `tony-collision-probe [COUNT]` for the shared query
 record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
 `tony-collision-dynamic-cull-probe [COUNT]` plus
 `tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
-passes.
+passes. `tony-collision-transform-probe [COUNT]` captures the object tail and
+temporary matrix around the `0x0200` matrix-transform branch.
+`tony-collision-model-kind-probe [COUNT]` captures the object selector and
+kind-strided model/cache slot initialization at the loader boundary.
+`tony-trg-type192-probe [COUNT]` captures the type-192 command word, the
+post-constructor cursor movement, and collision-facing object fields.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw

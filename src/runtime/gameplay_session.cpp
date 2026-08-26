@@ -18,6 +18,16 @@ GameplaySession::GameplaySession(
       config_(config),
       driver_(gameplay_, config_.fixed_step),
       hooks_() {
+    if (config_.use_recovered_collision_scene) {
+        std::string error;
+        const auto scene = collision::PsxScene::parse(
+            level_.scene_asset().bytes(), &error);
+        if (!scene.has_value()) {
+            throw std::logic_error(
+                "recovered PSX collision scene parse failed: " + error);
+        }
+        collision_scene_ = *scene;
+    }
     if (!config_.tricks_path.empty()) {
         tricks_archive_ = assets::TricksBinArchive::load(config_.tricks_path);
         tricks_view_ = tricks_archive_->view();
@@ -61,6 +71,20 @@ GameplaySession::GameplaySession(
     hooks_.collision_query = [this](
         const FixedPosition& start,
         const FixedPosition& end) {
+        if (config_.use_recovered_collision_scene && collision_scene_.has_value()) {
+            collision::CollisionFaceFilter filter{};
+            filter.apply_retail_face_filter =
+                config_.collision_query_options.apply_retail_face_filter;
+            filter.reject_mask = config_.collision_query_options.reject_mask;
+            filter.required_bits = config_.collision_query_options.accept_mask;
+            filter.query_mask_mode =
+                config_.collision_query_options.include_trigger_faces;
+            return PsxScenePositionCollisionProbe(
+                *collision_scene_, start, filter,
+                std::span<const collision::PsxLinkedCollisionObject>(
+                    recovered_linked_collision_objects_.data(),
+                    recovered_linked_collision_objects_.size())).query(end);
+        }
         return PsxPositionCollisionProbe(
             level_.collision(),
             start,
@@ -153,6 +177,11 @@ void GameplaySession::pulse_checksum(std::uint32_t checksum) {
     const std::size_t event_start = level_.state().events().size();
     level_.pulse_checksum(checksum);
     apply_restart_events(event_start);
+}
+
+void GameplaySession::set_recovered_linked_collision_objects(
+    std::vector<collision::PsxLinkedCollisionObject> objects) {
+    recovered_linked_collision_objects_ = std::move(objects);
 }
 
 void GameplaySession::apply_restart_events(std::size_t event_start) {

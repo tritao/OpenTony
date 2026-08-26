@@ -98,6 +98,17 @@ The runtime slot arrays have the following supported roles:
 - `DAT_0056d43c[slot * 0x11]`: relocated pointer array for the PSX model blocks;
 - `DAT_0056db28`: head of the attached environment-array list. `0x004b2ac0` links the current environment through its `+0x20` next pointer and records region metadata in `DAT_0056db20`.
 
+The list roots are materially distinct. `0x004647c0` builds the `+0x20`
+chain inside the region's count-prefixed PSX object array, and
+`0x004b2ac0` appends that array to `DAT_0056db28` (the environment-list head)
+before recording the returned environment slot in `DAT_0056db20`. It does not
+insert those records into `DAT_0056af40`. The type-192 constructor instead
+inserts its heap object into `DAT_0056af40` directly, and the separate
+`0x004a12d0` platform consumer walks that game-object root. This is direct
+static evidence against deriving type-192 heap nodes from every PSX environment
+object by position or model alone; the two products share model-table access
+but have different list ownership and finalization inputs.
+
 The 36-byte disk object is copied into the 0x4c-byte runtime record with a
 vtable/dispatch prefix and runtime-owned links. In addition to the position,
 model, and slot fields above, the parser copies the disk flags into runtime
@@ -114,7 +125,7 @@ The parser's copy loop makes the source-to-runtime offsets more precise:
 ```text
 disk +0x00 flags       -> runtime +0x04 flags
 disk +0x04/+0x08/+0x0c position -> runtime +0x08/+0x0c/+0x10
-disk +0x10 u32         -> runtime +0x14 u32 (read by collision as two s16 words)
+disk +0x10 low/high 16 bits -> runtime +0x14/+0x16 s16 transform components
 disk +0x14 u16         -> runtime +0x18 s16 transform component
 disk +0x16 u16 model   -> runtime +0x1a model index
 disk +0x18/+0x1a       -> runtime +0x1c four-byte trailing transform/source area

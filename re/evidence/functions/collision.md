@@ -10,8 +10,8 @@ Addresses: `0x0049db80`, `0x00497f40`, `0x00496550`, `0x00494210`,
 `0x00499710`, `0x004993f0`, `0x004624d0`, `0x00466090`, `0x004660b0`,
 `0x004628f0`, `0x004638d0`, `0x00462a20`, `0x00463d50`, `0x0048ea80`,
 `0x004f43e0`, `0x004f4940`, `0x004f4b00`, `0x004f4c50`, `0x004f4130`,
-`0x004f4240`, `0x004667e0`, `0x00420fa0`, `0x0043d88e`, `0x0048001d0`,
-`0x0048001f0`
+`0x004f4240`, `0x004f5540`, `0x004e23a0`, `0x004e2070`, `0x004667e0`,
+`0x00420fa0`, `0x0043d88e`, `0x004801d0`, `0x004801f0`
 
 ## Result
 
@@ -66,6 +66,13 @@ schema; the original PC code uses caller-local storage.
 | `0x004638d0` | scene traversal calls at `0x004662fa`, `0x0046670f`, `0x004667a5` | `void VisitModelFaces(void* list, SLineInfo*)` | builds/reuses face AABBs and invokes the face tester |
 | `0x004f43e0` | linked traversal `0x004628f0` | `void CullLinkedObjects(void* root, ..., SLineInfo*, uint16 stamp)` | walks `node+0x20`, applies object bounds/cross tests, and marks tested nodes |
 | `0x004f4940` | candidate traversal `0x004638d0` | `void CullCandidateObjectLists(void* head_array, ..., SLineInfo*, uint16 stamp)` | walks the selected null-terminated head array and applies the same object broad phase |
+| `0x004f4b00` | oriented-object path `0x00463e50` | `uint16_t TransformModelVertices(Model*, DynamicVertex*, uint32 line_length, const int32 origin[3])` | transforms each model vertex through the prepared Q12 matrix, writes 8-byte `{x,y,z,clip}` records, and returns their AND clip mask |
+| `0x004f4c50` | oriented-object path `0x00463e50` | `void ScanDynamicFaces(Model*, DynamicVertex*, SLineInfo*, LinkedObject*)` | applies face masks, selects the projected triangle, and writes the winning dynamic distance/body/face/model fields; special `0x20000` faces update a sideband model selector instead |
+| `0x004f5540` | direct calls `0x0045fcbc`, `0x0045fd9c`, `0x00460dce`, `0x00460eaf`, `0x00461c5f`, `0x00464062`, `0x00464095` | `void ScaleObjectMatrix(void* object, int16_t matrix[9])` | scales matrix columns from signed Q12 tail words; writes the matrix in place and has no consumed return value |
+| `0x00420fa0` | model/resource setup `0x00420e2e` | `void InitModelCacheSlot(void* object)` (`thiscall`, `ECX`) | reads the setup selector at `object+0x84`, allocates a 0x50-byte slot payload through `0x0046f490`, stores it at `DAT_0056d43c[index*0x11]`, advances the slot cursor by four bytes, writes the `0x13` cache count, and clears 19 payload words |
+| `0x004e24b0` | dynamic face pass `0x004f4c50` | `void TransformNormalQ12(const int16_t basis[9], const int16_t normal[3])` | multiplies the model normal by the composed query/object matrix, shifts by 12, and saturates to signed shorts |
+| `0x004e2930` | dynamic face pass `0x004f4c50` | `void ProjectCandidate(...)` | combines the selected transformed vertex and transformed normal into the signed dot/line-limit values consumed by the dynamic distance test |
+| `0x004f5780` | linked transform `0x00463e50` | `void ComposeQueryBasis(int16_t matrix[9])` | left-composes the object/scale matrix with the query line basis; the resulting basis is used by vertex and candidate-normal transforms |
 | `0x00462a20` | model-face traversal calls at `0x004639b2`, `0x00463d03` | `void TestFace(void* model, SLineInfo*, void* cache)` | segment/triangle test; updates nearest hit fields; no useful return |
 | `0x00463d50` | scene traversal call at `0x004667c3` | `int FinalizeHit(SLineInfo*)` | returns `1` iff `q+0x68` is nonzero and writes the normal |
 | `0x0048ea80` | ground/in-air calls `0x0049587e`, `0x00495a4f`, `0x0049695a`, `0x00496fdc`, `0x00498a6e`, `0x00498ac9`, `0x004993b0`, `0x00499ae5`, `0x00499dd5` | `void ConsumeHitFlags(SLineInfo*)` | translates face metadata into shared collision/material flags |
@@ -187,13 +194,46 @@ the wrapper; the query does not parse a file on each call.
   `[0,0,0,2,46,47,0,0]`, so this probe also confirms that the published
   pointer is an array view over the source cell's trailing/succeeding words,
   not a separately allocated object header.
-- Model-kind table population is a separate loader stage. The routine
-  `0x00420fa0` reads a kind/index field from its object, stores the returned
-  model pointer at the kind-strided table rooted at `DAT_0056d43c`, advances
-  to the model-data pointer, and initializes the associated collision-cache
-  entry. This explains why the query can resolve `model_kind`/`model_index`
-  without consulting the zone candidate table, and keeps the two loader
-  responsibilities separate in the reconstruction.
+- Model-kind/cache population is a separate setup stage. The routine
+  `0x00420fa0`, called directly at `0x00420e2e`, reads a selector from its
+  setup object at `+0x84`, allocates a fixed 0x50-byte payload through
+  `0x0046f490`, stores that allocation in the selected 17-word slot rooted at
+  `DAT_0056d43c`, advances the slot's first pointer by four bytes, writes the
+  `0x13` count word, and clears the following 19 words. The adjacent setup
+  routine populates the other region-slot fields, including the model/object
+  products consumed by collision. This explains why the query can resolve
+  `model_kind`/`model_index` without consulting the zone candidate table, and
+  keeps the two loader responsibilities separate in the reconstruction. The
+  bounded `tony-collision-model-kind-probe` captures the selector and the
+  before/after 0x44-byte slot without walking unrelated table entries.
+- The adjacent finalizer `0x004647c0` explains why a PSX object cannot be
+  promoted directly to a faithful linked collision node from its source
+  fields alone. Given a region slot, it walks the model table and then the
+  count-prefixed runtime object array; for each object it writes the
+  intrusive `+0x20` next link, writes the attached region slot into `+0x1f`,
+  resolves `+0x1a` through that region's model table, and adds object flag
+  bits from model-header and face metadata. The parser has already copied the
+  three collision-facing shorts at `+0x14/+0x16/+0x18`, but the final flags
+  and `model_kind` are attachment/finalization products. The native linked
+  object seam therefore keeps `flags`, `model_kind`, and `body_id` caller-owned
+  until this finalizer is reconstructed.
+- The parser copy loop gives those three source shorts an exact byte mapping:
+  disk object `+0x10` low 16 bits -> runtime `+0x14`, disk `+0x10` high 16
+  bits -> runtime `+0x16`, and disk `+0x14` -> runtime `+0x18`. The native
+  `PsxObject::collision_angles` view preserves this order without assigning
+  a stronger asset-level name. `PsxScene::linked_collision_object_from_source`
+  now builds the corresponding collision-facing view while requiring the
+  finalizer's region slot, finalized flags, and attachment body ID explicitly.
+- The finalizer's object loop is more specific than a generic “attachment”
+  step. At `0x00464a15` it enters the first record's `+0x20` link field and
+  advances by `0x4c`; it writes the next record address (or null) at `+0x20`,
+  the region argument's low byte at `+0x1f`, and then resolves the record's
+  `+0x1a` model index through the region-specific model table. If the model
+  header byte has bit `0x10`, it ORs `0x20` into the record's flags; if the
+  selected model in the global region table has bit `0x20`, it ORs `0x1000`
+  into the flags. These are the only per-object flag writes proven in this
+  loop; the live `0x0110` dynamic-node example therefore cannot be explained
+  by this finalizer alone.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are
@@ -364,13 +404,30 @@ the wrapper; the query does not parse a file on each call.
     position words, X/Y/Z angle shorts, model index, model kind, and the
     32-bit next pointer. This is an in-memory ABI view only; it does not
     claim that heap nodes are serialized in a level file.
-  - The list primitive at `0x0048001d0` inserts a node at a caller-supplied
+  - The list primitive at `0x004801d0` inserts a node at a caller-supplied
     root: it writes `node+0x20 = old_head`, `node+0x34 = 0`, updates the root,
     and writes `old_head+0x34 = node` when a successor exists.
-    `0x0048001f0` is the reciprocal unlink path. Construction paths around
+    `0x004801f0` is the reciprocal unlink path. Construction paths around
     `0x0049f265` and `0x0049f360` call the object initializer and insert into
     `DAT_0056af40`; this establishes list ownership and a backward-link
     offset without claiming the full object allocation size.
+  - The type-192 object vtable at `0x005194f8` has a model-update handler at
+    `0x004a1060`. Its dispatch table identifies `0x2124` as the numeric-model
+    case and `0x212f` as the checksum-model case. The former writes a
+    region-local `u16` directly to `+0x1a`; the latter aligns the command
+    cursor, calls `0x004b1de0(checksum, +0x1f)`, and writes that returned model
+    index to `+0x1a`. Both cases resolve
+    `DAT_0056d43c[+0x1f * 0x11][+0x1a]` and mirror the selected model header
+    bit `0x10` into object flag `+0x04` bit `0x20`; `0x212f` additionally
+    clears flag bit `0x1`. The same table proves `0x2128` writes a resolved
+    three-component vector at `+0x4c/+0x50/+0x54`, while `0x2127`, `0x2133`,
+    and `0x2136` write three-u16 fields at `+0x70/+0x72/+0x74`,
+    `+0x14/+0x16/+0x18`, and `+0x76/+0x78/+0x7a`, respectively. This explains
+    why `model_kind`/`model_index` are mutable runtime products rather than a
+    sufficient PSX object identity. The separate `0x004a12d0` consumer scans
+    `DAT_0056af40`, performs model-bound overlap against the player's AABB,
+    and calls `0x0049f4c0` for platform/ground response; it should not be
+    mistaken for the line-query wrapper.
   - A separate level-building path around `0x0043d88e` (with the embedded
     source path `H:\\TonyHawk\\Pc2\\LevelGen.cpp`) computes an object
     allocation size of `count*0x4c + 4`, stores the element count in the
@@ -378,17 +435,23 @@ the wrapper; the query does not parse a file on each call.
     copy loop advances by `0x4c` and writes the element through `+0x4a`,
     including the collision prefix and the `+0x34` backlink. Together with
     the runtime chain spacing, this establishes the full element stride and
-    allocation shape for this loader product; the tail field meanings remain
-    opaque.
+    allocation shape for this loader product. The constructor initializes
+    `+0x28/+0x2a/+0x2c` to `0x1000`; these three signed-short words are later
+    consumed as per-column Q12 matrix factors, while the rest of the tail is
+    still opaque. The second source-copy loop copies every field through
+    `+0x4a` field-for-field, so source and destination scale words retain
+    those exact offsets.
   - `0x004f4050` orders the two query endpoints independently on X/Y/Z and
     returns a three-bit reflection mask. `0x004f4130` expands the selected
     model bounds by two units and reflects them around the endpoint sum for
-    each set mask bit. `0x004f4240` first performs strict lower-bound/upper-
-    bound endpoint gates, then runs the short cross-product edge test using
-    the query delta. These are now available as tested native helpers, which
-    closes the object-space broad-phase arithmetic. The source of the node
-    bytes is still loader-owned heap state, but its collision-facing prefix is
-    now runtime-confirmed below.
+    each set mask bit. When the object has high-byte flag bit `0x02`
+    (`flags & 0x0200`), `0x004f43e0` then scales each min/max axis with its
+    `+0x28/+0x2a/+0x2c` Q12 factor using x87 truncate-toward-zero conversion.
+    `0x004f4240` first performs strict lower-bound/upper-bound endpoint gates,
+    then runs the short cross-product edge test using the query delta. These
+    are now available as tested native helpers, which closes the object-space
+    broad-phase arithmetic. The source of the node bytes is still loader-owned
+    heap state, but its collision-facing prefix is now runtime-confirmed below.
   - `0x00463e50` transforms the query into object/model space and calls
     `0x004f4b00` to transform all model vertices into a temporary buffer.
     Each temporary record is three signed shorts plus a 16-bit clip mask.
@@ -406,30 +469,55 @@ the wrapper; the query does not parse a file on each call.
     parameter at `q+0x8c`. This is a real behavioral distinction, not just a
     decompiler naming artifact. The decompiled dynamic face-hit branch does
     not itself assign `q+0x6c..0x74`; those contact words are assigned by the
-    static tester and by the dynamic routine's no-face fallback, so dynamic
-    contact ownership remains a targeted runtime question.
+    static tester and by the dynamic routine's post-face-loop contact
+    calculation, using the winning traveled distance. A geometrically
+    accepted face whose surface word contains `0x20000` takes a separate
+    branch: when `q+0x88` is nonzero it stores the model's `+0x1a` selector in
+    `DAT_00567a64`, but does not publish a physical q+0x68 hit.
   - The dynamic helpers are now algebraically constrained at the machine-code
     level. `0x004e2f80` computes the three 2-D determinants from the
     transformed X/Y vertex pairs. For a triangle, a negative determinant for
     the `(v1,v2)` pair rejects the face; for a quad, the walker retries with
     `v3` in the first-vertex slot and negates the other two determinants.
-    `0x004e24b0` applies the query/object Q12 basis to the model normal, and
-    `0x004e2930` combines that result with the selected vertex before the
-    candidate distance is compared against `q+0x40`. The native reference now
+    `0x004e24b0` applies the composed query/object Q12 basis to the model
+    normal, and `0x004e2930` combines that result with the selected vertex
+    before the candidate distance is compared against `q+0x40`. For the
+    alternate quad winding, the selected vertex is the fourth transformed
+    vertex rather than `v0`. The native reference now
     models the same strict-nearer update and the no-face fallback: after the
     scan it computes `u = trunc((q+0x40) * 0x1000 / (q+0x44))`, then writes
     `start + ((end-start) >> 12) * u` into `q+0x6c..0x74`. `0x004e2070` is the
     shared signed-short saturation helper: it obtains `2^15`, converts with
     the game's truncate-toward-zero x87 helper at `0x005004f4`, and clamps each
     integer component to `[-32768, 32767]`. This closes the arithmetic gap;
-    dynamic-object runtime execution is still needed to validate the outer
-    linked-list and broad-phase data path.
+    The controlled `collision-dynamic-positive5` run now validates the outer
+    linked-list handoff and the complete transformed-face path as well.
+  - The `0x0200` matrix-transform branch has one more recoverable input boundary:
+    `0x00463e50` calls `0x004f5540` with the object record and the temporary
+    3x3 short matrix. That helper reads object tail words `+0x28`, `+0x2a`,
+    and `+0x2c`; each is sign-extended and used as a Q12 factor by
+    `0x004e23a0`, which passes the resulting matrix triplet through the shared
+    signed-short saturation helper before the matrix is written back. This
+    confirms that the tail is transform input, not part of the cull admission
+    flags. The helper scales matrix columns independently: `+0x28` multiplies
+    entries 0/3/6, `+0x2a` multiplies 1/4/7, and `+0x2c` multiplies 2/5/8;
+    each product is SAR 12 and passed through the signed-short saturation
+    helper. `0x004f5780` then left-composes that scaled object matrix with
+    the query basis, so the dynamic vertex and candidate-normal basis is
+    `query_basis * object_rotation * scale`. The ordinary Hangar objects
+    sampled so far all carry identity Q12 scale, but the native linked-object
+    API accepts non-identity factors directly. The final normal path remains the unscaled
+    `object_rotation * model_normal` transform.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
     `q+0x78..0x7c`. The three helpers use one full turn per `0x1000` angle
     units and compose Y (`0x004e7de0`), X (`0x004e7c60`), then Z
-    (`0x004e7f60`) Q12 rotations. Its return is `1` iff `q+0x68` is nonzero.
+    (`0x004e7f60`) Q12 rotations. Their angle conversion is also pinned down:
+    each loads the float constants at `0x00518910` (`1/4096`) and
+    `0x00519a08` (`6.283185482...`), executes x87 `fcos`/`fsin`, multiplies
+    by the double `4096.0` at `0x00519900`, and truncates toward zero. Its
+    return is `1` iff `q+0x68` is nonzero.
 
 ## Physics callsites
 
@@ -574,6 +662,20 @@ and all 608 finalized normal magnitudes fell between `4094` and `4098` in the
 observed short-vector scale. The same audit found 27 calls from the in-air
 wrapper callsite and one in-air hit.
 
+That audit is reproducible with the tracked standard-library checker:
+
+```text
+python re/evidence/verify_collision_trace.py \
+  build/debug/collision-air4.trace.ndjson
+python re/evidence/verify_collision_trace.py \
+  build/debug/collision-dynamic-positive5.trace.ndjson
+```
+
+The first command checks all 2,000 wrapper records, including the 608 static
+hits; the second checks the controlled dynamic hit's distance-derived contact
+fallback. The checker intentionally validates recorded arithmetic invariants
+only; it does not replace the native query implementation.
+
 The probe implementation is tracked in `re/gdb/opentony/collision.py` and is
 registered as `tony-collision-probe`; it records the wrapper `mode`,
 `start_raw`, `end_raw`, hit, contact, normal shorts, model/face pointers, face
@@ -590,7 +692,13 @@ memory walk.
 
 The companion bounded probes are registered as
 `tony-collision-flags-probe`, `tony-collision-dynamic-probe`, and
-`tony-collision-dynamic-cull-probe`. The last one pairs entry/return at
+`tony-collision-dynamic-cull-probe`. The transform-tail probe is registered as
+`tony-collision-transform-probe`; it pairs `0x004f5540` with all seven direct
+return sites currently identified and records the object tail words plus
+temporary matrix before and after the helper. The two return sites at
+`0x00464067`/`0x0046409a` are the linked-object collision path; the other five
+show that the matrix helper is shared by additional model/object transforms.
+The cull probe pairs entry/return at
 `0x004f43e0`/`0x004f492c`, snapshots the linked prefix, and reports which
 nodes still have a stale query stamp and therefore proceed to
 `0x00463e50`.
@@ -616,7 +724,8 @@ were `0`, `0x41`, and `0x8041`; all three angle shorts remained zero in this
 static Hangar object chain. The level-building path independently allocates
 `count*0x4c + 4` bytes and writes through element offset `+0x4a`, so this is
 now a strong full-element/array-shape identification. The tail fields are
-still kept opaque in the native view.
+still kept opaque in the native view except for the recovered Q12 scale words
+at `+0x28/+0x2a/+0x2c`.
 
 The follow-up `collision-root` capture sampled both engine roots at query
 entry. The `DAT_0056af40` value was `0x05f26c84` and began a different chain
@@ -649,15 +758,89 @@ object-space broad phase rejecting the sampled objects, not by the probe
 missing the mode-1 query path. It does not claim that every node beyond the
 bounded prefix was absent or rejected.
 
-The face-flag consumer was also observed directly. A 32-call capture at
-`0x0048ea80` contained eight non-null hit bodies, all from the ground caller
-`0x00496fe1`. The winning face records used base word `0x001c1083` and
-surface/normal word `0x00100020` or `0x00100028`. The post-call globals were
-exactly `face_bit_80=128`, `inverse_bit_23=1`, `inverse_bit_24=1`,
-`surface_bit_40=0`, and `surface_class=0`; the face pointer matched the
-winning `q+0x80` record. Calls with a null hit body left these globals
-unchanged. This runtime sample confirms the bit extraction and stale-global
-behavior, while still leaving the higher-level material names unresolved.
+The follow-up `collision-cull-scale1` capture made three bounded cull calls
+after Hangar loaded. All 32 readable prefix nodes in each call reported
+`matrix_scale_q12 = [4096, 4096, 4096]`; the only sampled flags were `0x110`
+and `0x111`, and each call returned zero face-test survivors. This confirms the
+live tail values are Q12 identity for this ordinary level-object chain, while
+leaving the non-identity `0x0200` asset case unobserved.
+
+The separate `collision-transform-followup` capture closes the identity case
+for the full-word `0x0200` transform branch. It recorded 500 completed calls
+to `0x004f5540`, all from return site `0x00461c64`, with the live player object
+`0x05f39530` as the object argument. Every object snapshot had flags
+`0x0202`, tail words `+0x28/+0x2a/+0x2c = [4096, 4096, 4096]`, and
+`+0x30 = 0`; the one transient `+0x24` zero was otherwise `0x00403800`.
+The temporary matrix varied across the run with player orientation, including
+flat and ramp-like bases, but the before/after matrices matched for every
+sample. This is runtime confirmation that the high-byte `0x02` branch consumes
+the three signed Q12 scale words and leaves the matrix unchanged for identity
+factors. It does not establish the loader values for a non-identity object.
+
+The controlled `collision-dynamic-positive5` capture then changed only the
+first live linked node during one collision call, restoring every changed
+prefix field when `0x00463e50` returned. It supplied the known model-171
+Hangar origin `[-4100096, -6782976, 9408512]`, zero angles, model index 171,
+model kind 6, and flags `0x0110`. Offline parsing of the same `SKHAN.PSX`
+scene identifies this as source object index `170` (the source object uses
+model `171` at that exact position). The query was the same vertical line used by
+the static and airborne captures:
+
+```text
+start = [-4100096, -8822784, 11472896]
+end   = [-4100096,  23945216, 11472896]
+```
+
+The cull marked the node as a face-test survivor. The dynamic query then
+entered `0x00463e50`, and its two lower calls were observed with these live
+argument roles:
+
+```text
+0x004f4b00(model_data, transformed_vertices, 8000, transformed_origin)
+0x004f4c50(model_data, transformed_vertices, query, linked_object)
+```
+
+The transformed-vertex pass returned a zero `0x60f` clip mask, allowing the
+face walker to run. It published `q+0x68 = linked_object`,
+`q+0x80 = 0x05db87e4`, `q+0x84 = 171`, and `q+0x40 = 29`. The dynamic contact
+was `[-4100096, -8710784, 11472896]`; `q+0x8c` remained its initialized
+`0x7fffffff` sentinel because this path orders candidates by traveled distance
+and reconstructs contact from `q+0x40`. The native asset replay resolves this
+dynamic candidate as model face 5, with surface/normal word `0x00100028` and
+finalized normal `[1, -4093, -160]`; the static replay selects its own nearest
+face and `0x4000` parameter independently. This is a positive end-to-end
+runtime confirmation of the linked dynamic primitive and its PSX source
+provenance; the temporary field
+mutation is why it is labeled controlled rather than a claim about ordinary
+gameplay objects at every position.
+
+The executable's direct cull disassembly sharpens the flag interpretation:
+both `0x004f43e0` (linked objects) and `0x004f4940` (static candidates) test
+only the low byte. They reject low-byte bit `0x20` and reject the case where
+low-byte bits `0x01` and `0x40` are both set; high-byte bits are not admission
+rejections. The transform code at `0x00463e50` tests high-byte bit `0x02`,
+which is full-word `0x0200`, while nearby object appearance setters write
+high-byte bit `0x04` (`0x0400`). Native code must preserve that distinction.
+
+The face-flag consumer was also observed directly. The initial 32-call
+capture at `0x0048ea80` contained eight non-null hit bodies, all from the
+ground caller `0x00496fe1`. A broader `collision-materials1` capture collected
+500 shared queries while the skater moved and ollied in Hangar: 160 queries
+hit geometry and 121 flag-consumer calls had non-null faces. It showed these
+raw/derived combinations:
+
+| face base | surface flags | derived result |
+|---:|---:|---|
+| `0x1083` | `0x0010` | `face_bit_80=128`, inverse bits `1/1`, class `0` |
+| `0x1083`, `0x1883`, `0x30a3`, `0x38a3` | `0x0000` | `face_bit_80=128`, inverse bits `1/1`, class `0` |
+| `0x18a3`, `0x38a3` | `0x0400` | `face_bit_80=128`, inverse bits `1/1`, class `2` |
+| `0x18a3` | `0x0420` | `face_bit_80=128`, inverse bits `1/1`, class `2` |
+| `0x0823` | `0x0440` | `face_bit_80=0`, inverse bits `1/1`, `surface_bit_40=64`, class `2` |
+
+The winning face pointers matched `q+0x80`. Calls with a null hit body left
+these globals unchanged. This confirms that the bit extraction is used across
+floor, sloped/large-polygon, and a distinct `surface_bit_40` class, while the
+higher-level material names remain unresolved.
 
 ## Interpretation
 
@@ -705,18 +888,53 @@ of that API without fabricating the unresolved zone/model format. It provides:
   `0x004e2070`;
 - the projected dynamic-face winding gate, candidate distance, nearest-hit
   update, and the dynamic contact fallback arithmetic.
+  The native scene result also preserves the dynamic `0x20000` query-mask
+  sideband as an optional model selector instead of turning it into a hit.
 - the recovered linked-object prefix view, model-bound expansion/reflection,
   the exact linked-object flag gate, and the complete short-arithmetic
   object broad-phase prefilter.
 
 The asset-facing native layer at
 [`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
-version-4 PSX model/object/blockmap decoder, a conservative blockmap broad
-phase, the static scene query, stable scene handles, raw base/surface metadata,
-and direct wrappers for the dynamic transformed-vertex preprocessing and
-projected-face candidate arithmetic. It deliberately does not claim that the
-PC heap linked-list serialization or its broad-phase object records have been
-reproduced.
+version-4 PSX model/object/blockmap decoder, the recovered line/grid walk over
+the blockmap's spatial cells, the static scene query, stable scene handles,
+raw base/surface metadata, and direct wrappers for the dynamic
+transformed-vertex preprocessing and projected-face candidate arithmetic. It
+deliberately does not claim that the PC heap linked-list serialization or its
+broad-phase object records have been reproduced.
+
+The asset-facing API also exposes `PsxLinkedCollisionObject` and
+`PsxScene::query_linked_objects`. This is the native equivalent of the
+collision-facing portion of `0x004628f0`: each supplied node is checked with
+the exact `0x004f43e0` flag gate and short-arithmetic broad phase, then its
+model is transformed and scanned by the recovered dynamic face path. The
+method returns the nearest dynamic candidate by `q+0x40`, preserves the
+caller-supplied body identity in `q+0x68`, and leaves the unresolved heap
+loader/serialization boundary explicit. Its `model_index` is a caller-
+resolved native scene index; the original PC `model_kind`/index pair still
+selects one of the unresolved type-specific model tables.
+When a node is constructed with
+`PsxScene::linked_collision_object_from_source`, the native result preserves
+the source PSX object index separately from the dynamic-span index. This is a
+provenance handle for the reconstruction, not a claim that the retail
+`q+0x68` pointer is an integer object index.
+For records taking the full-word `0x0200` matrix-transform branch, the original
+consumes signed Q12 tail words at `+0x28/+0x2a/+0x2c` while constructing the
+temporary matrix. The native view accepts those factors, but the PC loader
+values and complete tail ownership remain unresolved.
+`PsxScene::query_with_linked_objects` composes this dynamic result with the
+PSX zone/blockmap result at the recovered native boundary. It compares the
+shared traveled-distance field `q+0x40` and keeps the static candidate on an
+exact tie, reflecting the executable's dynamic-before-static traversal and
+strict-nearer updates.
+
+The runtime integration keeps this linked-node boundary explicit. An opt-in
+`GameplaySessionConfig::use_recovered_collision_scene` selects
+`PsxScenePositionCollisionProbe`, and
+`GameplaySession::set_recovered_linked_collision_objects()` supplies the
+caller-resolved node records used by the aggregate static/dynamic query. It
+does not derive PC heap pointers, model-kind lookup, or matrix-tail values
+from the trigger scene registry.
 
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact
@@ -740,14 +958,17 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
 - The bounded airborne run confirms the first in-air sweep and its hit result;
   distinguish the later in-air sweeps (ground versus wall/rail) with a longer
   run that deliberately holds a jump and moves across multiple surfaces. A
-  linked-object cull run is now confirmed, but a positive dynamic linked-face
-  hit remains unobserved; it will require a sweep through an object that
-  survives `0x004f43e0`.
+  linked-object cull and a positive transformed dynamic linked-face hit are
+  now confirmed. A natural, non-injected gameplay capture through a moving
+  prop remains useful but is not required to identify the primitive.
 - Resolve the face-record flag bits before assigning material names, and map
   the PC globals onto the original `COLRESULT_*` concepts where possible.
 - Map the complete caller-specific stack protocol around the two loader
   callsites if a drop-in PC loader is required; the collision-facing source
   prefix and table handoff are now runtime-confirmed.
+- Capture a live non-identity `0x0200` object through `0x004f5540` and compare
+  its three loader-provided factors and matrix before/after the helper; the
+  identity case is now confirmed against the exact matrix-column arithmetic.
 - Keep the unresolved tail of each 0x660-byte zone record and the allocator
   interface provisional; the runtime loader experiment now ties the active
   zone/table globals to a specific serialized-zone buffer.

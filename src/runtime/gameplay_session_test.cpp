@@ -47,6 +47,68 @@ int main() {
     assert(session.physics_hooks().collision_query);
     assert(session.physics_hooks().air_gravity_input);
 
+    opentony::runtime::GameplaySessionConfig recovered_config = config;
+    recovered_config.use_recovered_collision_scene = true;
+    opentony::runtime::GameplaySession recovered_session(
+        trg,
+        psx,
+        asset_path(""),
+        opentony::runtime::PlayerState{},
+        recovered_config);
+    assert(recovered_session.physics_hooks().collision_query);
+
+    const std::string hangar_trg = asset_path("SKHAN_T.TRG");
+    const std::string hangar_psx = asset_path("SKHAN.PSX");
+    if (std::filesystem::is_regular_file(hangar_trg) &&
+        std::filesystem::is_regular_file(hangar_psx)) {
+        opentony::runtime::GameplaySession hangar_session(
+            hangar_trg,
+            hangar_psx,
+            asset_path(""),
+            opentony::runtime::PlayerState{},
+            recovered_config);
+        const auto hangar_hit = hangar_session.physics_hooks().collision_query(
+            {-4100096, -8822784, 11472896},
+            {-4100096, 23945216, 11472896});
+        assert(hangar_hit.has_value());
+        assert(hangar_hit->model_index == 171);
+        assert(hangar_hit->hit_parameter_q14 == 61);
+        assert(hangar_hit->position == (opentony::runtime::FixedPosition{
+            -4100096, -8700784, 11472896}));
+
+        constexpr std::int32_t dynamic_offset = 100000000;
+        hangar_session.set_recovered_linked_collision_objects({
+            opentony::collision::PsxLinkedCollisionObject{
+                .body_id = 0x05f26c84,
+                .source_object_index = 170,
+                .flags = 0x0110,
+                .position = {
+                    -4100096 + dynamic_offset,
+                    -6782976,
+                    9408512 + dynamic_offset,
+                },
+                .angles = {0, 0, 0},
+                .model_index = 171,
+                .model_kind = 6,
+            },
+        });
+        const auto dynamic_hit = hangar_session.physics_hooks().collision_query(
+            {-4100096 + dynamic_offset, -8822784,
+             11472896 + dynamic_offset},
+            {-4100096 + dynamic_offset, 23945216,
+             11472896 + dynamic_offset});
+        assert(dynamic_hit.has_value());
+        assert(dynamic_hit->object_index == 0);
+        assert(dynamic_hit->source_object_index == 170);
+        assert(dynamic_hit->model_index == 171);
+        assert(dynamic_hit->hit_parameter_q14 == 0x7fffffffU);
+        assert(dynamic_hit->position == (opentony::runtime::FixedPosition{
+            -4100096 + dynamic_offset, -8710784,
+            11472896 + dynamic_offset}));
+        assert(dynamic_hit->normal == (opentony::runtime::FixedPosition{
+            1, -4093, -160}));
+    }
+
     opentony::runtime::GameplaySessionConfig tricks_config{};
     tricks_config.tricks_path = asset_path("TRICKS.BIN");
     tricks_config.use_tricks_retail_builder = true;

@@ -39,6 +39,15 @@ struct TriggerObjectState {
     bool has_orientation{};
     // Raw option bytes scanned by FUN_004c5460 before factory creation.
     std::vector<std::uint8_t> spawn_options;
+    // Exact node bytes handed to the retail object constructor. The type-192
+    // constructor stores a cursor into this stream at +0x17c; retaining the
+    // bytes keeps later model-selection replay possible without guessing a
+    // second payload schema here.
+    std::vector<std::byte> factory_node_bytes;
+    // Relative offset of the post-position/orientation cursor saved by the
+    // retail object at +0x17c. It is meaningful only with factory_node_bytes.
+    std::uint32_t factory_cursor_offset{};
+    bool has_factory_cursor_offset{};
     bool has_spawn_option_2{};
     bool has_spawn_option_4{};
     bool factory_requires_environment_registration{};
@@ -355,6 +364,7 @@ public:
         std::size_t node,
         std::uint16_t type,
         std::span<const std::uint8_t> options) override;
+    void on_spawn_factory_cursor(std::size_t node, std::uint32_t offset) override;
     void on_spawn_orientation(std::size_t node, std::array<std::uint16_t, 3> orientation) override;
     void on_special_node(std::size_t node, std::uint16_t type, std::span<const std::byte>) override;
     void on_special_node_state(

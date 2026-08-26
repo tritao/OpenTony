@@ -52,7 +52,12 @@ int main() {
     assert(linked->next == 0x12345678);
     assert(linked_object_flag_gate(0x0110));
     assert(linked_object_flag_gate(0x8110));
+    assert(linked_object_flag_gate(0x0410));
+    assert(linked_object_uses_matrix_transform(0x0200));
+    assert(linked_object_uses_matrix_transform(0x0600));
+    assert(!linked_object_uses_matrix_transform(0x0400));
     assert(!linked_object_flag_gate(0x0130));
+    assert(!linked_object_flag_gate(0x0430));
     assert(!linked_object_flag_gate(0x8171));
 
     assert(candidate_cell_source_bytes(0) == 0x10);
@@ -153,6 +158,11 @@ int main() {
         model, {0, 0, 0}, {100, 100, 100}, {0, 0, 0}, 0x01);
     assert(reflected_bounds.min[0] == 78);
     assert(reflected_bounds.max[0] == 112);
+    const auto scaled_bounds = build_object_bounds(
+        model, {0, 0, 0}, {100, 100, 100}, {5, 6, 7}, 0,
+        std::array<std::int16_t, 3>{0x0800, 0x1000, 0x1000});
+    assert(scaled_bounds.min[0] == -3);  // x87 conversion truncates -3.5
+    assert(scaled_bounds.max[0] == 13);
 
     const CollisionBounds broadphase_bounds{
         .min = {4, -1, -1}, .max = {6, 1, 1}};
@@ -387,7 +397,7 @@ int main() {
     assert(dynamic_query.hit_distance == 10);
     const auto dynamic_contact = dynamic_contact_at_distance(dynamic_query);
     assert(dynamic_contact);
-    assert(dynamic_contact->at(2) == 163800);
+    assert(dynamic_contact->at(2) == 40900);
 
     QueryRecord dynamic_transform_query;
     dynamic_transform_query.start = {0, 0, 0};
@@ -403,7 +413,48 @@ int main() {
         dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true);
     assert((oriented_transform.model_origin_units == RawVec3{0, 0, 0}));
     assert((oriented_transform.transformed_translation == RawVec3{1, -3, 2}));
-    assert(oriented_transform.vertex_basis == identity_q12_basis());
+    assert(oriented_transform.vertex_basis == dynamic_transform_query.line_basis);
+    assert(oriented_transform.normal_basis == dynamic_transform_query.line_basis);
+    assert(oriented_transform.final_basis == identity_q12_basis());
+    const auto scaled_transform = build_dynamic_object_transform(
+        dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true,
+        std::array<std::int16_t, 3>{0x0800, 0x1000, 0x2000});
+    const std::array<std::int16_t, 9> expected_scaled_basis{
+        0x0800, 0, 0, 0, 0, static_cast<std::int16_t>(-0x2000),
+        0, 0x1000, 0};
+    assert(scaled_transform.vertex_basis == expected_scaled_basis);
+    assert(scaled_transform.normal_basis == expected_scaled_basis);
+    assert(scaled_transform.final_basis == identity_q12_basis());
+
+    const auto rotated_transform = build_dynamic_object_transform(
+        dynamic_transform_query, dynamic_object_position, {0x0400, 0x0800,
+                                                            0x0c00}, true);
+    const auto rotated_object_basis = build_object_rotation_basis(
+        {0x0400, 0x0800, 0x0c00});
+    assert(rotated_transform.vertex_basis == compose_q12_basis(
+        dynamic_transform_query.line_basis, rotated_object_basis));
+    assert(rotated_transform.normal_basis == rotated_transform.vertex_basis);
+    assert(rotated_transform.final_basis == rotated_object_basis);
+
+    // A quad whose first projected determinant is negative takes the v3
+    // alternate triangle path in 0x004f4c50. Give v0 and v3 different depth
+    // values so using the wrong first vertex is observable in the distance.
+    std::array<DynamicVertexRecord, 4> alternate_quad{
+        DynamicVertexRecord{0, 0, 100, 0},
+        DynamicVertexRecord{0, 10, 0, 0},
+        DynamicVertexRecord{10, 0, 0, 0},
+        DynamicVertexRecord{-10, -10, 20, 0},
+    };
+    const auto alternate_projected = dynamic_projected_face(
+        alternate_quad[0], alternate_quad[1], alternate_quad[2],
+        alternate_quad[3], false);
+    assert(alternate_projected.accepted);
+    assert(alternate_projected.first_vertex == 3);
+    const auto alternate_candidate = dynamic_face_candidate(
+        alternate_quad[0], alternate_quad[1], alternate_quad[2],
+        alternate_quad[3], false, candidate_normal, identity_q12, 100);
+    assert(alternate_candidate);
+    assert(alternate_candidate->distance == 20);
 
     QueryRecord translated_query;
     translated_query.start = {8192, 8192, 4096};

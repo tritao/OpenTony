@@ -34,6 +34,67 @@ OLLIE_LATCH_WRITERS = {
     0x0049A751: "launch_latch_consume",
 }
 
+# 0x0049b010 is a __thiscall producer.  Keep its raw data contract in the
+# probe rather than assigning gameplay names to the profile slots or to the
+# source vector.  The direct addresses below are intentionally local to this
+# runtime helper until the profile/configuration functions have stable tracked
+# symbols.
+GROUND_MOTION_PRODUCER = 0x0049B010
+GROUND_MOTION_PROFILE_GLOBALS = {
+    "mode": 0x00533F38,
+    "player_selector": 0x0056A854,
+    "profile_table": 0x0056A3D8,
+}
+GROUND_MOTION_PROFILE_OFFSETS = tuple(index * 0x10 for index in range(16))
+
+# Breakpoints are placed on the instruction that is about to perform each
+# store.  This makes the register value the exact value that retail is about
+# to publish, while the player field is still the pre-store value.
+GROUND_MOTION_CORRECTION_WRITERS = {
+    0x0049B2B3: (0x58, "x", "ecx", "animation_or_ordinary"),
+    0x0049B2B6: (0x5C, "y", "edx", "animation_or_ordinary"),
+    0x0049B2B9: (0x60, "z", "eax", "animation_or_ordinary"),
+    0x0049B309: (0x58, "x", "ecx", "animation_5e_or_ordinary"),
+    0x0049B30C: (0x5C, "y", "edx", "animation_5e_or_ordinary"),
+    0x0049B30F: (0x60, "z", "eax", "animation_5e_or_ordinary"),
+    0x0049B3AC: (0x58, "x", "edx", "later_profile"),
+    0x0049B3AF: (0x5C, "y", "eax", "later_profile"),
+    0x0049B3B2: (0x60, "z", "ecx", "later_profile"),
+    0x0049B4E0: (0x58, "x", "eax", "later_profile_repeat"),
+    0x0049B4F0: (0x5C, "y", "ecx", "later_profile_repeat"),
+    0x0049B4F3: (0x60, "z", "eax", "later_profile_repeat"),
+}
+
+GROUND_MOTION_CONTROL_WRITERS = {
+    0x0049B0CA: (0x2F2C, "cooldown", "eax", "decrement"),
+    0x0049B1D5: (0x2F2C, "cooldown", None, "rearm_0xaa"),
+    0x0049B1DF: (0x30A8, "event_pending", None, "set"),
+    0x0049B204: (0x2DC8, "speed_threshold", "edx", "random_seed_0xaa"),
+    0x0049B20F: (0x0108, "animation_rate", None, "set"),
+    0x0049B21B: (0x2F2C, "cooldown", None, "rearm_without_animation"),
+    0x0049B339: (0x30AC, "event_code", None, "set"),
+    0x0049B34B: (0x30A8, "event_pending", None, "clear"),
+    0x0049B427: (0x2F2C, "cooldown", None, "rearm_0xdc"),
+    0x0049B44C: (0x2DC8, "speed_threshold", "edx", "random_seed_0xdc"),
+    0x0049B457: (0x0108, "animation_rate", None, "set"),
+    0x0049B461: (0x30A8, "event_pending", None, "set"),
+}
+GROUND_MOTION_RANDOM_SITES = {
+    0x0049B1C4: "random_seed_0xaa",
+    0x0049B416: "random_seed_0xdc",
+}
+
+# The local gate is not assigned by B010 itself.  These are the static writer
+# chain discovered in the retail image: per-profile source flags, their copy
+# into the runtime table, and the final table store consumed by B010.
+GROUND_MOTION_PROFILE_WRITERS = {
+    0x00413F39: ("source_profile_table_55fc2c", "eax", "ecx", "profile_initializer"),
+    0x00413F40: ("source_profile_table_55fc34", "eax", "ecx", "profile_initializer"),
+    0x00487D27: ("source_profile_table_55fc2c", "ecx", "eax", "profile_record"),
+    0x00487D45: ("source_profile_table_55fc34", "ecx", "eax", "profile_record"),
+    0x00413C49: ("runtime_profile_table_56a3d8", "ecx", "edx", "runtime_copy"),
+}
+
 # The action updater at 0x00489a10 advances these records in 0x10-byte
 # strides. Keep the complete low-action bank here so a physics trace can show
 # which action, if any, is live at the launch boundary; the directional
@@ -98,6 +159,130 @@ def _input_observation(memory) -> dict:
         "action_mask_address": f"0x{action_mask_address:08x}",
         "jump_action_state": action_states["jump"],
         "action_states": action_states,
+    }
+
+
+def _signed32(value: int) -> int:
+    value &= 0xFFFFFFFF
+    return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _read_if_available(memory, reader: str, address: int, size: int):
+    if not memory.readable(address, size):
+        return None
+    return getattr(memory, reader)(address)
+
+
+def _ground_motion_local_profile(memory, player: int) -> dict:
+    """Reproduce B010's table lookup without naming the table's semantics."""
+
+    mode = _read_if_available(
+        memory, "u32", GROUND_MOTION_PROFILE_GLOBALS["mode"], 4)
+    selector = _read_if_available(
+        memory, "u32", GROUND_MOTION_PROFILE_GLOBALS["player_selector"], 4)
+    player_index = _read_if_available(memory, "u32", player + 0x2CC4, 4)
+    lookup_index = None
+    if player_index is not None:
+        lookup_index = player_index
+        if mode == 7 and selector is not None:
+            lookup_index = (player_index ^ selector) & 0xFFFFFFFF
+
+    table_address = None
+    value = None
+    # The startup copy at 0x00413c10 materializes eight entries. Do not read
+    # beyond that recovered table merely because a corrupted player index is
+    # present in memory.
+    if lookup_index is not None and lookup_index < 8:
+        table_address = GROUND_MOTION_PROFILE_GLOBALS["profile_table"] + lookup_index * 4
+        value = _read_if_available(memory, "s32", table_address, 4)
+    return {
+        "mode": mode,
+        "player_selector": selector,
+        "player_index": player_index,
+        "lookup_index": lookup_index,
+        "table_address": (
+            f"0x{table_address:08x}" if table_address is not None else None
+        ),
+        "value": value,
+    }
+
+
+def _ground_motion_context(player: int, memory) -> dict:
+    fields = {
+        "physics_state": memory.u32(player + 0x30B8),
+        "pending_transition": memory.u32(player + 0x2DD8),
+        "physics_lock": memory.u32(player + 0x2DD4),
+        "ground_mode_lock": memory.u32(player + 0x2DF8),
+        "cooldown": memory.u32(player + 0x2F2C),
+        "speed_threshold": memory.u32(player + 0x2DC8),
+        "steering_state": memory.u32(player + 0x2E7C),
+        "brake_state": memory.u32(player + 0x2E78),
+        "event_pending": memory.u32(player + 0x30A8),
+        "event_code": memory.u32(player + 0x30AC),
+    }
+    animation_state = memory.u16(player + 0xF6)
+    animation_frame = memory.u16(player + 0xF4)
+    controller = _read_if_available(memory, "ptr", player + 0x2CCC, 4)
+    controller_slots = None
+    controller_axes = None
+    profile_slot_10 = None
+    if controller is not None and memory.valid(controller):
+        controller_slots = {
+            f"0x{offset:02x}": _action_state(memory, controller + offset)
+            for offset in GROUND_MOTION_PROFILE_OFFSETS
+            if memory.readable(controller + offset, ACTION_STATE_SIZE)
+        }
+        profile_slot_10 = _read_if_available(memory, "u8", controller + 0x10, 1)
+        controller_axes = {
+            "vertical_0x68": _read_if_available(memory, "s8", controller + 0x68, 1),
+            "horizontal_0x69": _read_if_available(memory, "s8", controller + 0x69, 1),
+        }
+
+    local_profile = _ground_motion_local_profile(memory, player)
+    profile_gate = None
+    if profile_slot_10 is not None and local_profile["value"] is not None:
+        profile_gate = bool(profile_slot_10 or local_profile["value"])
+
+    fields.update({
+        "animation_state": animation_state,
+        "animation_frame": animation_frame,
+        "animation_finished": memory.u8(player + 0x107),
+        "animation_rate": memory.u32(player + 0x108),
+        "turn_target": memory.s32(player + 0x3144),
+        "turn_target_mirror": memory.s32(player + 0x3148),
+        "lean_horizontal": memory.s8(player + 0x31A1),
+        "lean_deadband": memory.s8(player + 0x31A2),
+    })
+    return {
+        "player": f"0x{player:08x}",
+        "controller": (
+            f"0x{controller:08x}" if controller is not None else None
+        ),
+        "controller_profile_slots": controller_slots,
+        "controller_axes": controller_axes,
+        "profile_slot_0x10_active": profile_slot_10,
+        "local_profile_lookup": local_profile,
+        "profile_gate": profile_gate,
+        "fields": fields,
+        "velocity_raw": list(memory.u32_vec3(player + 0x4C)),
+        "correction_before_raw": list(memory.u32_vec3(player + 0x58)),
+        "basis_30f4_raw": list(memory.u32_vec3(player + 0x30F4)),
+        "surface_vector_3118_raw": list(memory.u32_vec3(player + 0x3118)),
+        "surface_transform_xy_raw": memory.u32(player + 0x3128),
+        "surface_transform_z_raw": memory.u32(player + 0x312C),
+        "retail_predicates": {
+            "outer_physics_gate_open": (
+                fields["physics_lock"] == 0 and fields["ground_mode_lock"] == 0
+            ),
+            "ordinary_state": fields["physics_state"] == 0,
+            "correction_gate_open": (
+                fields["brake_state"] == 0 or fields["steering_state"] == 0
+            ),
+            "cooldown_open": fields["cooldown"] == 0,
+            "state_not_two": fields["physics_state"] != 2,
+            "pending_transition_clear": fields["pending_transition"] == 0,
+        },
+        **_input_observation(memory),
     }
 
 
@@ -210,6 +395,237 @@ class MovementPhysicsProbe(CountingBreakpoint):
             "heading_deadband": ctx.memory.s8(player + 0x31A2),
             **_input_observation(ctx.memory),
         }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class GroundMotionProducerProbe(CountingBreakpoint):
+    """Capture the complete raw input set observed at 0x0049b010."""
+
+    ADDRESS = GROUND_MOTION_PRODUCER
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(self.ADDRESS, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.this_ptr()
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        record = {
+            "type": "ground_motion_producer",
+            "function": "Skater_UpdateAcceleration",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            **_ground_motion_context(player, ctx.memory),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class GroundMotionWriterProbe(CountingBreakpoint):
+    """Record an exact B010 store and the value in its source register."""
+
+    def __init__(self, address: int, spec: tuple, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.spec = spec
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        # Every B010 interior store keeps the player in ESI.  Filtering against
+        # the generated Player pointer avoids counting a second skater when a
+        # two-player session is running.
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+
+        field_offset, field_name, register, branch = self.spec
+        register_value = None if register is None else ctx.register(register)
+        before = ctx.memory.u32(player + field_offset)
+        record = {
+            "type": "ground_motion_writer",
+            "function": "Skater_UpdateAcceleration",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "writer_group": branch,
+            "field": field_name,
+            "field_offset": f"0x{field_offset:04x}",
+            "field_before_raw": before,
+            "field_before_s32": _signed32(before),
+            "source_register": register,
+            "source_register_raw": (
+                None if register_value is None else register_value & 0xFFFFFFFF
+            ),
+            "source_register_s32": (
+                None if register_value is None else _signed32(register_value)
+            ),
+            "animation_state": ctx.memory.u16(player + 0xF6),
+            "animation_frame": ctx.memory.u16(player + 0xF4),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+            "cooldown": ctx.memory.u32(player + 0x2F2C),
+            "speed_threshold": ctx.memory.u32(player + 0x2DC8),
+            "basis_30f4_raw": list(ctx.memory.u32_vec3(player + 0x30F4)),
+            "correction_before_raw": list(ctx.memory.u32_vec3(player + 0x58)),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+GROUND_MOTION_CONTROL_IMMEDIATES = {
+    0x0049B1D5: 0x14,
+    0x0049B1DF: 1,
+    0x0049B20F: 0x14000,
+    0x0049B21B: 0x14,
+    0x0049B339: 0x22,
+    0x0049B34B: 0,
+    0x0049B427: 0x14,
+    0x0049B457: 0x14000,
+    0x0049B461: 1,
+}
+
+
+class GroundMotionControlWriterProbe(CountingBreakpoint):
+    """Record B010 cooldown, threshold, animation, and event stores."""
+
+    def __init__(self, address: int, spec: tuple, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.spec = spec
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+
+        field_offset, field_name, register, operation = self.spec
+        register_value = None if register is None else ctx.register(register)
+        immediate = GROUND_MOTION_CONTROL_IMMEDIATES.get(ctx.eip)
+        value = immediate if immediate is not None else register_value
+        before = ctx.memory.u32(player + field_offset)
+        record = {
+            "type": "ground_motion_control_writer",
+            "function": "Skater_UpdateAcceleration",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "operation": operation,
+            "field": field_name,
+            "field_offset": f"0x{field_offset:04x}",
+            "field_before_raw": before,
+            "field_before_s32": _signed32(before),
+            "source_register": register,
+            "source_register_raw": (
+                None if register_value is None else register_value & 0xFFFFFFFF
+            ),
+            "store_value_raw": None if value is None else value & 0xFFFFFFFF,
+            "store_value_s32": None if value is None else _signed32(value),
+            "animation_state": ctx.memory.u16(player + 0xF6),
+            "animation_frame": ctx.memory.u16(player + 0xF4),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class GroundMotionRandomProbe(CountingBreakpoint):
+    """Capture B010's raw 0x0048f3a0 result at each return-site use."""
+
+    def __init__(self, address: int, purpose: str, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.purpose = purpose
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        value = ctx.register("eax")
+        record = {
+            "type": "ground_motion_random_input",
+            "function": "Skater_UpdateAcceleration",
+            "eip": f"0x{ctx.eip:08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "purpose": self.purpose,
+            "raw_roll": value & 0xFFFFFFFF,
+            "roll_s32": _signed32(value),
+            "animation_state": ctx.memory.u16(player + 0xF6),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+            "cooldown": ctx.memory.u32(player + 0x2F2C),
+            "speed_threshold_before": ctx.memory.u32(player + 0x2DC8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+GROUND_MOTION_PROFILE_SOURCE_OFFSETS = {
+    0x00487D27: 0x24C,
+    0x00487D45: 0x248,
+}
+
+
+class GroundMotionProfileWriterProbe(CountingBreakpoint):
+    """Trace the profile source flags into B010's indexed runtime gate."""
+
+    def __init__(self, address: int, spec: tuple, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.spec = spec
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        table_name, index_register, value_register, operation = self.spec
+        index = ctx.register(index_register)
+        value = ctx.register(value_register)
+        record = {
+            "type": "ground_motion_profile_writer",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "table": table_name,
+            "index_register": index_register,
+            "index": index,
+            "value_register": value_register,
+            "value_raw": value & 0xFFFFFFFF,
+            "value_s32": _signed32(value),
+            "operation": operation,
+        }
+        source_offset = GROUND_MOTION_PROFILE_SOURCE_OFFSETS.get(ctx.eip)
+        if source_offset is not None:
+            profile_object = ctx.register("ebx")
+            record["profile_object"] = f"0x{profile_object:08x}"
+            source = profile_object + source_offset
+            record["source_record_address"] = f"0x{source:08x}"
+            if ctx.memory.readable(source, 4):
+                record["source_record_value"] = ctx.memory.u32(source)
+        if table_name == "source_profile_table_55fc2c":
+            record["destination_address"] = f"0x{0x0055FC2C + index * 4:08x}"
+        elif table_name == "source_profile_table_55fc34":
+            record["destination_address"] = f"0x{0x0055FC34 + index * 4:08x}"
+        elif table_name == "runtime_profile_table_56a3d8":
+            record["destination_address"] = f"0x{0x0056A3D8 + index * 4:08x}"
         if self.writer is None:
             self.emit(record)
         else:

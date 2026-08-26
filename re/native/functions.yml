@@ -1,5 +1,53 @@
 version: 1
 functions:
+  - address: 0x00492ed0
+    name: Skater_ApproachHeadingFrame
+    status: tested
+    sources:
+      - src/runtime/animation_cursor.hpp
+      - src/runtime/animation_cursor.cpp
+    tests:
+      - src/runtime/animation_cursor_test.cpp
+    evidence:
+      - re/evidence/functions/animation.md
+    notes: Exact 5/3/1 signed steering-frame easing primitive; shared by the ground selector and the standalone animation cursor contract.
+
+  - address: 0x00480730
+    name: Animation_Start
+    status: modeled
+    sources:
+      - src/runtime/animation_cursor.hpp
+      - src/runtime/animation_cursor.cpp
+    tests:
+      - src/runtime/animation_cursor_test.cpp
+    evidence:
+      - re/evidence/functions/animation.md
+    notes: Portable cursor core covers ID validation/fallback, endpoint substitution/clamping, direction, fraction reset, and completion state; object/event side effects remain outside this slice.
+
+  - address: 0x00480890
+    name: Animation_Cycle
+    status: modeled
+    sources:
+      - src/runtime/animation_cursor.hpp
+      - src/runtime/animation_cursor.cpp
+    tests:
+      - src/runtime/animation_cursor_test.cpp
+    evidence:
+      - re/evidence/functions/animation.md
+    notes: Portable cursor core covers loop-mode initialization and signed direction; object-side diagnostics and callbacks remain outside this slice.
+
+  - address: 0x00480950
+    name: Animation_Advance
+    status: modeled
+    sources:
+      - src/runtime/animation_cursor.hpp
+      - src/runtime/animation_cursor.cpp
+    tests:
+      - src/runtime/animation_cursor_test.cpp
+    evidence:
+      - re/evidence/functions/animation.md
+    notes: Portable cursor core covers the 16.16 update, five numeric modes, endpoint transitions, and mode-3 clock path; level-loop clock ownership and pose callbacks remain separate.
+
   - address: 0x0040f850
     name: Camera_Update
     slice: camera-update

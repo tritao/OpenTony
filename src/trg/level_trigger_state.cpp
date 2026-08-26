@@ -173,8 +173,10 @@ void LevelTriggerState::on_object_node(std::size_t node) {
     (void)ensure_object(node, 1, TriggerObjectKind::Object);
 }
 
-void LevelTriggerState::on_object_node_data(std::size_t node, std::span<const std::byte>) {
-    (void)ensure_object(node, 1, TriggerObjectKind::Object);
+void LevelTriggerState::on_object_node_data(
+    std::size_t node, std::span<const std::byte> bytes) {
+    TriggerObjectState& current = ensure_object(node, 1, TriggerObjectKind::Object);
+    current.factory_node_bytes.assign(bytes.begin(), bytes.end());
 }
 
 void LevelTriggerState::on_script_object(
@@ -193,8 +195,10 @@ void LevelTriggerState::on_pickup_node(std::size_t node) {
     (void)ensure_object(node, 5, TriggerObjectKind::Pickup);
 }
 
-void LevelTriggerState::on_pickup_node_data(std::size_t node, std::span<const std::byte>) {
-    (void)ensure_object(node, 5, TriggerObjectKind::Pickup);
+void LevelTriggerState::on_pickup_node_data(
+    std::size_t node, std::span<const std::byte> bytes) {
+    TriggerObjectState& current = ensure_object(node, 5, TriggerObjectKind::Pickup);
+    current.factory_node_bytes.assign(bytes.begin(), bytes.end());
 }
 
 void LevelTriggerState::on_spawn_node(
@@ -202,7 +206,7 @@ void LevelTriggerState::on_spawn_node(
     std::uint16_t type,
     std::uint16_t subtype,
     std::array<std::int32_t, 3> position,
-    std::span<const std::byte>) {
+    std::span<const std::byte> bytes) {
     TriggerObjectState& current = ensure_object(
         node,
         type,
@@ -210,6 +214,9 @@ void LevelTriggerState::on_spawn_node(
     current.subtype = subtype;
     current.position = position;
     current.has_position = true;
+    current.factory_node_bytes.assign(bytes.begin(), bytes.end());
+    current.factory_cursor_offset = 0;
+    current.has_factory_cursor_offset = false;
     if (type == 5) {
         current.spawn_family = TriggerSpawnFamily::Pickup;
     } else if (subtype == 0x00cb) {
@@ -269,6 +276,15 @@ void LevelTriggerState::on_spawn_node(
             break;
         }
     }
+}
+
+void LevelTriggerState::on_spawn_factory_cursor(std::size_t node, std::uint32_t offset) {
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr) {
+        throw FormatError("cannot assign a constructor cursor to an unknown trigger object");
+    }
+    current->factory_cursor_offset = offset;
+    current->has_factory_cursor_offset = true;
 }
 
 void LevelTriggerState::on_spawn_node_options(

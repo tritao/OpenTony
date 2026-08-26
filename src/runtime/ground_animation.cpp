@@ -26,24 +26,6 @@ namespace {
 
 } // namespace
 
-std::int16_t approach_animation_frame(
-    std::int16_t current,
-    std::int16_t target) noexcept {
-    const std::int32_t difference =
-        static_cast<std::int32_t>(target) - current;
-    if (difference == 0) {
-        return current;
-    }
-    const std::int32_t magnitude = difference < 0
-        ? -difference
-        : difference;
-    const std::int32_t step = magnitude > 0xc
-        ? 4
-        : (magnitude > 3 ? 2 : 1);
-    const std::int32_t signed_step = difference < 0 ? -step : step;
-    return static_cast<std::int16_t>(current + signed_step);
-}
-
 GroundAnimationResult update_ground_animation(
     const GroundAnimationInput& input) noexcept {
     GroundAnimationResult result{

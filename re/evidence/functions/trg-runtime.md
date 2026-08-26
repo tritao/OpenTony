@@ -243,6 +243,122 @@ TRG type 1 / subtype 0x0192
               object +0x04 bits 0x111 after clearing bit 1
 ```
 
+The `0x0192` constructor's collision-facing inputs are now more explicit.
+`0x0049f250` passes the current resource-name pointer from `DAT_0056e218`
+through `0x0047fe30`; that helper resolves the name against the 20-entry
+region table, writes the region selector to object `+0x1f`, and initializes
+the model index at `+0x1a` to zero. The constructor then calls
+`0x00480240` with the factory's position payload and `0x004802c0` with the
+three-u16 orientation payload, storing them at `+0x08..+0x10` and
+`+0x14..+0x18`. It writes `+0x04 = (+0x04 & ~0x0002) | 0x0111`, so a later
+factory clear of bit `0x2` leaves the observed `0x0110` form without changing
+the model/position inputs. The originating TRG node index is written at
+`+0xb0` by the factory after the constructor returns. This connects the
+trigger-side allocation to the same region/model/position/angle prefix read
+by the dynamic collision path, while leaving the live heap body pointer and
+the later model-index update explicit.
+
+### Type-192 model-selection lifecycle
+
+The type-192 vtable is installed at `0x005194f8`. Its virtual handler at
+`0x004a1060` dispatches a compact object command by the low 16 bits of the
+command word. The model-selection cases are important to collision ownership:
+
+- one case consumes a `u16` model index, stores it at object `+0x1a`, then
+  resolves `DAT_0056d43c[object+0x1f * 0x11]` and tests the selected model
+  header byte for bit `0x10`; it sets or clears object flag `+0x04` bit
+  `0x20` accordingly;
+- another case aligns the command cursor to a four-byte boundary, consumes a
+  `u32` model-name/checksum, calls `0x004b1de0(checksum, object+0x1f)`, and
+  stores the returned model index at `+0x1a`; it performs the same model-header
+  test and also clears object flag `+0x04` bit 0; and
+- the constructor initializes `+0x1a` to zero through the shared
+  `0x0047fe30` helper, while `+0x1f` is the region slot returned by the
+  region-name lookup. Thus the initial model is region-local index zero, not
+  a TRG subtype or source-object index.
+
+The handler's cursor is the post-position/orientation stream pointer stored at
+`+0x17c`; the constructor's `0x00480240`/`0x004802c0` helpers consume the
+three fixed-point position words and three orientation words before saving
+that cursor. In the type-192 dispatch table, the proven command IDs are:
+
+```text
+0x2123  consume one u8 -> object +0x16e
+0x2124  consume one u16 model index -> object +0x1a; mirror model-header bit 0x10 to flags bit 0x20
+0x2127  consume three u16 values -> object +0x70/+0x72/+0x74
+0x2128  consume three resolved u16 values -> object +0x4c/+0x50/+0x54 after << 12
+0x212f  align to 4, consume one u32 checksum -> 0x004b1de0(checksum, region); store returned model index at +0x1a
+0x2133  consume three u16 values -> object +0x14/+0x16/+0x18
+0x2136  consume three u16 values -> object +0x76/+0x78/+0x7a
+```
+
+The checksum case also clears object flag bit `0x1`, while both model cases
+resolve the selected region-local model through
+`DAT_0056d43c[object+0x1f * 0x11]`. The native TRG layer now records the
+relative offset of this saved cursor beside the original node bytes; it does
+not interpret the remaining stream as fixed records. This gives a concrete
+update path from a TRG-created object to the same region/model table consumed
+by collision broad phase, while leaving the command handler's heap pointer
+ownership unresolved.
+
+The boundary is also observable on shipped data with the native inspector:
+
+```text
+opentony_trg_inspect SKHAN_T.TRG --print-factory-cursors
+factory_cursor node=7 subtype=0x192 relative=30 remaining=154
+```
+
+The remaining byte count is node-specific; the stable result is the relative
+cursor location. It is obtained from the same absolute-alignment rule used by
+the retail constructor, so it remains meaningful even when the node’s
+file-table offset changes.
+
+The live Hangar probe `tony-trg-type192-probe 128` confirms the command-table
+interpretation on the normal object-update path. After dismissing the level
+summary, it recorded 90 type-192 runner entries and 38 completed calls to
+`0x004a1060`; all 38 handler calls were raw command `0x212f`. The calls covered
+38 distinct region-4 objects. Their model indices changed from constructor
+default `0` to region-local values `7`, `9`, or `10` (with one each of `1`,
+`2`, `3`, and `4`), and their flags changed from `0x0110/0x0111` to
+`0x0110/0x0130` according to the selected model header bit. The handler
+returned through `0x004a114e` or `0x004a1169`, exactly the two model-header
+branches, and advanced the saved cursor by 4 bytes when already aligned or 6
+bytes when it first skipped two bytes to reach the aligned checksum word.
+This is a runtime confirmation of `0x212f` as checksum/model selection and of
+the cursor being a live command-stream pointer. The raw trace is retained as
+`build/debug/trg-type192-hangar3.trace.ndjson`; its footer is intentionally
+incomplete because the debugger was stopped after the bounded capture.
+
+The selector table does not provide a supported semantic mapping for `0x2137`:
+its byte is `0x90`, which does not point at one of the handler entries. The
+proven three-vector cases are therefore `0x2127`, `0x2128`, `0x2133`, and
+`0x2136`; `0x2137` should remain unclaimed until a real stream exercises it.
+
+The adjacent `0x004a12d0` consumer scans `DAT_0056af40` through each object's
+`+0x20` link, requires object flag `0x0100` and object state bit
+`+0x178:0x10`, rejects `+0x178:0x20`, resolves the object's region slot/model
+index through `DAT_0056d43c`, and compares the selected model bounds against
+the player's position/AABB. A qualifying object is passed to `0x0049f4c0`
+with the player response vector. This is a ground/platform response consumer,
+not the skater's line-query primitive, but it proves that the type-192
+object-manager list is a live downstream collision/ground input.
+
+The model-overlap gate is now exact enough to reproduce independently. For
+each player axis, `0x004a12d0` takes the ordered pair of the live position
+(`+0x08/+0x0c/+0x10`) and the corresponding player extent (`+0xbc/+0xc0/+0xc4`),
+then expands both ends by `0x14000` (20 Q12 world units). It adds the selected
+model's signed-short bounds, shifted left by 12, to the object position and
+rejects when any model minimum is above the expanded player maximum or any
+model maximum is below the expanded player minimum. The selected model bounds
+are read as runtime header pairs at `+0x0c/+0x0e` (X), `+0x10/+0x12` (Y), and
+`+0x14/+0x16` (Z), with the endpoint order resolved by the comparisons rather
+than by assuming a min/max serialization order. Before this test the function
+sets object flag `+0x04` bit `0x20` for an admitted object; it then rejects
+objects with state bit `+0x178:0x20` and calls `0x0049f4c0` only for the
+survivors. This gives the future ground/platform adapter its exact broad phase
+while keeping its object-manager record and platform type separate from the
+PSX environment records.
+
 The constructors also expose stable sentinel/header initialization beyond the
 shared position and source-node fields. The `0xcb` constructor stores the
 current runtime context from `DAT_0056a954` at `+0x1d8`, initializes `+0x1ec`

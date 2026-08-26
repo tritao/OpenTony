@@ -10,6 +10,7 @@ from .player import PlayerView
 
 QUERY_WRAPPER = 0x00466090
 QUERY_RETURN = 0x0046609F
+ACTION_MASK = 0x006A3F1C
 COLLISION_MODEL_TABLE = 0x0056D43C
 COLLISION_LINKED_ROOT = 0x0056AF40
 COLLISION_LINKED_ROOT_AUX = 0x0056AF44
@@ -21,10 +22,26 @@ ZONE_LOADER = 0x004667E0
 ZONE_LOADER_AFTER_ARGS = 0x0046682E
 ZONE_LOADER_FIRST_CELL = 0x0046697A
 ZONE_LOADER_RETURN_SITES = (0x0043E041, 0x004B29EB)
+# thiscall model/resource setup that initializes one kind-strided cache slot.
+MODEL_KIND_LOADER = 0x00420FA0
+MODEL_KIND_LOADER_RETURN = 0x00421038
 COLLISION_FLAG_CONSUMER = 0x0048EA80
 COLLISION_FLAG_RETURN = 0x0048EB02
 COLLISION_DYNAMIC_QUERY = 0x00463E50
 COLLISION_DYNAMIC_RETURN = 0x004641F2
+COLLISION_DYNAMIC_TRANSFORM = 0x004F5540
+# Direct return PCs for every observed call to the reusable matrix helper.
+# The final two are the linked-object collision path; the earlier callers are
+# other model/object transform users and are retained for reuse discovery.
+COLLISION_DYNAMIC_TRANSFORM_RETURNS = (
+    0x0045FCC1,
+    0x0045FDA1,
+    0x00460DD3,
+    0x00460EB4,
+    0x00461C64,
+    0x00464067,
+    0x0046409A,
+)
 COLLISION_DYNAMIC_CULL = 0x004F43E0
 COLLISION_DYNAMIC_CULL_RETURN = 0x004F492C
 COLLISION_FLAG_GLOBALS = {
@@ -103,6 +120,12 @@ def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
                 "model_index": memory.u16(address + 0x1A),
                 "model_kind": memory.u8(address + 0x1F),
                 "next": f"0x{next_address:08x}" if next_address else None,
+                "matrix_scale_q12": (
+                    [_signed16(memory.u16(address + offset))
+                     for offset in (0x28, 0x2A, 0x2C)]
+                    if memory.readable(address + 0x2C, 2)
+                    else None
+                ),
                 "previous": (
                     f"0x{memory.u32(address + 0x34):08x}"
                     if memory.readable(address + 0x34, 4)
@@ -330,6 +353,8 @@ class CollisionQueryProbe:
         caller = ctx.caller()
         self._active = {
             "query": query,
+            "frame": ctx.frame,
+            "action_mask": ctx.memory.u16(ACTION_MASK),
             "mode": ctx.arg(1),
             "caller": caller,
             "caller_name": function_name_at(caller),
@@ -360,6 +385,8 @@ class CollisionQueryProbe:
             "caller": f"0x{int(active['caller']):08x}",
             "caller_function": active["caller_name"],
             "query": f"0x{query:08x}",
+            "frame": active["frame"],
+            "action_mask": active["action_mask"],
             "mode": active["mode"],
             "player": active["player"],
             "physics_state": active["physics_state"],
@@ -550,6 +577,117 @@ class _CollisionLoaderReturn(TonyBreakpoint):
         self.owner.finish(ctx, self.return_site)
 
 
+def _model_kind_table_snapshot(index: int, memory) -> dict | None:
+    """Read the bounded model-table slot selected by 0x00420fa0."""
+
+    # The executable uses a 0x44-byte slot (17 pointers) and the observed
+    # object field is a small kind/region index. Do not turn a corrupt object
+    # word into an unbounded memory read while the probe is armed early.
+    if index < 0 or index > 0x100:
+        return None
+    slot = COLLISION_MODEL_TABLE + index * 0x44
+    if not memory.readable(slot, 0x44):
+        return None
+    return {
+        "index": index,
+        "address": f"0x{slot:08x}",
+        "words": _u32_words(slot, 17, memory),
+    }
+
+
+def _model_kind_object_snapshot(address: int, memory) -> dict | None:
+    if not address or not memory.readable(address + 0x80, 0x10):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "words_80_8c": _u32_words(address + 0x80, 4, memory),
+        "table_index": memory.u32(address + 0x84),
+    }
+
+
+class CollisionModelKindProbe:
+    """Capture cache-slot initialization and its object-side selector."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionModelKindEntry(self)
+        self._return = _CollisionModelKindReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._pending: list[dict] = []
+
+    @property
+    def breakpoints(self):
+        return (self._entry, self._return)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.this_ptr()
+        snapshot = _model_kind_object_snapshot(object_address, ctx.memory)
+        if snapshot is None:
+            return
+        index = int(snapshot["table_index"])
+        self._pending.append(
+            {
+                "caller": ctx.caller(),
+                "caller_function": function_name_at(ctx.caller()),
+                "object": snapshot,
+                "table_before": _model_kind_table_snapshot(index, ctx.memory),
+            }
+        )
+
+    def finish(self, ctx: Context) -> None:
+        if not self._pending:
+            return
+        active = self._pending.pop(0)
+        index = int(active["object"]["table_index"])
+        record = {
+            "type": "collision_model_kind_load",
+            "function": "Collision_InitModelCacheSlot",
+            "address": f"0x{MODEL_KIND_LOADER:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "caller": f"0x{int(active['caller']):08x}",
+            "caller_function": active["caller_function"],
+            "object": active["object"],
+            "object_after": _model_kind_object_snapshot(
+                int(active["object"]["address"], 16), ctx.memory
+            ),
+            "table_before": active["table_before"],
+            "table_after": _model_kind_table_snapshot(index, ctx.memory),
+            "return_value": ctx.register("eax"),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionModelKindEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionModelKindProbe):
+        self.owner = owner
+        super().__init__(MODEL_KIND_LOADER, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionModelKindReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionModelKindProbe):
+        self.owner = owner
+        super().__init__(MODEL_KIND_LOADER_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
 class CollisionFlagProbe:
     """Pair the face-flag consumer with its exact derived global outputs."""
 
@@ -665,6 +803,12 @@ def _dynamic_object_snapshot(address: int | None, memory) -> dict | None:
             if memory.u32(address + 0x20)
             else None
         ),
+        "matrix_scale_q12": (
+            [_signed16(memory.u16(address + offset))
+             for offset in (0x28, 0x2A, 0x2C)]
+            if memory.readable(address + 0x2C, 2)
+            else None
+        ),
     }
 
 
@@ -770,6 +914,111 @@ class _CollisionDynamicReturn(TonyBreakpoint):
     def __init__(self, owner: CollisionDynamicProbe):
         self.owner = owner
         super().__init__(COLLISION_DYNAMIC_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
+def _matrix_snapshot(address: int | None, memory) -> list[int] | None:
+    if not address or not memory.readable(address, 0x12):
+        return None
+    return _short_words(address, 9, memory)
+
+
+def _dynamic_transform_snapshot(address: int | None, memory) -> dict | None:
+    if not address or not memory.readable(address, 0x2E):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "flags": memory.u16(address + 0x04),
+        "tail_24_u32": memory.u32(address + 0x24),
+        "tail_28_u32": memory.u32(address + 0x28),
+        "tail_28_s16": _signed16(memory.u16(address + 0x28)),
+        "tail_2a_s16": _signed16(memory.u16(address + 0x2A)),
+        "tail_2c_s16": _signed16(memory.u16(address + 0x2C)),
+        "tail_30_u32": memory.u32(address + 0x30),
+    }
+
+
+class CollisionDynamicTransformProbe:
+    """Capture the opaque 0x0200 matrix-transform tail boundary."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionDynamicTransformEntry(self)
+        self._returns = [
+            _CollisionDynamicTransformReturn(self, address)
+            for address in COLLISION_DYNAMIC_TRANSFORM_RETURNS
+        ]
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return (self._entry, *self._returns)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.arg(0)
+        matrix_address = ctx.arg(1)
+        if not object_address or not matrix_address:
+            return
+        self._active = {
+            "object": object_address,
+            "matrix": matrix_address,
+            "caller": ctx.caller(),
+            "return_address": ctx.memory.u32(ctx.esp),
+            "object_before": _dynamic_transform_snapshot(
+                object_address, ctx.memory
+            ),
+            "matrix_before": _matrix_snapshot(matrix_address, ctx.memory),
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        matrix_address = int(active["matrix"])
+        record = {
+            "type": "collision_dynamic_transform",
+            "function": "Collision_TransformLinkedModelMatrix",
+            "address": f"0x{COLLISION_DYNAMIC_TRANSFORM:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "entry_return_address": f"0x{int(active['return_address']):08x}",
+            "caller": f"0x{int(active['caller']):08x}",
+            "object": f"0x{int(active['object']):08x}",
+            "object_before": active["object_before"],
+            "matrix": f"0x{matrix_address:08x}",
+            "matrix_before": active["matrix_before"],
+            "matrix_after": _matrix_snapshot(matrix_address, ctx.memory),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                for breakpoint in self.breakpoints:
+                    breakpoint.enabled = False
+
+
+class _CollisionDynamicTransformEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_TRANSFORM, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionDynamicTransformReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformProbe, address: int):
+        self.owner = owner
+        super().__init__(address, internal=True)
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx)

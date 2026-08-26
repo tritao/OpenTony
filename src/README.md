@@ -4,6 +4,13 @@ The native reconstruction currently combines a framework-free physics-state
 reference model with a renderer-free Warehouse trigger and gameplay runtime.
 Both remain independently testable before a graphics framework is selected.
 
+The animation cursor is now a standalone renderer-free boundary in
+`runtime/animation_cursor.hpp/.cpp`. It preserves the retail animation ID,
+frame/fraction accumulator, playback rate, endpoint modes, and transition
+queries. `assets/psx_animation.hpp/.cpp` supplies the corresponding type-0x2c
+PSX table view, keeping the 218 animation IDs and source stream ranges opaque
+until pose decoding is integrated.
+
 `physics_state_machine.hpp/.cpp` intentionally models only the recovered
 boundary:
 
@@ -382,10 +389,20 @@ contact, normal, distance, and parameter fields. The native object and face
 identifiers are stable scene IDs/source offsets; they are not fabricated
 32-bit PC pointers. The dynamic branch's transformed-vertex preprocessing,
 projected-face gate, candidate-distance arithmetic, and signed-short
-saturation are also exposed. The remaining gap is the PC heap-linked object
-list's loader ownership and level-to-heap serialization. The collision-facing
-linked-node element stride, prefix, tail extent, and broad-phase arithmetic
-are documented and tested in `re/evidence/collision_reference.hpp`. The evidence layer also
+saturation are also exposed. `query_linked_objects` accepts a native view of
+the recovered PC heap-node prefix and runs the exact flag gate, object-space
+broad phase, recovered transformed-model pass, and dynamic face scan; callers
+provide the resolved native model index and body identity because the
+original stores a type-table model pair and a live pointer in `q+0x68`. The
+`query_with_linked_objects` entry point composes that branch with the PSX
+zone/blockmap path using the shared traveled-distance field. The
+remaining gap is the PC heap-linked object's loader ownership and
+level-to-heap serialization. The collision-facing linked-node element
+stride, prefix, tail extent, and broad-phase arithmetic are documented and
+tested in `re/evidence/collision_reference.hpp`. The high-byte `0x02` /
+full-word `0x0200` matrix-transform branch is selected natively, and its
+three Q12 matrix factors can be supplied explicitly; the PC loader's values
+remain pending a live capture. The evidence layer also
 models the null-terminated per-cell object-head array and the recovered
 forward/backward list-link offsets; PC loader allocation and serialization
 remain outside this boundary.
@@ -397,3 +414,22 @@ g++ -std=c++20 -Wall -Wextra -Werror -pedantic -I. \
   src/collision/psx_scene_test.cpp -o /tmp/psx-scene-test
 /tmp/psx-scene-test /path/to/SKHAN.PSX
 ```
+
+For a bounded TRG-to-PSX position comparison, the TRG inspector accepts
+`--print-position-witnesses`. It reports only type-192 and type-`0xcb` spawn
+records, their exact fixed-point PSX position-match count, and the first
+matching PSX object/model when the count is one. A zero count is meaningful:
+trigger-created object positions are not generally the same records as the PSX
+environment object table.
+
+The ground-movement runtime keeps the older asset-world probe as its default
+comparison path. Set
+`GameplaySessionConfig::use_recovered_collision_scene` to enable
+`PsxScenePositionCollisionProbe`, which parses the same PSX bytes and maps
+the recovered fixed-point contact, normal, parameter, and surface metadata
+into the existing physics collision hook. This is intentionally opt-in until
+frame-by-frame gameplay parity is established. The session's
+`set_recovered_linked_collision_objects()` API can additionally supply the
+recovered linked-node prefix for the dynamic branch; it keeps body identity,
+model index, angles, and matrix factors explicit until the PC heap loader is
+reconstructed.
