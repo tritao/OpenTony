@@ -141,7 +141,8 @@ public:
         const auto marker = reader.u16("marker");
         const auto tag_offset = reader.u32("tag offset");
         const auto object_count = reader.u32("object count");
-        if (!version || !marker || !tag_offset || !object_count) {
+        if (!version.has_value() || !marker.has_value() ||
+            !tag_offset.has_value() || !object_count.has_value()) {
             return std::nullopt;
         }
         if (*version != 4 || *marker != 2) {
@@ -171,9 +172,11 @@ public:
             const auto unknown_y = reader.i16("object unknown y");
             const auto unknown_3 = reader.u32("object unknown 3");
             const auto unknown_rgbx = reader.u32("object unknown rgbx");
-            if (!flags || !x || !y || !z || !unknown_1 || !unknown_2 ||
-                !model_index || !unknown_x || !unknown_y || !unknown_3 ||
-                !unknown_rgbx) {
+            if (!flags.has_value() || !x.has_value() || !y.has_value() ||
+                !z.has_value() || !unknown_1.has_value() ||
+                !unknown_2.has_value() || !model_index.has_value() ||
+                !unknown_x.has_value() || !unknown_y.has_value() ||
+                !unknown_3.has_value() || !unknown_rgbx.has_value()) {
                 return std::nullopt;
             }
             object.flags = *flags;
@@ -184,7 +187,7 @@ public:
         }
 
         const auto model_count = reader.u32("model count");
-        if (!model_count || *model_count > bytes.size() / 4u) {
+        if (!model_count.has_value() || *model_count > bytes.size() / 4u) {
             reader.fail("model table is unreasonably large");
             return std::nullopt;
         }
@@ -192,7 +195,7 @@ public:
         model_offsets.reserve(*model_count);
         for (std::uint32_t index = 0; index < *model_count; ++index) {
             const auto offset = reader.u32("model offset");
-            if (!offset) {
+            if (!offset.has_value()) {
                 return std::nullopt;
             }
             model_offsets.push_back(*offset);
@@ -229,7 +232,9 @@ public:
             const auto normal_count = model_reader.u16("normal count");
             const auto face_count = model_reader.u16("face count");
             const auto radius = model_reader.u32("model radius");
-            if (!flags || !vertex_count || !normal_count || !face_count || !radius) {
+            if (!flags.has_value() || !vertex_count.has_value() ||
+                !normal_count.has_value() || !face_count.has_value() ||
+                !radius.has_value()) {
                 return std::nullopt;
             }
             model.flags = *flags;
@@ -239,12 +244,12 @@ public:
             model.radius = *radius;
             for (auto& bound : model.bounds) {
                 const auto value = model_reader.i16("model bound");
-                if (!value) {
+                if (!value.has_value()) {
                     return std::nullopt;
                 }
                 bound = *value;
             }
-            if (!model_reader.u32("model unknown header")) {
+            if (!model_reader.u32("model unknown header").has_value()) {
                 return std::nullopt;
             }
 
@@ -254,7 +259,8 @@ public:
                 const auto x = model_reader.i16("vertex x");
                 const auto y = model_reader.i16("vertex y");
                 const auto z = model_reader.i16("vertex z");
-                if (!x || !y || !z || !model_reader.skip(2, "vertex padding")) {
+                if (!x.has_value() || !y.has_value() || !z.has_value() ||
+                    !model_reader.skip(2, "vertex padding")) {
                     return std::nullopt;
                 }
                 model.vertices.push_back({*x, *y, *z});
@@ -265,7 +271,8 @@ public:
                 const auto x = model_reader.i16("normal x");
                 const auto y = model_reader.i16("normal y");
                 const auto z = model_reader.i16("normal z");
-                if (!x || !y || !z || !model_reader.skip(2, "normal padding")) {
+                if (!x.has_value() || !y.has_value() || !z.has_value() ||
+                    !model_reader.skip(2, "normal padding")) {
                     return std::nullopt;
                 }
                 model.normals.push_back({*x, *y, *z});
@@ -277,7 +284,8 @@ public:
                 const auto face_start = model_reader.position();
                 const auto base_flags = model_reader.u16("face flags");
                 const auto length_bytes = model_reader.u16("face length");
-                if (!base_flags || !length_bytes || *length_bytes < 0x10u ||
+                if (!base_flags.has_value() || !length_bytes.has_value() ||
+                    *length_bytes < 0x10u ||
                     face_start + *length_bytes > model_reader.size()) {
                     model_reader.fail("face record is invalid");
                     return std::nullopt;
@@ -288,7 +296,7 @@ public:
                 face.source_offset = model_start + face_start;
                 for (auto& vertex_index : face.vertex_indices) {
                     const auto value = model_reader.u8("face vertex index");
-                    if (!value || *value >= model.vertex_count) {
+                    if (!value.has_value() || *value >= model.vertex_count) {
                         model_reader.fail("face references a missing vertex");
                         return std::nullopt;
                     }
@@ -299,7 +307,8 @@ public:
                 }
                 const auto normal_index = model_reader.u16("face normal index");
                 const auto surface_flags = model_reader.u16("face surface flags");
-                if (!normal_index || !surface_flags || *normal_index >= model.normal_count) {
+                if (!normal_index.has_value() || !surface_flags.has_value() ||
+                    *normal_index >= model.normal_count) {
                     model_reader.fail("face references a missing normal");
                     return std::nullopt;
                 }
@@ -964,7 +973,7 @@ private:
         }
         while (reader.position() < reader.size()) {
             const auto type = reader.u32("tag type");
-            if (!type) {
+            if (!type.has_value()) {
                 return false;
             }
             if (*type == 0xffffffffu) {
@@ -972,7 +981,7 @@ private:
             }
             const auto size = reader.u32("tag size");
             const auto payload_start = reader.position();
-            if (!size || payload_start > reader.size() ||
+            if (!size.has_value() || payload_start > reader.size() ||
                 *size > reader.size() - payload_start) {
                 reader.fail("tag payload");
                 return false;
@@ -999,8 +1008,10 @@ private:
         const auto max_z = reader.i32("blockmap max z");
         const auto cell_count_x = reader.u16("blockmap cell count x");
         const auto cell_count_z = reader.u16("blockmap cell count z");
-        if (!min_x || !min_z || !max_x || !max_z || !cell_count_x ||
-            !cell_count_z || *cell_count_x == 0 || *cell_count_z == 0) {
+        if (!min_x.has_value() || !min_z.has_value() || !max_x.has_value() ||
+            !max_z.has_value() || !cell_count_x.has_value() ||
+            !cell_count_z.has_value() || *cell_count_x == 0 ||
+            *cell_count_z == 0) {
             return false;
         }
         blockmap.min_x = *min_x;
@@ -1017,7 +1028,8 @@ private:
             const auto unknown_1 = reader.u32("blockmap cell unknown 1");
             const auto unknown_2 = reader.u32("blockmap cell unknown 2");
             const auto reference_count = reader.u32("blockmap cell reference count");
-            if (!unknown_1 || !unknown_2 || !reference_count ||
+            if (!unknown_1.has_value() || !unknown_2.has_value() ||
+                !reference_count.has_value() ||
                 *reference_count > reader.size() / 4u) {
                 reader.fail("blockmap cell");
                 return false;
@@ -1028,14 +1040,15 @@ private:
             for (std::uint32_t reference = 0; reference < *reference_count;
                  ++reference) {
                 const auto object_index = reader.u32("blockmap object index");
-                if (!object_index || *object_index >= objects_.size()) {
+                if (!object_index.has_value() ||
+                    *object_index >= objects_.size()) {
                     reader.fail("blockmap references a missing object");
                     return false;
                 }
                 cell.object_indices.push_back(*object_index);
             }
             const auto terminator = reader.u32("blockmap cell terminator");
-            if (!terminator || *terminator != 0) {
+            if (!terminator.has_value() || *terminator != 0) {
                 reader.fail("blockmap cell terminator");
                 return false;
             }
