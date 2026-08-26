@@ -74,6 +74,41 @@ def test_raw_split_round_trip_is_byte_identical(tmp_path: Path, monkeypatch):
     assert split.split_verify(SimpleNamespace()) == 0
 
 
+def test_verify_separates_vc6_assembly_from_semantic_cpp(tmp_path: Path, monkeypatch, capsys):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=6))
+    manifest = split._load_manifest()
+    asm_source = tmp_path / "match/cpp/naked.cpp"
+    cpp_source = tmp_path / "match/cpp/native.cpp"
+    asm_source.parent.mkdir(parents=True)
+    asm_source.write_text("__declspec(naked) void helper() { __asm { ret } }\n")
+    cpp_source.write_text("int helper() { return 1; }\n")
+    manifest["modules"][0]["status"] = "vc6_asm"
+    manifest["modules"][0]["cpp_source"] = str(asm_source)
+    manifest["modules"][1]["status"] = "cpp"
+    manifest["modules"][1]["cpp_source"] = str(cpp_source)
+    split.save_yaml(split.MANIFEST, manifest)
+    for module in manifest["modules"]:
+        built = split._built_path(module)
+        built.parent.mkdir(parents=True, exist_ok=True)
+        built.write_bytes(split._original_path(module).read_bytes())
+    output = tmp_path / "match/generated/THawk2.rebuilt.exe"
+    split.split_rebuild(SimpleNamespace(no_build=True, output=str(output)))
+
+    assert split.split_verify(SimpleNamespace()) == 0
+    report = capsys.readouterr().out
+    assert ".text: raw=0 hybrid=0 asm=0 vc6_asm=6 cpp=4" in report
+    assert "semantic C++: 4/14 bytes" in report
+
+    manifest["modules"][0]["status"] = "cpp"
+    manifest["modules"][1]["status"] = "vc6_asm"
+    split.save_yaml(split.MANIFEST, manifest)
+    assert split.split_verify(SimpleNamespace()) == 1
+    report = capsys.readouterr().out
+    assert "cpp module contains naked inline assembly" in report
+    assert "vc6_asm module is not naked inline assembly" in report
+
+
 def test_coverage_verifier_reports_gap():
     manifest = {
         "sections": [{"name": ".text", "start_va": 0x401000, "file_offset": 0x200, "raw_size": 8}],

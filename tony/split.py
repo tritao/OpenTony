@@ -737,14 +737,26 @@ def split_verify(_args) -> int:
     errors = _validate_coverage(manifest)
     matching = 0
     reconstructed = 0
+    status_names = ("raw", "hybrid", "asm", "vc6_asm", "cpp")
     section_status: dict[str, dict[str, int]] = {}
     for module in manifest.get("modules", []):
         status = str(module.get("status", "raw"))
-        if status not in {"raw", "hybrid", "asm", "cpp"}:
+        if status not in status_names:
             errors.append(f"unknown module status {status!r}: {module['id']}")
-        totals = section_status.setdefault(module["section"], {"raw": 0, "hybrid": 0, "asm": 0, "cpp": 0})
+        totals = section_status.setdefault(module["section"], dict.fromkeys(status_names, 0))
         if status in totals:
             totals[status] += int(module["size"])
+        if status in {"vc6_asm", "cpp"}:
+            cpp_source = module.get("cpp_source")
+            source_path = resolve(cpp_source) if cpp_source else None
+            if source_path is None or not source_path.is_file():
+                errors.append(f"{status} module has no C++ source: {module['id']}")
+            else:
+                is_naked = re.search(r"__declspec\s*\(\s*naked\s*\)", source_path.read_text()) is not None
+                if status == "vc6_asm" and not is_naked:
+                    errors.append(f"vc6_asm module is not naked inline assembly: {module['id']}")
+                if status == "cpp" and is_naked:
+                    errors.append(f"cpp module contains naked inline assembly: {module['id']}")
         built = _built_path(module)
         original = _original_path(module)
         if not original.is_file():
@@ -778,21 +790,30 @@ def split_verify(_args) -> int:
     total = sum(int(module["size"]) for module in manifest.get("modules", []))
     print(f"coverage: {total} file bytes across {len(manifest.get('sections', []))} sections")
     for section in manifest.get("sections", []):
-        statuses = section_status.get(section["name"], {"raw": 0, "hybrid": 0, "asm": 0, "cpp": 0})
+        statuses = section_status.get(section["name"], dict.fromkeys(status_names, 0))
         raw_size = int(section["raw_size"])
         hybrid_reconstructed = sum(
             int(module.get("reconstructed_size", 0))
             for module in manifest.get("modules", [])
             if module["section"] == section["name"] and module.get("status") == "hybrid"
         )
-        reconstructed_size = statuses["asm"] + statuses["cpp"] + hybrid_reconstructed
-        percent = reconstructed_size * 100 / raw_size if raw_size else 0
+        matching_assembly = statuses["asm"] + statuses["vc6_asm"] + hybrid_reconstructed
+        reconstructed_size = matching_assembly + statuses["cpp"]
+        matching_percent = reconstructed_size * 100 / raw_size if raw_size else 0
+        semantic_percent = statuses["cpp"] * 100 / raw_size if raw_size else 0
         print(
             f"  {section['name']}: raw={statuses['raw']} hybrid={statuses['hybrid']} asm={statuses['asm']} "
-            f"cpp={statuses['cpp']} reconstructed={percent:.2f}%"
+            f"vc6_asm={statuses['vc6_asm']} cpp={statuses['cpp']} matching={matching_percent:.2f}% "
+            f"semantic_cpp={semantic_percent:.2f}%"
         )
     print(f"modules: {matching}/{len(manifest.get('modules', []))} byte-identical")
-    print(f"reconstructed: {reconstructed}/{total} bytes")
+    matching_percent = reconstructed * 100 / total if total else 0
+    print(f"matching source: {reconstructed}/{total} bytes ({matching_percent:.2f}%)")
+    semantic_cpp = sum(
+        int(module["size"]) for module in manifest.get("modules", []) if module.get("status") == "cpp"
+    )
+    semantic_percent = semantic_cpp * 100 / total if total else 0
+    print(f"semantic C++: {semantic_cpp}/{total} bytes ({semantic_percent:.2f}%)")
     print(f"rebuilt executable: {'BYTE IDENTICAL' if identical else 'DIFFERS'}")
     if errors:
         for error in errors:

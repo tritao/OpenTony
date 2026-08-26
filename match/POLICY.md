@@ -19,8 +19,11 @@ architecture of OpenTony.
   remainder is preserved. `reconstructed_size` records only understood source
   bytes, not the full module size.
 - `asm`: every byte is expressed as reviewed assembly/data directives.
-- `cpp`: the module has a higher-level implementation and an explicit matching
-  strategy.
+- `vc6_asm`: every byte is expressed as a VC6 `__declspec(naked)` inline
+  assembly block. This is matching assembly, even though its container is a
+  `.cpp` file.
+- `cpp`: the module has a genuine higher-level C or C++ implementation, contains
+  no naked inline assembly, and has an explicit matching strategy.
 
 Promotion requires exact module bytes and a byte-identical full PE rebuild.
 
@@ -44,3 +47,5 @@ because they are adjacent. A subsystem slice should record:
 - behavioral or differential tests needed before higher-level replacement.
 
 Matching assembly remains the oracle beneath later C/C++ reconstruction.
+Progress reports distinguish all byte-matching source (`hybrid`, `asm`,
+`vc6_asm`, and `cpp`) from semantic C/C++ progress (`cpp` only).

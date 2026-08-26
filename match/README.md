@@ -37,10 +37,15 @@ tony split accept-proposal Math_Vector3Add --dry-run
 tony split accept-proposals --tracked-only --range 0x004c0000:0x004d0000 --dry-run
 ```
 
-Compile a tracked C/C++ reconstruction with the pinned VC6 SP3 toolchain and
-compare its COFF `.text` bytes with the original module using:
+Compile a tracked semantic C/C++ reconstruction or transitional VC6 naked
+assembly block with the pinned VC6 SP3 toolchain and compare its COFF `.text`
+bytes with the original module using:
 
 ```bash
 tony vc6 compile match/cpp/Math_Vector3Add.cpp
 tony vc6 compare text_004ca9f0
 ```
+
+The manifest records those forms separately as `cpp` and `vc6_asm`; `split
+verify` reports semantic C++ progress independently from total matching-source
+coverage.

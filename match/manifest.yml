@@ -2992,7 +2992,7 @@ modules:
   end_va: 5115410
   file_offset: 921040
   size: 66
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e0dd0.asm
   cpp_source: match/cpp/FUN_004e0dd0.cpp
   cpp_flags:
@@ -3016,7 +3016,7 @@ modules:
   end_va: 5115670
   file_offset: 921312
   size: 54
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e0ee0.asm
   cpp_source: match/cpp/FUN_004e0ee0.cpp
   cpp_flags:
@@ -3103,7 +3103,7 @@ modules:
   end_va: 5117138
   file_offset: 922768
   size: 66
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e1490.asm
   cpp_source: match/cpp/FUN_004e1490.cpp
   cpp_flags:
@@ -3127,7 +3127,7 @@ modules:
   end_va: 5120104
   file_offset: 925760
   size: 40
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e2040.asm
   cpp_source: match/cpp/FUN_004e2040.cpp
   cpp_flags:
@@ -3151,7 +3151,7 @@ modules:
   end_va: 5123866
   file_offset: 929520
   size: 42
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e2ef0.asm
   cpp_source: match/cpp/FUN_004e2ef0.cpp
   cpp_flags:
@@ -3175,7 +3175,7 @@ modules:
   end_va: 5127451
   file_offset: 933088
   size: 59
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e3ce0.asm
   cpp_source: match/cpp/FUN_004e3ce0.cpp
   cpp_flags:
@@ -3583,7 +3583,7 @@ modules:
   end_va: 5129863
   file_offset: 935504
   size: 55
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e4650.asm
   cpp_source: match/cpp/FUN_004e4650.cpp
   cpp_flags:
@@ -3607,7 +3607,7 @@ modules:
   end_va: 5130894
   file_offset: 936544
   size: 46
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e4a60.asm
   cpp_source: match/cpp/FUN_004e4a60.cpp
   cpp_flags:
@@ -3817,7 +3817,7 @@ modules:
   end_va: 5140033
   file_offset: 945568
   size: 161
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e6da0.asm
   cpp_source: match/cpp/FUN_004e6da0.cpp
   cpp_flags:
@@ -3865,7 +3865,7 @@ modules:
   end_va: 5140792
   file_offset: 946400
   size: 88
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e70e0.asm
   cpp_source: match/cpp/FUN_004e70e0.cpp
   cpp_flags:
@@ -3889,7 +3889,7 @@ modules:
   end_va: 5140913
   file_offset: 946496
   size: 113
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7140.asm
   cpp_source: match/cpp/FUN_004e7140.cpp
   cpp_flags:
@@ -3913,7 +3913,7 @@ modules:
   end_va: 5141191
   file_offset: 946784
   size: 103
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7260.asm
   cpp_source: match/cpp/FUN_004e7260.cpp
   cpp_flags:
@@ -3961,7 +3961,7 @@ modules:
   end_va: 5141349
   file_offset: 946960
   size: 85
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7310.asm
   cpp_source: match/cpp/FUN_004e7310.cpp
   cpp_flags:
@@ -3985,7 +3985,7 @@ modules:
   end_va: 5141466
   file_offset: 947056
   size: 106
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7370.asm
   cpp_source: match/cpp/FUN_004e7370.cpp
   cpp_flags:
@@ -4057,7 +4057,7 @@ modules:
   end_va: 5141922
   file_offset: 947456
   size: 162
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7500.asm
   cpp_source: match/cpp/FUN_004e7500.cpp
   cpp_flags:
@@ -4105,7 +4105,7 @@ modules:
   end_va: 5143244
   file_offset: 948720
   size: 220
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e79f0.asm
   cpp_source: match/cpp/FUN_004e79f0.cpp
   cpp_flags:
@@ -4129,7 +4129,7 @@ modules:
   end_va: 5143380
   file_offset: 948944
   size: 132
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7ad0.asm
   cpp_source: match/cpp/FUN_004e7ad0.cpp
   cpp_flags:
@@ -4153,7 +4153,7 @@ modules:
   end_va: 5143479
   file_offset: 949088
   size: 87
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7b60.asm
   cpp_source: match/cpp/FUN_004e7b60.cpp
   cpp_flags:
@@ -4177,7 +4177,7 @@ modules:
   end_va: 5143626
   file_offset: 949184
   size: 138
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e7bc0.asm
   cpp_source: match/cpp/FUN_004e7bc0.cpp
   cpp_flags:
@@ -4225,7 +4225,7 @@ modules:
   end_va: 5144885
   file_offset: 950496
   size: 85
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e80e0.asm
   cpp_source: match/cpp/FUN_004e80e0.cpp
   cpp_flags:
@@ -4249,7 +4249,7 @@ modules:
   end_va: 5144981
   file_offset: 950592
   size: 85
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8140.asm
   cpp_source: match/cpp/FUN_004e8140.cpp
   cpp_flags:
@@ -4273,7 +4273,7 @@ modules:
   end_va: 5145077
   file_offset: 950688
   size: 85
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e81a0.asm
   cpp_source: match/cpp/FUN_004e81a0.cpp
   cpp_flags:
@@ -4297,7 +4297,7 @@ modules:
   end_va: 5145612
   file_offset: 951264
   size: 44
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e83e0.asm
   cpp_source: match/cpp/FUN_004e83e0.cpp
   cpp_flags:
@@ -4321,7 +4321,7 @@ modules:
   end_va: 5145945
   file_offset: 951424
   size: 217
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8480.asm
   cpp_source: match/cpp/FUN_004e8480.cpp
   cpp_flags:
@@ -4345,7 +4345,7 @@ modules:
   end_va: 5145973
   file_offset: 951648
   size: 21
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8560.asm
   cpp_source: match/cpp/FUN_004e8560.cpp
   cpp_flags:
@@ -4369,7 +4369,7 @@ modules:
   end_va: 5146009
   file_offset: 951680
   size: 25
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8580.asm
   cpp_source: match/cpp/FUN_004e8580.cpp
   cpp_flags:
@@ -4393,7 +4393,7 @@ modules:
   end_va: 5146345
   file_offset: 951712
   size: 329
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e85a0.asm
   cpp_source: match/cpp/FUN_004e85a0.cpp
   cpp_flags:
@@ -4777,7 +4777,7 @@ modules:
   end_va: 5146680
   file_offset: 952304
   size: 72
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e87f0.asm
   cpp_source: match/cpp/FUN_004e87f0.cpp
   cpp_flags:
@@ -6277,7 +6277,7 @@ modules:
   end_va: 5148440
   file_offset: 954112
   size: 24
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8f00.asm
   cpp_source: match/cpp/FUN_004e8f00.cpp
   cpp_flags:
@@ -6301,7 +6301,7 @@ modules:
   end_va: 5148469
   file_offset: 954144
   size: 21
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8f20.asm
   cpp_source: match/cpp/FUN_004e8f20.cpp
   cpp_flags:
@@ -6325,7 +6325,7 @@ modules:
   end_va: 5148516
   file_offset: 954176
   size: 36
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8f40.asm
   cpp_source: match/cpp/FUN_004e8f40.cpp
   cpp_flags:
@@ -6349,7 +6349,7 @@ modules:
   end_va: 5148553
   file_offset: 954224
   size: 25
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8f70.asm
   cpp_source: match/cpp/FUN_004e8f70.cpp
   cpp_flags:
@@ -6373,7 +6373,7 @@ modules:
   end_va: 5148667
   file_offset: 954256
   size: 107
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e8f90.asm
   cpp_source: match/cpp/FUN_004e8f90.cpp
   cpp_flags:
@@ -6397,7 +6397,7 @@ modules:
   end_va: 5148781
   file_offset: 954368
   size: 109
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e9000.asm
   cpp_source: match/cpp/FUN_004e9000.cpp
   cpp_flags:
@@ -6421,7 +6421,7 @@ modules:
   end_va: 5148873
   file_offset: 954480
   size: 89
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e9070.asm
   cpp_source: match/cpp/FUN_004e9070.cpp
   cpp_flags:
@@ -6445,7 +6445,7 @@ modules:
   end_va: 5148968
   file_offset: 954576
   size: 88
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e90d0.asm
   cpp_source: match/cpp/FUN_004e90d0.cpp
   cpp_flags:
@@ -6517,7 +6517,7 @@ modules:
   end_va: 5149575
   file_offset: 955072
   size: 199
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e92c0.asm
   cpp_source: match/cpp/FUN_004e92c0.cpp
   cpp_flags:
@@ -6541,7 +6541,7 @@ modules:
   end_va: 5150579
   file_offset: 956208
   size: 67
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e9730.asm
   cpp_source: match/cpp/FUN_004e9730.cpp
   cpp_flags:
@@ -6589,7 +6589,7 @@ modules:
   end_va: 5151780
   file_offset: 957312
   size: 164
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004e9b80.asm
   cpp_source: match/cpp/FUN_004e9b80.cpp
   cpp_flags:
@@ -6613,7 +6613,7 @@ modules:
   end_va: 5160779
   file_offset: 966416
   size: 59
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ebf10.asm
   cpp_source: match/cpp/FUN_004ebf10.cpp
   cpp_flags:
@@ -6637,7 +6637,7 @@ modules:
   end_va: 5160814
   file_offset: 966480
   size: 30
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ebf50.asm
   cpp_source: match/cpp/FUN_004ebf50.cpp
   cpp_flags:
@@ -6685,7 +6685,7 @@ modules:
   end_va: 5160913
   file_offset: 966544
   size: 65
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ebf90.asm
   cpp_source: match/cpp/FUN_004ebf90.cpp
   cpp_flags:
@@ -6709,7 +6709,7 @@ modules:
   end_va: 5160953
   file_offset: 966624
   size: 25
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ebfe0.asm
   cpp_source: match/cpp/FUN_004ebfe0.cpp
   cpp_flags:
@@ -6733,7 +6733,7 @@ modules:
   end_va: 5161012
   file_offset: 966656
   size: 52
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec000.asm
   cpp_source: match/cpp/FUN_004ec000.cpp
   cpp_flags:
@@ -6757,7 +6757,7 @@ modules:
   end_va: 5161079
   file_offset: 966720
   size: 55
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec040.asm
   cpp_source: match/cpp/FUN_004ec040.cpp
   cpp_flags:
@@ -6781,7 +6781,7 @@ modules:
   end_va: 5161140
   file_offset: 966784
   size: 52
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec080.asm
   cpp_source: match/cpp/FUN_004ec080.cpp
   cpp_flags:
@@ -6805,7 +6805,7 @@ modules:
   end_va: 5161204
   file_offset: 966848
   size: 52
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec0c0.asm
   cpp_source: match/cpp/FUN_004ec0c0.cpp
   cpp_flags:
@@ -6829,7 +6829,7 @@ modules:
   end_va: 5161309
   file_offset: 966912
   size: 93
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec100.asm
   cpp_source: match/cpp/FUN_004ec100.cpp
   cpp_flags:
@@ -6853,7 +6853,7 @@ modules:
   end_va: 5161405
   file_offset: 967008
   size: 93
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec160.asm
   cpp_source: match/cpp/FUN_004ec160.cpp
   cpp_flags:
@@ -6877,7 +6877,7 @@ modules:
   end_va: 5162167
   file_offset: 967840
   size: 23
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec4a0.asm
   cpp_source: match/cpp/FUN_004ec4a0.cpp
   cpp_flags:
@@ -6901,7 +6901,7 @@ modules:
   end_va: 5162206
   file_offset: 967872
   size: 30
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec4c0.asm
   cpp_source: match/cpp/FUN_004ec4c0.cpp
   cpp_flags:
@@ -6925,7 +6925,7 @@ modules:
   end_va: 5162230
   file_offset: 967904
   size: 22
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec4e0.asm
   cpp_source: match/cpp/FUN_004ec4e0.cpp
   cpp_flags:
@@ -6949,7 +6949,7 @@ modules:
   end_va: 5162381
   file_offset: 967936
   size: 141
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec500.asm
   cpp_source: match/cpp/FUN_004ec500.cpp
   cpp_flags:
@@ -6973,7 +6973,7 @@ modules:
   end_va: 5162427
   file_offset: 968080
   size: 43
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec590.asm
   cpp_source: match/cpp/FUN_004ec590.cpp
   cpp_flags:
@@ -6997,7 +6997,7 @@ modules:
   end_va: 5162529
   file_offset: 968128
   size: 97
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec5c0.asm
   cpp_source: match/cpp/FUN_004ec5c0.cpp
   cpp_flags:
@@ -7021,7 +7021,7 @@ modules:
   end_va: 5162599
   file_offset: 968240
   size: 55
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec630.asm
   cpp_source: match/cpp/FUN_004ec630.cpp
   cpp_flags:
@@ -7045,7 +7045,7 @@ modules:
   end_va: 5162664
   file_offset: 968304
   size: 56
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec670.asm
   cpp_source: match/cpp/FUN_004ec670.cpp
   cpp_flags:
@@ -7069,7 +7069,7 @@ modules:
   end_va: 5162712
   file_offset: 968368
   size: 40
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec6b0.asm
   cpp_source: match/cpp/FUN_004ec6b0.cpp
   cpp_flags:
@@ -7093,7 +7093,7 @@ modules:
   end_va: 5162777
   file_offset: 968416
   size: 57
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec6e0.asm
   cpp_source: match/cpp/FUN_004ec6e0.cpp
   cpp_flags:
@@ -7117,7 +7117,7 @@ modules:
   end_va: 5162814
   file_offset: 968480
   size: 30
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec720.asm
   cpp_source: match/cpp/FUN_004ec720.cpp
   cpp_flags:
@@ -7165,7 +7165,7 @@ modules:
   end_va: 5162888
   file_offset: 968544
   size: 40
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec760.asm
   cpp_source: match/cpp/FUN_004ec760.cpp
   cpp_flags:
@@ -7189,7 +7189,7 @@ modules:
   end_va: 5163043
   file_offset: 968592
   size: 147
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec790.asm
   cpp_source: match/cpp/FUN_004ec790.cpp
   cpp_flags:
@@ -7213,7 +7213,7 @@ modules:
   end_va: 5163090
   file_offset: 968752
   size: 34
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec830.asm
   cpp_source: match/cpp/FUN_004ec830.cpp
   cpp_flags:
@@ -7237,7 +7237,7 @@ modules:
   end_va: 5163192
   file_offset: 968800
   size: 88
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec860.asm
   cpp_source: match/cpp/FUN_004ec860.cpp
   cpp_flags:
@@ -7261,7 +7261,7 @@ modules:
   end_va: 5163299
   file_offset: 968896
   size: 99
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec8c0.asm
   cpp_source: match/cpp/FUN_004ec8c0.cpp
   cpp_flags:
@@ -7285,7 +7285,7 @@ modules:
   end_va: 5163401
   file_offset: 969008
   size: 89
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ec930.asm
   cpp_source: match/cpp/FUN_004ec930.cpp
   cpp_flags:
@@ -7309,7 +7309,7 @@ modules:
   end_va: 5164074
   file_offset: 969712
   size: 58
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ecbf0.asm
   cpp_source: match/cpp/FUN_004ecbf0.cpp
   cpp_flags:
@@ -7333,7 +7333,7 @@ modules:
   end_va: 5164139
   file_offset: 969776
   size: 59
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ecc30.asm
   cpp_source: match/cpp/FUN_004ecc30.cpp
   cpp_flags:
@@ -7381,7 +7381,7 @@ modules:
   end_va: 5164932
   file_offset: 970576
   size: 52
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ecf50.asm
   cpp_source: match/cpp/FUN_004ecf50.cpp
   cpp_flags:
@@ -7405,7 +7405,7 @@ modules:
   end_va: 5165758
   file_offset: 971344
   size: 110
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed250.asm
   cpp_source: match/cpp/FUN_004ed250.cpp
   cpp_flags:
@@ -7429,7 +7429,7 @@ modules:
   end_va: 5166001
   file_offset: 971648
   size: 49
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed380.asm
   cpp_source: match/cpp/FUN_004ed380.cpp
   cpp_flags:
@@ -7453,7 +7453,7 @@ modules:
   end_va: 5166066
   file_offset: 971712
   size: 50
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed3c0.asm
   cpp_source: match/cpp/FUN_004ed3c0.cpp
   cpp_flags:
@@ -7477,7 +7477,7 @@ modules:
   end_va: 5166254
   file_offset: 971920
   size: 30
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed490.asm
   cpp_source: match/cpp/FUN_004ed490.cpp
   cpp_flags:
@@ -7525,7 +7525,7 @@ modules:
   end_va: 5166296
   file_offset: 971968
   size: 24
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed4c0.asm
   cpp_source: match/cpp/FUN_004ed4c0.cpp
   cpp_flags:
@@ -7549,7 +7549,7 @@ modules:
   end_va: 5167140
   file_offset: 972752
   size: 84
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed7d0.asm
   cpp_source: match/cpp/FUN_004ed7d0.cpp
   cpp_flags:
@@ -7573,7 +7573,7 @@ modules:
   end_va: 5167214
   file_offset: 972848
   size: 62
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed830.asm
   cpp_source: match/cpp/FUN_004ed830.cpp
   cpp_flags:
@@ -7597,7 +7597,7 @@ modules:
   end_va: 5167434
   file_offset: 972912
   size: 218
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed870.asm
   cpp_source: match/cpp/FUN_004ed870.cpp
   cpp_flags:
@@ -7621,7 +7621,7 @@ modules:
   end_va: 5167530
   file_offset: 973136
   size: 90
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ed950.asm
   cpp_source: match/cpp/FUN_004ed950.cpp
   cpp_flags:
@@ -7645,7 +7645,7 @@ modules:
   end_va: 5173762
   file_offset: 979360
   size: 98
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef1a0.asm
   cpp_source: match/cpp/FUN_004ef1a0.cpp
   cpp_flags:
@@ -7669,7 +7669,7 @@ modules:
   end_va: 5173957
   file_offset: 979472
   size: 181
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef210.asm
   cpp_source: match/cpp/FUN_004ef210.cpp
   cpp_flags:
@@ -7693,7 +7693,7 @@ modules:
   end_va: 5174005
   file_offset: 979664
   size: 37
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef2d0.asm
   cpp_source: match/cpp/FUN_004ef2d0.cpp
   cpp_flags:
@@ -7717,7 +7717,7 @@ modules:
   end_va: 5174043
   file_offset: 979712
   size: 27
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef300.asm
   cpp_source: match/cpp/FUN_004ef300.cpp
   cpp_flags:
@@ -7741,7 +7741,7 @@ modules:
   end_va: 5174131
   file_offset: 979744
   size: 83
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef320.asm
   cpp_source: match/cpp/FUN_004ef320.cpp
   cpp_flags:
@@ -7765,7 +7765,7 @@ modules:
   end_va: 5174177
   file_offset: 979840
   size: 33
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef380.asm
   cpp_source: match/cpp/FUN_004ef380.cpp
   cpp_flags:
@@ -7789,7 +7789,7 @@ modules:
   end_va: 5175473
   file_offset: 981024
   size: 145
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004ef820.asm
   cpp_source: match/cpp/FUN_004ef820.cpp
   cpp_flags:
@@ -7822,7 +7822,7 @@ modules:
   end_va: 5186101
   file_offset: 991648
   size: 149
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f21a0.asm
   cpp_source: match/cpp/FUN_004f21a0.cpp
   cpp_flags:
@@ -7846,7 +7846,7 @@ modules:
   end_va: 5186256
   file_offset: 991808
   size: 144
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f2240.asm
   cpp_source: match/cpp/FUN_004f2240.cpp
   cpp_flags:
@@ -7870,7 +7870,7 @@ modules:
   end_va: 5186545
   file_offset: 992208
   size: 33
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f23d0.asm
   cpp_source: match/cpp/FUN_004f23d0.cpp
   cpp_flags:
@@ -7894,7 +7894,7 @@ modules:
   end_va: 5187356
   file_offset: 993024
   size: 28
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f2700.asm
   cpp_source: match/cpp/FUN_004f2700.cpp
   cpp_flags:
@@ -7918,7 +7918,7 @@ modules:
   end_va: 5187499
   file_offset: 993056
   size: 139
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f2720.asm
   cpp_source: match/cpp/FUN_004f2720.cpp
   cpp_flags:
@@ -7942,7 +7942,7 @@ modules:
   end_va: 5189140
   file_offset: 994720
   size: 116
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f2da0.asm
   cpp_source: match/cpp/FUN_004f2da0.cpp
   cpp_flags:
@@ -7966,7 +7966,7 @@ modules:
   end_va: 5191604
   file_offset: 997152
   size: 148
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f3720.asm
   cpp_source: match/cpp/FUN_004f3720.cpp
   cpp_flags:
@@ -7990,7 +7990,7 @@ modules:
   end_va: 5192058
   file_offset: 997696
   size: 58
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f3940.asm
   cpp_source: match/cpp/FUN_004f3940.cpp
   cpp_flags:
@@ -8014,7 +8014,7 @@ modules:
   end_va: 5192106
   file_offset: 997760
   size: 42
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f3980.asm
   cpp_source: match/cpp/FUN_004f3980.cpp
   cpp_flags:
@@ -8038,7 +8038,7 @@ modules:
   end_va: 5192154
   file_offset: 997808
   size: 42
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f39b0.asm
   cpp_source: match/cpp/FUN_004f39b0.cpp
   cpp_flags:
@@ -8062,7 +8062,7 @@ modules:
   end_va: 5193752
   file_offset: 999216
   size: 232
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f3f30.asm
   cpp_source: match/cpp/FUN_004f3f30.cpp
   cpp_flags:
@@ -8086,7 +8086,7 @@ modules:
   end_va: 5193924
   file_offset: 999504
   size: 116
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f4050.asm
   cpp_source: match/cpp/FUN_004f4050.cpp
   cpp_flags:
@@ -8110,7 +8110,7 @@ modules:
   end_va: 5194023
   file_offset: 999632
   size: 87
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f40d0.asm
   cpp_source: match/cpp/FUN_004f40d0.cpp
   cpp_flags:
@@ -8134,7 +8134,7 @@ modules:
   end_va: 5194290
   file_offset: 999728
   size: 258
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f4130.asm
   cpp_source: match/cpp/FUN_004f4130.cpp
   cpp_flags:
@@ -8158,7 +8158,7 @@ modules:
   end_va: 5194707
   file_offset: 1000000
   size: 403
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f4240.asm
   cpp_source: match/cpp/FUN_004f4240.cpp
   cpp_flags:
@@ -8182,7 +8182,7 @@ modules:
   end_va: 5197925
   file_offset: 1003488
   size: 133
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f4fe0.asm
   cpp_source: match/cpp/FUN_004f4fe0.cpp
   cpp_flags:
@@ -8206,7 +8206,7 @@ modules:
   end_va: 5198062
   file_offset: 1003728
   size: 30
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f50d0.asm
   cpp_source: match/cpp/FUN_004f50d0.cpp
   cpp_flags:
@@ -8230,7 +8230,7 @@ modules:
   end_va: 5198103
   file_offset: 1003760
   size: 39
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f50f0.asm
   cpp_source: match/cpp/FUN_004f50f0.cpp
   cpp_flags:
@@ -8254,7 +8254,7 @@ modules:
   end_va: 5198755
   file_offset: 1004432
   size: 19
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5390.asm
   cpp_source: match/cpp/FUN_004f5390.cpp
   cpp_flags:
@@ -8278,7 +8278,7 @@ modules:
   end_va: 5198812
   file_offset: 1004464
   size: 44
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f53b0.asm
   cpp_source: match/cpp/FUN_004f53b0.cpp
   cpp_flags:
@@ -8302,7 +8302,7 @@ modules:
   end_va: 5199540
   file_offset: 1004864
   size: 372
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5540.asm
   cpp_source: match/cpp/FUN_004f5540.cpp
   cpp_flags:
@@ -8326,7 +8326,7 @@ modules:
   end_va: 5199658
   file_offset: 1005248
   size: 106
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f56c0.asm
   cpp_source: match/cpp/FUN_004f56c0.cpp
   cpp_flags:
@@ -8350,7 +8350,7 @@ modules:
   end_va: 5201049
   file_offset: 1006192
   size: 553
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5a70.asm
   cpp_source: match/cpp/FUN_004f5a70.cpp
   cpp_flags:
@@ -8374,7 +8374,7 @@ modules:
   end_va: 5201668
   file_offset: 1006752
   size: 612
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5ca0.asm
   cpp_source: match/cpp/FUN_004f5ca0.cpp
   cpp_flags:
@@ -8398,7 +8398,7 @@ modules:
   end_va: 5201697
   file_offset: 1007376
   size: 17
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5f10.asm
   cpp_source: match/cpp/FUN_004f5f10.cpp
   cpp_flags:
@@ -8422,7 +8422,7 @@ modules:
   end_va: 5201793
   file_offset: 1007440
   size: 49
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5f50.asm
   cpp_source: match/cpp/FUN_004f5f50.cpp
   cpp_flags:
@@ -8446,7 +8446,7 @@ modules:
   end_va: 5201847
   file_offset: 1007504
   size: 39
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5f90.asm
   cpp_source: match/cpp/FUN_004f5f90.cpp
   cpp_flags:
@@ -8470,7 +8470,7 @@ modules:
   end_va: 5201875
   file_offset: 1007552
   size: 19
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5fc0.asm
   cpp_source: match/cpp/FUN_004f5fc0.cpp
   cpp_flags:
@@ -8494,7 +8494,7 @@ modules:
   end_va: 5202019
   file_offset: 1007600
   size: 115
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f5ff0.asm
   cpp_source: match/cpp/FUN_004f5ff0.cpp
   cpp_flags:
@@ -8518,7 +8518,7 @@ modules:
   end_va: 5202118
   file_offset: 1007744
   size: 70
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6080.asm
   cpp_source: match/cpp/FUN_004f6080.cpp
   cpp_flags:
@@ -8542,7 +8542,7 @@ modules:
   end_va: 5202230
   file_offset: 1007824
   size: 102
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f60d0.asm
   cpp_source: match/cpp/FUN_004f60d0.cpp
   cpp_flags:
@@ -8566,7 +8566,7 @@ modules:
   end_va: 5202936
   file_offset: 1008320
   size: 312
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f62c0.asm
   cpp_source: match/cpp/FUN_004f62c0.cpp
   cpp_flags:
@@ -8590,7 +8590,7 @@ modules:
   end_va: 5203204
   file_offset: 1008640
   size: 260
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6400.asm
   cpp_source: match/cpp/FUN_004f6400.cpp
   cpp_flags:
@@ -8614,7 +8614,7 @@ modules:
   end_va: 5203292
   file_offset: 1008976
   size: 12
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6550.asm
   cpp_source: match/cpp/FUN_004f6550.cpp
   cpp_flags:
@@ -8638,7 +8638,7 @@ modules:
   end_va: 5205244
   file_offset: 1010896
   size: 44
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6cd0.asm
   cpp_source: match/cpp/FUN_004f6cd0.cpp
   cpp_flags:
@@ -8662,7 +8662,7 @@ modules:
   end_va: 5205272
   file_offset: 1010944
   size: 24
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6d00.asm
   cpp_source: match/cpp/FUN_004f6d00.cpp
   cpp_flags:
@@ -8686,7 +8686,7 @@ modules:
   end_va: 5205594
   file_offset: 1010976
   size: 314
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f6d20.asm
   cpp_source: match/cpp/FUN_004f6d20.cpp
   cpp_flags:
@@ -8710,7 +8710,7 @@ modules:
   end_va: 5208296
   file_offset: 1013744
   size: 248
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f77f0.asm
   cpp_source: match/cpp/FUN_004f77f0.cpp
   cpp_flags:
@@ -8734,7 +8734,7 @@ modules:
   end_va: 5208446
   file_offset: 1014000
   size: 142
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f78f0.asm
   cpp_source: match/cpp/FUN_004f78f0.cpp
   cpp_flags:
@@ -8758,7 +8758,7 @@ modules:
   end_va: 5208534
   file_offset: 1014144
   size: 86
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f7980.asm
   cpp_source: match/cpp/FUN_004f7980.cpp
   cpp_flags:
@@ -8782,7 +8782,7 @@ modules:
   end_va: 5208682
   file_offset: 1014240
   size: 138
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f79e0.asm
   cpp_source: match/cpp/FUN_004f79e0.cpp
   cpp_flags:
@@ -8806,7 +8806,7 @@ modules:
   end_va: 5208802
   file_offset: 1014384
   size: 114
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f7a70.asm
   cpp_source: match/cpp/FUN_004f7a70.cpp
   cpp_flags:
@@ -8830,7 +8830,7 @@ modules:
   end_va: 5209468
   file_offset: 1015008
   size: 156
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f7ce0.asm
   cpp_source: match/cpp/FUN_004f7ce0.cpp
   cpp_flags:
@@ -8854,7 +8854,7 @@ modules:
   end_va: 5211877
   file_offset: 1017392
   size: 181
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f8630.asm
   cpp_source: match/cpp/FUN_004f8630.cpp
   cpp_flags:
@@ -8878,7 +8878,7 @@ modules:
   end_va: 5211934
   file_offset: 1017584
   size: 46
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f86f0.asm
   cpp_source: match/cpp/FUN_004f86f0.cpp
   cpp_flags:
@@ -8902,7 +8902,7 @@ modules:
   end_va: 5212386
   file_offset: 1018076
   size: 6
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f88dc.asm
   cpp_source: match/cpp/FUN_004f88dc.cpp
   cpp_flags:
@@ -8917,7 +8917,7 @@ modules:
   end_va: 5212392
   file_offset: 1018082
   size: 6
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f88e2.asm
   cpp_source: match/cpp/FUN_004f88e2.cpp
   cpp_flags:
@@ -8941,7 +8941,7 @@ modules:
   end_va: 5217402
   file_offset: 1023092
   size: 6
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f9c74.asm
   cpp_source: match/cpp/FUN_004f9c74.cpp
   cpp_flags:
@@ -8965,7 +8965,7 @@ modules:
   end_va: 5217582
   file_offset: 1023104
   size: 174
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f9c80.asm
   cpp_source: match/cpp/FUN_004f9c80.cpp
   cpp_flags:
@@ -8989,7 +8989,7 @@ modules:
   end_va: 5217829
   file_offset: 1023488
   size: 37
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004f9e00.asm
   cpp_source: match/cpp/FUN_004f9e00.cpp
   cpp_flags:
@@ -9013,7 +9013,7 @@ modules:
   end_va: 5218807
   file_offset: 1024384
   size: 119
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa180.asm
   cpp_source: match/cpp/FUN_004fa180.cpp
   cpp_flags:
@@ -9037,7 +9037,7 @@ modules:
   end_va: 5219828
   file_offset: 1025488
   size: 36
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa5d0.asm
   cpp_source: match/cpp/FUN_004fa5d0.cpp
   cpp_flags:
@@ -9061,7 +9061,7 @@ modules:
   end_va: 5219916
   file_offset: 1025536
   size: 76
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa600.asm
   cpp_source: match/cpp/FUN_004fa600.cpp
   cpp_flags:
@@ -9085,7 +9085,7 @@ modules:
   end_va: 5220098
   file_offset: 1025616
   size: 178
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa650.asm
   cpp_source: match/cpp/FUN_004fa650.cpp
   cpp_flags:
@@ -9109,7 +9109,7 @@ modules:
   end_va: 5220582
   file_offset: 1025808
   size: 470
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa710.asm
   cpp_source: match/cpp/FUN_004fa710.cpp
   cpp_flags:
@@ -9133,7 +9133,7 @@ modules:
   end_va: 5220747
   file_offset: 1026288
   size: 155
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa8f0.asm
   cpp_source: match/cpp/FUN_004fa8f0.cpp
   cpp_flags:
@@ -9157,7 +9157,7 @@ modules:
   end_va: 5221108
   file_offset: 1026448
   size: 356
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fa990.asm
   cpp_source: match/cpp/FUN_004fa990.cpp
   cpp_flags:
@@ -9181,7 +9181,7 @@ modules:
   end_va: 5221347
   file_offset: 1026816
   size: 227
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fab00.asm
   cpp_source: match/cpp/FUN_004fab00.cpp
   cpp_flags:
@@ -9205,7 +9205,7 @@ modules:
   end_va: 5221459
   file_offset: 1027056
   size: 99
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fabf0.asm
   cpp_source: match/cpp/FUN_004fabf0.cpp
   cpp_flags:
@@ -9229,7 +9229,7 @@ modules:
   end_va: 5222108
   file_offset: 1027168
   size: 636
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fac60.asm
   cpp_source: match/cpp/FUN_004fac60.cpp
   cpp_flags:
@@ -9253,7 +9253,7 @@ modules:
   end_va: 5225267
   file_offset: 1030944
   size: 19
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fbb20.asm
   cpp_source: match/cpp/FUN_004fbb20.cpp
   cpp_flags:
@@ -9277,7 +9277,7 @@ modules:
   end_va: 5225593
   file_offset: 1030992
   size: 297
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fbb50.asm
   cpp_source: match/cpp/FUN_004fbb50.cpp
   cpp_flags:
@@ -9301,7 +9301,7 @@ modules:
   end_va: 5225716
   file_offset: 1031296
   size: 116
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fbc80.asm
   cpp_source: match/cpp/FUN_004fbc80.cpp
   cpp_flags:
@@ -9325,7 +9325,7 @@ modules:
   end_va: 5225729
   file_offset: 1031424
   size: 1
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fbd00.asm
   cpp_source: match/cpp/FUN_004fbd00.cpp
   cpp_flags:
@@ -9349,7 +9349,7 @@ modules:
   end_va: 5225850
   file_offset: 1031440
   size: 106
-  status: cpp
+  status: vc6_asm
   source: match/modules/text/text_004fbd10.asm
   cpp_source: match/cpp/FUN_004fbd10.cpp
   cpp_flags:
