@@ -28,6 +28,43 @@ def _fixed_vector_record(address: int, memory=None) -> dict:
     return {"raw": list(fixed.raw), "fixed": list(fixed.values)}
 
 
+def _signed_short_vector_record(address: int, memory=None) -> dict:
+    """Record one of the short-vector rows used by the orientation matrix."""
+
+    memory = memory or mem
+    raw = [memory.u16(address + index * 2) for index in range(3)]
+    return {"raw": raw, "signed": [value - 0x10000 if value & 0x8000 else value for value in raw]}
+
+
+def _basis_vector_record(address: int, memory=None) -> dict:
+    """Record the sign-extended Q12 basis words used by physics math."""
+
+    memory = memory or mem
+    signed = [memory.s32(address + index * 4) for index in range(3)]
+    return {"raw": signed, "q12": [value / 4096.0 for value in signed]}
+
+
+def _orientation_record(player: int, memory=None) -> dict:
+    """Capture the turn accumulator, matrix rows, and integer basis at a commit."""
+
+    memory = memory or mem
+    return {
+        "turn_accumulator": _word_record(player + 0x3144, memory),
+        "turn_mirror": _word_record(player + 0x3148, memory),
+        "matrix_rows": {
+            "row_0": _signed_short_vector_record(player + 0x2E58, memory),
+            "row_1": _signed_short_vector_record(player + 0x2E5E, memory),
+            "row_2": _signed_short_vector_record(player + 0x2E64, memory),
+        },
+        "basis": {
+            "basis_0": _basis_vector_record(player + 0x30F4, memory),
+            "basis_1": _basis_vector_record(player + 0x3100, memory),
+            "basis_2": _basis_vector_record(player + 0x310C, memory),
+        },
+        "correction_58": _fixed_vector_record(player + 0x58, memory),
+    }
+
+
 class PositionCommitBreakpoint(CountingBreakpoint):
     """Log arguments and state at a caller-side callsite."""
 
@@ -58,6 +95,7 @@ class PositionCommitBreakpoint(CountingBreakpoint):
             "position_before": _fixed_vector_record(player + view.POSITION_OFFSET, ctx.memory),
             "vector_4c": _fixed_vector_record(player + view.VECTOR_4C_OFFSET, ctx.memory),
             "position_history": _fixed_vector_record(player + view.POSITION_HISTORY_OFFSET, ctx.memory),
+            "orientation": _orientation_record(player, ctx.memory),
             "physics_state": view.physics_state,
             "unknown_state": view.unknown_state,
         }
