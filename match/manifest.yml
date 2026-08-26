@@ -103,8 +103,7 @@ modules:
   end_va: 4597990
   file_offset: 402640
   size: 1046
-  status: hybrid
-  reconstructed_size: 120
+  status: asm
   source: match/modules/text/text_004624d0.asm
   sha256: 3245f63b5dca3577b4cd74257a0f21c1a3911b8b771ae886778bbb6835e2d6f4
 - id: text_004628e6

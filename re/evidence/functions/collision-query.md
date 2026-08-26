@@ -10,9 +10,11 @@ The first six words are two XYZ endpoints. Its reviewed 120-byte prefix:
 - branches to a special axis-aligned construction path when the squared X/Y
   delta is zero.
 
-The remaining fixed-point normalization and matrix construction is preserved
-as a hybrid module pending review. The complete 1,046-byte module still emits
-the retail bytes exactly.
+The remainder normalizes the horizontal delta, constructs and rotates a 3x3
+fixed-point basis, publishes that basis to the collision globals, derives
+component-wise endpoint bounds at offsets `+0x18–+0x2c`, calls `0x00462490`,
+and stores the resulting word at `+0x8a`. The complete 1,046-byte function is
+matching assembly with no `incbin`.
 
 `0x00466090–0x004660a5` is not the collision implementation. It forwards its
 two arguments unchanged to `0x004660b0`, repairs the caller stack, clears EAX,
