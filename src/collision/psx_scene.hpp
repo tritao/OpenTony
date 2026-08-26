@@ -921,20 +921,27 @@ private:
                    query_record.end[2] <= blockmap.max_z))) {
                 continue;
             }
+            // The PC zone walker performs these subtractions in 32-bit
+            // fixed-point registers. Keep the wrap explicit so a malformed
+            // or extreme-but-representable asset cannot invoke signed
+            // overflow in the native port.
             const auto width = blockmap.cell_count_x == 0
                                    ? 0
-                                   : (blockmap.max_x - blockmap.min_x) /
+                                   : reference::wrapping_sub(
+                                         blockmap.max_x, blockmap.min_x) /
                                          blockmap.cell_count_x;
             const auto depth = blockmap.cell_count_z == 0
                                    ? 0
-                                   : (blockmap.max_z - blockmap.min_z) /
+                                   : reference::wrapping_sub(
+                                         blockmap.max_z, blockmap.min_z) /
                                          blockmap.cell_count_z;
             if (width <= 0 || depth <= 0) {
                 continue;
             }
             const auto clamp_cell = [](Raw value, Raw minimum, Raw,
                                        Raw cell_size, std::uint16_t count) {
-                const auto raw = (value - minimum) / cell_size;
+                const auto raw = reference::wrapping_sub(value, minimum) /
+                                 cell_size;
                 return std::min<std::int32_t>(std::max<std::int32_t>(raw, 0), count - 1);
             };
             const auto min_x = std::min(query_record.start[0], query_record.end[0]);
