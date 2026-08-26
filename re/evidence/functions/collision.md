@@ -742,15 +742,25 @@ rejections. The transform code at `0x00463e50` tests high-byte bit `0x02`,
 which is full-word `0x0200`, while nearby object appearance setters write
 high-byte bit `0x04` (`0x0400`). Native code must preserve that distinction.
 
-The face-flag consumer was also observed directly. A 32-call capture at
-`0x0048ea80` contained eight non-null hit bodies, all from the ground caller
-`0x00496fe1`. The winning face records used base word `0x001c1083` and
-surface/normal word `0x00100020` or `0x00100028`. The post-call globals were
-exactly `face_bit_80=128`, `inverse_bit_23=1`, `inverse_bit_24=1`,
-`surface_bit_40=0`, and `surface_class=0`; the face pointer matched the
-winning `q+0x80` record. Calls with a null hit body left these globals
-unchanged. This runtime sample confirms the bit extraction and stale-global
-behavior, while still leaving the higher-level material names unresolved.
+The face-flag consumer was also observed directly. The initial 32-call
+capture at `0x0048ea80` contained eight non-null hit bodies, all from the
+ground caller `0x00496fe1`. A broader `collision-materials1` capture collected
+500 shared queries while the skater moved and ollied in Hangar: 160 queries
+hit geometry and 121 flag-consumer calls had non-null faces. It showed these
+raw/derived combinations:
+
+| face base | surface flags | derived result |
+|---:|---:|---|
+| `0x1083` | `0x0010` | `face_bit_80=128`, inverse bits `1/1`, class `0` |
+| `0x1083`, `0x1883`, `0x30a3`, `0x38a3` | `0x0000` | `face_bit_80=128`, inverse bits `1/1`, class `0` |
+| `0x18a3`, `0x38a3` | `0x0400` | `face_bit_80=128`, inverse bits `1/1`, class `2` |
+| `0x18a3` | `0x0420` | `face_bit_80=128`, inverse bits `1/1`, class `2` |
+| `0x0823` | `0x0440` | `face_bit_80=0`, inverse bits `1/1`, `surface_bit_40=64`, class `2` |
+
+The winning face pointers matched `q+0x80`. Calls with a null hit body left
+these globals unchanged. This confirms that the bit extraction is used across
+floor, sloped/large-polygon, and a distinct `surface_bit_40` class, while the
+higher-level material names remain unresolved.
 
 ## Interpretation
 
