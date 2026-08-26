@@ -170,8 +170,10 @@ types:
       - offset: 0x00
         name: d3d_texture_resource
         type: pointer<void>
-        confidence: observed
+        confidence: confirmed
+        description: Direct3D texture object released through its vtable +0x08 by the PC texture destructor.
         evidence:
+          - re/evidence/functions/psx-lifecycle.md
           - re/evidence/functions/texture-runtime.md
       - offset: 0x04
         name: scene_material_owner
@@ -195,6 +197,7 @@ types:
         name: texture_flags
         type: u32
         confidence: observed
+        description: Operational ownership/creation flags; cleanup tests bits 0x01, 0x20, and 0x200 when releasing source/cache allocations.
         evidence:
           - re/evidence/functions/texture-runtime.md
       - offset: 0x14

@@ -90,14 +90,14 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/player-runtime.md
-          - re/evidence/functions/ground-movement.md
+          - re/evidence/functions/physics.md
       - offset: 0x3148
         name: turn_accumulator_mirror
         type: i32
         confidence: observed
         evidence:
           - re/evidence/functions/player-runtime.md
-          - re/evidence/functions/ground-movement.md
+          - re/evidence/functions/physics.md
 
   - name: RuntimeSkaterCameraObject
     size: 0x674

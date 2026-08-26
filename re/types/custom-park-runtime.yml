@@ -66,48 +66,97 @@ types:
         evidence:
           - re/evidence/functions/custom-park-runtime.md
 
+  - name: RuntimeCustomParkDiskItemRecord
+    size: 0x24
+    confidence: observed
+    description: Packed 36-byte PRK item record. The two adjacent item/name bytes differ between the old/current load branches and the serializer.
+    fields:
+      - offset: 0x00
+        name: endpoint_axis_indices
+        type: u8[6]
+        confidence: confirmed
+        description: Two endpoint triplets, stored as three two-byte columns.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x06
+        name: packed_nibble_word
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x08
+        name: packed_two_bit_word
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x09
+        name: legacy_load_item_byte
+        type: u8
+        confidence: confirmed
+        description: Byte read into the expanded runtime item byte by the older 0x4e24 load branch.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0a
+        name: current_or_serialized_item_byte
+        type: u8
+        confidence: confirmed
+        description: Byte read as the item byte by the current 0x4e25 load branch and written there by the serializer; the current loader starts the visible name at the following disk byte +0x0b.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0b
+        name: name_bytes
+        type: u8[25]
+        confidence: observed
+        description: NUL-terminated name payload beginning at the visible text in the PARK0 witness; copied into the expanded runtime name field.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
   - name: RuntimeCustomParkItemRecord
     size: 0x2c
     confidence: confirmed
     description: Expanded 36-byte PRK item record used by level generation.
     fields:
       - offset: 0x00
-        name: endpoint_coordinate_column_0
+        name: endpoint_axis_index_0
         type: u8[2]
         confidence: confirmed
-        description: First packed endpoint/index column; byte 0 is endpoint 0 and byte 1 is endpoint 1.
+        description: First endpoint lookup index; byte 0 is endpoint 0 and byte 1 is endpoint 1. The generator uses it as the first index into the active cell-model table.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x02
-        name: endpoint_coordinate_column_1
+        name: endpoint_axis_index_1
         type: u8[2]
         confidence: confirmed
-        description: Second packed endpoint/index column; byte 2 is endpoint 0 and byte 3 is endpoint 1.
+        description: Second endpoint lookup index; byte 2 is endpoint 0 and byte 3 is endpoint 1. It selects the five-entry subrange within the active cell-model table.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x04
-        name: endpoint_coordinate_column_2
+        name: endpoint_axis_index_2
         type: u8[2]
         confidence: confirmed
-        description: Third packed endpoint/index column; byte 4 is endpoint 0 and byte 5 is endpoint 1.
+        description: Third endpoint lookup index; byte 4 is endpoint 0 and byte 5 is endpoint 1. The loader diagnostic identifies this index as the Z-side index.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x06
-        name: packed_values_0
+        name: endpoint_two_bit_values
         type: u8[2]
-        confidence: observed
+        confidence: confirmed
+        description: First two expanded values extracted from the low four bits of disk word +0x08; each runtime byte retains one two-bit value.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x08
-        name: packed_values_1
+        name: expanded_nibble_values
         type: u8[4]
-        confidence: observed
+        confidence: confirmed
+        description: Four nibbles extracted low-to-high from disk word +0x06.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x0c
-        name: item_flags_or_type
+        name: packed_item_flags
         type: u8
-        confidence: observed
+        confidence: confirmed
+        description: Remaining shifted byte from disk word +0x08. It is copied into the generated piece/gap input; individual editor flag meanings remain open.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
       - offset: 0x0d
@@ -120,6 +169,7 @@ types:
         name: item_byte
         type: u8
         confidence: confirmed
+        description: Item byte copied from disk offset +0x0a by the current 0x4e25 load branch. The older 0x4e24 load branch uses disk offset +0x09; the one-byte compatibility quirk is part of the format boundary.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
 
@@ -170,6 +220,41 @@ types:
         confidence: confirmed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x10
+        name: source_model_dimension_0
+        type: i16
+        confidence: observed
+        description: First dimension copied from the selected generated model descriptor.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x12
+        name: source_model_dimension_1
+        type: i16
+        confidence: observed
+        description: Second dimension copied from the selected generated model descriptor.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x14
+        name: source_model_dimension_2
+        type: i16
+        confidence: observed
+        description: Third dimension copied from the selected generated model descriptor.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x18
+        name: generated_model_state
+        type: bytes[0x40]
+        confidence: observed
+        description: Cleared state area initialized by the generated-piece constructor before geometry generation.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0b
+        name: real_height_cell
+        type: u8
+        confidence: observed
+        description: Source model descriptor byte copied by the constructor; the diagnostic calls this the realHCell value.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
       - offset: 0x21c
         name: generated_position_x
         type: i16
@@ -188,6 +273,13 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x218
+        name: generated_member_list_head
+        type: pointer<void>
+        confidence: observed
+        description: Head of the generated geometry/member chain populated from the source model descriptor.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
       - offset: 0x224
         name: source_model_descriptor
         type: pointer<void>
@@ -204,6 +296,13 @@ types:
         name: next_generated_piece
         type: pointer<RuntimeGeneratedParkPiece>
         confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x234
+        name: generated_piece_state
+        type: u32
+        confidence: observed
+        description: Constructor-cleared tail state used by later level-generation passes.
         evidence:
           - re/evidence/functions/custom-park-runtime.md
 

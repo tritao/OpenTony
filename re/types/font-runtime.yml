@@ -3,7 +3,7 @@ types:
   - name: RuntimeFont
     size: 0x14c
     confidence: observed
-    description: Runtime font object allocated by Font_Create.
+    description: Runtime font object allocated by Font_Create; it owns glyph_count + 1 entries, including the blank/sentinel glyph.
     fields:
       - offset: 0x34
         name: glyph_entries
@@ -31,7 +31,7 @@ types:
     fields:
       - offset: 0x00
         name: glyph_object
-        type: pointer<void>
+        type: pointer<RuntimeFontGlyphImage>
         confidence: confirmed
         evidence:
           - re/evidence/functions/font-runtime.md
@@ -51,5 +51,83 @@ types:
         name: source_byte_2
         type: u8
         confidence: observed
+        evidence:
+          - re/evidence/functions/font-runtime.md
+
+  - name: RuntimeFontDiskGlyphRecord
+    size: 0x10
+    confidence: observed
+    description: Four-word glyph record in an FNT file before the shared 16-colour table and packed glyph data.
+    fields:
+      - offset: 0x00
+        name: packed_data_row_units
+        type: u32
+        confidence: observed
+        description: Full word used with the record height byte to advance the packed glyph-data cursor.
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x04
+        name: source_metric_1
+        type: u32
+        confidence: observed
+        description: Low byte is copied to the runtime entry at +0x05 and is passed as the decoded image height.
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x08
+        name: source_metric_2
+        type: u32
+        confidence: observed
+        description: Low byte is copied to the runtime entry at +0x06; its public glyph metric meaning remains open.
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x0c
+        name: glyph_width
+        type: u32
+        confidence: observed
+        description: Low byte is copied to the runtime entry at +0x04 and is passed as the decoded image width.
+        evidence:
+          - re/evidence/functions/font-runtime.md
+
+  - name: RuntimeFontGlyphImage
+    size: 0x5c
+    confidence: observed
+    description: Image object allocated for one decoded FNT glyph and attached to the font glyph entry.
+    fields:
+      - offset: 0x40
+        name: image_width
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x42
+        name: image_height
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x4e
+        name: slice_width
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x50
+        name: slice_height
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x58
+        name: image_bpp_mode
+        type: u8
+        confidence: confirmed
+        description: "Image-library mode derived from input bpp: 4 -> 2, 8 -> 1, 16 -> 0."
+        evidence:
+          - re/evidence/functions/font-runtime.md
+      - offset: 0x5a
+        name: atlas_format_word
+        type: u16
+        confidence: observed
+        description: Packed font atlas/format word passed to the image setup constructor.
         evidence:
           - re/evidence/functions/font-runtime.md

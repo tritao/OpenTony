@@ -54,6 +54,13 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/trg-runtime.md
+      - offset: 0x70
+        name: script_scalar_value
+        type: u32
+        confidence: confirmed
+        description: Value written by base script opcode 0x4280 after virtual-operand resolution; non-state-1 objects receive a 12-bit fixed-point shift.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
       - offset: 0xae
         name: constructor_cleared_word
         type: u16
@@ -86,9 +93,10 @@ types:
     description: Small link record allocated for crate/command-point style TRG relationships.
     fields:
       - offset: 0x00
-        name: command_or_diagnostic_payload
+        name: command_stream_or_diagnostic_payload
         type: pointer<void>
         confidence: confirmed
+        description: Type-6 records point at a trailing u16 command stream; the type-2 path supplies a static diagnostic string pointer instead.
         evidence:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x04
@@ -113,12 +121,14 @@ types:
         name: pulse_count_or_state
         type: u8
         confidence: observed
+        description: Incremented by the type-6 pulse path; also compared by command 0x94.
         evidence:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x08
-        name: state_word
-        type: u16
+        name: pulse_limit_or_state_word
+        type: i16
         confidence: confirmed
+        description: Command 0x0003 gates source-list execution on this word and decrements it unless it is -1; its initial constructor value is zero.
         evidence:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x0a
@@ -145,6 +155,164 @@ types:
         confidence: confirmed
         evidence:
           - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTrickObject
+    size: 0x18
+    confidence: confirmed
+    description: 0x18-byte runtime record created from TRG type-12/14 trick-object nodes.
+    fields:
+      - offset: 0x00
+        name: vtable
+        type: pointer<void>
+        confidence: confirmed
+        description: Constructor installs the trick-object vtable.
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x04
+        name: model_name_checksum
+        type: u32
+        confidence: confirmed
+        description: Aligned payload checksum matched to SKWARE.PSX model-name entries for multiple Warehouse type-12 nodes.
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x08
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x0a
+        name: activated
+        type: u8
+        confidence: confirmed
+        description: Cleared by construction and set by activation paths.
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x0b
+        name: player_number
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x0c
+        name: delay_or_score_threshold
+        type: u16
+        confidence: observed
+        description: Read and updated by activation/update logic; gameplay semantics are not yet assigned.
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x10
+        name: next_trick_object
+        type: pointer<RuntimeTrickObject>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+      - offset: 0x14
+        name: resolved_runtime_object
+        type: pointer<void>
+        confidence: confirmed
+        description: Runtime object/context pointer retained after checksum/event activation.
+        evidence:
+          - re/evidence/functions/trick-object-runtime.md
+
+  - name: RuntimePowerupObject
+    size: 0x100
+    confidence: observed
+    description: 0x100-byte type-5 TRG item/medal object constructed after the named ITEMS or SKMEDALS PSX region is loaded.
+    fields:
+      - offset: 0x00
+        name: vtable
+        type: pointer<void>
+        confidence: confirmed
+        description: Powerup vtable installed by the constructor.
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: position_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a
+        name: psx_model_index
+        type: u16
+        confidence: confirmed
+        description: Model index returned by the region model-name checksum lookup.
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x1f
+        name: psx_region_slot
+        type: u8
+        confidence: observed
+        description: Named PSX slot used when an item branch selects an alternate region.
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x20
+        name: next_object
+        type: pointer<RuntimePowerupObject>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x34
+        name: previous_object
+        type: pointer<RuntimePowerupObject>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x3c
+        name: item_subtype
+        type: u16
+        confidence: confirmed
+        description: TRG item/medal subtype used by the constructor's model-selection switch.
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0x6a
+        name: object_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0xb0
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xc8
+        name: glow_runtime_object
+        type: pointer<void>
+        confidence: observed
+        description: Lazily-created glow/sprite object populated by the powerup update path.
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0xd1
+        name: visual_active
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/items-runtime.md
+      - offset: 0xd2
+        name: motion_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/items-runtime.md
 
   - name: RuntimeTriggerSubtype0x00cb
     size: 0x1f4
@@ -208,11 +376,67 @@ types:
         description: Script state word; command 0x4700 toggles bit 0x100.
         evidence:
           - re/evidence/functions/trg-runtime.md
+      - offset: 0x180
+        name: script_label_targets
+        type: array<pointer<void>,8>
+        confidence: confirmed
+        description: Eight script label cursors populated by 0x4104/0x4105 and selected by 0x4101/0x4102.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
       - offset: 0x1b0
         name: script_registers
         type: array<u16,6>
         confidence: confirmed
         description: Six u16 script register values selected by a byte read from the script cursor.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x108
+        name: script_scalar_word
+        type: i32
+        confidence: confirmed
+        description: Sign-extended u16 payload written by script word 0x2121.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a0
+        name: script_attributes
+        type: array<u16,6>
+        confidence: confirmed
+        description: Six u16 attribute slots selected by script word 0x2125.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1ac
+        name: script_value_word
+        type: u16
+        confidence: confirmed
+        description: u16 payload written by script word 0x2122.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a
+        name: script_name_token
+        type: u16
+        confidence: confirmed
+        description: Name/token result written after the aligned u32 payload of script word 0x212f.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb4
+        name: script_word_2100_value
+        type: u16
+        confidence: confirmed
+        description: u16 payload written by script word 0x2100.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1bc
+        name: script_word_2114_value
+        type: u16
+        confidence: confirmed
+        description: u16 payload written by script word 0x2114.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1be
+        name: script_word_2115_value
+        type: u16
+        confidence: confirmed
+        description: u16 payload written by script word 0x2115.
         evidence:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x1d8
@@ -417,7 +641,7 @@ types:
   - name: RuntimeTriggerTrafficObject
     size: 0x1e8
     confidence: observed
-    description: Type-1 TRG traffic/car object selected for subtypes 0xd5..0xdc. Only constructor-owned fields and the subtype resource switch are named.
+    description: Type-1 TRG traffic/car object selected for subtypes 0xd5..0xdc. Constructor, update, and interaction fields are included only where their offsets are independently supported.
     fields:
       - offset: 0x00
         name: vtable_or_class_dispatch
@@ -480,6 +704,27 @@ types:
         confidence: confirmed
         evidence:
           - re/evidence/functions/trg-runtime.md
+      - offset: 0x4c
+        name: motion_response_x_fixed
+        type: i32
+        confidence: observed
+        description: Fixed-point response component initialized and integrated by the traffic update; exact gameplay axis semantics remain open.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x50
+        name: motion_response_y_fixed
+        type: i32
+        confidence: observed
+        description: Fixed-point response component initialized and integrated by the traffic update; exact gameplay axis semantics remain open.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x54
+        name: motion_response_z_fixed
+        type: i32
+        confidence: observed
+        description: Fixed-point response component initialized and integrated by the traffic update; exact gameplay axis semantics remain open.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
       - offset: 0x1a
         name: psx_model_index
         type: u16
@@ -520,7 +765,7 @@ types:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x1d4
         name: resource_active_flag
-        type: u8
+        type: i32
         confidence: observed
         evidence:
           - re/evidence/functions/trg-runtime.md
@@ -534,5 +779,12 @@ types:
         name: traffic_sequence
         type: u32
         confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1e4
+        name: traffic_interaction_latch
+        type: u32
+        confidence: observed
+        description: Traffic interaction/proximity consumer writes this to 1 on a matching object and clears it when no match remains.
         evidence:
           - re/evidence/functions/trg-runtime.md

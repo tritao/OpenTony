@@ -62,6 +62,13 @@ types:
         description: Raw eight-way physics dispatcher state; retain the numeric value alongside provisional on-ground/in-air/rail/etc. labels.
         evidence:
           - re/evidence/functions/physics.md
+      - offset: 0x30b0
+        name: collision_surface_mode
+        type: u32
+        confidence: confirmed
+        description: Four-bit field copied from the selected face word by the ground consumer after collision-surface extraction; its gameplay enum names remain open.
+        evidence:
+          - re/evidence/functions/physics.md
       - offset: 0x30c4
         name: physics_state_result
         type: u32
@@ -173,9 +180,9 @@ types:
           - re/evidence/functions/physics.md
 
   - name: RuntimeCollisionQueryRecord
-    size: null
-    confidence: observed
-    description: Collision query/result record shared by skater physics and the PSX zone collision routines. Input geometry and complete basis layout remain open.
+    size: 0x90
+    confidence: confirmed
+    description: Fixed 0x90-byte collision query/result record shared by skater physics and the PSX zone collision routines.
     fields:
       - offset: 0x00
         name: segment_start
@@ -190,12 +197,112 @@ types:
         confidence: confirmed
         evidence:
           - re/evidence/functions/physics.md
-      - offset: 0x40
-        name: hit_distance_or_metric
+      - offset: 0x18
+        name: query_aabb_min_x
         type: i32
-        confidence: observed
+        confidence: confirmed
+        description: Minimum X of the endpoint-derived query AABB.
         evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x1c
+        name: query_aabb_min_y
+        type: i32
+        confidence: confirmed
+        description: Minimum Y of the endpoint-derived query AABB.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x20
+        name: query_aabb_min_z
+        type: i32
+        confidence: confirmed
+        description: Minimum Z of the endpoint-derived query AABB.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x24
+        name: query_aabb_max_x
+        type: i32
+        confidence: confirmed
+        description: Maximum X of the endpoint-derived query AABB.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x28
+        name: query_aabb_max_y
+        type: i32
+        confidence: confirmed
+        description: Maximum Y of the endpoint-derived query AABB.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x2c
+        name: query_aabb_max_z
+        type: i32
+        confidence: confirmed
+        description: Maximum Z of the endpoint-derived query AABB.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x48
+        name: query_basis_matrix
+        type: array<i16,9>
+        confidence: confirmed
+        description: Three rows of signed-12-bit basis/matrix components copied into the shared collision transform state; the public orientation names remain open.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x40
+        name: best_hit_metric
+        type: i32
+        confidence: confirmed
+        description: Best intersection metric; initialized to 0x7fffffff and replaced when a nearer face hit is accepted.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
           - re/evidence/functions/physics.md
+      - offset: 0x44
+        name: segment_length_fixed
+        type: i32
+        confidence: confirmed
+        description: Fixed-point segment length derived by the collision-query initializer and used to seed the hit metric.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x6c
+        name: contact_x_fixed
+        type: i32
+        confidence: confirmed
+        description: Query-segment contact X written for the best accepted face hit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x70
+        name: contact_y_fixed
+        type: i32
+        confidence: confirmed
+        description: Query-segment contact Y written for the best accepted face hit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x74
+        name: contact_z_fixed
+        type: i32
+        confidence: confirmed
+        description: Query-segment contact Z written for the best accepted face hit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x78
+        name: surface_basis_x
+        type: i16
+        confidence: confirmed
+        description: First signed 16-bit surface-basis component published by the post-zone collision-surface commit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x7a
+        name: surface_basis_y
+        type: i16
+        confidence: confirmed
+        description: Second signed 16-bit surface-basis component published by the post-zone collision-surface commit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x7c
+        name: surface_basis_z
+        type: i16
+        confidence: confirmed
+        description: Third signed 16-bit surface-basis component published by the post-zone collision-surface commit.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
       - offset: 0x68
         name: hit_object
         type: pointer<RuntimePsxObjectRecord>
@@ -206,7 +313,9 @@ types:
         name: hit_face
         type: pointer<RuntimePsxFaceRecord>
         confidence: confirmed
+        description: Selected model face pointer, not the transient AABB cache entry.
         evidence:
+          - re/evidence/functions/blockmap-collision.md
           - re/evidence/functions/physics.md
       - offset: 0x84
         name: hit_model_index
@@ -215,8 +324,32 @@ types:
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x8c
-        name: hit_metric
+        name: selected_hit_metric
         type: i32
-        confidence: observed
+        confidence: confirmed
+        description: Secondary best-hit metric initialized to 0x7fffffff and updated with the accepted face distance.
         evidence:
+          - re/evidence/functions/blockmap-collision.md
+          - re/evidence/functions/physics.md
+      - offset: 0x88
+        name: collision_option_flags
+        type: u8
+        confidence: confirmed
+        description: Face-test option byte; when nonzero it permits the alternate 0x20000 face-flag branch.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x89
+        name: positive_vertical_direction
+        type: u8
+        confidence: observed
+        description: Set by the initializer when the endpoint Y delta is nonnegative; exact consumer semantics remain open.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x8a
+        name: collision_query_generation
+        type: u16
+        confidence: confirmed
+        description: Generation value incremented by the query initializer and copied into object/face-cache records to avoid rebuilding the same model data within one query.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
           - re/evidence/functions/physics.md

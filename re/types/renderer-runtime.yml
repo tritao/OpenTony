@@ -45,7 +45,7 @@ types:
   - name: RuntimeD3DPolygonRecord
     size: 0x30
     confidence: observed
-    description: Fixed-size per-frame polygon record allocated after PSX face color and vertex resolution. The tail is a variable vertex/color/UV stream.
+    description: Fixed-size per-frame polygon record allocated after PSX face color and vertex resolution. The tail is a variable vertex/color/UV stream; non-textured vertices occupy 0x14 bytes and textured vertices occupy 0x1c bytes.
     fields:
       - offset: 0x00
         name: next
@@ -82,13 +82,14 @@ types:
         name: vertex_color_uv_stream
         type: bytes
         confidence: observed
+        description: Each vertex begins with four f32 values (projected x/y/z and reciprocal depth), followed by one u32 color; textured records append f32 U/V. The stride is 0x14 for solid and 0x1c for textured records.
         evidence:
           - re/evidence/functions/renderer.md
 
   - name: RuntimeM3DTransformedVertex
     size: 0x1c
     confidence: observed
-    description: Seven-float working record produced by the packed model vertex transformer. The first coordinates and clip/control values are stable; some later slots are mode-dependent.
+    description: Seven-float working record produced by the packed model vertex transformer. It contains projected coordinates, reciprocal depth, source vertex flags, clip flags, and one mode-dependent auxiliary value.
     fields:
       - offset: 0x00
         name: projected_x
@@ -109,14 +110,27 @@ types:
         evidence:
           - re/evidence/functions/renderer.md
       - offset: 0x0c
+        name: reciprocal_depth
+        type: f32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x10
+        name: source_vertex_flags
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x14
         name: clip_flags
         type: u32
         confidence: observed
         evidence:
           - re/evidence/functions/renderer.md
-      - offset: 0x10
-        name: source_control
-        type: u32
+      - offset: 0x18
+        name: auxiliary_or_override_value
+        type: f32
         confidence: observed
+        description: Zero for ordinary transformed vertices; the line/override path reuses it for a source/scale value.
         evidence:
           - re/evidence/functions/renderer.md
