@@ -154,10 +154,19 @@ Exact observed behavior:
 - Uses `ECX` as `this` and begins by reading camera state, including `+0x3ac`, `+0x3bc`, `+0x3c0..+0x3c8`, `+0x3dc`, `+0x3e0`, and `+0x3f0..+0x3f8`.
 - Mirrors anchor/target values when the corresponding flags are set and may copy positions from the primary or secondary tripod.
 - Updates global camera/framing values at `DAT_00524a40/44/48`.
-- Adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`.
+- Adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`. The raw disassembly shows the exact control shape: a guarded assignment from `DAT_00524aa4`, decrement/increment flags at `DAT_0056b008`/`DAT_0056b018`, a reset-to-`0x100` flag at `DAT_0056aff8`, and a signed delta/timer pair at `+0x410/+0x414`.
 - Calls `0x00410610`, `Camera_SmoothAndValidate 0x0040e090`, and `Camera_BuildLookAngles 0x004c9770` for camera/vector preparation.
 - Dispatches through a jump table using `camera + 0x504`; the observed table covers mode values through `0x19`.
 - Handles death-camera mode through `0x00410c90`, applies effect/shake vectors, increments `camera + 0x510`, and performs a final smoothing/position pass.
+
+The same raw-disassembly pass resolves an important producer boundary that is
+not visible from the ordinary decompiler output. In the common continuation
+at `0x0040ff2b`, when the linked tripod is present, the camera stores mode
+`0x19` (`25`) if `tripod + 0x3110 > 0x64` and `tripod + 0x30b8 == 1`.
+This is a camera-owned mode transition in addition to the previously recorded
+store from `Skater_PhysicsDispatcher 0x0049db80`; the latter remains a second
+gameplay producer, not proof that the camera should read the entire physics
+dispatcher.
 
 Static callers/callees:
 
@@ -201,7 +210,7 @@ used the normal follow preparation with the mode-25 `(0,-0x1000,0)` offset
 branch before returning to mode `1`. Preserve this as a real transition rather
 than collapsing it into invalid-mode handling.
 
-The mode-25 producer is visible at the gameplay boundary in
+One mode-25 producer is visible at the gameplay boundary in
 `Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
 player has the `+0x2dd4`/`+0x3018` conditions, it sets camera `+0x504` to
 `0x19` when `player +0x3110 > 1000` and either
@@ -209,6 +218,13 @@ player has the `+0x2dd4`/`+0x3018` conditions, it sets camera `+0x504` to
 `DAT_0056865c * 6 >> 8`. The same path emits the associated `0x14` event.
 This is a producer boundary, not a request to reimplement the surrounding
 physics dispatcher inside the camera class.
+
+The direct camera-side producer is stronger evidence for the update contract:
+the `0x0040ff2b` branch compares the linked tripod's `+0x3110` and
+`+0x30b8` fields immediately before the mode-dispatch continuation. The
+current C++ model should therefore expose this as an injectable transition
+input until the runtime target mapping is promoted; it should not silently
+derive mode `25` from a renamed generic `tripod_state` field.
 
 Runtime validation from `camera-zoom-probe.jsonl` recorded mode-25 intervals
 at frames `4108..4204` (97 observations) and `4292..4389` (98 observations),
@@ -330,7 +346,7 @@ The evidence-backed layout is recorded separately in [re/types/camera.yml](../..
 | `+0x3dc` | secondary target/tripod link | observed |
 | `+0x3e0` | secondary target-valid/control flag | observed |
 | `+0x3f0..+0x3f8` | look-at target in Q16.16 world words | inferred from the `0x004c9770` call |
-| `+0x40c` | viewport/framing parameter; copied to viewport `+0x0e` | observed, not FOV-confirmed |
+| `+0x40c` | camera-owned viewport/framing parameter; copied to viewport `+0x0e`; guarded assignment, +/- flags, reset, and timed delta are statically observed | observed; projection/FOV meaning not confirmed |
 | `+0x448..+0x454` | current four-word transform/effect vector in Q12-like units | inferred |
 | `+0x45c..+0x468` | target four-word transform vector in Q12-like units | inferred |
 | `+0x470..+0x47c` | previous/saved four-word transform vector in Q12-like units | inferred |
@@ -1272,7 +1288,7 @@ The names in this contract are reconstruction interfaces, not claims that the or
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
 1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
-2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; the dedicated camera-key experiment left it at raw `12`, so do not call it FOV or zoom without an aspect/display-mode or producer trace that changes it.
+2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`. Static code now proves that `+0x40c` is camera-owned and supports guarded assignment, increment/decrement flags, reset, and timed delta updates; the dedicated camera-key experiment left it at raw `12`, so its projection/FOV meaning still requires an aspect/display-mode or producer trace that changes the rendered scale.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
 5. Use the now-established input/player/camera frame contract as the fixture for projection calibration: vary one camera/viewport input at a time and compare the resulting basis rows, transformed object coordinates, and present-to-present output.
@@ -1346,7 +1362,7 @@ whole DirectDraw backend.
   view/object observations; projection claims are still raw fixed-point
   records until a controlled movement/viewport experiment identifies the
   final matrix convention and any zoom parameter.
-- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). A run that changes actual projection scale without changing it would falsify the current viewport/framing label and move the parameter search to another viewport/global field.
+- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524aa4`, `DAT_0056b008`, `DAT_0056b018`, `DAT_0056aff8`, and the `+0x410/+0x414` timer/delta pair. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
 - The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `21`, `22`, and `23` remain unobserved in a live level transition.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.
