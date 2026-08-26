@@ -145,3 +145,38 @@ def test_generate_symbols_inc(tmp_path: Path, monkeypatch):
     output = (tmp_path / "match/generated/symbols.inc").read_text()
     assert "Math_Vector3Add equ 0x004ca9f0" in output
     assert "Current_Player" in output
+
+
+def test_compose_coverage_has_exact_complete_ownership():
+    section = {"start_va": 0x401000, "raw_size": 8}
+    data = b"\x90\x90AB\x00\x00CD"
+    claims = [{"start_va": 0x401002, "end_va": 0x401004, "kind": "function", "name": "helper"}]
+
+    intervals = split._compose_coverage(section, data, claims)
+
+    assert sum(interval["size"] for interval in intervals) == len(data)
+    assert [interval["kind"] for interval in intervals] == ["padding", "function", "padding", "unknown"]
+    assert intervals[1]["name"] == "helper"
+
+
+def test_propose_modules_does_not_mutate_manifest(tmp_path: Path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=10))
+    monkeypatch.setattr(split, "COVERAGE", tmp_path / "match/generated/coverage.yml")
+    monkeypatch.setattr(split, "PROPOSALS", tmp_path / "match/generated/module-proposals.yml")
+    split.save_yaml(
+        split.COVERAGE,
+        {
+            "version": 1,
+            "intervals": [
+                {"start_va": 0x401002, "end_va": 0x401006, "size": 4, "kind": "function", "name": "helper"}
+            ],
+        },
+    )
+    before = split.MANIFEST.read_bytes()
+
+    assert split.split_propose_modules(SimpleNamespace()) == 0
+    assert split.MANIFEST.read_bytes() == before
+    proposals = split.load_yaml(split.PROPOSALS)
+    assert proposals["proposal_count"] == 1
+    assert proposals["proposals"][0]["command"] == "tony split module 0x00401002 0x00401006"

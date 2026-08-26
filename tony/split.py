@@ -15,6 +15,8 @@ from .common import ROOT, load_yaml, resolve, save_yaml, sha256
 
 MANIFEST = ROOT / "match/manifest.yml"
 DEFAULT_CHUNK_SIZE = 64 * 1024
+COVERAGE = ROOT / "match/generated/coverage.yml"
+PROPOSALS = ROOT / "match/generated/module-proposals.yml"
 
 
 def _source_executable() -> Path:
@@ -249,6 +251,142 @@ def split_compare(args) -> int:
         print(f"expected disassembly:\n{expected_disassembly}")
         print(f"actual disassembly:\n{actual_disassembly}")
     return 1
+
+
+def _append_interval(intervals: list[dict], start_va: int, end_va: int, kind: str, name: str | None = None) -> None:
+    if start_va >= end_va:
+        return
+    if (
+        intervals
+        and intervals[-1]["end_va"] == start_va
+        and intervals[-1]["kind"] == kind
+        and intervals[-1].get("name") == name
+    ):
+        intervals[-1]["end_va"] = end_va
+        intervals[-1]["size"] += end_va - start_va
+        return
+    interval = {"start_va": start_va, "end_va": end_va, "size": end_va - start_va, "kind": kind}
+    if name:
+        interval["name"] = name
+    intervals.append(interval)
+
+
+def _classify_unclaimed(intervals: list[dict], start_va: int, data: bytes) -> None:
+    index = 0
+    while index < len(data):
+        byte = data[index]
+        run_end = index + 1
+        while run_end < len(data) and data[run_end] == byte:
+            run_end += 1
+        is_padding = byte in {0x00, 0x90, 0xCC} and run_end - index >= 2
+        _append_interval(intervals, start_va + index, start_va + run_end, "padding" if is_padding else "unknown")
+        index = run_end
+
+
+def _compose_coverage(section: dict, section_bytes: bytes, claims: list[dict]) -> list[dict]:
+    section_start = int(section["start_va"])
+    section_end = section_start + int(section["raw_size"])
+    clipped = []
+    boundaries = {section_start, section_end}
+    for claim in claims:
+        start = max(int(claim["start_va"]), section_start)
+        end = min(int(claim["end_va"]), section_end)
+        if start >= end:
+            continue
+        item = {**claim, "start_va": start, "end_va": end}
+        clipped.append(item)
+        boundaries.update((start, end))
+    ordered = sorted(boundaries)
+    intervals: list[dict] = []
+    priority = {"function": 3, "jump_table": 2, "defined_data": 1}
+    for start, end in pairwise(ordered):
+        active = [claim for claim in clipped if int(claim["start_va"]) <= start and end <= int(claim["end_va"])]
+        functions = [claim for claim in active if claim["kind"] == "function"]
+        function_names = {claim.get("name") for claim in functions}
+        if len(function_names) > 1:
+            raise SystemExit(f"overlapping Ghidra functions at 0x{start:08x}: {sorted(function_names)}")
+        if active:
+            selected = max(active, key=lambda claim: priority.get(claim["kind"], 0))
+            _append_interval(intervals, start, end, selected["kind"], selected.get("name"))
+            continue
+        offset = start - section_start
+        _classify_unclaimed(intervals, start, section_bytes[offset : offset + end - start])
+    return intervals
+
+
+def split_coverage(_args) -> int:
+    from .ghidra_ops import export_text_claims
+
+    manifest = _load_manifest()
+    source = _source_executable()
+    text_sections = [section for section in manifest["sections"] if section["name"] == ".text"]
+    if len(text_sections) != 1:
+        raise SystemExit(f"expected exactly one .text section, found {len(text_sections)}")
+    section = text_sections[0]
+    start = int(section["file_offset"])
+    section_bytes = source.read_bytes()[start : start + int(section["raw_size"])]
+    claims = export_text_claims()
+    intervals = _compose_coverage(section, section_bytes, claims)
+    covered = sum(int(interval["size"]) for interval in intervals)
+    if covered != int(section["raw_size"]):
+        raise SystemExit(f"coverage map owns {covered} bytes, expected {section['raw_size']}")
+    output = {
+        "version": 1,
+        "source_sha256": manifest["source_sha256"],
+        "section": section,
+        "summary": {
+            kind: sum(int(interval["size"]) for interval in intervals if interval["kind"] == kind)
+            for kind in ("function", "padding", "jump_table", "defined_data", "unknown")
+        },
+        "intervals": intervals,
+    }
+    save_yaml(COVERAGE, output)
+    print(f"Exported {len(intervals)} complete .text intervals: {COVERAGE}")
+    for kind, size in output["summary"].items():
+        print(f"  {kind}: {size} bytes")
+    return 0
+
+
+def split_propose_modules(_args) -> int:
+    if not COVERAGE.is_file():
+        raise SystemExit("coverage map not found; run: tony split coverage")
+    coverage = load_yaml(COVERAGE)
+    manifest = _load_manifest()
+    proposals = []
+    for interval in coverage.get("intervals", []):
+        if interval.get("kind") != "function":
+            continue
+        start_va = int(interval["start_va"])
+        end_va = int(interval["end_va"])
+        owners = [
+            module
+            for module in manifest["modules"]
+            if int(module["start_va"]) <= start_va and end_va <= int(module["end_va"])
+        ]
+        if len(owners) != 1 or owners[0].get("status") != "raw":
+            continue
+        owner = owners[0]
+        if start_va == int(owner["start_va"]) and end_va == int(owner["end_va"]):
+            continue
+        proposals.append(
+            {
+                "name": interval.get("name"),
+                "start_va": start_va,
+                "end_va": end_va,
+                "size": end_va - start_va,
+                "owner": owner["id"],
+                "command": f"tony split module 0x{start_va:08x} 0x{end_va:08x}",
+            }
+        )
+    output = {
+        "version": 1,
+        "source_sha256": manifest["source_sha256"],
+        "proposal_count": len(proposals),
+        "proposals": proposals,
+    }
+    save_yaml(PROPOSALS, output)
+    print(f"Proposed {len(proposals)} non-mutating function splits: {PROPOSALS}")
+    return 0
 
 
 def split_init(args) -> int:

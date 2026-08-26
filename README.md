@@ -140,6 +140,8 @@ tony split build
 tony split symbols
 tony split module <start-va> <end-va>
 tony split compare <module-id-or-va>
+tony split coverage
+tony split propose-modules
 tony split rebuild
 tony split verify
 

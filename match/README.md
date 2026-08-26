@@ -23,3 +23,11 @@ tony split symbols
 tony split module 0x004ca9f0 0x004caa20
 tony split compare 0x004ca9f0
 ```
+
+Export Ghidra's complete `.text` ownership map and generate non-mutating,
+function-aware split proposals with:
+
+```bash
+tony split coverage
+tony split propose-modules
+```

@@ -37,6 +37,8 @@ def test_split_commands_parse():
         "symbols": [],
         "module": ["0x401000", "0x401010"],
         "compare": ["0x401000"],
+        "coverage": [],
+        "propose-modules": [],
         "rebuild": [],
         "verify": [],
     }

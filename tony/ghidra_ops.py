@@ -108,6 +108,60 @@ def export_functions(output: Path | None = None) -> Path:
     return output
 
 
+def export_text_claims() -> list[dict]:
+    """Return Ghidra-defined function and data ranges within the .text block."""
+
+    exe = _exe_path()
+    pyghidra = _require_pyghidra()
+    config = load_yaml("re/config/ghidra.yml")
+    spec = config["ghidra"]
+    install = resolve(spec["install_dir"])
+    project_parent = resolve(spec["project_dir"])
+    project_name = spec["project_name"]
+
+    pyghidra.start(install_dir=install)
+    with pyghidra.open_project(project_parent, project_name, create=False) as project, pyghidra.program_context(
+        project, f"/{exe.name}"
+    ) as program:
+        block = program.getMemory().getBlock(".text")
+        if block is None:
+            raise SystemExit("Ghidra program has no .text memory block")
+        text_start = int(block.getStart().getOffset())
+        text_end = int(block.getEnd().getOffset()) + 1
+        claims = []
+        for function in program.getFunctionManager().getFunctions(True):
+            body = function.getBody()
+            for address_range in body.getAddressRanges():
+                start = max(int(address_range.getMinAddress().getOffset()), text_start)
+                end = min(int(address_range.getMaxAddress().getOffset()) + 1, text_end)
+                if start < end:
+                    claims.append(
+                        {
+                            "start_va": start,
+                            "end_va": end,
+                            "kind": "function",
+                            "name": str(function.getName()),
+                        }
+                    )
+        for data in program.getListing().getDefinedData(True):
+            start = max(int(data.getMinAddress().getOffset()), text_start)
+            end = min(int(data.getMaxAddress().getOffset()) + 1, text_end)
+            if start >= end:
+                continue
+            data_type = str(data.getDataType().getDisplayName())
+            lowered = data_type.lower()
+            kind = "jump_table" if "jump" in lowered or "switch" in lowered else "defined_data"
+            claims.append(
+                {
+                    "start_va": start,
+                    "end_va": end,
+                    "kind": kind,
+                    "name": data_type,
+                }
+            )
+    return claims
+
+
 def decompile_function(address: int, output: Path | None = None) -> Path | None:
     """Decompile one function from the deterministic local Ghidra project."""
 

@@ -40,9 +40,11 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
 from .split import (  # noqa: F401 - command handlers are consumed by cli.py
     split_build,
     split_compare,
+    split_coverage,
     split_extract,
     split_init,
     split_module,
+    split_propose_modules,
     split_rebuild,
     split_symbols,
     split_verify,
