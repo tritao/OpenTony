@@ -107,7 +107,8 @@ inline CameraTimingStepRaw advance_camera_timing(
     if (!timing_paused) {
         state.recent_deltas[state.ring_index % state.recent_deltas.size()]
             = sample_delta;
-        state.ring_index = (state.ring_index + 1) % state.recent_deltas.size();
+        state.ring_index = static_cast<std::uint32_t>(
+            (state.ring_index + 1) % state.recent_deltas.size());
     }
 
     state.delta_q11 = multiply_s32(sample_delta, 0x800);
