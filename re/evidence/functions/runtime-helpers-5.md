@@ -18,3 +18,7 @@ The manually verified alignment-separated leaves around `0x004e8a10` and
 
 Every promoted source matches the original function bytes; trailing NOPs are
 the VC6 COFF section-alignment suffix accepted by the comparator.
+
+The byte-pattern audit also found and matched zero-return leaves at
+`0x004e87b0`, `0x004e89b0`, `0x004e89c0`, `0x004e89d0`, `0x004e89e0`,
+`0x004e8af0`, `0x004e8b40`, `0x004e8b50`, and `0x004e8b60`.
