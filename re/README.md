@@ -118,7 +118,8 @@ Collision experiments use `tony-collision-probe [COUNT]` for the shared query
 record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
 `tony-collision-dynamic-cull-probe [COUNT]` plus
 `tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
-passes.
+passes. `tony-collision-transform-probe [COUNT]` captures the opaque tail and
+temporary matrix around the `0x0400` transform branch.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw

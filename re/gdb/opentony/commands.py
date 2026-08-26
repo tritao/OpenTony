@@ -21,6 +21,7 @@ from .camera import (
 from .collision import (
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
+    CollisionDynamicTransformProbe,
     CollisionFlagProbe,
     CollisionLoaderProbe,
     CollisionQueryProbe,
@@ -1762,6 +1763,26 @@ class TonyCollisionDynamicCullProbe(gdb.Command):
         _write(f"collision dynamic cull probe armed for {count} completed calls")
 
 
+class TonyCollisionDynamicTransformProbe(gdb.Command):
+    """tony-collision-transform-probe [COUNT] -- log the 0x0400 matrix tail."""
+
+    DEFAULT_COUNT = 16
+
+    def __init__(self):
+        super().__init__("tony-collision-transform-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-collision-transform-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-transform-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = CollisionDynamicTransformProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"collision transform probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -1824,6 +1845,7 @@ def register_commands() -> None:
     TonyCollisionFlagsProbe()
     TonyCollisionDynamicProbe()
     TonyCollisionDynamicCullProbe()
+    TonyCollisionDynamicTransformProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -1847,5 +1869,6 @@ def register_commands() -> None:
         "tony-ollie-latch-probe, "
         "tony-player-diff, tony-position-commit, "
         "tony-collision-loader-probe, tony-collision-flags-probe, "
-        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe"
+        "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
+        "tony-collision-transform-probe"
     )
