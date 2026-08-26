@@ -18,3 +18,13 @@ experiments:
   - name: warehouse-ollie
     status: planned
     purpose: Capture crouch, ollie launch, apex, descent, landing, state transitions, and animation.
+
+  - name: warehouse-animation
+    status: complete
+    purpose: Recover the skater animation selector, cursor timing, resource identity, and skeleton-pose boundary.
+    capture:
+      - animation_selector
+      - animation_requests
+      - animation_cursor
+      - animation_resource
+      - skeleton_pose_boundary

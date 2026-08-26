@@ -1,6 +1,10 @@
 # Session F — skater animation pipeline
 
-Status: the complete minimal pipeline is confirmed by static control-flow, field-write, asset, pose-cache, and live Warehouse player evidence. A live player request/timing trace was obtained; a clean input-driven left/right turn trace remains the only harness gap.
+Status: static control-flow, field-write, asset, pose-cache, and live Warehouse
+player evidence confirm the minimal selector/current/time/pose pipeline.
+Bounded live selector/request traces cover both physical arrow action bits; a
+clean causal turn-to-idle release trace and a distinct straight-roll identity
+remain unclosed.
 
 Build: retail `THawk2.exe`, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`, image base `0x00400000`.
 
@@ -154,7 +158,7 @@ The decompilation of `0x00480730` shows these writes on the same skater/`CSuper`
 | `+0xf8` | playback mode | Selects stop/range, loop, ping-pong, and reverse behavior in `0x00480950`. |
 | `+0x100` | playback direction | Set to forward/reverse from the requested start/end range. |
 | `+0x101` | endpoint frame | Stored by `RunAnim` and used by the mode logic. |
-| `+0x102` | alternate/next endpoint | If non-negative, replaces `+0x101` when the current endpoint is reached and reverses direction; this is endpoint-swap/ping-pong state, not a blend amount. |
+| `+0x102` | alternate/next endpoint | If `>= 1`, replaces `+0x101` when the current endpoint is reached and reverses direction; byte `0` is the finish sentinel. This is endpoint-swap/ping-pong state, not a blend amount. |
 | `+0xfa` | mode-3 target frame | Used by the special target-frame oscillator path in `UpdateFrame`; not part of ordinary `RunAnim` range requests. |
 | `+0xfc` | mode-3 second target/phase value | Written by the mode-3 setup path and consumed by the special oscillator. Its exact gameplay meaning is not needed by the ordinary idle/push/turn path. |
 | `+0xfe` | mode-3 captured clock value | Sampled from the global animation clock when mode 3 is entered and used by its timing calculation. |
@@ -184,9 +188,18 @@ The pose-side fields that complete the object contract are:
 
 `0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. The dispatch table at `0x00480c18` is exact: mode `0` goes to the stop/clamp path at `0x00480a53`, mode `1` wraps at the selected frame count at `0x00480be5`, mode `2` has no post-advance endpoint rule, mode `3` uses the target/clock oscillator at `0x00480ae8`, and mode `4` uses the reverse/saved-endpoint path at `0x00480a92`. Modes `2` and `3` zero the ordinary frame delta before their special handling. This is the reproducible time/frame advancement path.
 
+The per-skater rate is also mutable from the physics frame. `0x0049d8a0`,
+called from `0x0049e680` after the physics dispatcher when the normal physics
+path is active, counts recent movement/impulse records and writes
+`+0x108 = 0x10000 + (count * 0x5555) / 3`. The exact record semantics belong
+to physics, but the animation implication is important: a recreation must
+not assume that only animation request wrappers write `mAnimSpeed`; ordinary
+requests reset it to `0x10000`, while this gameplay path can derive a faster
+rate before the next animation update.
+
 `DAT_0056865c` is a global frame-time scale, not a per-skater value. It is
 initialized to `0x100` during object/player setup and can be recomputed by the
-game clock at `0x00468bfe`; `UpdateFrame` therefore has both a local playback
+game clock at `0x00468b30`; `UpdateFrame` therefore has both a local playback
 rate (`+0x108`) and a global time-scale input. A faithful engine should pass
 the sampled scale into the cursor rather than bake `1.0` into animation code.
 
@@ -249,8 +262,9 @@ events.
 
 The endpoint behavior is now resolved from the decompilation rather than left
 as a transition guess. Before advancing, mode `0`/`2` checks whether the
-current frame has reached `+0x101`. If `+0x102 < 1`, it sets `+0x107` and
-stops. Otherwise it swaps `+0x101` and `+0x102` and negates `+0x100`. For
+current frame has reached `+0x101`. If `+0x102 < 1`, it sets `+0x107`; the
+mode-0 post-advance rule then clamps at the endpoint. Otherwise it swaps
+`+0x101` and `+0x102` and negates `+0x100`. For
 example, the crouch-turn restoration call is
 `RunAnim(8, 0x13, 0x1a, 0x13, ...)`, which traverses frames 19 through 26 and
 then back to 19. `+0x102` is therefore an alternate/next endpoint. Mode `1`
@@ -487,12 +501,45 @@ fast push, followed by repeated idle/push cycles; normal ticks showed
 `0x10000` outside the fast push. This directly confirms that the static
 cursor fields are live gameplay state, not dead code or a menu-only object.
 
-The injected accept-key schedule did not yet produce a clean left/right
-steering interval in the same trace, so no runtime turn-ID claim is made. The
-static selector still directly requests IDs `6`/`7` (and `9`/`10` for crouch),
-and the existing Warehouse input evidence independently confirms the Left and
-Right action bits. This is a bounded harness limitation, not an unresolved
-selection or pose-path issue.
+The later bounded Warehouse runs closed the selector/request observation gap.
+The real player remained `0x05f39530`, and the selector was sampled after the
+level-start choreography rather than only during the intro path. In the
+right-input run, samples around selector sample `451` had action mask
+`0x2000`, current animation `0`, steering value `+184320`, transition gate
+zero, physics state `0`, and object flags `3`. The selector then issued four
+equal-frame ID `6` requests (frames `6`, `12`, `16`, and `20`) through the
+`0x00490450` wrapper (`RunAnim` return `0x0049047a`, outer caller
+`0x004930e9`).
+
+The mirrored left-input run had action mask `0x8000`, steering value
+`-184320`, transition gate zero, physics state `0`, and object flags `1`. It
+also issued equal-frame ID `6` requests, here at frames `5`, `10`, `13`, and
+`16`, through the same wrapper and outer caller. This is not evidence that
+the two physical arrows mean the same animation: the selector has two
+`+0xd8 & 2` branches, and the normal branch maps negative steering to ID `6`
+while the board-mode branch maps positive steering to ID `6`. Static control
+flow still identifies ID `6` as `TURN_LEFT` and ID `7` as `TURN_RIGHT`; the
+runtime result demonstrates that the context branch must be preserved before
+assigning a world-axis sign.
+
+An earlier cursor-only left-input run briefly observed ID `7` at equal-frame
+positions `5`, `10`, and `13` before the push sequence resumed. Because that
+run did not have the selector/request stack probes armed, it is corroborating
+runtime behavior rather than a causal physical-side assignment. Together,
+the two traces are consistent with the static result: ID `6`/`7` selection is
+context-sensitive and the physical arrow bit alone is insufficient to name
+the turn side.
+
+The request probe also captured IDs `203` and `204` as genuine `RunAnim`
+requests during an earlier bounded run. They are valid indices in the 218-
+entry table, but no static name or minimal-state selector assigned them a
+meaning, so a clone should retain them as opaque IDs rather than inventing a
+roll/trick interpretation. A release run did reach action mask zero and
+steering value zero, but the current animation had already moved through
+level choreography IDs `4`, `5`, `8`, and `25`; it therefore does not prove a
+causal `TURN_* -> IDLE` event. The static neutral branch remains exact:
+ordinary turn IDs `6`/`7` request ID `0`, while crouched IDs `9`/`10` request
+the frame-ranged ID `8` restoration.
 
 ## C++ recreation contract
 
@@ -529,7 +576,8 @@ retail object layout. The required operations are:
   part set, substitute `frame_count-1` for `-1`, clamp endpoints, reset
   fraction, set direction, and mark equal-endpoint requests finished. On a
   mode-0/2 endpoint, swap `endpoint` with `alternate_endpoint` and negate
-  direction when the latter is non-negative.
+  direction when the alternate endpoint byte is `>= 1`; byte `0` is the
+  sentinel for “finish here”.
 * `cycle(id, direction)`: select the ID, set mode `1`, start at frame zero,
   reset fraction, and clear finished;
 * `advance(global_scale)`: add or subtract
@@ -547,6 +595,26 @@ retail object layout. The required operations are:
 * `clear_pose_stuff()`: release the pose buffer and model mapping records,
   clear the model descriptor pointer, and invalidate any dependent pose state
   before a resource/model rebuild.
+
+Use a `std::uint16_t` animation ID throughout the compatibility layer and
+carry the selected part set with the table lookup. The extracted Warehouse
+skater resource has 218 table entries, but the source enum inventory does not
+name every valid entry; unknown IDs must remain representable and diagnosable.
+Keep request provenance (selector, physics/state caller, or opaque caller) in
+debug builds so a later gameplay trace can distinguish a real selection from
+an inherited/current ID. Do not synthesize a `ROLL` name merely because the
+player has non-zero velocity.
+
+The pose cache is a separate invalidation domain from the cursor: an ID/frame
+change invalidates the decoded local frame, a part-set/model change invalidates
+the calculation order and part bindings, and `SetAnimOrder` invalidates the
+render-facing order map. The global scale is supplied by the game clock
+(`0x00468b30`) and is multiplied with the per-cursor rate; it is not a fixed
+render delta. Preserve signed 16-bit frame arithmetic and the retail
+truncation direction when implementing the fixed-point accumulator. The retail
+operation is a 32-bit product/accumulator followed by shifts and narrow stores;
+make wraparound and signed right-shift behavior explicit in C++ rather than
+depending on undefined signed overflow or compiler-specific conversions.
 
 The first differential tests should be deterministic unit tests rather than
 visual tests:
@@ -572,6 +640,9 @@ visual tests:
 
 * A gameplay trace can still confirm whether a concrete level ever selects a distinct straight-roll ID, and can identify which derived vtable callbacks are active for a concrete player object. The base `CSuper` callbacks observed statically are no-ops, so this is not a blocker for the pose path already established.
 * If a gameplay trace shows a distinct roll animation ID under straight motion, the “stable ID 0 after push” statement should be narrowed to the tested grounded path; it does not affect the selection/current/time/pose pipeline.
+* A clean causal `TURN_* -> IDLE` release trace remains useful for gameplay
+  event timing; the bounded release run reached neutral input only after
+  level choreography had replaced the turn cursor.
 * `SetAnimSpeed`, `StoreNewFrame`, and `StoreOldFrameAnim` remain the useful
   adjacent compatibility seams whose exact PC write sites are not yet mapped.
   `FrameReached`, `ApplyPose`, and `M3dUtils_ClearPoseStuff` now have recovered
