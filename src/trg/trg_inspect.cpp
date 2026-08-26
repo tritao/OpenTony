@@ -7,14 +7,15 @@
 #include <string_view>
 
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 6) {
-        std::cerr << "usage: opentony_trg_inspect FILE.trg [LEVEL.psx] [--warehouse-gaps] [--dispatch-all] [--print-position-witnesses]\n";
+    if (argc < 2 || argc > 7) {
+        std::cerr << "usage: opentony_trg_inspect FILE.trg [LEVEL.psx] [--warehouse-gaps] [--dispatch-all] [--print-position-witnesses] [--print-factory-cursors]\n";
         return 2;
     }
     try {
         bool warehouse_gaps = false;
         bool dispatch_all = false;
         bool print_position_witnesses = false;
+        bool print_factory_cursors = false;
         for (int index = 2; index < argc; ++index) {
             const std::string_view argument = argv[index];
             if (argument == "--warehouse-gaps") {
@@ -23,6 +24,8 @@ int main(int argc, char** argv) {
                 dispatch_all = true;
             } else if (argument == "--print-position-witnesses") {
                 print_position_witnesses = true;
+            } else if (argument == "--print-factory-cursors") {
+                print_factory_cursors = true;
             }
         }
         const bool has_psx = argc >= 3
@@ -88,6 +91,22 @@ int main(int argc, char** argv) {
                               << object.position[1] << ","
                               << object.position[2] << '\n';
                 }
+            }
+        }
+        if (print_factory_cursors) {
+            for (const auto& object : state.objects()) {
+                if (!object.has_factory_cursor_offset
+                    || object.spawn_family != opentony::trg::TriggerSpawnFamily::Object192) {
+                    continue;
+                }
+                const std::size_t offset = object.factory_cursor_offset;
+                const std::size_t remaining = offset <= object.factory_node_bytes.size()
+                    ? object.factory_node_bytes.size() - offset
+                    : 0;
+                std::cout << "factory_cursor node=" << object.node
+                          << " subtype=0x" << std::hex << object.subtype
+                          << std::dec << " relative=" << offset
+                          << " remaining=" << remaining << '\n';
             }
         }
         const auto object_count = std::count_if(

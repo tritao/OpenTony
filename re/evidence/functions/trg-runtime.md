@@ -280,9 +280,38 @@ command word. The model-selection cases are important to collision ownership:
 The handler's cursor is the post-position/orientation stream pointer stored at
 `+0x17c`; the constructor's `0x00480240`/`0x004802c0` helpers consume the
 three fixed-point position words and three orientation words before saving
-that cursor. This gives a concrete update path from a TRG-created object to the
-same region/model table consumed by collision broad phase, while leaving the
-command opcode names and the heap pointer ownership unresolved.
+that cursor. In the type-192 dispatch table, the proven command IDs are:
+
+```text
+0x2123  consume one u8 -> object +0x16e
+0x2124  consume one u16 model index -> object +0x1a; mirror model-header bit 0x10 to flags bit 0x20
+0x2127  align to 4, consume one u32 checksum -> 0x004b1de0(checksum, region); store returned model index at +0x1a
+0x2128  consume three resolved u16 values -> object +0x4c/+0x50/+0x54 after << 12
+0x212f  consume three u16 values -> object +0x14/+0x16/+0x18
+0x2133  consume three u16 values -> object +0x70/+0x72/+0x74
+0x2137  consume three u16 values -> object +0x76/+0x78/+0x7a
+```
+
+The checksum case also clears object flag bit `0x1`, while both model cases
+resolve the selected region-local model through
+`DAT_0056d43c[object+0x1f * 0x11]`. The native TRG layer now records the
+relative offset of this saved cursor beside the original node bytes; it does
+not interpret the remaining stream as fixed records. This gives a concrete
+update path from a TRG-created object to the same region/model table consumed
+by collision broad phase, while leaving the command handler's heap pointer
+ownership unresolved.
+
+The boundary is also observable on shipped data with the native inspector:
+
+```text
+opentony_trg_inspect SKHAN_T.TRG --print-factory-cursors
+factory_cursor node=7 subtype=0x192 relative=30 remaining=154
+```
+
+The remaining byte count is node-specific; the stable result is the relative
+cursor location. It is obtained from the same absolute-alignment rule used by
+the retail constructor, so it remains meaningful even when the node’s
+file-table offset changes.
 
 The adjacent `0x004a12d0` consumer scans `DAT_0056af40` through each object's
 `+0x20` link, requires object flag `0x0100` and object state bit

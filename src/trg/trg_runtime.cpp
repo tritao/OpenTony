@@ -456,6 +456,41 @@ std::array<std::uint16_t, 3> TrgFile::node_orientation(std::size_t index) const 
     };
 }
 
+std::uint32_t TrgFile::node_factory_cursor_offset(std::size_t index) const {
+    const NodeView& current = node(index);
+    if (current.type != 1 && current.type != 5 && current.type != 7) {
+        throw FormatError("node has no object-constructor cursor");
+    }
+    const std::size_t begin = current.offset;
+    const std::size_t end = begin + current.size;
+    const std::uint16_t payload_words = current.type == 5
+        ? u16_at(backing_, begin + 4)
+        : u16_at(backing_, begin + 6);
+
+    std::size_t position = 0;
+    if (current.type == 1 || current.type == 7) {
+        std::size_t marker = begin + 8 + static_cast<std::size_t>(payload_words) * 2;
+        while (marker < end && byte_at(backing_, marker) != 0xff) {
+            ++marker;
+        }
+        if (marker == end) {
+            throw FormatError("TRG object payload has no constructor marker");
+        }
+        position = (marker + 4) & ~static_cast<std::size_t>(3);
+    } else {
+        position = (begin + static_cast<std::size_t>(payload_words) * 2 + 9)
+            & ~static_cast<std::size_t>(3);
+    }
+    if (position > end || end - position < 18) {
+        throw FormatError("TRG constructor cursor exceeds its node");
+    }
+    const std::size_t cursor = position + 18;
+    if (cursor > std::numeric_limits<std::uint32_t>::max()) {
+        throw FormatError("TRG constructor cursor does not fit the file offset");
+    }
+    return static_cast<std::uint32_t>(cursor);
+}
+
 std::uint32_t TrgFile::node_link_key_offset(std::size_t index) const {
     const NodeView& current = node(index);
     if (current.type != 2 && current.type != 6 && current.type != 9
@@ -831,6 +866,9 @@ void TriggerRuntime::build() {
                 file_.node_bytes(current.index));
             const std::vector<std::uint8_t> options = file_.node_spawn_options(current.index);
             services_.on_spawn_node_options(current.index, current.type, options);
+            services_.on_spawn_factory_cursor(
+                current.index,
+                file_.node_factory_cursor_offset(current.index) - current.offset);
             services_.on_spawn_orientation(current.index, file_.node_orientation(current.index));
             break;
         }
@@ -855,6 +893,9 @@ void TriggerRuntime::build() {
                 file_.node_subtype(current.index),
                 file_.node_position(current.index),
                 file_.node_bytes(current.index));
+            services_.on_spawn_factory_cursor(
+                current.index,
+                file_.node_factory_cursor_offset(current.index) - current.offset);
             services_.on_spawn_orientation(current.index, file_.node_orientation(current.index));
             break;
         case 6: {

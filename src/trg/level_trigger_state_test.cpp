@@ -376,6 +376,9 @@ void test_objectives_and_timers() {
     state.on_spawn_node(13, 1, 0x0192, {0, 0, 0}, constructor_bytes);
     assert(state.object(13)->factory_node_bytes
         == std::vector<std::byte>(constructor_bytes.begin(), constructor_bytes.end()));
+    state.on_spawn_factory_cursor(13, 30);
+    assert(state.object(13)->has_factory_cursor_offset);
+    assert(state.object(13)->factory_cursor_offset == 30);
 
     state.set_career_flag(3);
     state.mark_goal_complete(5);

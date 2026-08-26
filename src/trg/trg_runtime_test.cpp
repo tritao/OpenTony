@@ -92,6 +92,7 @@ struct Recorder final : TriggerServices {
     std::vector<std::size_t> node_pulses;
     std::vector<std::pair<std::uint16_t, std::uint16_t>> global_words;
     std::vector<std::vector<std::uint8_t>> spawn_options;
+    std::vector<std::pair<std::size_t, std::uint32_t>> factory_cursors;
     std::vector<std::size_t> selected_restarts;
     std::vector<std::size_t> applied_restarts;
     std::vector<std::pair<std::uint32_t, std::uint16_t>> restart_data;
@@ -107,6 +108,9 @@ struct Recorder final : TriggerServices {
         std::uint16_t,
         std::span<const std::uint8_t> options) override {
         spawn_options.emplace_back(options.begin(), options.end());
+    }
+    void on_spawn_factory_cursor(std::size_t node, std::uint32_t offset) override {
+        factory_cursors.emplace_back(node, offset);
     }
     void on_script_object(
         std::size_t source,
@@ -179,6 +183,7 @@ void test_visible_pulse_and_record_layout() {
     assert(file.script(0).offset == 36);
     assert(file.links(0) == std::vector<std::uint16_t>{1});
     assert(file.node_spawn_options(1) == std::vector<std::uint8_t>({2, 4}));
+    assert(file.node_factory_cursor_offset(1) == file.node(1).offset + 32);
 
     Recorder recorder;
     TriggerRuntime runtime(std::move(file), recorder);
@@ -187,6 +192,8 @@ void test_visible_pulse_and_record_layout() {
     assert(recorder.objects == 1);
     const std::vector<std::vector<std::uint8_t>> expected_spawn_options{{2, 4}};
     assert(recorder.spawn_options == expected_spawn_options);
+    const std::vector<std::pair<std::size_t, std::uint32_t>> expected_factory_cursors{{1, 32}};
+    assert((recorder.factory_cursors == expected_factory_cursors));
     assert(recorder.visible_values == std::vector<std::uint16_t>{1});
     assert(recorder.visible_links == std::vector<std::vector<std::uint16_t>>{{1}});
     const CommandPointRuntime* point = runtime.command_point(0);
