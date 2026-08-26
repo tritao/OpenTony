@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -45,7 +47,8 @@ def _module_id(section: str, start_va: int) -> str:
 
 
 def _module_source(module: dict) -> Path:
-    return resolve(module["source"])
+    source = Path(module["source"])
+    return source if source.is_absolute() else ROOT / source
 
 
 def _original_path(module: dict) -> Path:
@@ -68,6 +71,148 @@ def _write_raw_source(module: dict) -> None:
         f'incbin "{relative_original.as_posix()}"\n',
         encoding="utf-8",
     )
+
+
+def _address(value: str) -> int:
+    try:
+        return int(value, 0)
+    except ValueError as exc:
+        raise SystemExit(f"invalid address: {value}") from exc
+
+
+def _symbol_name(name: str) -> str:
+    symbol = re.sub(r"[^A-Za-z0-9_.$#@~?]", "_", name)
+    if not symbol or symbol[0].isdigit():
+        symbol = f"symbol_{symbol}"
+    return symbol
+
+
+def split_symbols(_args) -> int:
+    symbols: dict[str, int] = {}
+    for path, key in (
+        ("re/symbols/functions.yml", "functions"),
+        ("re/symbols/globals.yml", "globals"),
+        ("re/symbols/data.yml", "data"),
+        ("re/symbols/strings.yml", "strings"),
+    ):
+        for item in load_yaml(path).get(key, []):
+            if "name" not in item or "address" not in item:
+                continue
+            name = _symbol_name(str(item["name"]))
+            address = int(item["address"])
+            previous = symbols.get(name)
+            if previous is not None and previous != address:
+                raise SystemExit(f"symbol name maps to multiple addresses: {name}")
+            symbols[name] = address
+    output = ROOT / "match/generated/symbols.inc"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["; Generated from re/symbols/*.yml. Do not edit.", ""]
+    width = max((len(name) for name in symbols), default=1)
+    lines.extend(f"{name:<{width}} equ 0x{address:08x}" for name, address in sorted(symbols.items()))
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Generated {len(symbols)} symbols: {output}")
+    return 0
+
+
+def split_module(args) -> int:
+    manifest = _load_manifest()
+    _require_valid_coverage(manifest)
+    start_va = _address(args.start_va)
+    end_va = _address(args.end_va)
+    if end_va <= start_va:
+        raise SystemExit("module end must be greater than its start")
+    owners = [
+        module
+        for module in manifest["modules"]
+        if int(module["start_va"]) <= start_va and end_va <= int(module["end_va"])
+    ]
+    if len(owners) != 1:
+        raise SystemExit("requested range must be contained within exactly one module")
+    owner = owners[0]
+    if owner.get("status") != "raw":
+        raise SystemExit(f"refusing to split non-raw module: {owner['id']}")
+    original = _original_path(owner)
+    if not original.is_file():
+        raise SystemExit(f"original module not found: {original}; run: tony split extract")
+    owner_bytes = original.read_bytes()
+    boundaries = [int(owner["start_va"]), start_va, end_va, int(owner["end_va"])]
+    children = []
+    for child_start, child_end in pairwise(boundaries):
+        if child_start == child_end:
+            continue
+        delta = child_start - int(owner["start_va"])
+        child_bytes = owner_bytes[delta : delta + child_end - child_start]
+        module_id = _module_id(owner["section"], child_start)
+        child = {
+            "id": module_id,
+            "section": owner["section"],
+            "start_va": child_start,
+            "end_va": child_end,
+            "file_offset": int(owner["file_offset"]) + delta,
+            "size": len(child_bytes),
+            "status": "raw",
+            "source": f"match/modules/{owner['section'].lstrip('.') or 'section'}/{module_id}.asm",
+            "sha256": hashlib.sha256(child_bytes).hexdigest(),
+        }
+        output = _original_path(child)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(child_bytes)
+        _write_raw_source(child)
+        children.append(child)
+
+    owner_index = manifest["modules"].index(owner)
+    manifest["modules"][owner_index : owner_index + 1] = children
+    _require_valid_coverage(manifest)
+    save_yaml(MANIFEST, manifest)
+    child_sources = {_module_source(child) for child in children}
+    child_originals = {_original_path(child) for child in children}
+    if _module_source(owner) not in child_sources:
+        _module_source(owner).unlink(missing_ok=True)
+    if original not in child_originals:
+        original.unlink(missing_ok=True)
+    _built_path(owner).unlink(missing_ok=True)
+    print(f"Split {owner['id']} into: {', '.join(child['id'] for child in children)}")
+    return 0
+
+
+def _select_module(manifest: dict, selector: str) -> dict:
+    by_id = [module for module in manifest["modules"] if module["id"] == selector]
+    if by_id:
+        return by_id[0]
+    address = _address(selector)
+    matches = [
+        module for module in manifest["modules"] if int(module["start_va"]) <= address < int(module["end_va"])
+    ]
+    if len(matches) != 1:
+        raise SystemExit(f"no unique module owns address 0x{address:08x}")
+    return matches[0]
+
+
+def split_compare(args) -> int:
+    module = _select_module(_load_manifest(), args.module)
+    original = _original_path(module)
+    built = _built_path(module)
+    if not original.is_file():
+        raise SystemExit(f"original module not found: {original}")
+    if not built.is_file():
+        raise SystemExit(f"built module not found: {built}; run: tony split build")
+    expected = original.read_bytes()
+    actual = built.read_bytes()
+    prefix = 0
+    while prefix < min(len(expected), len(actual)) and expected[prefix] == actual[prefix]:
+        prefix += 1
+    print(f"module: {module['id']}")
+    print(f"expected size: {len(expected)}")
+    print(f"actual size:   {len(actual)}")
+    print(f"matching prefix: {prefix} bytes")
+    if expected == actual:
+        print("result: BYTE IDENTICAL")
+        return 0
+    mismatch_va = int(module["start_va"]) + prefix
+    print(f"first mismatch VA: 0x{mismatch_va:08x}")
+    print(f"expected: {expected[prefix:prefix + 8].hex(' ')}")
+    print(f"actual:   {actual[prefix:prefix + 8].hex(' ')}")
+    return 1
 
 
 def split_init(args) -> int:

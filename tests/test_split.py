@@ -96,3 +96,50 @@ def test_coverage_verifier_reports_gap():
     }
 
     assert any("gap" in error for error in split._validate_coverage(manifest))
+
+
+def test_split_module_preserves_coverage_and_bytes(tmp_path: Path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=10))
+
+    assert split.split_module(SimpleNamespace(start_va="0x401003", end_va="0x401007")) == 0
+    manifest = split._load_manifest()
+    text_modules = [module for module in manifest["modules"] if module["section"] == ".text"]
+    assert [(module["start_va"], module["end_va"]) for module in text_modules] == [
+        (0x401000, 0x401003),
+        (0x401003, 0x401007),
+        (0x401007, 0x40100A),
+    ]
+    assert b"".join(split._original_path(module).read_bytes() for module in text_modules) == b"0123456789"
+    assert split._validate_coverage(manifest) == []
+
+
+def test_compare_reports_first_mismatch(tmp_path: Path, monkeypatch, capsys):
+    configure(tmp_path, monkeypatch)
+    split.split_init(SimpleNamespace(force=False, chunk_size=10))
+    module = split._load_manifest()["modules"][0]
+    built = split._built_path(module)
+    built.parent.mkdir(parents=True, exist_ok=True)
+    built.write_bytes(b"012X456789")
+
+    assert split.split_compare(SimpleNamespace(module=module["id"])) == 1
+    output = capsys.readouterr().out
+    assert "matching prefix: 3 bytes" in output
+    assert "first mismatch VA: 0x00401003" in output
+
+
+def test_generate_symbols_inc(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(split, "ROOT", tmp_path)
+
+    def load_symbols(path):
+        if path.endswith("functions.yml"):
+            return {"functions": [{"name": "Math_Vector3Add", "address": 0x4CA9F0}]}
+        if path.endswith("globals.yml"):
+            return {"globals": [{"name": "Current Player", "address": 0x56A858}]}
+        return {}
+
+    monkeypatch.setattr(split, "load_yaml", load_symbols)
+    assert split.split_symbols(SimpleNamespace()) == 0
+    output = (tmp_path / "match/generated/symbols.inc").read_text()
+    assert "Math_Vector3Add equ 0x004ca9f0" in output
+    assert "Current_Player" in output

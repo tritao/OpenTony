@@ -137,6 +137,9 @@ tony verify
 tony split init
 tony split extract
 tony split build
+tony split symbols
+tony split module <start-va> <end-va>
+tony split compare <module-id-or-va>
 tony split rebuild
 tony split verify
 

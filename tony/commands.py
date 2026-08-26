@@ -39,9 +39,12 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
 )
 from .split import (  # noqa: F401 - command handlers are consumed by cli.py
     split_build,
+    split_compare,
     split_extract,
     split_init,
+    split_module,
     split_rebuild,
+    split_symbols,
     split_verify,
 )
 from .wine import (  # noqa: F401 - public command compatibility

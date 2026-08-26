@@ -15,3 +15,11 @@ tony split verify
 `init` creates coarse 64 KiB modules by default. Each raw module uses `incbin`
 for its exact original range. Modules can then be subdivided and replaced with
 real assembly while the byte-identity invariant remains enforced.
+
+Generate readable address constants and split one coarse raw module with:
+
+```bash
+tony split symbols
+tony split module 0x004ca9f0 0x004caa20
+tony split compare 0x004ca9f0
+```

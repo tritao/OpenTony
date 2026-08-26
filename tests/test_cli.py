@@ -30,8 +30,18 @@ def test_setup_media_parse():
 
 
 def test_split_commands_parse():
-    for command in ("init", "extract", "build", "rebuild", "verify"):
-        args = build_parser().parse_args(["split", command])
+    commands = {
+        "init": [],
+        "extract": [],
+        "build": [],
+        "symbols": [],
+        "module": ["0x401000", "0x401010"],
+        "compare": ["0x401000"],
+        "rebuild": [],
+        "verify": [],
+    }
+    for command, operands in commands.items():
+        args = build_parser().parse_args(["split", command, *operands])
         assert callable(args.func)
 
 
