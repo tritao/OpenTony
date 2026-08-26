@@ -376,9 +376,13 @@ public:
         return result;
     }
 
-    // Compose the exact fast/oriented split from 0x00463e50. The query must
-    // already have been passed through reference::prepare so its line basis,
-    // line length, and vertical direction flag are available.
+    // Compose the recovered fast/oriented branch selection from 0x00463e50.
+    // The query must already have been passed through reference::prepare so
+    // its line basis, line length, and vertical direction flag are available.
+    // The full PC 0x0400 path also scales this temporary matrix from opaque
+    // heap-tail words at +0x28/+0x2c; those loader fields are intentionally
+    // outside this PSX-facing view until their exact write-back permutation is
+    // captured.
     static PsxDynamicObjectPreprocess preprocess_dynamic_object(
         const PsxModel& model, const QueryRecord& prepared_query,
         const RawVec3& object_position_raw,

@@ -424,6 +424,17 @@ the wrapper; the query does not parse a file on each call.
     integer component to `[-32768, 32767]`. This closes the arithmetic gap;
     dynamic-object runtime execution is still needed to validate the outer
     linked-list and broad-phase data path.
+  - The `0x0400` transform-path branch has one more recoverable input boundary:
+    `0x00463e50` calls `0x004f5540` with the object record and the temporary
+    3x3 short matrix. That helper reads object tail words `+0x28`, `+0x2a`,
+    and `+0x2c`; each is sign-extended and used as a Q12 factor by
+    `0x004e23a0`, which passes the resulting matrix triplet through the shared
+    signed-short saturation helper before the matrix is written back. This
+    confirms that the tail is transform input, not part of the cull admission
+    flags. The exact triplet/write-back permutation and the loader's values for
+    those words remain unresolved, so the native linked-object API keeps them
+    opaque and its oriented path is an explicitly documented approximation
+    until a live `0x0400` object is captured.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
@@ -590,7 +601,10 @@ memory walk.
 
 The companion bounded probes are registered as
 `tony-collision-flags-probe`, `tony-collision-dynamic-probe`, and
-`tony-collision-dynamic-cull-probe`. The last one pairs entry/return at
+`tony-collision-dynamic-cull-probe`. The transform-tail probe is registered as
+`tony-collision-transform-probe`; it pairs `0x004f5540` with both observed
+return sites and records the opaque tail words plus temporary matrix before
+and after the helper. The cull probe pairs entry/return at
 `0x004f43e0`/`0x004f492c`, snapshots the linked prefix, and reports which
 nodes still have a stale query stamp and therefore proceed to
 `0x00463e50`.
@@ -736,6 +750,10 @@ caller-supplied body identity in `q+0x68`, and leaves the unresolved heap
 loader/serialization boundary explicit. Its `model_index` is a caller-
 resolved native scene index; the original PC `model_kind`/index pair still
 selects one of the unresolved type-specific model tables.
+For records taking the full-word `0x0400` transform branch, the original also
+consumes opaque tail words at `+0x28/+0x2c` while constructing the temporary
+matrix; the native view does not currently pretend to have recovered that PC
+heap payload.
 `PsxScene::query_with_linked_objects` composes this dynamic result with the
 PSX zone/blockmap result at the recovered native boundary. It compares the
 shared traveled-distance field `q+0x40` and keeps the static candidate on an
@@ -772,6 +790,10 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
 - Map the complete caller-specific stack protocol around the two loader
   callsites if a drop-in PC loader is required; the collision-facing source
   prefix and table handoff are now runtime-confirmed.
+- Capture a live `0x0400` object through `0x004f5540` and compare its three
+  tail factors and matrix before/after the helper; this is the remaining
+  shortest path to replacing the native oriented-path approximation with a
+  loader-compatible transform.
 - Keep the unresolved tail of each 0x660-byte zone record and the allocator
   interface provisional; the runtime loader experiment now ties the active
   zone/table globals to a specific serialized-zone buffer.

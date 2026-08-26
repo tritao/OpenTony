@@ -25,6 +25,8 @@ COLLISION_FLAG_CONSUMER = 0x0048EA80
 COLLISION_FLAG_RETURN = 0x0048EB02
 COLLISION_DYNAMIC_QUERY = 0x00463E50
 COLLISION_DYNAMIC_RETURN = 0x004641F2
+COLLISION_DYNAMIC_TRANSFORM = 0x004F5540
+COLLISION_DYNAMIC_TRANSFORM_RETURNS = (0x00464067, 0x0046409A)
 COLLISION_DYNAMIC_CULL = 0x004F43E0
 COLLISION_DYNAMIC_CULL_RETURN = 0x004F492C
 COLLISION_FLAG_GLOBALS = {
@@ -770,6 +772,111 @@ class _CollisionDynamicReturn(TonyBreakpoint):
     def __init__(self, owner: CollisionDynamicProbe):
         self.owner = owner
         super().__init__(COLLISION_DYNAMIC_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
+def _matrix_snapshot(address: int | None, memory) -> list[int] | None:
+    if not address or not memory.readable(address, 0x12):
+        return None
+    return _short_words(address, 9, memory)
+
+
+def _dynamic_transform_snapshot(address: int | None, memory) -> dict | None:
+    if not address or not memory.readable(address, 0x2E):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "flags": memory.u16(address + 0x04),
+        "tail_24_u32": memory.u32(address + 0x24),
+        "tail_28_u32": memory.u32(address + 0x28),
+        "tail_28_s16": _signed16(memory.u16(address + 0x28)),
+        "tail_2a_s16": _signed16(memory.u16(address + 0x2A)),
+        "tail_2c_s16": _signed16(memory.u16(address + 0x2C)),
+        "tail_30_u32": memory.u32(address + 0x30),
+    }
+
+
+class CollisionDynamicTransformProbe:
+    """Capture the opaque 0x0400 matrix-transform tail boundary."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionDynamicTransformEntry(self)
+        self._returns = [
+            _CollisionDynamicTransformReturn(self, address)
+            for address in COLLISION_DYNAMIC_TRANSFORM_RETURNS
+        ]
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return (self._entry, *self._returns)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.arg(0)
+        matrix_address = ctx.arg(1)
+        if not object_address or not matrix_address:
+            return
+        self._active = {
+            "object": object_address,
+            "matrix": matrix_address,
+            "caller": ctx.caller(),
+            "return_address": ctx.memory.u32(ctx.esp),
+            "object_before": _dynamic_transform_snapshot(
+                object_address, ctx.memory
+            ),
+            "matrix_before": _matrix_snapshot(matrix_address, ctx.memory),
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        matrix_address = int(active["matrix"])
+        record = {
+            "type": "collision_dynamic_transform",
+            "function": "Collision_TransformLinkedModelMatrix",
+            "address": f"0x{COLLISION_DYNAMIC_TRANSFORM:08x}",
+            "return_pc": f"0x{ctx.eip:08x}",
+            "entry_return_address": f"0x{int(active['return_address']):08x}",
+            "caller": f"0x{int(active['caller']):08x}",
+            "object": f"0x{int(active['object']):08x}",
+            "object_before": active["object_before"],
+            "matrix": f"0x{matrix_address:08x}",
+            "matrix_before": active["matrix_before"],
+            "matrix_after": _matrix_snapshot(matrix_address, ctx.memory),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                for breakpoint in self.breakpoints:
+                    breakpoint.enabled = False
+
+
+class _CollisionDynamicTransformEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_TRANSFORM, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionDynamicTransformReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformProbe, address: int):
+        self.owner = owner
+        super().__init__(address, internal=True)
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx)
