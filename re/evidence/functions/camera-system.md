@@ -1417,6 +1417,56 @@ stationary basis-object or viewport-producer experiment. The strongest
 current semantic name is therefore `vertical_projection_input`, with high
 confidence for dataflow and medium confidence for its user-facing meaning.
 
+### Level-gated stationary-calibration attempt
+
+The frontend control problem was resolved with a narrowly scoped debug helper.
+`tony-frontend-play` breaks at `0x004532aa`, immediately after the real
+frontend selection helper returns, and writes `0x2a` (`PLAY_GAME`) to the
+caller’s result slot at `[esp+0x58]`. This preserves the normal helper and
+loader path; writing only `EAX` or using the auto-continuing generic breakpoint
+did not reliably advance the menu.
+
+With that control, `camera-stationary-calibration10` reached the real
+`PLAY_GAME` state and the Warehouse (`level 12`) loader. The run used the
+confirmed `0x004d0ca4` Flip clock and collected, before the bounded capture
+ended, 61 camera records, 101 view-setup records, 800 completed transformed
+vertex records, and 1,120 present records. The camera records were all level
+12, normal mode `1`, and the settled portion had one camera callback per
+present-clock step. The live view input included:
+
+```text
+(640, 480, 0, 0, 10, 20512, 3410, 12, 320, 240, 0, 0, 320, 480)
+```
+
+with `viewport_scale_x = viewport_scale_y = 4096`; the first setup call used
+the startup value `30000` in word 5 and `3410` in word 6. The captured ordinary
+view basis was:
+
+```text
+(-4091, 0, 0,
+     0, 3989, 933,
+     0,  933, -3984)
+```
+
+and completed vertex records exposed the repeated projection constants
+`(320, 240, 384)`, depth limit `10`, and depth scale `384`. These values are
+useful calibration fixtures, but the run is not a clean gameplay run: after
+the bounded transformed-vertex capture it faulted at `0x004cd257`, likely
+because a level was forced from a frontend state that normally selects a
+different level. The pre-fault records are retained as level-gated evidence;
+the stationary camera state, full per-object producer pairing, and any tail
+after the fault are not promoted.
+
+Confidence: high that the helper reaches the normal frontend-to-loader path and
+that the listed view/projection values are real Warehouse runtime values;
+medium for using this run as a renderer fixture; low for inferring stationary
+camera behavior or exact object-to-producer pairing. A crash-free retail-level
+entry with the same probes, or a clean run showing different normalized input,
+view basis, or projection constants, would falsify the stronger fixture claim.
+
+Evidence: `build/debug/camera-stationary-calibration10.jsonl` and the helper
+implementation in `re/gdb/opentony/commands.py`.
+
 ### One actor submission path
 
 `Render_World` passes the active scene/player pointers through

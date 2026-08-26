@@ -426,6 +426,48 @@ class TonyForceLevel(gdb.Command):
         _write(f"next level launch will use {level} ({label})")
 
 
+class TonyFrontendPlayBreakpoint(TonyBreakpoint):
+    """Force PLAY_GAME in the verified main-menu result slot."""
+
+    # FrontEnd_Main calls 0x0046aee0 at 0x004532a5 and reads the result at
+    # 0x004532aa.  Break after the call and write the caller's local slot so
+    # the real selection helper remains on the path.
+    FRONTEND_RESULT_READ = 0x004532AA
+    FRONTEND_RESULT_OFFSET = 0x58
+    PLAY_GAME_RESULT = 0x2A
+
+    def __init__(self):
+        super().__init__(self.FRONTEND_RESULT_READ, internal=True)
+
+    def on_hit(self, ctx):
+        mem.write_u32(
+            ctx.esp + self.FRONTEND_RESULT_OFFSET,
+            self.PLAY_GAME_RESULT,
+        )
+        self.enabled = False
+        _write(
+            "forced main-menu selection PLAY_GAME at result read "
+            f"0x{self.FRONTEND_RESULT_READ:08x}"
+        )
+
+
+class TonyFrontendPlay(gdb.Command):
+    """tony-frontend-play -- force the next main-menu selection to PLAY_GAME."""
+
+    def __init__(self):
+        super().__init__("tony-frontend-play", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-frontend-play")
+        breakpoint = TonyFrontendPlayBreakpoint()
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            "main-menu PLAY_GAME override armed at "
+            f"0x{breakpoint.FRONTEND_RESULT_READ:08x}"
+        )
+
+
 class TonyPlayerSampleBreakpoint(CountingBreakpoint):
     """Collect raw player-object snapshots at level-loop entry."""
 
@@ -1160,6 +1202,7 @@ def register_commands() -> None:
     TonyTHPS2Breakpoint()
     TonySkipMovies()
     TonyForceLevel()
+    TonyFrontendPlay()
     TonyPlayerSample()
     TonyInputSample()
     TonyActionSequence()
@@ -1192,7 +1235,8 @@ def register_commands() -> None:
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
-        "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-skip-movies, tony-force-level, tony-frontend-play, "
+        "tony-player-sample, tony-input-sample, "
         "tony-action-sequence, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
