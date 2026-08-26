@@ -149,6 +149,24 @@ void check_synthetic_scene() {
     assert(dynamic_result.object_index == 0);
     assert(dynamic_result.face_index == 0);
 
+    // The dynamic walker has a non-physical query-mask branch for surface
+    // bit 0x20000. It records the model selector sideband when q+0x88 is
+    // enabled, but must not publish a collision hit.
+    auto query_mask_bytes = bytes;
+    put_u16(query_mask_bytes, 0x8a, 0x0002);  // face surface flags
+    std::string query_mask_error;
+    const auto query_mask_scene = PsxScene::parse(
+        query_mask_bytes, &query_mask_error);
+    assert(query_mask_scene && query_mask_error.empty());
+    CollisionFaceFilter query_mask_filter;
+    query_mask_filter.query_mask_mode = true;
+    const auto query_mask_result = query_mask_scene->query_dynamic_object(
+        {0, 0, 0}, {0, 0, 409600}, 0, dynamic_vertices, reverse_z,
+        identity, 0, query_mask_filter);
+    assert(!query_mask_result.hit());
+    assert(query_mask_result.query.query_mask_mode == 1);
+    assert(query_mask_result.query_mask_model_index == 0);
+
     PsxLinkedCollisionObject linked_object;
     linked_object.body_id = 0xfeed1234;
     linked_object.flags = 0x0110;

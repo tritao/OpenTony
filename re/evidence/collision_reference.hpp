@@ -1270,12 +1270,15 @@ inline std::optional<DynamicFaceCandidate> dynamic_face_candidate(
 
     // 0x004f4c50 runs 0x004e24b0 followed by 0x004e2930. The latter has
     // only its first column populated here, so its three outputs reduce to
-    // dot(v0, transformed_normal), 0, and (line_length + 2) * normal.z.
+    // dot(first_vertex, transformed_normal), 0, and
+    // (line_length + 2) * normal.z. For the alternate quad winding the
+    // first vertex is v3, as selected by 0x004e2f80.
     const auto query_normal = transform_normal_q12(query_basis, model_normal);
+    const auto& first_vertex = projected.first_vertex == 3 ? vertex3 : vertex0;
     const Raw dot = wrapping_from_i64(
-        static_cast<std::int64_t>(vertex0.x) * query_normal[0] +
-        static_cast<std::int64_t>(vertex0.y) * query_normal[1] +
-        static_cast<std::int64_t>(vertex0.z) * query_normal[2]);
+        static_cast<std::int64_t>(first_vertex.x) * query_normal[0] +
+        static_cast<std::int64_t>(first_vertex.y) * query_normal[1] +
+        static_cast<std::int64_t>(first_vertex.z) * query_normal[2]);
     const auto line_limit = static_cast<std::int16_t>(static_cast<std::uint16_t>(
         static_cast<std::uint32_t>(wrapping_add(line_length, 2))));
     const Raw lower_bound = wrapping_from_i64(
@@ -1349,7 +1352,8 @@ inline Raw q12_transform_component_raw(const std::array<std::int16_t, 9>& basis,
     const auto sum = static_cast<std::int64_t>(basis[offset]) * x +
                      static_cast<std::int64_t>(basis[offset + 1]) * y +
                      static_cast<std::int64_t>(basis[offset + 2]) * z;
-    return wrapping_from_i64(sum >> 12u);
+    // x86 accumulates in 32-bit registers before SAR 12.
+    return arithmetic_shift_right_12(wrapping_from_i64(sum));
 }
 
 // Reference reconstruction of 0x004f4b00.  model_origin_units is the
@@ -1556,9 +1560,10 @@ inline std::array<std::int16_t, 9> build_object_rotation_basis(
 
 inline std::array<std::int16_t, 9> transpose_q12_basis(
     const std::array<std::int16_t, 9>& basis) {
-    // 0x004f53e0 transposes the 0x004e80e0 object matrix before it is used to
-    // transform dynamic model vertices. The normal finalizer consumes the
-    // untransposed matrix, so expose both forms explicitly.
+    // 0x004f53e0 is a reusable matrix-copy transpose helper. The linked
+    // collision path itself then composes the prepared query basis with the
+    // object matrix through 0x004f5780; retain this helper for callers that
+    // need to model the other direct users of 0x004f53e0.
     return {
         basis[0], basis[3], basis[6],
         basis[1], basis[4], basis[7],
@@ -1620,11 +1625,19 @@ inline DynamicObjectTransform build_dynamic_object_transform(
         return result;
     }
 
+    const auto object_basis = build_object_rotation_basis(object_angles);
     const auto scaled_object_basis = scale_q12_basis_columns(
-        build_object_rotation_basis(object_angles), matrix_scale_q12);
-    result.vertex_basis = transpose_q12_basis(scaled_object_basis);
-    result.normal_basis = result.vertex_basis;
-    result.final_basis = scaled_object_basis;
+        object_basis, matrix_scale_q12);
+    // 0x004f5780 multiplies the temporary object matrix on the left by the
+    // prepared query basis. The resulting C*(R*S) matrix is used both for
+    // vertex projection and for the candidate normal in 0x004f4c50. The
+    // post-query normal finalizer instead rebuilds R from the object angles;
+    // it does not include the query basis or the collision scale tail.
+    const auto composed_basis = compose_q12_basis(
+        query.line_basis, scaled_object_basis);
+    result.vertex_basis = composed_basis;
+    result.normal_basis = composed_basis;
+    result.final_basis = object_basis;
     if (query.direction_flag != 0) {
         // This is the explicit special-case permutation in 0x00463e50 for a
         // downward/vertical query. It is equivalent to the prepared vertical

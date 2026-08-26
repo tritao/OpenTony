@@ -100,6 +100,11 @@ struct PsxCollisionResult {
     std::uint16_t base_flags = 0;
     std::uint16_t surface_flags = 0;
     std::uint32_t surface_word = 0;
+    // The dynamic face walker treats surface bit 0x20000 as a query-mask
+    // sideband: with q+0x88 set it stores body+0x1a in DAT_00567a64 and does
+    // not publish a physical q+0x68 hit. Preserve that observable result
+    // without pretending the executable's global is part of QueryRecord.
+    std::optional<std::uint16_t> query_mask_model_index;
 
     bool hit() const { return query.hit_body != 0; }
 
@@ -328,6 +333,7 @@ public:
         QueryRecord result;
         result.start = start;
         result.end = end;
+        result.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         reference::prepare(result, query_stamp);
         query(result, filter);
         return result;
@@ -339,6 +345,7 @@ public:
         PsxCollisionResult result;
         result.query.start = start;
         result.query.end = end;
+        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         reference::prepare(result.query, query_stamp);
         query(result.query, filter, &result);
         return result;
@@ -384,8 +391,9 @@ public:
     // The query must already have been passed through reference::prepare so
     // its line basis, line length, and vertical direction flag are available.
     // The full PC 0x0200 path scales this temporary matrix from the signed
-    // Q12 heap-tail words at +0x28/+0x2a/+0x2c. The native caller can supply
-    // those factors directly; the PC loader's values remain unresolved.
+    // Q12 heap-tail words at +0x28/+0x2a/+0x2c, then left-composes it with
+    // the query basis. The native caller can supply those factors directly;
+    // the PC loader's values remain unresolved.
     static PsxDynamicObjectPreprocess preprocess_dynamic_object(
         const PsxModel& model, const QueryRecord& prepared_query,
         const RawVec3& object_position_raw,
@@ -407,9 +415,10 @@ public:
 
     // Run the recovered 0x004f4c50 face pass over a caller-owned transformed
     // vertex stream. query_object_basis is the basis used by 0x004e24b0 for
-    // the candidate normal (the transposed object matrix for rotated linked
-    // objects, or the line basis on the fast unrotated path). The final basis
-    // is the untransposed object matrix consumed by 0x00463d50.
+    // the candidate normal: query_basis * object_rotation * scale on the
+    // oriented linked path, or the line basis on the fast unrotated path.
+    // The final basis is the unscaled object rotation consumed by
+    // 0x00463d50.
     PsxCollisionResult query_dynamic_object(
         RawVec3 start, RawVec3 end, std::size_t object_index,
         const PsxDynamicModelVertices& transformed_vertices,
@@ -462,6 +471,7 @@ public:
         best.query.start = start;
         best.query.end = end;
         reference::prepare(best.query, query_stamp);
+        best.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
 
         const RawVec3 relative_start{0, 0, 0};
         RawVec3 relative_end{};
@@ -481,6 +491,7 @@ public:
             }
         }
 
+        std::optional<std::uint16_t> query_mask_model_index;
         for (std::size_t object_index = 0; object_index < linked_objects.size();
              ++object_index) {
             const auto& object = linked_objects[object_index];
@@ -515,11 +526,16 @@ public:
                 model, start, end, object_index, body_id, object.model_index,
                 preprocess.vertices, preprocess.query_object_basis,
                 preprocess.final_object_basis, query_stamp, filter);
+            if (candidate.query_mask_model_index) {
+                query_mask_model_index = candidate.query_mask_model_index;
+            }
             if (candidate.hit() &&
                 candidate.query.hit_distance < best.query.hit_distance) {
                 best = candidate;
             }
         }
+        best.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
+        best.query_mask_model_index = query_mask_model_index;
         return best;
     }
 
@@ -542,7 +558,10 @@ public:
             (static_result.hit() &&
              static_result.query.hit_distance <=
                  linked_result.query.hit_distance)) {
-            return static_result;
+            auto result = static_result;
+            result.query_mask_model_index =
+                linked_result.query_mask_model_index;
+            return result;
         }
         return linked_result;
     }
@@ -593,6 +612,7 @@ private:
         result.query.start = start;
         result.query.end = end;
         reference::prepare(result.query, query_stamp);
+        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         if ((transformed_vertices.clip_mask & 0x60fu) != 0 ||
             transformed_vertices.vertices.size() < model.vertices.size()) {
             return result;
@@ -627,7 +647,20 @@ private:
                 (face.base_flags & 0x10u) != 0,
                 model.normals[face.normal_index], query_object_basis,
                 result.query.line_length);
-            if (!candidate || !reference::record_nearest_dynamic_candidate(
+            if (!candidate) {
+                continue;
+            }
+            if ((surface_word & 0x20000u) != 0) {
+                // 0x004f4c50's special surface branch is not a collision hit.
+                // It only records the model selector when q+0x88 is true;
+                // CollisionFaceFilter has already rejected this face in the
+                // ordinary mode.
+                if (filter.query_mask_mode) {
+                    result.query_mask_model_index = model_index;
+                }
+                continue;
+            }
+            if (!reference::record_nearest_dynamic_candidate(
                                    result.query, *candidate, body_id,
                                    static_cast<std::uint32_t>(face.source_offset),
                                    model_index)) {
