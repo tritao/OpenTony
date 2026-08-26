@@ -35,7 +35,14 @@ function-entry probes use the separate `CallContext.arg()` convention. Continuou
 observation should use `tony-physics-probe [COUNT]`, which uses a software
 breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 `complete: false` and a recovery reason. The input sampler also records
-the four movement action-state records alongside the action mask.
+the complete action-state bank alongside the action mask; the physics probe
+additionally captures the first player-relative movement handoff at
+`0x00493370`.
+
+For the in-air landing boundary, `tony-air-collision-probe [COUNT]` samples the
+raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
+in-air-handler, state-request, and state-writer probes to correlate a nonzero
+cast result with the exact `1 -> 0` landing write.
 
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe

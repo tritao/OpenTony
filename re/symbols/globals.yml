@@ -93,12 +93,14 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x00567a70
     name: CollisionModelCache
     description: twenty-entry rotating object/model face-cache descriptor table
     confidence: observed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x005643b0
     name: CollisionFaceCache
     description: shared 0x1c-byte-per-face world-space collision AABB cache
@@ -112,6 +114,7 @@ globals:
     evidence:
       - re/evidence/functions/blockmap-collision.md
       - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/collision.md
   - address: 0x0056af44
     name: ActiveObjectListHead
     description: adjacent intrusive-list head used by the object activation/relink helper
@@ -130,6 +133,7 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x00567f84
     name: ZoneGridBounds
     description: four fixed-point zone bounds with 0x660-byte per-zone storage stride
@@ -179,6 +183,7 @@ globals:
     evidence:
       - re/evidence/functions/custom-park-runtime.md
       - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/collision.md
   - address: 0x0056d43c
     name: PsxModelTablesByRegion
     description: slot-indexed published PSX model-pointer arrays
@@ -400,36 +405,6 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/renderer.md
-  - address: 0x0056af40
-    name: CollisionLinkedZoneRoot
-    description: root passed to the linked/dynamic collision-zone traversal
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00567f80
-    name: CollisionZoneTable
-    description: loaded zone-table base/presence pointer used by line queries
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00567fa0
-    name: CollisionZoneFaceLists
-    description: per-zone spatial-cell candidate-list table
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x0056d43c
-    name: CollisionModelTable
-    description: model/face data table indexed by collision model records
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x005643b0
-    name: CollisionFaceAabbCache
-    description: generated per-face axis-aligned bounds cache
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
   - address: 0x0056b768
     name: CollisionResultFlagSurface40
     description: derived collision result flag from winning face flags bit 0x40

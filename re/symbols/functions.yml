@@ -276,18 +276,21 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x004660b0
     name: M3D_ZoneCollisionBroadphase
     description: select blockmap cells intersecting a collision query
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x004638d0
     name: M3D_CollisionCell
     description: walk runtime objects and model faces in one blockmap cell
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x00462a20
     name: M3D_CollisionFaceTest
     description: test cached model faces against a collision query
@@ -300,6 +303,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/collision.md
   - address: 0x00466090
     name: M3D_QueryZoneCollision
     description: thin wrapper that submits a collision query to the static zone broadphase
@@ -307,12 +311,14 @@ functions:
     evidence:
       - re/evidence/functions/physics.md
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x0048ea80
     name: M3D_ReadSurfaceFlags
     description: read collision/surface bits from the selected PSX face into physics globals
     confidence: observed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/collision.md
   - address: 0x004cabf0
     name: Vector3_Subtract
     description: subtract three fixed-point vector words
@@ -331,30 +337,40 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x00463d50
     name: M3D_CommitCollisionSurface
     description: publish the selected collision surface and normal back to the query record
     confidence: observed
     evidence:
       - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
   - address: 0x00467c90
     name: M3D_RenderStage
+    gdb_aliases:
+      - render_world
     description: render-stage routine that traverses attached environments and game objects
     confidence: confirmed
     evidence:
       - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
   - address: 0x0045f530
     name: M3D_RenderObjects
     description: cull and render a runtime object list
     confidence: confirmed
     evidence:
       - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
   - address: 0x0045e8e0
     name: M3D_BeginRenderView
-    description: bind one render view, reset its polygon arena, and initialize its bucket-head list
+    gdb_aliases:
+      - view_projection
+    description: bind one render view, derive its active camera transform data, reset its polygon arena, and initialize its bucket-head list
     confidence: confirmed
     evidence:
       - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
+      - re/evidence/functions/camera-system.md
   - address: 0x004d0c30
     name: D3D_PresentFrame
     description: synchronize the active Direct3D device and present the render buffer
@@ -1553,12 +1569,6 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/game-loop.md
-  - address: 0x0040b650
-    name: Camera_Constructor
-    description: camera object constructor; initializes a 0x674-byte camera and tripod links
-    confidence: observed
-    evidence:
-      - re/evidence/functions/camera-system.md
   - address: 0x0040e090
     name: Camera_SmoothAndValidate
     gdb_aliases:
@@ -1625,37 +1635,9 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/camera-system.md
-  - address: 0x0045e8e0
-    name: Render_SetViewProjection
-    gdb_aliases:
-      - view_projection
-    description: converts the active viewport/camera state into render transform data
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x00467c90
-    name: Render_World
-    gdb_aliases:
-      - render_world
-    description: world-render entry that selects a viewport, sets view state, and traverses scene objects
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x0045f530
-    name: Render_SubmitActor
-    description: game-owned actor/skater submission path reached from Render_World
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
   - address: 0x00460a90
     name: Render_SubmitObjectList
     description: adjacent scene/object-list submission helper reached by the render traversal
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x004d11d0
-    name: Render_ConvertSubmitGeometry
-    description: converts prepared signed fixed-point geometry into backend-ready values
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
@@ -1733,6 +1715,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
   - address: 0x00493370
     name: Skater_ActionPhysicsStep
     gdb_aliases:
@@ -1741,6 +1724,24 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x0049d8a0
+    name: Skater_BlockedPhysicsReset
+    description: control-blocked post-dispatch acceleration, launch-latch, and velocity reset
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049a280
+    name: Skater_PrePhysicsOllie
+    description: prephysics ollie/trick launch impulse, bookkeeping, and raw-state request
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049d480
+    name: Skater_VelocityDamping
+    description: post-position velocity damping and fixed-point speed limiting
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
   - address: 0x00496060
     name: Skater_PositionWritePath
     description: shared skater position/collision commit path
@@ -1755,6 +1756,57 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x00497aa0
+    name: Skater_AirCollisionRecovery
+    description: selected-contact raw-state recovery and horizontal velocity correction
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00497df0
+    name: Skater_PrepareInAirOrientation
+    gdb_aliases:
+      - physics_air_orientation
+    description: rolling basis normalization and cross-product preparation before in-air action control
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049d080
+    name: Skater_RebuildOrientationRecovery
+    description: collision/heading target interpolation and orientation-basis rebuild
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049c330
+    name: Skater_UprightCorrection
+    description: global-up alignment correction and small Z-axis orientation step
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00465f60
+    name: Math_NormalizeFixed12
+    description: integer fixed-point vector normalization with zero-vector +X fallback
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x004e2ff0
+    name: Math_CrossFixed12
+    description: fixed-point cross-product helper used by skater orientation preparation
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x004e2070
+    name: Math_CrossResultAngleClamp
+    description: shared post-cross-product signed-16-bit scratch clamp with unresolved exceptional global state
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049c850
+    name: Skater_PublishOrientationBasis
+    description: copies integer orientation basis values into the object short matrix
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
   - address: 0x004ca9f0
     name: Math_Vector3Add
     description: three-component fixed-point vector addition helper
@@ -1890,6 +1942,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/camera-system.md
   - address: 0x00468e90
     name: Skater_SetupAppearance
     description: merge player model parts, publish appearance resources, select a material, and load the player bitmap
@@ -1943,6 +1996,7 @@ functions:
     evidence:
       - re/evidence/functions/player-runtime.md
       - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
   - address: 0x004b1bb0
     name: PSX_FindFreeRegionSlot
     description: scan the 20 named PSX region slots for a free entry
@@ -1979,51 +2033,3 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
-  - address: 0x004624d0
-    name: Collision_QueryPrepare
-    description: initialize swept collision query record and bounds
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x004628f0
-    name: Collision_VisitLinkedZones
-    description: traverse linked/dynamic collision zones for a query
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00462a20
-    name: Collision_TestFace
-    description: test a candidate collision face and retain the nearest hit
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00463d50
-    name: Collision_FinalizeHit
-    description: finalize hit normal and return whether a query hit exists
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x004638d0
-    name: Collision_VisitModelFaces
-    description: traverse zone/model face candidates for a query
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x00466090
-    name: Collision_QueryWrapper
-    description: shared swept collision query wrapper
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x004660b0
-    name: Collision_QueryScene
-    description: zone/block scene traversal underneath the query wrapper
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
-  - address: 0x0048ea80
-    name: Collision_ConsumeHitFlags
-    description: consume query face metadata into collision/surface flags
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/collision.md
