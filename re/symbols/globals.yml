@@ -1,13 +1,39 @@
 version: 1
 globals:
+  - address: 0x029d6920
+    name: AudioBankRecords
+    gdb_aliases:
+      - audio_banks
+    description: 0x80 runtime sound-bank records, each with eight voice/buffer pointers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x029d7d20
+    name: AudioSoundIdMap
+    gdb_aliases:
+      - audio_sound_map
+    description: sound-id to sound-description pointer map
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x029d8360
+    name: AudioDevice
+    gdb_aliases:
+      - audio_device
+    description: active audio-device object used to create runtime sound buffers
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/audio-runtime.md
   - address: 0x0056a858
     name: Player
     gdb_aliases:
       - player
-    description: current player object pointer
-    confidence: inferred
+      - player_objects
+    description: two-entry table of gameplay skater object pointers; entry zero is at this address and entry one is at +4
+    confidence: confirmed
     evidence:
       - re/evidence/functions/game-loop.md
+      - re/evidence/functions/player-runtime.md
   - address: 0x0056a898
     name: CurrentLevel
     gdb_aliases:
@@ -49,3 +75,363 @@ globals:
     confidence: inferred
     evidence:
       - re/evidence/functions/input.md
+  - address: 0x0056b2f0
+    name: SourcePaletteLookupHead
+    description: head of the inline PSX source-palette lookup list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x0056cc18
+    name: SceneMaterialHashBuckets
+    description: 512-entry hash-bucket head table for PSX scene material records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+  - address: 0x00567fa0
+    name: ZoneCellReferencePointers
+    description: zone-indexed cell table whose entries are rewritten from disk object-index arrays to runtime object-pointer arrays
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x00567a70
+    name: CollisionModelCache
+    description: twenty-entry rotating object/model face-cache descriptor table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x005643b0
+    name: CollisionFaceCache
+    description: shared 0x1c-byte-per-face world-space collision AABB cache
+    confidence: observed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x0056af40
+    name: GameObjectListHead
+    description: head of the separate gameplay-object list visited before static zone collision
+    confidence: observed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/collision.md
+  - address: 0x0056af44
+    name: ActiveObjectListHead
+    description: adjacent intrusive-list head used by the object activation/relink helper
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0055f6bc
+    name: BaddyObjectListHead
+    description: intrusive list head supplied to the subtype-0xcb trigger constructor
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00567f80
+    name: ZoneGridActive
+    description: active flag for the zone-grid runtime array
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x00567f84
+    name: ZoneGridBounds
+    description: four fixed-point zone bounds with 0x660-byte per-zone storage stride
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x00567f94
+    name: ZoneGridCellSize
+    description: computed fixed-point X cell size for the active zone grid
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x00567f9c
+    name: ZoneGridCellCounts
+    description: packed X/Z cell counts for the active zone grid
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x0056d444
+    name: AnimationTablesByRegion
+    description: slot-indexed animation table pointers consumed by animation start/update
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x0056d448
+    name: AnimationHierarchyTablesByRegion
+    description: slot-indexed compacted animation source/hierarchy table pointers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x005614d8
+    name: CustomParkItemRecords
+    description: ten expanded 0x2c-byte PRK item records used by level generation
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0056a1fc
+    name: CustomParkTrailingTable
+    description: copied 0x40-byte PRK trailing table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0056d438
+    name: PsxObjectTablesByRegion
+    description: slot-indexed published 0x4c-stride PSX object arrays
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/collision.md
+  - address: 0x0056d43c
+    name: PsxModelTablesByRegion
+    description: slot-indexed published PSX model-pointer arrays
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+      - re/evidence/functions/asset-loading.md
+  - address: 0x0056d440
+    name: PsxRawRegionsBySlot
+    description: slot-indexed raw/finalized PSX region pointers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0056d428
+    name: PsxRegionNamesBySlot
+    description: 20-entry table of named PSX regions, each using a 0x44-byte name/metadata stride
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/asset-loading.md
+  - address: 0x0056d9c8
+    name: PsxSpoolQueueEntries
+    description: 20-entry PSX scheduling queue with 0x11-byte name/mode records
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x00537c80
+    name: EnvironmentRegionSlots
+    description: two environment-list slots containing attached PSX region indices
+    confidence: observed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x0056db28
+    name: PsxEnvironmentObjectListHead
+    description: head of the attached PSX environment-object list consumed by renderer and collision paths
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+      - re/evidence/functions/renderer.md
+      - re/evidence/functions/asset-loading.md
+  - address: 0x0056db34
+    name: PsxSpoolQueueCount
+    description: modulo-20 insertion index for the PSX scheduling queue
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x005615dc
+    name: PlayerSpoolBusy
+    description: shared busy flag set while player spool work is pending or being synchronized
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x0056e5f8
+    name: ReplayNumFrames
+    description: GVideoRestart replay frame-count field populated by the REC loader
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056b8d4
+    name: ReplayNumSkaters
+    description: GVideoRestart skater-count field populated by the REC loader
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056b8d6
+    name: ReplaySkater
+    description: GVideoRestart first skater selector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056b8d7
+    name: ReplaySkater2
+    description: GVideoRestart second skater selector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056b8da
+    name: ReplayLevel
+    description: GVideoRestart level field populated by the REC loader
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056b8dc
+    name: ReplayGame
+    description: GVideoRestart game-mode field populated by the REC loader
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e62c
+    name: ReplayHighlightRanges
+    description: five copied GVideoRestart highlight start/end pairs
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e5d8
+    name: ReplayPlaybackState0
+    description: first per-skater replay/video playback state block
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e5dc
+    name: ReplayStreamBuffer0
+    description: base pointer for the first 0x80000-byte replay stream buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e5e0
+    name: ReplayStreamStart0
+    description: first stream state's reserved header/live-stream boundary pointer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e5e4
+    name: ReplayStreamBoundary0
+    description: first stream state's internal boundary pointer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e450
+    name: ReplayPlaybackState1
+    description: second per-skater replay/video playback state block
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e454
+    name: ReplayStreamBuffer1
+    description: base pointer for the optional second 0x80000-byte replay stream buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e458
+    name: ReplayStreamStart1
+    description: second stream state's reserved header/live-stream boundary pointer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e45c
+    name: ReplayStreamBoundary1
+    description: second stream state's internal boundary pointer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0056e774
+    name: ReplayHighlightCursor
+    description: active highlight index used by replay frame skipping
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561990
+    name: ReplayVideoRestartActive
+    description: frontend video-restart/replay session flag
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561c70
+    name: ReplayTwoSkaterMode
+    description: frontend replay flag set when the loaded header selects two skaters
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561c74
+    name: ReplayGameState
+    description: frontend replay game/state selector applied from the header
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561c88
+    name: ReplaySkaterManagerSlot0
+    description: first manager slot saved across a video-restart replay session
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561c8c
+    name: ReplaySkaterManagerSlot1
+    description: second manager slot saved across a video-restart replay session
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00561c90
+    name: ReplayCurrentLevel
+    description: frontend level selector applied from the replay header
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x006a0548
+    name: D3DLevelName
+    description: selected level-name string used as the configured PC texture subdirectory
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x00549f24
+    name: D3DConfiguredTextureRootEnabled
+    description: static nonzero flag selecting the configured NEWTEX level-root bitmap path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x006a6964
+    name: D3DTextureMode
+    description: graphics/texture mode flag consulted by the PC bitmap lookup branch
+    confidence: observed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x0065f82c
+    name: D3DPrimitiveDispatchTable
+    description: 256-entry polygon opcode-base handler table initialized by the renderer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x006a0064
+    name: D3DPolygonFormatMode
+    description: current polygon command format/mode byte selected from opcode bit zero
+    confidence: observed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x006a0068
+    name: D3DPrimitiveSubmissionCount
+    description: per-frame primitive submission counter incremented by geometry handlers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x0056b768
+    name: CollisionResultFlagSurface40
+    description: derived collision result flag from winning face flags bit 0x40
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7a8
+    name: CollisionResultFlagInverse23
+    description: derived collision result boolean from the inverse of face bit 23
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7ac
+    name: CollisionResultFlagFace80
+    description: derived collision result flag from face word zero bit 0x80
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7b8
+    name: CollisionResultFlagInverse24
+    description: derived collision result boolean from the inverse of face bit 24
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
+  - address: 0x0056b7e8
+    name: CollisionSurfaceClass
+    description: four-bit surface class derived from winning face flags
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md

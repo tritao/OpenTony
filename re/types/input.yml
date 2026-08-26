@@ -1,0 +1,37 @@
+version: 1
+types:
+  - name: RuntimeInputActionStateRecord
+    size: 0x10
+    confidence: observed
+    description: Per-action state record advanced by the input history update; movement records are witnessed at the four global addresses in functions/input.md.
+    fields:
+      - offset: 0x00
+        name: active
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/input.md
+      - offset: 0x01
+        name: press_edge_latch
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/input.md
+      - offset: 0x04
+        name: active_counter
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/input.md
+      - offset: 0x08
+        name: inactive_counter
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/input.md
+      - offset: 0x0c
+        name: update_counter
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/input.md

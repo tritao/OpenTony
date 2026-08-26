@@ -22,7 +22,7 @@ Under the recorded `640x480x16` headless profile, bypassing the blocking movie r
 
 The same profile was then driven through Free Skate → Tony Hawk → Hangar. Runtime breakpoints confirmed the authentic launch chain: `0x004544a0` was called with level index `0` and mode `2`, `0x004524a0` performed the Hangar resource load, and `0x0046a3a0` was reached after selecting PLAY on the Free Skate loading screen. At the first level-loop hit, the registers included `EDX=0x05f34100`, `EBP=1`, and `EDI=7`; `EDX` is a candidate session/player root for follow-up memory tracing, not yet a confirmed type.
 
-The Warehouse override experiment dynamically confirmed the same loop after loading level index `12`. At entry, `DAT_0056a858` held player pointer `0x05f39530`, while `EDX` held `0x05f39500`, exactly 0x30 bytes before that object. `DAT_0056a898` remained `12`. These addresses are allocation-dependent observations; the stable relationships are the globals and relative offset.
+The Warehouse override experiment dynamically confirmed the same loop after loading level index `12`. At entry, `DAT_0056a858` held the first gameplay skater pointer `0x05f39530`, while `EDX` held `0x05f39500`, exactly 0x30 bytes before that object. `DAT_0056a898` remained `12`. Static creation shows that `DAT_0056a858` is entry zero of a two-entry player-object table and that entry one is at `DAT_0056a85c`; these addresses are allocation-dependent observations, while the table and relative-offset relationships are stable.
 
 The repeatable raw collector is `tony-player-sample COUNT FILE [--force]`. It arms a temporary breakpoint at the repeated message-pump call site `0x004f7ce0` inside `Game_LevelLoop`, records registers plus the owner/player byte ranges as NDJSON, and automatically continues until `COUNT` samples are collected. The `0x0046a3a0` breakpoint remains the one-time level-session entry.
 
@@ -35,6 +35,16 @@ The conservative current names are `FrontEnd_Main`, `Front_LaunchGameLevel`, `Ga
 ## Open questions / falsifiers
 
 - Confirm which repeated inner-loop hits correspond to rendered frames; `0x004f7ce0` itself is the Windows message pump, not the physics function.
-- Trace `DAT_0056a858` and its `-0x30` owner/header relationship across loop iterations and compare it with the player-state layout candidates.
+- Trace both entries of `DAT_0056a858`/`DAT_0056a85c` and their `-0x30` owner/header relationship across loop iterations and compare them with the skater-state layout.
 - Determine whether `0x0041c2d0` is the main gameplay loop or a broader shell/session loop invoked for a different mode.
 - Resolve the meanings of `DAT_0056a8d0`, `DAT_0056a898`, and the callback object at `DAT_0056a858` with GDB observations.
+
+## Native reconstruction boundary
+
+`src/runtime/level_frame.*` now represents the confirmed inner ordering at a
+portable boundary: an externally supplied elapsed interval and action mask are
+recorded by `InputState`, then `LevelRuntime::tick()` advances trigger timers
+and scene state, then a downstream observer receives the frame for player,
+camera, renderer, and audio work. This does not claim to replace the Windows
+message pump, DirectInput device polling, timing source, or virtual gameplay
+callback; those remain the next application-layer services.

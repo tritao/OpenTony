@@ -1,0 +1,134 @@
+version: 1
+types:
+  - name: RuntimeSoundDescriptionRecord
+    size: 0x34
+    confidence: confirmed
+    description: One entry in a selected VAB sound bank's 0x42-entry description table.
+    fields:
+      - offset: 0x00
+        name: sound_id
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x0c
+        name: wav_resource_name
+        type: pointer<char>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x2c
+        name: post_start_flag
+        type: u8
+        confidence: observed
+        description: Flag copied into runtime slot state bit 1 after playback starts.
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x30
+        name: runtime_sound_slot
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+
+  - name: RuntimeAudioBankRecord
+    size: 0x28
+    confidence: observed
+    description: Per-sound bank record containing eight runtime voice/buffer pointers and bank state.
+    fields:
+      - offset: 0x00
+        name: voice_buffers
+        type: array<pointer<void>, 8>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x20
+        name: state_flags
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x24
+        name: sound_description
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+
+  - name: RuntimeWaveFormatEx
+    size: 0x12
+    confidence: confirmed
+    description: The 18-byte WAVEFORMATEX prefix read from a PCM WAV fmt chunk.
+    fields:
+      - offset: 0x00
+        name: format_tag
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x02
+        name: channels
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x04
+        name: samples_per_second
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x08
+        name: average_bytes_per_second
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x0c
+        name: block_align
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x0e
+        name: bits_per_sample
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x10
+        name: extra_size
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+
+  - name: RuntimeSoundBufferDescriptor
+    size: 0x24
+    confidence: observed
+    description: Descriptor values passed to the audio device when creating one decoded WAV buffer.
+    fields:
+      - offset: 0x00
+        name: descriptor_size
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x04
+        name: creation_flags
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x08
+        name: sample_bytes
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/audio-runtime.md
+      - offset: 0x20
+        name: wave_format
+        type: pointer<RuntimeWaveFormatEx>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/audio-runtime.md

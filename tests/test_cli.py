@@ -150,3 +150,6 @@ def test_asset_commands_parse():
     ):
         args = build_parser().parse_args(["assets", command, "archive.PKR"])
         assert callable(args.func)
+
+    args = build_parser().parse_args(["assets", "inspect-trg", "archive.TRG", "--scripts"])
+    assert args.scripts is True

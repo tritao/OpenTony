@@ -148,6 +148,59 @@ def test_read_trg_header_and_node_table(tmp_path: Path):
     assert result["nodes"][1]["name"] == "terminator"
 
 
+def test_decode_trg_autoexec_script(tmp_path: Path):
+    source = tmp_path / "SCRIPT_T.TRG"
+    script = struct.pack("<HHH", 0x000D, 1, 0xFFFF)
+    node_offset = 20
+    terminator_offset = node_offset + 2 + len(script)
+    source.write_bytes(
+        struct.pack("<4sII", b"_TRG", 2, 2)
+        + struct.pack("<II", node_offset, terminator_offset)
+        + struct.pack("<H", 4)
+        + script
+        + struct.pack("<H", 0xFF)
+    )
+
+    result = inspect_trg(source, include_scripts=True)
+    assert result["scripts"][0]["stream_offset"] == node_offset + 2
+    assert result["scripts"][0]["terminated"] is True
+    assert result["scripts"][0]["commands"] == [
+        {
+            "offset": node_offset + 2,
+            "opcode": 0x000D,
+            "name": "send_visible",
+            "size": 4,
+            "raw": "0d000100",
+            "arguments": [1],
+        }
+    ]
+
+
+def test_decode_trg_command_point_c9_uses_retail_alignment(tmp_path: Path):
+    source = tmp_path / "GAP_T.TRG"
+    node_offset = 20
+    node = bytearray(struct.pack("<HHI", 6, 0, 0))
+    node.extend(struct.pack("<H", 0x00C9))
+    node.extend(b"\0\0")
+    node.extend(struct.pack("<IH", 0xF3ABDF8E, 10))
+    node.extend(struct.pack("<H", 0xFFFF))
+    terminator_offset = node_offset + len(node)
+    source.write_bytes(
+        struct.pack("<4sII", b"_TRG", 2, 2)
+        + struct.pack("<II", node_offset, terminator_offset)
+        + node
+        + struct.pack("<H", 0xFF)
+    )
+
+    result = inspect_trg(source, include_scripts=True)
+    command = result["scripts"][0]["commands"][0]
+    assert command["opcode"] == 0x00C9
+    assert command["checksum"] == 0xF3ABDF8E
+    assert command["argument"] == 10
+    assert command["size"] == 10
+    assert result["scripts"][0]["terminated"] is True
+
+
 def _write_psx(path: Path) -> None:
     data = bytearray(b"\0" * 12)
     data.extend(struct.pack("<IiiiIHHhhII", 0, 4096, -8192, 12288, 0, 0, 0, 0, 0, 0, 0))

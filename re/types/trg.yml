@@ -1,0 +1,538 @@
+version: 1
+types:
+  - name: RuntimeTriggerObjectHeader
+    size: null
+    confidence: observed
+    description: Common fields observed on objects created by the TRG factory. This is separate from RuntimePsxObjectRecord.
+    fields:
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        description: 12-bit fixed-point world position; Warehouse node 17 matches its disk position shifted left by 12.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: position_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x04
+        name: object_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x20
+        name: next_object
+        type: pointer<RuntimeTriggerObjectHeader>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x34
+        name: previous_object
+        type: pointer<RuntimeTriggerObjectHeader>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x64
+        name: activation_argument
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x6a
+        name: trigger_state_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xae
+        name: constructor_cleared_word
+        type: u16
+        confidence: confirmed
+        description: Constructor clears this word before later object-family setup.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb0
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x171
+        name: command_state_byte
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x178
+        name: trigger_state
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTriggerLinkRecord
+    size: 0x18
+    confidence: confirmed
+    description: Small link record allocated for crate/command-point style TRG relationships.
+    fields:
+      - offset: 0x00
+        name: command_or_diagnostic_payload
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x04
+        name: state_byte_0
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x05
+        name: state_byte_1
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x06
+        name: initial_pulse_byte
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x07
+        name: pulse_count_or_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x08
+        name: state_word
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0a
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: target_value
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: next_global_link
+        type: pointer<RuntimeTriggerLinkRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x14
+        name: next_target_bucket
+        type: pointer<RuntimeTriggerLinkRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTriggerSubtype0x00cb
+    size: 0x1f4
+    confidence: observed
+    description: Type-1 TRG object allocation selected by subtype 0x00cb. The layout is limited to constructor/header fields independently supported by the factory and constructor.
+    fields:
+      - offset: 0x00
+        name: vtable_or_class_dispatch
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x04
+        name: object_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3c
+        name: object_subtype
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x6a
+        name: trigger_state_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb0
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16c
+        name: constructor_active_byte
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16f
+        name: script_state_byte_0
+        type: u8
+        confidence: confirmed
+        description: Script-variable byte exposed by the trigger virtual interface.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x170
+        name: script_state_byte_1
+        type: u8
+        confidence: confirmed
+        description: Script-variable byte exposed by the trigger virtual interface.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x178
+        name: script_state_flags
+        type: u32
+        confidence: confirmed
+        description: Script state word; command 0x4700 toggles bit 0x100.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1b0
+        name: script_registers
+        type: array<u16,6>
+        confidence: confirmed
+        description: Six u16 script register values selected by a byte read from the script cursor.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1d8
+        name: runtime_context
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1e8
+        name: positional_sound_handle
+        type: i32
+        confidence: confirmed
+        description: Sound handle created or stopped by script commands 0x4507..0x4509.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1ec
+        name: constructor_sentinel
+        type: i32
+        confidence: confirmed
+        description: Sound command operand/state word; initialized to -1 by the constructor and replaced by command 0x4508.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1f0
+        name: positional_sound_context
+        type: pointer<void>
+        confidence: confirmed
+        description: Sound context copied from the global audio state when a positional sound command is applied.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        description: Three post-preamble u32 values are shifted left by 12 by the constructor helper.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: position_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x14
+        name: constructor_parameter_0
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16
+        name: constructor_parameter_1
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x18
+        name: constructor_parameter_2
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x17c
+        name: script_stream_cursor
+        type: pointer<void>
+        confidence: confirmed
+        description: Cursor returned by the shared position/parameter helper and consumed by the virtual trigger script interface.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTriggerSubtype0x0192
+    size: 0x218
+    confidence: observed
+    description: Type-1 TRG object allocation selected by subtype 0x0192. Only constructor/header fields are named.
+    fields:
+      - offset: 0x00
+        name: vtable_or_class_dispatch
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x04
+        name: object_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb0
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: position_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16c
+        name: constructor_active_byte
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a0
+        name: constructor_mode_word
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1fc
+        name: constructor_zero_word_1
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x200
+        name: constructor_zero_word_2
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x20c
+        name: constructor_zero_word_3
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x210
+        name: constructor_zero_word_4
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x214
+        name: constructor_zero_word_5
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1d8
+        name: runtime_context
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1f2
+        name: object_subtype
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x208
+        name: constructor_sentinel
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x14
+        name: constructor_parameter_0
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16
+        name: constructor_parameter_1
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x18
+        name: constructor_parameter_2
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x17c
+        name: script_stream_cursor
+        type: pointer<void>
+        confidence: confirmed
+        description: Cursor returned by the shared position/parameter helper and consumed by the virtual trigger script interface.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTriggerTrafficObject
+    size: 0x1e8
+    confidence: observed
+    description: Type-1 TRG traffic/car object selected for subtypes 0xd5..0xdc. Only constructor-owned fields and the subtype resource switch are named.
+    fields:
+      - offset: 0x00
+        name: vtable_or_class_dispatch
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0c
+        name: position_y_fixed_after_constructor_offset
+        type: i32
+        confidence: observed
+        description: Shared fixed-point Y position after the traffic constructor subtracts 0x6e000.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x14
+        name: constructor_parameter_0
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x16
+        name: constructor_parameter_1
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x18
+        name: constructor_parameter_2
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x20
+        name: next_object
+        type: pointer<RuntimeTriggerTrafficObject>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x34
+        name: previous_object
+        type: pointer<RuntimeTriggerTrafficObject>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3c
+        name: object_subtype
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a
+        name: psx_model_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1f
+        name: psx_region_slot
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x64
+        name: activation_argument
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb0
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x108
+        name: constructor_fixed_scale
+        type: u32
+        confidence: observed
+        description: Constructor initializes this word to 0x10000.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1d0
+        name: positional_sound_handle
+        type: pointer<void>
+        confidence: observed
+        description: Result of the subtype-specific positional sound call; internal sound-handle layout remains open.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1d4
+        name: resource_active_flag
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1dc
+        name: node_derived_word
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1e0
+        name: traffic_sequence
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md

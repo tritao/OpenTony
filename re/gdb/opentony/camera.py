@@ -1,0 +1,245 @@
+"""Evidence-preserving runtime views for the recovered THPS2 camera object."""
+
+from __future__ import annotations
+
+import struct
+
+from .breakpoint import Context, CountingBreakpoint
+from .knowledge import GLOBALS, function_address
+
+
+CAMERA_SIZE = 0x674
+PLAYER_CAMERA_OFFSET = 0x29B0
+PLAYER_SECONDARY_LINK_OFFSET = 0x29BC
+VIEWPORT_STATE = 0x00563A38
+VIEWPORT_SCALE_X = 0x00563A6C
+VIEWPORT_SCALE_Y = 0x00563A70
+
+
+def _words(memory, address: int, count: int = 3) -> dict[str, list[int | float]]:
+    """Return raw words plus deliberately uncommitted numeric interpretations."""
+
+    raw = list(struct.unpack(f"<{count}I", memory.bytes(address, count * 4)))
+    signed = [value - (1 << 32) if value & 0x80000000 else value for value in raw]
+    return {
+        "raw": raw,
+        "s32": signed,
+        "fixed16": [value / 65536.0 for value in signed],
+        "fixed16_candidate": [value / 65536.0 for value in signed],
+        "q12": [value / 4096.0 for value in signed],
+        "q12_candidate": [value / 4096.0 for value in signed],
+        "f32_candidate": list(struct.unpack(f"<{count}f", struct.pack(f"<{count}I", *raw))),
+    }
+
+
+def _field_words(memory, camera: int, offset: int, count: int = 1):
+    return _words(memory, camera + offset, count)
+
+
+def _raw_block(memory, address: int, size: int) -> dict | None:
+    """Capture a pointed-to block without making its layout part of the probe API."""
+
+    if not address or not memory.readable(address, size):
+        return None
+    return {"address": f"0x{address:08x}", "size": size, "raw": memory.bytes(address, size).hex()}
+
+
+def _s16_array(memory, address: int, count: int) -> list[dict[str, int]] | None:
+    if not address or not memory.readable(address, count * 2):
+        return None
+    return [_short(memory, address + index * 2) for index in range(count)]
+
+
+def _angle_fields(memory, camera: int) -> dict:
+    raw = _s16_array(memory, camera + 0x14, 3)
+    if raw is None:
+        return {"raw": None, "angle_units": None}
+    return {
+        "raw": raw,
+        "angle_units": [field["raw_u16"] & 0x0FFF for field in raw],
+        "turn_fraction": [(field["raw_u16"] & 0x0FFF) / 4096.0 for field in raw],
+    }
+
+
+def _short(memory, address: int) -> dict[str, int]:
+    return {
+        "raw_u16": memory.u16(address),
+        "signed_s16": memory.s16(address),
+    }
+
+
+def camera_record(ctx: Context, camera: int) -> dict:
+    """Capture camera fields without prematurely assigning their final types."""
+
+    memory = ctx.memory
+    player = memory.u32(GLOBALS["Player"])
+    level = memory.u32(GLOBALS["CurrentLevel"]) if "CurrentLevel" in GLOBALS else None
+    tripod = memory.u32(camera + 0x3A4)
+    secondary_target = memory.u32(camera + 0x3DC)
+
+    camera_fields = {
+        "position": _field_words(memory, camera, 0x08, 3),
+        "orientation_angles": _angle_fields(memory, camera),
+        "anchor_target": _field_words(memory, camera, 0x3C0, 3),
+        "secondary_anchor": _field_words(memory, camera, 0x3E4, 3),
+        "look_target": _field_words(memory, camera, 0x3F0, 3),
+        "current_vector": _field_words(memory, camera, 0x448, 4),
+        "target_vector": _field_words(memory, camera, 0x45C, 4),
+        "previous_vector": _field_words(memory, camera, 0x470, 4),
+        "viewport_zoom_candidate": _field_words(memory, camera, 0x40C),
+        "time_or_smoothing_a": _field_words(memory, camera, 0x410),
+        "time_or_smoothing_b": _field_words(memory, camera, 0x414),
+        "smoothing_counter_a": _field_words(memory, camera, 0x5D8),
+        "smoothing_counter_b": _field_words(memory, camera, 0x5DC),
+        "smoothing_counter_c": _field_words(memory, camera, 0x5E0),
+        "smoothing_counter_d": _field_words(memory, camera, 0x5E4),
+    }
+    camera_fields.update(
+        {
+            "tripod_link": tripod,
+            "secondary_target_link": secondary_target,
+            "target_valid": memory.u32(camera + 0x3E0),
+            "mode": memory.u32(camera + 0x504),
+            "update_tick": memory.u32(camera + 0x510),
+            "death_camera_tick": memory.u32(camera + 0x570),
+            "shake_x": _short(memory, camera + 0x4F2),
+            "shake_y": _short(memory, camera + 0x4F4),
+            "shake_z": _short(memory, camera + 0x4F6),
+        }
+    )
+
+    record = {
+        "type": "camera",
+        "frame": ctx.frame,
+        "function": "Camera_Update",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "level": level,
+        "player": f"0x{player:08x}",
+        "camera": f"0x{camera:08x}",
+        "camera_size": CAMERA_SIZE,
+        "camera_vtable": f"0x{memory.u32(camera):08x}",
+        "player_camera_offset": f"0x{PLAYER_CAMERA_OFFSET:04x}",
+        "player_secondary_link": (
+            f"0x{memory.u32(player + PLAYER_SECONDARY_LINK_OFFSET):08x}"
+            if player and memory.valid(player)
+            else None
+        ),
+        "tripod": f"0x{tripod:08x}",
+        "secondary_target": f"0x{secondary_target:08x}",
+        "camera_fields": camera_fields,
+    }
+    if player and memory.valid(player):
+        record["player_position"] = _words(memory, player + 0x08, 3)
+        record["player_physics_state"] = memory.u32(player + 0x30B8)
+        record["player_unknown_state"] = memory.u32(player + 0x30C4)
+    else:
+        record["player_position"] = None
+        record["player_physics_state"] = None
+        record["player_unknown_state"] = None
+    if tripod and memory.valid(tripod):
+        record["tripod_position"] = _words(memory, tripod + 0x08, 3)
+        record["tripod_physics_state"] = memory.u32(tripod + 0x30B8)
+    else:
+        record["tripod_position"] = None
+        record["tripod_physics_state"] = None
+    return record
+
+
+def view_projection_record(ctx: Context) -> dict:
+    """Capture the view/projection handoff as raw records and fixed-point hints."""
+
+    memory = ctx.memory
+    viewport = ctx.arg(0)
+    view_input = ctx.arg(1)
+    render_state = ctx.arg(2)
+    player = memory.u32(GLOBALS["Player"])
+    camera = memory.u32(player + PLAYER_CAMERA_OFFSET) if player and memory.valid(player) else 0
+
+    record = {
+        "type": "view_projection",
+        "frame": ctx.frame,
+        "function": "Render_SetViewProjection",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "arguments": {
+            "viewport": f"0x{viewport:08x}",
+            "view_input": f"0x{view_input:08x}",
+            "render_state": f"0x{render_state:08x}",
+        },
+        "viewport_block": _raw_block(memory, viewport, 0x70),
+        "view_input_block": _raw_block(memory, view_input, 0x20),
+        "render_state_block": _raw_block(memory, render_state, 0x20),
+        "viewport_words": _words(memory, viewport, 8) if memory.readable(viewport, 0x20) else None,
+        "view_input_shorts": _s16_array(memory, view_input, 14),
+        "viewport_matrix_a": _s16_array(memory, viewport + 0x34, 9)
+        if memory.readable(viewport + 0x34, 0x12)
+        else None,
+        "viewport_matrix_b": _s16_array(memory, viewport + 0x54, 9)
+        if memory.readable(viewport + 0x54, 0x12)
+        else None,
+        "camera": f"0x{camera:08x}" if camera else None,
+        "camera_angles": _angle_fields(memory, camera) if camera and memory.valid(camera) else None,
+        "camera_look_target": _field_words(memory, camera, 0x3F0, 3)
+        if camera and memory.valid(camera)
+        else None,
+        "camera_viewport_raw": memory.u32(camera + 0x40C)
+        if camera and memory.valid(camera)
+        else None,
+        "viewport_state_pointer": f"0x{memory.u32(VIEWPORT_STATE):08x}"
+        if memory.readable(VIEWPORT_STATE, 4)
+        else None,
+        "viewport_scale_x_raw": memory.u32(VIEWPORT_SCALE_X)
+        if memory.readable(VIEWPORT_SCALE_X, 4)
+        else None,
+        "viewport_scale_y_raw": memory.u32(VIEWPORT_SCALE_Y)
+        if memory.readable(VIEWPORT_SCALE_Y, 4)
+        else None,
+    }
+    return record
+
+
+class CameraProbe(CountingBreakpoint):
+    """Sample the actual camera-update entry, before mode-specific work runs."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("camera_update"), count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        camera = ctx.this_ptr()
+        if not ctx.memory.valid(camera):
+            return False
+        record = camera_record(ctx, camera)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        # Avoid importing commands at module load time (commands imports this module).
+        import gdb
+
+        gdb.write(f"camera probe complete: {self.hits} observations\n")
+
+
+class ViewProjectionProbe(CountingBreakpoint):
+    """Sample the game-owned view/projection preparation entry."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("view_projection"), count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = view_projection_record(ctx)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"view projection probe complete: {self.hits} observations\n")

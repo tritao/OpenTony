@@ -8,6 +8,12 @@ def test_gdb_knowledge_covers_runtime_addresses():
 
     assert database["FUNCTIONS"]["Skater_PhysicsDispatcher"] == 0x0049DB80
     assert database["FUNCTIONS_ALIASES"]["physics_dispatch"] == "Skater_PhysicsDispatcher"
+    assert database["FUNCTIONS"]["Camera_Update"] == 0x0040F850
+    assert database["FUNCTIONS_ALIASES"]["camera_update"] == "Camera_Update"
+    assert database["FUNCTIONS"]["Render_Present"] == 0x004D0CA4
+    assert database["FUNCTIONS"]["Camera_BuildLookAngles"] == 0x004C9770
+    assert database["FUNCTIONS"]["Fixed_MatrixMultiplyQ12"] == 0x004E39A0
+    assert database["FUNCTIONS_ALIASES"]["render_present"] == "Render_Present"
     assert database["GLOBALS"]["Player"] == 0x0056A858
     assert database["GLOBALS"]["CurrentLevel"] == 0x0056A898
     assert database["GLOBALS"]["KeyboardDevice"] == 0x006A43E0

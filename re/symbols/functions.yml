@@ -56,6 +56,12 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/cd-check.md
+  - address: 0x004f6850
+    name: Setup_ProbeConfiguredFile
+    description: build a configured media/package path and probe the resulting file
+    confidence: confirmed
+    evidence:
+      - re/evidence/startup-runtime.md
   - address: 0x0041c2d0
     name: Game_MainLoop
     gdb_aliases:
@@ -88,6 +94,1488 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/level-load.md
+  - address: 0x00449030
+    name: FileIO_OpenResource
+    gdb_aliases:
+      - fileio_open
+    description: first game-owned file/archive open and size lookup
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e75b0
+    name: FileIO_BackendOpen
+    description: allocate a direct/package-backed abstract resource handle
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004e79f0
+    name: FileIO_BackendSeek
+    description: seek an abstract resource handle in direct or package mode
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e7ad0
+    name: FileIO_BackendRead
+    description: read bytes from an abstract resource handle
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e7bc0
+    name: FileIO_BackendClose
+    description: release a direct or package-backed resource handle
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004ed9b0
+    name: Audio_LoadWavPcm
+    description: read a WAV resource, parse PCM format, and return aligned sample bytes
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004e9940
+    name: PKR2_OpenResource
+    description: validate a PKR2 package and resolve a requested resource entry
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9730
+    name: PKR2_ResolveEntryPayload
+    description: return raw package bytes or dispatch a non-raw entry transform
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9150
+    name: PKR2_CompressBIBD
+    description: encode byte-count/value RLE package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9200
+    name: PKR2_CompressWIBD
+    description: encode word-count/value RLE package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e92c0
+    name: PKR2_CompressZlib
+    description: encode ZLIB package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9390
+    name: PKR2_DecompressBIBD
+    description: decode byte-count/value RLE package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9480
+    name: PKR2_DecompressWIBD
+    description: decode word-count/value RLE package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004e9570
+    name: PKR2_DecompressZlib
+    description: decode ZLIB package payloads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x005013f9
+    name: PKR2_OpenPackageStream
+    description: create the package stream object used by the PKR2 backend
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x005013c8
+    name: ResourceStream_Open
+    description: allocate and configure the runtime package/file stream object
+    confidence: observed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x00502387
+    name: ResourceStream_ReadElements
+    description: read element_count times element_size from a runtime stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x005022cb
+    name: ResourceStream_SeekState
+    description: update buffered stream state and seek the underlying handle
+    confidence: observed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x00500e7b
+    name: ResourceStream_Close
+    description: flush and release a runtime package/file stream object
+    confidence: observed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x0050229f
+    name: PKR2_SeekResource
+    description: seek within a package-backed resource stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x00502358
+    name: PKR2_ReadResource
+    description: read bytes or records from a package-backed resource stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x00449230
+    name: FileIO_LoadResource
+    description: schedule an active resource handle into a caller-owned allocation
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x00449660
+    name: FileIO_SyncResource
+    description: service the resource spooler until the active load completes
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x0046f490
+    name: FileIO_AllocLoadedBuffer
+    description: count-prefixed loader allocation wrapper
+    confidence: observed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/fileio-runtime.md
+  - address: 0x004b39b0
+    name: PSX_Spooler
+    description: asynchronous PSX resource spooler state machine
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+  - address: 0x004b2450
+    name: PSX_ParseEnvironment
+    description: parse PSX object/model tables and post-model tags
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x004647c0
+    name: PSX_FinalizeEnvironment
+    description: finalize PSX model packets and link runtime object records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/renderer.md
+  - address: 0x004b2ac0
+    name: PSX_AttachEnvironment
+    description: attach parsed PSX environment to the runtime environment list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/renderer.md
+  - address: 0x004667e0
+    name: M3D_LoadZoneBlockmap
+    description: load type-10 PSX blockmap and rewrite object indices to pointers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x004660b0
+    name: M3D_ZoneCollisionBroadphase
+    gdb_aliases:
+      - collision_query_execute
+    description: select blockmap cells intersecting a collision query
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/collision-query.md
+  - address: 0x004638d0
+    name: M3D_CollisionCell
+    description: walk runtime objects and model faces in one blockmap cell
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x00462a20
+    name: M3D_CollisionFaceTest
+    description: test cached model faces against a collision query
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+  - address: 0x004624d0
+    name: M3D_InitCollisionQuery
+    gdb_aliases:
+      - collision_query_initialize
+    description: initialize segment bounds, hit outputs, and collision basis fields
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/collision-query.md
+  - address: 0x00466090
+    name: M3D_QueryZoneCollision
+    gdb_aliases:
+      - collision_query_wrapper
+    description: thin wrapper that submits a collision query to the static zone broadphase
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/collision-query.md
+  - address: 0x0048ea80
+    name: M3D_ReadSurfaceFlags
+    description: read collision/surface bits from the selected PSX face into physics globals
+    confidence: observed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/collision.md
+  - address: 0x004cabf0
+    name: Vector3_Subtract
+    gdb_aliases:
+      - math_vector3_sub_out
+    description: subtract two fixed-point input vectors into a separate output vector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/vector-math.md
+  - address: 0x0049bad0
+    name: Skater_ApplyCollisionResponse
+    description: apply a collision vector to skater response/basis state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x004628f0
+    name: M3D_PrepareCollisionObjectList
+    description: prepare collision-query state and walk the attached runtime object list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x00463d50
+    name: M3D_CommitCollisionSurface
+    description: publish the selected collision surface and normal back to the query record
+    confidence: observed
+    evidence:
+      - re/evidence/functions/blockmap-collision.md
+      - re/evidence/functions/collision.md
+  - address: 0x00467c90
+    name: M3D_RenderStage
+    gdb_aliases:
+      - render_world
+    description: render-stage routine that traverses attached environments and game objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x0045f530
+    name: M3D_RenderObjects
+    description: cull and render a runtime object list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x0045e8e0
+    name: M3D_BeginRenderView
+    gdb_aliases:
+      - view_projection
+    description: bind one render view, derive its active camera transform data, reset its polygon arena, and initialize its bucket-head list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+      - re/evidence/functions/camera-system.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x004d0c30
+    name: D3D_PresentFrame
+    description: synchronize the active Direct3D device and present the render buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004610f0
+    name: M3D_RenderModel
+    description: prepare a PSX model packet and submit its geometry
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x00461a50
+    name: M3D_SubmitStateGeometry
+    description: submit a model packet through the common state-geometry path with an optional 0x200 state bit
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x00461a90
+    name: M3D_SubmitStateGeometryVariant
+    description: submit a model packet through the alternate common state-geometry path with an optional 0x200 state bit
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x00461b10
+    name: M3D_SetGeometryState
+    description: combine model/object render flags and forward non-textured geometry state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d11d0
+    name: M3D_SubmitGeometryPackets
+    description: lower-level model geometry packet submission helper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d14d0
+    name: M3D_SubmitModelState
+    description: transform and submit one PSX model packet using a renderer state word
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d18b0
+    name: M3D_SubmitFacePolygons
+    description: walk variable-size model faces and submit visible polygon records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d1960
+    name: M3D_ResolveFaceColor
+    description: resolve one packed face color against active renderer color and palette tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d1d40
+    name: M3D_BuildD3DPolygon
+    description: allocate and populate a fixed-size polygon packet from transformed face data
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d20f0
+    name: M3D_ClipAndBucketPolygon
+    description: cull, depth-classify, and link an accepted polygon into a renderer bucket
+    confidence: observed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d29e0
+    name: M3D_TransformVertices
+    description: transform packed PSX vertex records into projected seven-float working records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3160
+    name: D3D_DrawPolygonList
+    description: consume linked polygon/command records, apply render state, and dispatch geometry handlers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3480
+    name: D3D_SetTextureBlendMode
+    description: select the Direct3D texture/blend state used by a polygon command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3510
+    name: D3D_SetColorBlendMode
+    description: select the Direct3D color/alpha blend factors used by a polygon command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3600
+    name: D3D_SubmitViewportRect
+    description: clamp an E3 rectangle command and submit it to the viewport helper
+    confidence: observed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d36c0
+    name: D3D_SetViewportRect
+    description: submit a clamped rectangle to the active Direct3D viewport device
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3780
+    name: D3D_DrawReverseCommandList
+    description: consume the reversed render command list with the standard opcode/state dispatch
+    confidence: observed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d3a40
+    name: D3D_BuildReverseCommandList
+    description: reverse a bounded render command list before alternate-path submission
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d41e0
+    name: D3D_InitPrimitiveDispatch
+    description: initialize the 256-entry polygon opcode table and install concrete primitive handlers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d42f0
+    name: D3D_DrawSolidTriangle
+    description: emit a solid three-vertex triangle command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d45f0
+    name: D3D_DrawTexturedTriangle
+    description: emit a textured three-vertex triangle command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d49e0
+    name: D3D_DrawSolidQuad
+    description: emit a solid four-vertex quad command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d4bf0
+    name: D3D_DrawTexturedQuad
+    description: emit a textured four-vertex quad command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d5040
+    name: D3D_DrawGouraudTriangle
+    description: emit a three-vertex color-interpolated triangle command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d5280
+    name: D3D_DrawTexturedGouraudTriangle
+    description: emit a textured three-vertex color-interpolated triangle command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d56c0
+    name: D3D_DrawGouraudQuad
+    description: emit a four-vertex color-interpolated quad command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d5960
+    name: D3D_DrawTexturedGouraudQuad
+    description: emit a textured four-vertex color-interpolated quad command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d5e40
+    name: D3D_DrawSolidRectangle
+    description: emit a four-vertex solid rectangle/quad-fan command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d6090
+    name: D3D_DrawUnitRectangle
+    description: wrap the solid rectangle handler with unit dimensions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d60c0
+    name: D3D_DrawEightRectangle
+    description: wrap the solid rectangle handler with eight-unit dimensions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d60f0
+    name: D3D_DrawSixteenRectangle
+    description: wrap the solid rectangle handler with sixteen-unit dimensions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d6120
+    name: D3D_DrawLineStrip
+    description: emit a four-vertex line strip or outline command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d6320
+    name: D3D_DrawClosedLineStrip
+    description: emit a closed five-vertex line strip command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d6560
+    name: D3D_DrawLine
+    description: emit a two-vertex single-color line command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d66f0
+    name: D3D_DrawColoredLine
+    description: emit a two-vertex color-interpolated line command
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004d68b0
+    name: D3D_DrawGeneralPolygon
+    description: expand a variable vertex list and emit its textured or untextured primitive form
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/renderer.md
+  - address: 0x004c5130
+    name: TRG_LoadFile
+    description: load, validate, and relocate a level trigger file
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8130
+    name: TRG_ParseNodes
+    description: dispatch relocated TRG nodes into runtime setup paths
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8650
+    name: TRG_DecodeNodePosition
+    description: resolve a relocated TRG node position and convert its three coordinates to 12-bit fixed point
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x0045c390
+    name: TRG_InitializeExtendedRecord
+    description: initialize the 0x58-byte runtime record used by TRG type 500 nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5460
+    name: TRG_CreateObject
+    description: construct a gameplay object for a TRG node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5420
+    name: TRG_FindObjectPreambleFlag
+    description: scan a type-1 parameter preamble for a flag byte
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c5440
+    name: TRG_FindObjectPreambleEnd
+    description: locate the 0xff terminator of a type-1 parameter preamble
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00480240
+    name: TRG_ReadFixedPosition
+    description: read and convert three trigger-object position words
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004802c0
+    name: TRG_ReadObjectParameters
+    description: read the three u16 values following a trigger-object position
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0047fd30
+    name: TRG_AllocObjectStorage
+    description: allocate the requested TRG object storage size
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00403000
+    name: TRG_ConstructSubtype0x00cb
+    description: construct the 0xcb type-1 trigger object family
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0049f250
+    name: TRG_ConstructSubtype0x0192
+    description: construct the 0x192 type-1 trigger object family
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00412640
+    name: TRG_ConstructTrafficObject
+    description: construct the 0xd5..0xdc type-1 traffic/car object family
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00402bb0
+    name: TRG_GetScriptVariable
+    description: expose trigger-object script variables and consume operands from its command cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00403410
+    name: TRG_ApplyScriptCommand
+    description: apply trigger-object position, sound, and state commands from the script cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0047fe30
+    name: Object_SelectNamedPsxRegion
+    description: resolve a case-insensitive named PSX region and store its slot/model selection in an object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004b3230
+    name: PSX_FindLoadedRegionByName
+    description: scan the 20-entry named PSX region table for a case-insensitive match
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c9f50
+    name: CaseInsensitiveBoundedNameEqual
+    description: compare two runtime asset names case-insensitively with a bounded length
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004ad7d0
+    name: Audio_PlayPositionalSound
+    description: attach or play a sound ID using an object's position/context
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004ad950
+    name: Audio_UpdatePositionalSound
+    description: update a positional sound handle with bounded coordinates
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004801d0
+    name: ObjectList_PushHead
+    description: push an object into an intrusive doubly-linked runtime list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004802f0
+    name: Object_ActivateAndRelink
+    description: invoke an object activation hook, update its state argument, and relink it into the active-object list
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004c84d0
+    name: TRG_CreateLinkRecord
+    description: allocate and bucket a small TRG node link record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5ac0
+    name: TRG_FindCommandPointLink
+    description: find a type-6 command-point link record by source node index
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c58b0
+    name: TRG_SendPulse
+    description: dispatch a pulse to a trigger node, including command-point lookup
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5b00
+    name: TRG_ExecuteCommandList
+    description: execute a counted list of referenced trigger-node indices
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5dc0
+    name: TRG_InterpretCommandStream
+    description: interpret the variable-length trigger command stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8550
+    name: TRG_GetNodeLinks
+    description: look up the link list associated with a TRG node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004c7a00
+    name: TRG_SendKillFromNode
+    description: consume TRG links and signal matching runtime objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+  - address: 0x004b2b70
+    name: PSX_LoadTextureReferences
+    description: resolve PSX texture references into PC texture records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004b1f70
+    name: PSX_AllocSceneMaterial
+    description: allocate and link a missing 0x2c-byte scene material record by checksum hash
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+  - address: 0x004b2030
+    name: PSX_FindSceneMaterial
+    description: find a scene material record in the 512-bucket checksum table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004b20f0
+    name: PSX_FindTrailingTables
+    description: walk PSX trailing tags and return the post-tag checksum/material tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/asset-loading.md
+      - re/evidence/functions/player-runtime.md
+  - address: 0x0048a360
+    name: Palette_AllocSourceLookupNode
+    description: allocate and link a source-palette lookup node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x0048a400
+    name: Palette_FindSourceLookupNode
+    description: find a source-palette lookup node by its source key
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x0048a7e0
+    name: Palette_CreateFromPsxColors
+    description: create and normalize a PSX indexed palette
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004da460
+    name: Palette_AllocCacheRecord
+    description: allocate and link a 0x18-byte converted-palette cache record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004da680
+    name: Palette_ConvertColors
+    description: convert PSX 16-bit colors into the active PC format
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d9880
+    name: D3DTex_AllocRecord
+    description: allocate and link a 0x2c-byte PC texture record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004da3e0
+    name: D3DTex_AttachToSceneMaterial
+    description: attach a PC texture record to a scene material record and set the reverse owner link
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d8c60
+    name: D3DTex_LoadBitmap
+    description: decode a bitmap resource into a PC texture record and attach it to a scene material
+    confidence: observed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d9950
+    name: D3DTex_LoadIndexedBitmap
+    description: load indexed bitmap pixels and palette data into a PC texture record
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d98d0
+    name: D3DTex_CreateExternalRecord
+    description: create and attach a PC texture record from externally supplied dimensions/pixels
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004b4e70
+    name: PSX_SelectMaterialForModel
+    description: choose the model material whose decoded image uses the most distinct palette entries
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004b4ad0
+    name: PSX_CollectModelMaterials
+    description: collect distinct PSX material checksums referenced by a model's textured faces
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004b4e00
+    name: PSX_ScoreMaterialPaletteUsage
+    description: resolve a material checksum and count distinct palette entries used by its decoded image
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004da260
+    name: D3DTex_CountUsedPaletteEntries
+    description: count distinct palette entries used by a decoded indexed texture image
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004d8cd0
+    name: D3DTex_PrepareTexture
+    description: prepare image metadata and create a PC texture resource
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d8df0
+    name: D3DTex_OpenImage
+    description: open the PC-side bitmap associated with a texture checksum/name
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d8f10
+    name: D3DTex_UploadTexture
+    description: upload indexed or converted texture data through Direct3D
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d9630
+    name: D3DTex_UploadIndexedPixels
+    description: expand 4-bit or 8-bit indexed pixels through the cached palette into the realized texture
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d9310
+    name: D3DTex_UploadRgbPixels
+    description: quantize 24-bit bitmap BGR pixels into the engine's 16-bit texture format and upload them
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004d8990
+    name: D3DTex_EnsureSourcePixels
+    description: allocate or refresh the texture record's source-pixel buffer before upload
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004ad020
+    name: Audio_OpenFrontendVab
+    description: select and load a front-end sound bank
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004ad180
+    name: Audio_OpenLevelVab
+    description: select and load a level sound bank
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f2960
+    name: Audio_LoadSoundBank
+    description: build audio/name.wav paths and load a bank's sound descriptions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f2b40
+    name: Audio_CreateBufferFromWav
+    description: allocate a sound slot and create a runtime audio buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f2c70
+    name: Audio_FillBuffer
+    description: lock, copy PCM data into, and unlock a runtime audio buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f2e20
+    name: Audio_PlaySound
+    description: select a sound-id voice and start playback
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f37c0
+    name: Audio_StopSound
+    description: stop and release voices for one sound slot
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004f28a0
+    name: Audio_Shutdown
+    description: release all runtime sound buffers and the audio device
+    confidence: observed
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+  - address: 0x004a8ee0
+    name: PRE_CreateManager
+    description: allocate and initialize the shared PRE resource manager
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a9000
+    name: PRE_InitializeManager
+    description: initialize the 16-slot PRE manager table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a90f0
+    name: PRE_Load
+    description: load a PRE container and synchronize its file buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a9110
+    name: PRE_LoadIntoSlot
+    description: open and allocate one PRE container slot
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a9410
+    name: PRE_FindEmbeddedResource
+    description: find an embedded PRE resource by case-insensitive name
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a9480
+    name: PRE_FindEntryInBuffer
+    description: walk one loaded PRE buffer and return payload pointer/size
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004a9330
+    name: PRE_Unload
+    description: unload a named PRE container slot
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x004b37a0
+    name: PSX_QueueResource
+    description: queue a PSX resource load in the spool ring
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x004a6bf0
+    name: PlayerSpool_LoadResources
+    description: select active players and queue PSH, PSX, and face-image resources
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b47a0
+    name: PlayerSpool_LoadPartManifest
+    description: synchronously load one PSH part manifest
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b4940
+    name: PlayerSpool_ParsePartsManifest
+    description: parse PSH .spart records into caller-owned pointers and a count
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5370
+    name: PlayerSpool_QueueResource
+    description: append a named player resource to the spool queue
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5200
+    name: PlayerSpool_Construct
+    description: initialize the forty-entry player-resource spool manager
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5300
+    name: PlayerSpool_ProcessPending
+    description: synchronize the current player spool item and advance its queue state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b57d0
+    name: PlayerSpool_AdvanceEntry
+    description: mark the current player spool entry processed and advance the consume index
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5a00
+    name: PlayerSpool_ReleaseEntry
+    description: release one completed direct-file or PSH-backed player spool entry
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b52b0
+    name: PlayerSpool_Reset
+    description: reset queued player resources and spool state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5350
+    name: PlayerSpool_Finalize
+    description: transition the player spool into its finalized load state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5580
+    name: PlayerSpool_ForceFinalize
+    description: force player spool finalization and process queued resources
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b3df0
+    name: PSX_DrainSpooler
+    description: drain pending PSX region work and synchronize the shared file spooler
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b4640
+    name: PSX_InitFreeSlot
+    description: initialize a free PSX region slot before parsing
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x0042f950
+    name: CustomSkater_LoadDefinitionPsx
+    description: load sk2def.psx, relocate its embedded tables, and publish a named PSX region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b5010
+    name: PSX_RelocateDefinitionPointers
+    description: rebase embedded SK2DEF model/object pointers before common PSX parsing
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x00432c60
+    name: CustomPark_ProcessState
+    description: load or save the selected park%d.prk resource in the custom-park state machine
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00433280
+    name: CustomPark_LoadBuffer
+    description: allocate and route a pending custom-park buffer into the level-generation path
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x004397d0
+    name: LevelGen_Initialize
+    description: initialize the level-generation/editor runtime state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043a280
+    name: LevelGen_SelectVariant
+    description: select custom-park version tables and rebuild the active level-generation state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043c050
+    name: CustomPark_ParseBuffer
+    description: decode a packed PRK header, grid, item records, and trailing table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043c480
+    name: CustomPark_SerializeBuffer
+    description: serialize level-generation cells and items into the packed PRK buffer format
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043d400
+    name: LevelGen_FinalizeRuntimeRegion
+    description: allocate a PSX slot and publish custom-park model/object runtime tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00440190
+    name: LevelGen_ConstructPieceObject
+    description: initialize a generated level piece object from a model descriptor
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043b410
+    name: LevelGen_BuildGridPieceObjects
+    description: expand translated custom-park cell references into generated piece objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0043b8d0
+    name: LevelGen_BuildItemGapObjects
+    description: resolve custom-park item endpoints into paired gap-member records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00444380
+    name: LevelGen_TranslatePieceReference
+    description: translate a compact PRK piece reference through the active park table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x004410b0
+    name: LevelGen_InitGapMember
+    description: initialize an intermediate custom-park gap-member record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x004410e0
+    name: LevelGen_ComputeGapMemberEdges
+    description: compute orientation-dependent gap-member edge coordinates, extents, and local offset
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00441630
+    name: LevelGen_SetGapMemberActive
+    description: set the gap-member active/disabled byte from the park item marker
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00441240
+    name: LevelGen_SetGapMemberConstants
+    description: initialize fixed gap-member collision or gameplay constants
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x00441690
+    name: LevelGen_SetGapMemberDefaults
+    description: initialize fixed gap-member rendering or gameplay defaults
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x004409e0
+    name: LevelGen_LoadModelDescriptor
+    description: load and orient a generated model descriptor into level-generation memory
+    confidence: observed
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+  - address: 0x0044ada0
+    name: Font_Load
+    description: read and construct one FNT runtime font
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+      - re/evidence/functions/fileio-runtime.md
+      - re/evidence/functions/pre-runtime.md
+  - address: 0x0044aea0
+    name: Font_Create
+    description: allocate a font slot and parse its loaded FNT buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+  - address: 0x00449cd0
+    name: Font_Parse
+    description: construct glyph/image records from one FNT buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+  - address: 0x0044b000
+    name: Font_Find
+    description: find a loaded font by its bounded eight-slot name table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+  - address: 0x0044b0a0
+    name: Font_Unload
+    description: release glyph/image resources and clear one font slot
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/font-runtime.md
+  - address: 0x00492a90
+    name: Tricks_LoadBinary
+    description: load TRICKS.BIN and publish seven relative section pointers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bb7e0
+    name: TrickDatabase_ParseRecord
+    description: parse a GTricks data stream and hand the decoded trick to the runtime
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bb9d0
+    name: TrickDatabase_CleanName
+    description: normalize a parsed trick name by removing braces and table-specific prefixes
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bba50
+    name: TrickDatabase_AddOrMerge
+    description: append or merge one parsed trick into the fixed 0x28-byte runtime database
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bc300
+    name: TrickDatabase_FindBySourceOffset
+    description: find a runtime trick record by its 16-bit source data offset
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004ac020
+    name: RelocatableModule_HashName
+    description: compute the module-name CRC used by the generic bin/rel module registry
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004ac0c0
+    name: RelocatableModule_LoadPair
+    description: load a module .bin/.rel pair and call its relocated entrypoint
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004ac2e0
+    name: RelocatableModule_ApplyRelocations
+    description: apply relative records from a loaded .rel image into its .bin image
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004bb4f0
+    name: Tricks_InitializeManager
+    description: initialize the trick manager and validate/version its loaded sections
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041db50
+    name: TextureSetManager_Initialize
+    description: initialize the create-texture-set manager and load CRETEX metadata
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041dea0
+    name: TextureSetManager_LoadCretex
+    description: parse CRETEX.BIN null-separated texture-set records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041d860
+    name: TextureDatabase_Find
+    description: resolve a texture name while assembling a CRETEX texture set
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041d9c0
+    name: TextureDatabase_Allocate
+    description: allocate and insert one 0x1c-byte CRETEX texture record
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041dc30
+    name: TextureSet_FindById
+    description: find a committed CRETEX texture-set record by ID
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0041ef50
+    name: TextureSet_Commit
+    description: commit one parsed CRETEX texture set into the runtime manager
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0047b1a0
+    name: Replay_SaveCardBuffers
+    description: write one or two 0x7fe00-byte replay/card buffers through the resource backend
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0047b2d0
+    name: Replay_LoadHeader
+    description: load a replay resource and extract its header fields and five fixed records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0047b6e0
+    name: Replay_LoadCardBuffers
+    description: load and copy one or two 0x7fe00-byte replay/card buffers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0047b400
+    name: Replay_LoadValidatedStream
+    description: validate and load one or two fixed-size replay stream chunks into caller buffers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x0047b7d0
+    name: Replay_BuildReturnBufferName
+    description: construct the return buffer/resource name used by replay save/load
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x00469400
+    name: Replay_ApplyLoadedHeaderAndRestart
+    description: apply DemoA replay header and highlight records to video-restart runtime state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cba30
+    name: Replay_AllocateStreamBuffers
+    description: allocate and partition one or two 0x80000-byte replay stream buffers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbce0
+    name: Replay_ConfigureStreamState
+    description: initialize one skater's replay record/playback state and stream writer/reader
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cb810
+    name: Replay_WriteHeader
+    description: serialize replay header, player selection, custom-skater metadata, and masks into a stream buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cdc20
+    name: Replay_StartPlayback
+    description: load replay stream buffers, apply header fields, and enter playback mode
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cc190
+    name: Replay_WriteFrame
+    description: encode one gameplay frame into the variable bit-packed replay stream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004ccc70
+    name: Replay_WriteBits
+    description: append a least-significant-bit-first field to the replay bitstream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cb580
+    name: Replay_RecordHighlightStart
+    description: capture the start state for a replay highlight range
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cb5c0
+    name: Replay_RecordHighlightEnd
+    description: close and store a replay highlight range from the current frame state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cb6e0
+    name: Replay_PrepareHighlights
+    description: clamp, order, and compact replay highlight ranges before playback
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbc40
+    name: Replay_AdvanceHighlight
+    description: choose the next highlight range and advance the replay by its frame distance
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbbb0
+    name: Replay_AdvanceFrames
+    description: advance replay simulation frames while applying replay input to active skaters
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbf30
+    name: Replay_ResetSkaterInput
+    description: flush and clear one per-skater replay input state block
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbf70
+    name: Replay_FlushInputBlock
+    description: flush the pending input record in one replay playback block
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cbc90
+    name: Replay_ClearPlaybackState
+    description: clear both per-skater replay playback state blocks
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004ccd70
+    name: Replay_ApplySkaterFrame
+    description: apply one replay frame to a gameplay skater during frame skipping and playback
+    confidence: observed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cd5a0
+    name: Replay_ReadBits
+    description: read a least-significant-bit-first field from the replay bitstream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cd690
+    name: Replay_ReadSignedBits
+    description: read and sign-extend a replay bitstream field
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004cd710
+    name: Replay_ReadFlag
+    description: read one flag bit from the replay bitstream
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/replay-runtime.md
+  - address: 0x004b46a0
+    name: PSX_LoadAnimationResource
+    description: load a PSX animation resource and build its runtime tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x004b5620
+    name: PlayerSpool_LoadQueuedItem
+    description: consume one queued player resource through file I/O or the PSX region queue
+    confidence: observed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b3750
+    name: PSX_SpoolQueueCopyName
+    description: copy a queued PSX base name and suffix into the compact queue entry
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b40a0
+    name: PSX_BuildAnimationTables
+    description: compact default/extra animation data into runtime tables
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00452390
+    name: PSX_ShareAnimationRegion
+    description: share animation and hierarchy tables between loaded regions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00480730
+    name: Animation_Start
+    description: select and start an animation on a runtime object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00469a30
+    name: Skater_UpdateAnimationObjects
+    description: walk active skater objects and start state-selected animations
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00480950
+    name: Animation_Advance
+    description: advance runtime animation frame and playback mode state
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x00480fa0
+    name: Animation_InvokeUpdateHooks
+    description: invoke runtime-object update hooks after advancing animation state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+  - address: 0x004b18a0
+    name: Skater_SelectManagerSlot
+    description: select a skater-manager resource slot
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b0c60
+    name: Skater_GetResourceSlot
+    description: return one of eight skater-manager resource pointers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b1430
+    name: Skater_GetSlotRecord
+    description: return one skater-manager slot record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b43e0
+    name: Skater_LoadModelFile
+    description: load a named skater PSX model region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004521c0
+    name: Skater_LoadPlayerResources
+    description: create player-side model resources for an active skater
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
   - address: 0x00458900
     name: LevelSelect_Main
     gdb_aliases:
@@ -104,6 +1592,86 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/game-loop.md
+  - address: 0x0040e090
+    name: Camera_SmoothAndValidate
+    gdb_aliases:
+      - camera_smooth
+    description: camera target/position smoothing and final position write helper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040f850
+    name: Camera_Update
+    gdb_aliases:
+      - camera_update
+    description: camera vtable per-frame update dispatcher; entry is recovered from the runtime vtable
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040c370
+    name: Camera_ApplyEffects
+    gdb_aliases:
+      - camera_effects
+    description: camera follow/death/effect and smoothing state helper
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00410c90
+    name: Camera_DeathMode
+    description: death-camera mode handler; requires a tripod and interpolates camera state
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00411fc0
+    name: Camera_PointSelect
+    description: selects/interpolates a registered camera point for a player object
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00411f30
+    name: Camera_RegisterPoint
+    description: appends a camera point identifier to the runtime camera-point table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x0040bd40
+    name: Camera_Shake
+    description: selects camera shake parameters by EShakeType and applies them to camera state
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004c9770
+    name: Camera_BuildLookAngles
+    description: builds two 12-bit look-at angles from Q16 camera and target positions
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e39a0
+    name: Fixed_MatrixMultiplyQ12
+    description: multiplies a signed Q12 3x3 matrix by a signed three-component vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004e85a0
+    name: Fixed_MatrixConvertQ12
+    description: converts a signed Q12 3x3 matrix and integer vector into transformed integer output
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x00460a90
+    name: Render_SubmitObjectList
+    description: adjacent scene/object-list submission helper reached by the render traversal
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/camera-system.md
+  - address: 0x004d0ca4
+    name: Render_Present
+    gdb_aliases:
+      - render_present
+    description: game-owned DirectDraw surface Flip callsite; promoted rendered-frame boundary
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004699f0
     name: Game_InputUpdate
     gdb_aliases:
@@ -149,38 +1717,122 @@ functions:
     gdb_aliases:
       - physics_dispatch
     description: skater physics state dispatcher
-    confidence: inferred
+    confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x0049b010
+    name: Skater_UpdateAcceleration
+    description: post-action acceleration update using steering state and a player-relative source vector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00492f20
+    name: Skater_UpdateHeading
+    description: interpolate the player heading/angle field from the movement target
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00492ed0
+    name: Skater_ApproachHeadingFrame
+    description: move a heading frame toward its target using 5/3/1 unit signed steps
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x00493370
+    name: Skater_ActionPhysicsStep
+    gdb_aliases:
+      - skater_action_step
+    description: per-frame skater action/steering step; consumes directional action records and updates movement targets before prephysics
+    confidence: observed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x0049d8a0
+    name: Skater_BlockedPhysicsReset
+    description: control-blocked post-dispatch acceleration, launch-latch, and velocity reset
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049a280
+    name: Skater_PrePhysicsOllie
+    description: prephysics ollie/trick launch impulse, bookkeeping, and raw-state request
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049d480
+    name: Skater_VelocityDamping
+    description: post-position velocity damping and fixed-point speed limiting
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
   - address: 0x00496060
     name: Skater_PositionWritePath
-    description: candidate skater position/collision commit path
-    confidence: inferred
+    description: shared skater position/collision commit path
+    confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
-  - address: 0x004624d0
-    name: CollisionQuery_Initialize
-    description: initialize collision query bounds and fixed-point basis
-    confidence: observed
-    evidence:
-      - re/evidence/functions/collision-query.md
-  - address: 0x00466090
-    name: CollisionQuery_ExecuteWrapper
-    description: forwarding wrapper for the collision-query engine
-    confidence: observed
-    evidence:
-      - re/evidence/functions/collision-query.md
-  - address: 0x004660b0
-    name: CollisionQuery_Execute
-    description: partitioned collision-query engine
-    confidence: observed
-    evidence:
-      - re/evidence/functions/collision-query.md
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     gdb_aliases:
       - physics_in_air
-    description: candidate in-air physics routine
+    description: in-air physics routine shared by raw states 1, 3, and 6
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x00497aa0
+    name: Skater_AirCollisionRecovery
+    description: selected-contact raw-state recovery and horizontal velocity correction
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00497df0
+    name: Skater_PrepareInAirOrientation
+    gdb_aliases:
+      - physics_air_orientation
+    description: rolling basis normalization and cross-product preparation before in-air action control
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049d080
+    name: Skater_RebuildOrientationRecovery
+    description: collision/heading target interpolation and orientation-basis rebuild
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049c330
+    name: Skater_UprightCorrection
+    description: global-up alignment correction and small Z-axis orientation step
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00465f60
+    name: Math_NormalizeFixed12
+    description: integer fixed-point vector normalization with zero-vector +X fallback
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x004e2ff0
+    name: Math_CrossFixed12
+    description: fixed-point cross-product helper used by skater orientation preparation
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x004e2070
+    name: Math_CrossResultAngleClamp
+    description: shared post-cross-product signed-16-bit scratch clamp with unresolved exceptional global state
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0049c850
+    name: Skater_PublishOrientationBasis
+    description: copies integer orientation basis values into the object short matrix
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x0046d6e0
+    name: Skater_InputProfilePrep
+    description: immediate pre-physics transfer of profile analog/lean fields
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
@@ -241,12 +1893,6 @@ functions:
   - address: 0x004cabb0
     name: Math_Vector3AddOut
     description: add two input vectors into a separate output vector
-    confidence: observed
-    evidence:
-      - re/evidence/functions/vector-math.md
-  - address: 0x004cabf0
-    name: Math_Vector3SubOut
-    description: subtract two input vectors into a separate output vector
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
@@ -323,6 +1969,18 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/input.md
+  - address: 0x00489930
+    name: Input_AdvanceActionState
+    description: advance one 16-byte action-history record for active or inactive input
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/input.md
+  - address: 0x00489a10
+    name: Input_UpdateActionStates
+    description: map the polled action mask into per-action runtime state records
+    confidence: observed
+    evidence:
+      - re/evidence/functions/input.md
   - address: 0x004e7090
     name: PCMovie_PlayGameFMV
     gdb_aliases:
@@ -331,3 +1989,232 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/startup-runtime.md
+  - address: 0x004e5ec0
+    name: PCMovie_PlayStartupMedia
+    description: blocking startup media playback path used for logo and GrayMat.dat movies
+    confidence: observed
+    evidence:
+      - re/evidence/startup-runtime.md
+  - address: 0x004329d0
+    name: ParkMenu_Construct
+    description: construct the park menu and route the CDParks label table into menu items
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00433160
+    name: CDParks_LoadLabels
+    description: load CDPARKS.TXT and retain 50 label pointers into its source buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426430
+    name: Credits_Run
+    description: select music or credits text, initialize fonts/images, and run the presentation loop
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x004266e0
+    name: Credits_LoadText
+    description: load and parse music.txt or credits.txt into runtime record objects
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426c00
+    name: Credits_ParseLine
+    description: parse one text record and recognize credits control tags
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426c80
+    name: Credits_ParseTag
+    description: decode B, F, and M2 text directives into parser state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426e60
+    name: Credits_ConstructTextRecord
+    description: allocate one 0x44-byte text record and copy its line payload
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426f50
+    name: Credits_ConstructBitmapRecord
+    description: allocate one 0x10-byte image directive record
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00427080
+    name: Credits_ConstructMusicMarker
+    description: initialize one 0x18-byte M2 marker record
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426b50
+    name: Credits_AdvanceTimeline
+    description: advance parsed text presentation time from the frame clock
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00426bc0
+    name: Credits_UpdateRecords
+    description: dispatch the per-record virtual update/render method
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x00472ef0
+    name: MenuWrapper_Construct
+    description: copy font metrics and build menu item objects from label/index arrays
+    confidence: observed
+    evidence:
+      - re/evidence/functions/text-runtime.md
+  - address: 0x004691e0
+    name: SkaterObjects_Create
+    description: allocate and publish one or two gameplay skater objects and their contained cameras
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x0046c720
+    name: Skater_Construct
+    description: construct the 0x3538-byte gameplay skater object
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x0040b650
+    name: SkaterCamera_Construct
+    description: construct the 0x674-byte camera object owned by a gameplay skater
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x00468e90
+    name: Skater_SetupAppearance
+    description: merge player model parts, publish appearance resources, select a material, and load the player bitmap
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004674d0
+    name: Skater_LoadBitmap
+    description: validate and decode a selected player bitmap into a PC texture attached to its scene material
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/texture-runtime.md
+  - address: 0x004547f0
+    name: Player_GetTextureSetEntry
+    description: resolve a player set/deck entry to its CRETEX bitmap-name pointer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00423be0
+    name: CustomSkater_BuildObject
+    description: build the gameplay-side custom skater object from a custom resource
+    confidence: observed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x00480d90
+    name: Skater_MergeModelParts
+    description: merge animation and selected costume PSH part records into the active player region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x00480cd0
+    name: Skater_AssignModelPartOrder
+    description: store a matched animation/model part index correspondence in the PSH runtime record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x004ddf30
+    name: Skater_RegisterPlayer
+    description: register the newly created skater in network/player-role globals
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+  - address: 0x0049e680
+    name: Skater_PhysicsFrame
+    description: per-frame gameplay skater action, collision, state, and position-update wrapper
+    confidence: observed
+    evidence:
+      - re/evidence/functions/player-runtime.md
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x004b1bb0
+    name: PSX_FindFreeRegionSlot
+    description: scan the 20 named PSX region slots for a free entry
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004b2120
+    name: PSX_DecrementMaterialUsage
+    description: decrement shared scene-material usage while releasing a PSX region
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004b3090
+    name: PSX_DetachEnvironment
+    description: remove a region from the attached environment-object list
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004b32f0
+    name: PSX_ClearRegion
+    description: release one PSX region slot, its published tables, material references, and raw buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x00466030
+    name: Blockmap_ClearRuntimeGrid
+    description: clear one 0x660-byte runtime blockmap cell table and active flag
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x0046a250
+    name: Level_Teardown
+    description: flush level subsystems and release level-owned PSX/environment resources
+    confidence: observed
+    evidence:
+      - re/evidence/functions/psx-lifecycle.md
+  - address: 0x004c8050
+    name: Trig_RunAutoexec
+    description: find and execute the level autoexec node
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c77f0
+    name: Trig_SendVisible
+    description: apply a visible-state command to linked level objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4e30
+    name: Trig_ExecuteRestart
+    description: reset players and execute a restart-node command stream
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4c50
+    name: Trig_FindRestartByName
+    description: resolve a restart node by its embedded name
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5b60
+    name: Trig_SendSignal
+    description: send a signal through linked object nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5c70
+    name: Trig_SendSuspendActivate
+    description: suspend or activate linked gameplay objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c7c50
+    name: Trig_SkipCommandBlock
+    description: advance over one trigger command for conditional execution
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md

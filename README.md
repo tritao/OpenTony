@@ -123,7 +123,7 @@ tony assets extract-pkr <path> [--output build/assets/pkr] [--force]
 tony assets inspect-pre <path>
 tony assets extract-pre <path> [--output build/assets/pre] [--force]
 tony assets inventory <path>
-tony assets inspect-trg <path> [--nodes]
+tony assets inspect-trg <path> [--nodes] [--scripts]
 tony assets inspect-psx <path> [--models] [--textures] [--tags]
 tony assets extract-psx <path> [--output build/assets/psx] [--force]
 tony assets explore [generated-asset-directory] [--open]

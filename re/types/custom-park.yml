@@ -1,0 +1,340 @@
+version: 1
+types:
+  - name: RuntimeCustomParkDiskHeader
+    size: 0x0c
+    confidence: confirmed
+    description: Header at the start of PARK%d.PRK.
+    fields:
+      - offset: 0x00
+        name: magic
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x04
+        name: version
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x08
+        name: map_variant
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
+  - name: RuntimeCustomParkDiskCell
+    size: 0x08
+    confidence: confirmed
+    description: Packed custom-park grid cell.
+    fields:
+      - offset: 0x00
+        name: compact_references
+        type: u8[5]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x05
+        name: packed_two_bit_values
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x06
+        name: packed_value_word
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
+  - name: RuntimeCustomParkCell
+    size: 0x10
+    confidence: confirmed
+    description: Expanded custom-park grid cell used by level-generation state.
+    fields:
+      - offset: 0x00
+        name: translated_references
+        type: u16[5]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0a
+        name: unpacked_cell_values
+        type: u8[6]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
+  - name: RuntimeCustomParkItemRecord
+    size: 0x2c
+    confidence: confirmed
+    description: Expanded 36-byte PRK item record used by level generation.
+    fields:
+      - offset: 0x00
+        name: endpoint_coordinate_column_0
+        type: u8[2]
+        confidence: confirmed
+        description: First packed endpoint/index column; byte 0 is endpoint 0 and byte 1 is endpoint 1.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x02
+        name: endpoint_coordinate_column_1
+        type: u8[2]
+        confidence: confirmed
+        description: Second packed endpoint/index column; byte 2 is endpoint 0 and byte 3 is endpoint 1.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x04
+        name: endpoint_coordinate_column_2
+        type: u8[2]
+        confidence: confirmed
+        description: Third packed endpoint/index column; byte 4 is endpoint 0 and byte 5 is endpoint 1.
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x06
+        name: packed_values_0
+        type: u8[2]
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x08
+        name: packed_values_1
+        type: u8[4]
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0c
+        name: item_flags_or_type
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0d
+        name: item_name
+        type: char[27]
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x28
+        name: item_byte
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
+  - name: RuntimeGeneratedParkPiece
+    size: 0x238
+    confidence: observed
+    description: Level-generation object created from translated PRK cell/model references before PSX-region finalization.
+    fields:
+      - offset: 0x05
+        name: grid_row
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x06
+        name: cell_side_index
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x07
+        name: grid_layer
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x08
+        name: oriented_extent_0
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x09
+        name: model_descriptor_byte_0
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0a
+        name: oriented_extent_1
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0c
+        name: cell_orientation_or_type
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x21c
+        name: generated_position_x
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x21e
+        name: generated_position_y
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x220
+        name: generated_position_z
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x224
+        name: source_model_descriptor
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x22c
+        name: published_runtime_object
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x230
+        name: next_generated_piece
+        type: pointer<RuntimeGeneratedParkPiece>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+
+  - name: RuntimeGeneratedGapMember
+    size: 0x58
+    confidence: observed
+    description: Intermediate gap/item member generated from a custom-park item endpoint.
+    fields:
+      - offset: 0x00
+        name: first_endpoint
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x04
+        name: source_gap_model
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x08
+        name: paired_gap_member
+        type: pointer<RuntimeGeneratedGapMember>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x0c
+        name: next_gap_member
+        type: pointer<RuntimeGeneratedGapMember>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x14
+        name: published_runtime_object
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x1c
+        name: source_item_ordinal
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x20
+        name: edge_coordinate_0
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x24
+        name: edge_coordinate_1
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x28
+        name: edge_coordinate_2
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x2c
+        name: edge_coordinate_3
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x30
+        name: edge_extent_0
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x34
+        name: edge_extent_1
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x38
+        name: active
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x39
+        name: secondary_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x3c
+        name: collision_constant_0
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x40
+        name: collision_constant_1
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x44
+        name: collision_constant_2
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x48
+        name: collision_constant_3
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x4c
+        name: collision_constant_4
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x50
+        name: endpoint_orientation
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md
+      - offset: 0x54
+        name: local_vertical_offset
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/custom-park-runtime.md

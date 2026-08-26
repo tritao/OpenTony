@@ -2,8 +2,10 @@ version: 1
 
 experiments:
   - name: warehouse-idle
-    status: planned
+    status: observed
     purpose: Establish stable player object/state while stationary in Warehouse.
+    evidence:
+      - re/evidence/functions/game-loop.md
     capture:
       - frame
       - player_position
@@ -12,9 +14,17 @@ experiments:
       - player_animation
 
   - name: warehouse-run
-    status: planned
+    status: partial
     purpose: Establish horizontal movement update and acceleration/velocity behavior.
+    evidence:
+      - re/evidence/functions/physics.md
 
   - name: warehouse-ollie
-    status: planned
-    purpose: Capture crouch, ollie launch, apex, descent, landing, state transitions, and animation.
+    status: confirmed
+    purpose: Capture the KICK-gated ollie launch, airborne interval, landing, state transitions, and action-record correlation.
+    evidence:
+      - re/evidence/experiments/warehouse-ollie.md
+      - re/evidence/functions/physics-states.md
+    decisive_captures:
+      - build/debug/sessions/physics-states32/jump.trace.ndjson
+      - build/debug/sessions/physics-states33/kick.trace.ndjson

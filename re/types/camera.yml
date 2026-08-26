@@ -1,0 +1,104 @@
+name: CCamera
+size: 0x674
+confidence: provisional
+evidence:
+  - re/evidence/functions/camera-system.md
+vtable:
+  address: 0x005184b8
+  confidence: observed
+fields:
+  - offset: 0x000
+    name: vtable
+    type: ptr32
+    confidence: observed
+  - offset: 0x008
+    name: position_q16
+    type: q16_16_vector3
+    confidence: inferred
+    description: final camera position in the same Q16.16 world-word representation as tripod/player positions
+  - offset: 0x014
+    name: look_angles
+    type: angle12_s16_triplet
+    confidence: observed
+    description: first two fields are look-at angles in a 4096-unit turn; third is zero in the look-at helper
+  - offset: 0x3a4
+    name: tripod_link
+    type: ptr32
+    confidence: observed
+  - offset: 0x3ac
+    name: anchor_update_flag
+    type: u32
+    confidence: observed
+  - offset: 0x3b0
+    name: mirrored_anchor_q16
+    type: q16_16_vector3
+    confidence: provisional
+  - offset: 0x3bc
+    name: tripod_anchor_flag
+    type: u32
+    confidence: observed
+  - offset: 0x3c0
+    name: anchor_target_q16
+    type: q16_16_vector3
+    confidence: inferred
+  - offset: 0x3f0
+    name: look_target_q16
+    type: q16_16_vector3
+    confidence: inferred
+    description: target argument passed to Camera_BuildLookAngles
+  - offset: 0x3dc
+    name: secondary_target_link
+    type: ptr32
+    confidence: observed
+  - offset: 0x3e0
+    name: secondary_target_valid
+    type: u32
+    confidence: observed
+  - offset: 0x3e4
+    name: secondary_anchor_q16
+    type: q16_16_vector3
+    confidence: provisional
+  - offset: 0x40c
+    name: viewport_parameter_raw
+    type: u32_raw
+    confidence: observed
+  - offset: 0x448
+    name: current_transform_q12
+    type: q12_vector4
+    confidence: inferred
+  - offset: 0x45c
+    name: target_transform_q12
+    type: q12_vector4
+    confidence: inferred
+  - offset: 0x470
+    name: previous_transform_q12
+    type: q12_vector4
+    confidence: inferred
+  - offset: 0x504
+    name: camera_mode
+    type: u32
+    confidence: observed
+  - offset: 0x510
+    name: update_tick
+    type: u32
+    confidence: observed
+  - offset: 0x570
+    name: death_camera_tick
+    type: u32
+    confidence: observed
+  - offset: 0x5d8
+    name: smoothing_counter_a
+    type: integer_candidate
+    confidence: observed
+  - offset: 0x5dc
+    name: smoothing_counter_b
+    type: integer_candidate
+    confidence: observed
+  - offset: 0x5e0
+    name: smoothing_counter_c
+    type: integer_candidate
+    confidence: observed
+  - offset: 0x5e4
+    name: smoothing_counter_d
+    type: integer_candidate
+    confidence: observed

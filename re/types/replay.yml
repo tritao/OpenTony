@@ -1,0 +1,210 @@
+version: 1
+types:
+  - name: RuntimeReplayHeaderFields
+    size: 0x38
+    confidence: confirmed
+    description: Prefix fields extracted by the replay loader before it releases the loaded resource buffer.
+    fields:
+      - offset: 0x00
+        name: num_frames
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x04
+        name: highlight_ranges
+        type: array<RuntimeReplayHighlightRange, 5>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x2c
+        name: num_skaters
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x2e
+        name: skater
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x2f
+        name: skater2
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x32
+        name: level
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x34
+        name: ggame
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+  - name: RuntimeReplayHighlightRange
+    size: 0x08
+    confidence: confirmed
+    description: One copied replay highlight start/end pair printed by the GVideoRestart consumer.
+    fields:
+      - offset: 0x00
+        name: start
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x04
+        name: end
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+  - name: RuntimeReplayPlaybackHighlightSlot
+    size: 0x08
+    confidence: observed
+    description: Per-skater playback highlight slot consulted when a replay reaches the end of its active frame range.
+    fields:
+      - offset: 0x00
+        name: start_frame
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x02
+        name: end_frame
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x04
+        name: active_or_next_marker
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+  - name: RuntimeReplayPlaybackState
+    size: null
+    confidence: observed
+    description: Per-skater replay/video playback state block selected by the video prephysics consumer.
+    fields:
+      - offset: 0x00
+        name: mode
+        type: u32
+        confidence: observed
+        description: Record/playback mode word selected by the video state machine.
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x04
+        name: buffer_base
+        type: pointer<u8>
+        confidence: confirmed
+        description: Base of the per-skater 0x80000-byte replay stream buffer.
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x08
+        name: stream_header_or_start
+        type: pointer<u8>
+        confidence: observed
+        description: Recording header/live stream area, normally buffer base plus 0x200.
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x0c
+        name: stream_boundary
+        type: pointer<u8>
+        confidence: observed
+        description: Internal stream boundary initialized at buffer base plus 0x4800.
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x24
+        name: frames_remaining
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x50
+        name: highlight_cursor
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x54
+        name: highlight_slots
+        type: array<RuntimeReplayPlaybackHighlightSlot,5>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x14
+        name: stream_word_pointer
+        type: pointer<u32>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x18
+        name: buffered_stream_word
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x1c
+        name: bits_remaining
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+      - offset: 0x20
+        name: last_animation_index
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+  - name: RuntimeReplayBitReader
+    size: 0x0c
+    confidence: confirmed
+    description: Operational bit-reader fields embedded in each per-skater replay playback block.
+    fields:
+      - offset: 0x00
+        name: stream_word_pointer
+        type: pointer<u32>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x04
+        name: buffered_word
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x08
+        name: bits_remaining
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+
+  - name: RuntimeReplayStreamBuffer
+    size: 0x80000
+    confidence: observed
+    description: Per-skater replay/card buffer allocated by the video manager; only the serialized prefix and live bitstream boundaries are assigned.
+    fields:
+      - offset: 0x00
+        name: serialized_replay_prefix
+        type: bytes
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
+      - offset: 0x200
+        name: live_stream_area
+        type: bytes
+        confidence: observed
+        evidence:
+          - re/evidence/functions/replay-runtime.md
