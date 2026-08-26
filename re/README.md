@@ -89,6 +89,14 @@ the complete action-state bank alongside the action mask; the physics probe
 additionally captures the first player-relative movement handoff at
 `0x00493370`.
 
+Dedicated state-handler observation uses `tony-special-physics-probe [COUNT]`.
+It arms entry probes for state 4 (`0x00494210`), state 5 (`0x00499710`),
+state 6 (`0x004993f0`), and state 8 (`0x004995d0`). Each event records the
+raw state and caller, motion vectors, basis/orientation words, contact fields,
+state bookkeeping, and the complete action-state bank. The probe is
+observational: it does not force a state or assign a semantic name to a
+handler.
+
 For the in-air landing boundary, `tony-air-collision-probe [COUNT]` samples the
 raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
 in-air-handler, state-request, and state-writer probes to correlate a nonzero

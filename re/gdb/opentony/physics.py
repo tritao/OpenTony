@@ -24,6 +24,16 @@ DISPATCH_HANDLER_CANDIDATES = {
     8: ["0x004995d0"],
 }
 
+# These are the dedicated non-ground/non-air dispatcher callees.  Keep the
+# addresses explicit: unlike the common in-air handler, their generated
+# names are not yet stable enough to use as the probe's identity.
+SPECIAL_HANDLER_INFO = {
+    0x00494210: (4, "State4Routine_94210"),
+    0x00499710: (5, "State5Routine_99710"),
+    0x004993F0: (6, "State6Routine_993f0"),
+    0x004995D0: (8, "State8Routine_995d0"),
+}
+
 PHYSICS_STATE_REQUEST = 0x004900B0
 PHYSICS_STATE_WRITER = 0x004902BF
 AIR_COLLISION_QUERY = 0x00498A7D
@@ -244,6 +254,87 @@ class InAirHandlerProbe(CountingBreakpoint):
             "previous_physics_state": view.previous_physics_state,
             "unknown_state": view.unknown_state,
             "position_raw": list(view.position_raw),
+            **_input_observation(ctx.memory),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+def _special_handler_context(player: int, memory) -> dict:
+    """Capture raw motion/contact context at a dedicated state entry."""
+
+    def s32_vec3(address: int) -> list[int]:
+        return [memory.s32(address + index * 4) for index in range(3)]
+
+    def signed_short_vec3(address: int) -> list[int]:
+        values = [memory.u16(address + index * 2) for index in range(3)]
+        return [value - 0x10000 if value & 0x8000 else value for value in values]
+
+    return {
+        "velocity_raw": list(memory.u32_vec3(player + 0x4C)),
+        "velocity_fixed": list(memory.fixed_vec3(player + 0x4C).values),
+        "acceleration_raw": list(memory.u32_vec3(player + 0x58)),
+        "acceleration_fixed": list(memory.fixed_vec3(player + 0x58).values),
+        "basis_q12": {
+            "basis_0": s32_vec3(player + 0x30F4),
+            "basis_1": s32_vec3(player + 0x3100),
+            "basis_2": s32_vec3(player + 0x310C),
+        },
+        "orientation_rows_raw": {
+            "row_0": signed_short_vec3(player + 0x2E58),
+            "row_1": signed_short_vec3(player + 0x2E5E),
+            "row_2": signed_short_vec3(player + 0x2E64),
+        },
+        "contact_fields": {
+            "surface_vector_raw": list(memory.u32_vec3(player + 0x3118)),
+            "surface_normal_xy_raw": memory.u32(player + 0x3128),
+            "surface_normal_z_raw": memory.u32(player + 0x312C),
+            "surface_effect_raw": memory.u32(player + 0x2DB4),
+        },
+        "state_fields": {
+            "unknown_state": memory.u32(player + 0x30C4),
+            "previous_state": memory.u32(player + 0x30C0),
+            "ollie_pending": memory.u32(player + 0x2DD8),
+            "ollie_in_progress": memory.u32(player + 0x2DDC),
+            "ollie_latch": memory.u32(player + 0x2DE0),
+            "ollie_charge": memory.u32(player + 0x2DE8),
+            "special_action": memory.u32(player + 0x29C8),
+            "off_ground_mode": memory.u32(player + 0x2F60),
+        },
+    }
+
+
+class SpecialPhysicsHandlerProbe(CountingBreakpoint):
+    """Observe entry into one of the dedicated raw-state handlers."""
+
+    def __init__(self, address: int, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.writer = writer
+        self.state, self.stage = SPECIAL_HANDLER_INFO[address]
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.this_ptr()
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        view = PlayerView(player, ctx.memory)
+        record = {
+            "type": "physics_special_handler",
+            "handler": f"0x{self.address:08x}",
+            "stage": self.stage,
+            "function": self.stage,
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "physics_state": view.physics_state,
+            "previous_physics_state": view.previous_physics_state,
+            "unknown_state": view.unknown_state,
+            "position_raw": list(view.position_raw),
+            **_special_handler_context(player, ctx.memory),
             **_input_observation(ctx.memory),
         }
         if self.writer is None:

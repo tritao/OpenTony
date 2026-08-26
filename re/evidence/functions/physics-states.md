@@ -179,6 +179,29 @@ rail geometry,
 collision selection, and the state-4 handler's large orientation/contact body
 remain explicit caller-owned seams.
 
+#### Dedicated special-state runtime probe
+
+The GDB helper `tony-special-physics-probe [COUNT]` now observes entry into
+the four dedicated special handlers without changing `player+0x30b8`:
+
+| Raw-state candidate | Entry probe | Recorded context |
+| ---: | ---: | --- |
+| `4` | `0x00494210` | state, caller, position, velocity/acceleration, basis/orientation, contact fields, bookkeeping, action records |
+| `5` | `0x00499710` | same raw context |
+| `6` | `0x004993f0` | same raw context; the subsequent common `0x00497f40` entry remains a separate event |
+| `8` | `0x004995d0` | same raw context |
+
+Events are emitted as `physics_special_handler` records in the open runtime
+trace. The handler entry probes filter to the live `Player` object and retain
+raw words for unresolved fields, so future rail, wallride, footplant, and
+handplant captures can be correlated with the normal state-request and
+`0x004902bf` writer events. A fresh automated Warehouse baseline
+(`physics-special-rail5`) reproduced only states `0`, `1`, and `2`; it is not
+treated as a special-state capture. The existing `physics-states17` trace
+remains the runtime evidence for the `0 → 2 → 4 → 1 → 0` chain, but predates
+this dedicated entry probe and therefore does not retroactively identify a
+state-4 handler-entry record.
+
 ### Static case-6 pre-air setup
 
 Dispatcher case `6` is not just a second label for case `1`. Its first callee,

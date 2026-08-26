@@ -63,7 +63,13 @@ from opentony.collision import (
 )
 from opentony.frame import FrameClock
 from opentony.memory import Memory
-from opentony.physics import AirCollisionQueryProbe, MovementPhysicsProbe, PhysicsProbe, PlayerDiffProbe
+from opentony.physics import (
+    AirCollisionQueryProbe,
+    MovementPhysicsProbe,
+    PhysicsProbe,
+    PlayerDiffProbe,
+    SpecialPhysicsHandlerProbe,
+)
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
@@ -449,6 +455,60 @@ def test_movement_physics_probe_records_directional_action_handoff():
     assert events[0]["movement_target_z"] == 0x3400
     assert events[0]["heading_input"] == -5
     assert events[0]["heading_deadband"] == 3
+
+
+def test_special_physics_probe_records_raw_handler_context():
+    inferior = FakeInferior()
+    player = 0x500
+    inferior.data[0x200:0x204] = struct.pack("<I", player)
+    inferior.data[0x210:0x212] = struct.pack("<H", 0x0080)
+    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
+    inferior.data[player + 0x4C:player + 0x58] = struct.pack("<3I", 401, 402, 403)
+    inferior.data[player + 0x58:player + 0x64] = struct.pack("<3I", 501, 502, 503)
+    inferior.data[player + 0x30B8:player + 0x30C8] = struct.pack("<4I", 4, 1, 2, 3)
+    inferior.data[player + 0x30F4:player + 0x3110] = struct.pack(
+        "<9i", 4096, 0, -4096, 0, 4096, 0, 0, 0, 4096
+    )
+    inferior.data[player + 0x2E58:player + 0x2E6A] = struct.pack(
+        "<9h", -1, 2, -3, 4, -5, 6, 7, -8, 9
+    )
+    inferior.data[player + 0x3118:player + 0x3124] = struct.pack("<3I", 601, 602, 603)
+    inferior.data[player + 0x3128:player + 0x3130] = struct.pack("<2I", 0x700, 0x701)
+    inferior.data[player + 0x2DB4:player + 0x2DB8] = struct.pack("<I", 8)
+    state_fields = (
+        (0x2DD8, 9),
+        (0x2DDC, 10),
+        (0x2DE0, 11),
+        (0x2DE8, 12),
+        (0x29C8, 13),
+        (0x2F60, 14),
+    )
+    for offset, value in state_fields:
+        inferior.data[player + offset:player + offset + 4] = struct.pack("<I", value)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    memory = Memory(inferior)
+    probe = SpecialPhysicsHandlerProbe(0x00494210, count=1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": player, "eip": 0x00494210}),
+        memory,
+    )
+    probe.on_hit(context)
+
+    event = events[0]
+    assert event["type"] == "physics_special_handler"
+    assert event["handler"] == "0x00494210"
+    assert event["physics_state"] == 4
+    assert event["velocity_raw"] == [401, 402, 403]
+    assert event["basis_q12"]["basis_0"] == [4096, 0, -4096]
+    assert event["orientation_rows_raw"]["row_0"] == [-1, 2, -3]
+    assert event["contact_fields"]["surface_normal_z_raw"] == 0x701
+    assert event["state_fields"]["ollie_charge"] == 12
+    assert event["action_mask"] == 0x0080
 
 
 def test_air_collision_probe_preserves_raw_result_and_cast_window():
