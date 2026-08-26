@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
+import pytest
+
 from tony import split
 
 
@@ -180,3 +182,18 @@ def test_propose_modules_does_not_mutate_manifest(tmp_path: Path, monkeypatch):
     proposals = split.load_yaml(split.PROPOSALS)
     assert proposals["proposal_count"] == 1
     assert proposals["proposals"][0]["command"] == "tony split module 0x00401002 0x00401006"
+    assert proposals["proposals"][0]["status"] == "review"
+
+    coverage = split.load_yaml(split.COVERAGE)
+    coverage["intervals"][0]["instruction_boundary_safe"] = True
+    split.save_yaml(split.COVERAGE, coverage)
+    args = SimpleNamespace(safe_only=True, address_range="0x401000:0x402000")
+    assert split.split_propose_modules(args) == 0
+    filtered = split.load_yaml(split.PROPOSALS)
+    assert filtered["proposal_count"] == 1
+    assert filtered["proposals"][0]["status"] == "safe"
+
+
+def test_parse_address_range_rejects_backwards_range():
+    with pytest.raises(SystemExit, match="greater than"):
+        split._parse_address_range("0x402000:0x401000")

@@ -30,4 +30,5 @@ function-aware split proposals with:
 ```bash
 tony split coverage
 tony split propose-modules
+tony split propose-modules --safe-only --range 0x004c0000:0x004d0000
 ```

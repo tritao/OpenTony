@@ -141,6 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = split_sub.add_parser("coverage", help="export complete Ghidra-backed .text coverage")
     p.set_defaults(func=commands.split_coverage)
     p = split_sub.add_parser("propose-modules", help="propose function-aware splits without changing sources")
+    p.add_argument("--safe-only", action="store_true", help="emit only instruction-aligned low-risk proposals")
+    p.add_argument("--range", dest="address_range", help="limit proposals to a START:END virtual-address range")
     p.set_defaults(func=commands.split_propose_modules)
     p = split_sub.add_parser("rebuild", help="assemble modules and patch them into the original PE container")
     p.add_argument("--output", default="match/generated/THawk2.rebuilt.exe")

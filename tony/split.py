@@ -253,7 +253,14 @@ def split_compare(args) -> int:
     return 1
 
 
-def _append_interval(intervals: list[dict], start_va: int, end_va: int, kind: str, name: str | None = None) -> None:
+def _append_interval(
+    intervals: list[dict],
+    start_va: int,
+    end_va: int,
+    kind: str,
+    name: str | None = None,
+    metadata: dict | None = None,
+) -> None:
     if start_va >= end_va:
         return
     if (
@@ -261,6 +268,7 @@ def _append_interval(intervals: list[dict], start_va: int, end_va: int, kind: st
         and intervals[-1]["end_va"] == start_va
         and intervals[-1]["kind"] == kind
         and intervals[-1].get("name") == name
+        and all(intervals[-1].get(key) == value for key, value in (metadata or {}).items())
     ):
         intervals[-1]["end_va"] = end_va
         intervals[-1]["size"] += end_va - start_va
@@ -268,6 +276,7 @@ def _append_interval(intervals: list[dict], start_va: int, end_va: int, kind: st
     interval = {"start_va": start_va, "end_va": end_va, "size": end_va - start_va, "kind": kind}
     if name:
         interval["name"] = name
+    interval.update(metadata or {})
     intervals.append(interval)
 
 
@@ -307,7 +316,10 @@ def _compose_coverage(section: dict, section_bytes: bytes, claims: list[dict]) -
             raise SystemExit(f"overlapping Ghidra functions at 0x{start:08x}: {sorted(function_names)}")
         if active:
             selected = max(active, key=lambda claim: priority.get(claim["kind"], 0))
-            _append_interval(intervals, start, end, selected["kind"], selected.get("name"))
+            metadata = {}
+            if selected["kind"] == "function":
+                metadata["instruction_boundary_safe"] = bool(selected.get("instruction_boundary_safe"))
+            _append_interval(intervals, start, end, selected["kind"], selected.get("name"), metadata)
             continue
         offset = start - section_start
         _classify_unclaimed(intervals, start, section_bytes[offset : offset + end - start])
@@ -347,17 +359,39 @@ def split_coverage(_args) -> int:
     return 0
 
 
-def split_propose_modules(_args) -> int:
+def _parse_address_range(value: str | None) -> tuple[int, int] | None:
+    if not value:
+        return None
+    try:
+        start_text, end_text = value.split(":", 1)
+        start, end = int(start_text, 0), int(end_text, 0)
+    except ValueError as exc:
+        raise SystemExit(f"invalid address range {value!r}; expected START:END") from exc
+    if end <= start:
+        raise SystemExit("address range end must be greater than its start")
+    return start, end
+
+
+def split_propose_modules(args) -> int:
     if not COVERAGE.is_file():
         raise SystemExit("coverage map not found; run: tony split coverage")
     coverage = load_yaml(COVERAGE)
     manifest = _load_manifest()
+    intervals = coverage.get("intervals", [])
+    function_counts: dict[str, int] = {}
+    for interval in intervals:
+        if interval.get("kind") == "function":
+            name = str(interval.get("name", ""))
+            function_counts[name] = function_counts.get(name, 0) + 1
+    address_range = _parse_address_range(getattr(args, "address_range", None))
     proposals = []
-    for interval in coverage.get("intervals", []):
+    for index, interval in enumerate(intervals):
         if interval.get("kind") != "function":
             continue
         start_va = int(interval["start_va"])
         end_va = int(interval["end_va"])
+        if address_range and not (address_range[0] <= start_va and end_va <= address_range[1]):
+            continue
         owners = [
             module
             for module in manifest["modules"]
@@ -368,19 +402,41 @@ def split_propose_modules(_args) -> int:
         owner = owners[0]
         if start_va == int(owner["start_va"]) and end_va == int(owner["end_va"]):
             continue
+        risks = []
+        name = str(interval.get("name", ""))
+        if not interval.get("instruction_boundary_safe"):
+            risks.append("instruction-boundary")
+        if function_counts.get(name, 0) > 1:
+            risks.append("non-contiguous-function")
+        adjacent_kinds = {
+            intervals[neighbor]["kind"] for neighbor in (index - 1, index + 1) if 0 <= neighbor < len(intervals)
+        }
+        if adjacent_kinds & {"defined_data", "jump_table"}:
+            risks.append("embedded-data-adjacent")
+        if "unknown" in adjacent_kinds:
+            risks.append("unknown-adjacent")
+        status = "safe" if not risks else "review"
+        if getattr(args, "safe_only", False) and status != "safe":
+            continue
         proposals.append(
             {
-                "name": interval.get("name"),
+                "name": name,
                 "start_va": start_va,
                 "end_va": end_va,
                 "size": end_va - start_va,
                 "owner": owner["id"],
+                "status": status,
+                "risks": risks,
                 "command": f"tony split module 0x{start_va:08x} 0x{end_va:08x}",
             }
         )
     output = {
         "version": 1,
         "source_sha256": manifest["source_sha256"],
+        "filters": {
+            "safe_only": bool(getattr(args, "safe_only", False)),
+            "address_range": getattr(args, "address_range", None),
+        },
         "proposal_count": len(proposals),
         "proposals": proposals,
     }

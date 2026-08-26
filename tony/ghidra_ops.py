@@ -129,36 +129,64 @@ def export_text_claims() -> list[dict]:
         text_start = int(block.getStart().getOffset())
         text_end = int(block.getEnd().getOffset()) + 1
         claims = []
+        listing = program.getListing()
         for function in program.getFunctionManager().getFunctions(True):
             body = function.getBody()
             for address_range in body.getAddressRanges():
                 start = max(int(address_range.getMinAddress().getOffset()), text_start)
                 end = min(int(address_range.getMaxAddress().getOffset()) + 1, text_end)
                 if start < end:
+                    first_instruction = listing.getInstructionAt(address_range.getMinAddress())
+                    last_instruction = listing.getInstructionContaining(address_range.getMaxAddress())
+                    boundary_safe = (
+                        first_instruction is not None
+                        and last_instruction is not None
+                        and int(last_instruction.getMaxAddress().getOffset()) + 1 == end
+                    )
                     claims.append(
                         {
                             "start_va": start,
                             "end_va": end,
                             "kind": "function",
                             "name": str(function.getName()),
+                            "instruction_boundary_safe": boundary_safe,
                         }
                     )
-        for data in program.getListing().getDefinedData(True):
+        data_claims = []
+        for data in listing.getDefinedData(True):
             start = max(int(data.getMinAddress().getOffset()), text_start)
             end = min(int(data.getMaxAddress().getOffset()) + 1, text_end)
             if start >= end:
                 continue
             data_type = str(data.getDataType().getDisplayName())
             lowered = data_type.lower()
-            kind = "jump_table" if "jump" in lowered or "switch" in lowered else "defined_data"
-            claims.append(
+            points_into_text = any(
+                text_start <= int(reference.getToAddress().getOffset()) < text_end
+                for reference in data.getValueReferences()
+            )
+            data_claims.append(
                 {
                     "start_va": start,
                     "end_va": end,
-                    "kind": kind,
+                    "kind": "defined_data",
                     "name": data_type,
+                    "pointer_candidate": "pointer" in lowered and points_into_text,
                 }
             )
+        candidates = [claim for claim in data_claims if claim.pop("pointer_candidate")]
+        candidates.sort(key=lambda claim: int(claim["start_va"]))
+        run: list[dict] = []
+        for candidate in candidates:
+            if run and int(candidate["start_va"]) != int(run[-1]["end_va"]):
+                if len(run) >= 2 or sum(int(item["end_va"]) - int(item["start_va"]) for item in run) >= 8:
+                    for item in run:
+                        item["kind"] = "jump_table"
+                run = []
+            run.append(candidate)
+        if len(run) >= 2 or sum(int(item["end_va"]) - int(item["start_va"]) for item in run) >= 8:
+            for item in run:
+                item["kind"] = "jump_table"
+        claims.extend(data_claims)
     return claims
 
 
