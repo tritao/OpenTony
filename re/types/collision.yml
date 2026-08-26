@@ -1,6 +1,161 @@
 version: 1
 
 types:
+  - name: CollisionModelDataHeader
+    size: 0x1c
+    confidence: strong
+    description: >-
+      Packed model-data header followed by 8-byte vertex records, 8-byte
+      normal records, and variable-length face records. The counts and
+      record bases are directly consumed by the PC face walker.
+    fields:
+      - offset: 0x00
+        name: unknown_flags
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x02
+        name: vertex_count
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x04
+        name: normal_count
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x06
+        name: face_count
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x08
+        name: radius
+        type: uint32
+        confidence: provisional
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x0c
+        name: bounds
+        type: int16[6]
+        confidence: provisional
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x18
+        name: unknown_value
+        type: uint32
+        confidence: provisional
+        evidence: [re/evidence/functions/collision.md]
+
+  - name: CollisionVertexRecord
+    size: 0x08
+    confidence: strong
+    description: three signed 16-bit model components plus a 16-bit padding word
+    fields:
+      - offset: 0x00
+        name: x
+        type: int16
+        confidence: observed
+      - offset: 0x02
+        name: y
+        type: int16
+        confidence: observed
+      - offset: 0x04
+        name: z
+        type: int16
+        confidence: observed
+      - offset: 0x06
+        name: padding
+        type: uint16
+        confidence: observed
+
+  - name: CollisionFacePrefix
+    size: 0x10
+    confidence: strong
+    description: >-
+      First 16 bytes of a variable-length face record. The face walker uses
+      4 + (word0 >> 18) * 4 as the record stride.
+    fields:
+      - offset: 0x00
+        name: base_flags
+        type: uint16
+        confidence: observed
+      - offset: 0x02
+        name: length_bytes
+        type: uint16
+        confidence: observed
+      - offset: 0x04
+        name: vertex_indices
+        type: uint8[4]
+        confidence: observed
+      - offset: 0x08
+        name: render_payload
+        type: uint8[4]
+        confidence: observed
+      - offset: 0x0c
+        name: normal_index_shifted
+        type: uint16
+        confidence: observed
+      - offset: 0x0e
+        name: surface_flags
+        type: uint16
+        confidence: observed
+
+  - name: CollisionModelCacheEntry
+    size: 0x10
+    confidence: strong
+    description: >-
+      One of the 20 reusable model-cache slots at DAT_00567a70.
+    fields:
+      - offset: 0x00
+        name: model
+        type: pointer
+        confidence: observed
+      - offset: 0x04
+        name: model_data
+        type: pointer
+        confidence: observed
+      - offset: 0x08
+        name: face_count
+        type: uint32
+        confidence: observed
+      - offset: 0x0c
+        name: face_aabb_start
+        type: uint32
+        confidence: observed
+
+  - name: CollisionFaceAabbRecord
+    size: 0x1c
+    confidence: strong
+    description: low-16-bit face flags followed by min/max X/Y/Z bounds
+    fields:
+      - offset: 0x00
+        name: base_flags
+        type: uint32
+        confidence: observed
+      - offset: 0x04
+        name: min_x
+        type: fixed32
+        confidence: observed
+      - offset: 0x08
+        name: min_y
+        type: fixed32
+        confidence: observed
+      - offset: 0x0c
+        name: min_z
+        type: fixed32
+        confidence: observed
+      - offset: 0x10
+        name: max_x
+        type: fixed32
+        confidence: observed
+      - offset: 0x14
+        name: max_y
+        type: fixed32
+        confidence: observed
+      - offset: 0x18
+        name: max_z
+        type: fixed32
+        confidence: observed
+
   - name: SLineInfo
     aliases:
       - CollisionLineQuery

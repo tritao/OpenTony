@@ -3,8 +3,9 @@
 // Evidence-backed C++ boundary for the recovered PC collision query.
 //
 // This is deliberately not the engine's scene implementation.  The level
-// zone/model layout is still engine-dependent; this header captures the
-// query-record math that can be reconstructed without inventing that format.
+// traversal/cache ownership is still engine-dependent; this header captures
+// the query-record math and the recovered model/face byte layout without
+// inventing a complete level-file parser.
 
 #include <array>
 #include <algorithm>
@@ -41,11 +42,110 @@ struct QueryRecord {
     std::uint16_t query_stamp = 0;
 };
 
+// These packed views match the model block and face prefix consumed by
+// 0x00462a20/0x004638d0.  They are byte-layout views, not ownership or
+// lifetime claims about the PC loader.
+#pragma pack(push, 1)
+struct CollisionModelHeader {
+    std::uint16_t unknown_flags = 0;
+    std::uint16_t vertex_count = 0;
+    std::uint16_t normal_count = 0;
+    std::uint16_t face_count = 0;
+    std::uint32_t radius = 0;
+    std::int16_t x_max = 0;
+    std::int16_t x_min = 0;
+    std::int16_t y_max = 0;
+    std::int16_t y_min = 0;
+    std::int16_t z_max = 0;
+    std::int16_t z_min = 0;
+    std::uint32_t unknown_value = 0;
+};
+
+struct CollisionVertexRecord {
+    std::int16_t x = 0;
+    std::int16_t y = 0;
+    std::int16_t z = 0;
+    std::uint16_t padding = 0;
+};
+
+struct CollisionFacePrefix {
+    std::uint16_t base_flags = 0;
+    std::uint16_t length_bytes = 0;
+    std::uint8_t vertex_indices[4]{};
+    std::uint8_t render_payload[4]{};
+    std::uint16_t normal_index_shifted = 0;
+    std::uint16_t surface_flags = 0;
+};
+
+struct CollisionModelCacheEntry {
+    std::uint32_t model = 0;
+    std::uint32_t model_data = 0;
+    std::uint32_t face_count = 0;
+    std::uint32_t face_aabb_start = 0;
+};
+
+struct CollisionFaceAabbRecord {
+    std::uint32_t base_flags = 0;
+    Raw min_x = 0;
+    Raw min_y = 0;
+    Raw min_z = 0;
+    Raw max_x = 0;
+    Raw max_y = 0;
+    Raw max_z = 0;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(CollisionModelHeader) == 0x1c);
+static_assert(sizeof(CollisionVertexRecord) == 0x08);
+static_assert(sizeof(CollisionFacePrefix) == 0x10);
+static_assert(sizeof(CollisionModelCacheEntry) == 0x10);
+static_assert(sizeof(CollisionFaceAabbRecord) == 0x1c);
+
+inline constexpr std::size_t kModelVertexBase = 0x1c;
+inline constexpr std::size_t kModelRecordSize = sizeof(CollisionVertexRecord);
+
+inline constexpr std::size_t model_normal_offset(
+    const CollisionModelHeader& model) {
+    return kModelVertexBase +
+           static_cast<std::size_t>(model.vertex_count) * kModelRecordSize;
+}
+
+inline constexpr std::size_t model_face_offset(
+    const CollisionModelHeader& model) {
+    return model_normal_offset(model) +
+           static_cast<std::size_t>(model.normal_count) * kModelRecordSize;
+}
+
+inline constexpr std::size_t model_record_offset(std::uint16_t index) {
+    return static_cast<std::size_t>(index) * kModelRecordSize;
+}
+
+inline constexpr std::size_t face_record_stride_bytes(
+    std::uint32_t face_word_zero) {
+    // The face walker advances by 4 + 4*(word0 >> 18).  The upper halfword
+    // is therefore a byte length in this build, normally divisible by four.
+    return 4u + (static_cast<std::size_t>(face_word_zero >> 18u) * 4u);
+}
+
+inline constexpr std::uint16_t face_normal_index(
+    std::uint16_t shifted_normal_index) {
+    return static_cast<std::uint16_t>(shifted_normal_index >> 3u);
+}
+
 struct FaceFlagView {
+    std::uint16_t base_flags = 0;
+    std::uint16_t surface_flags = 0;
+    bool is_triangle = false;
+    bool base_nonphysical = false;
     bool surface_bit_40 = false;
+    // Cross-build aliases from the packaged model/debug artifacts; raw flags
+    // above remain authoritative until a PC material probe falsifies them.
+    bool surface_wallrideable = false;
+    bool surface_large_polygon = false;
+    bool surface_skateable = false;
     bool inverse_bit_23 = false;
-    bool face_bit_80 = false;
     bool inverse_bit_24 = false;
+    bool face_bit_80 = false;
     std::uint8_t surface_class = 0;
 };
 
@@ -70,7 +170,10 @@ inline Raw arithmetic_shift_right_12(Raw value) {
     // for right-shifting a negative signed integer.
     auto shifted = static_cast<std::uint32_t>(value) >> 12;
     if (value < 0) {
-        shifted |= 0xfffff000u;
+        // SAR 12 fills only the upper 12 bits; bits 0..19 remain the
+        // logical-shifted magnitude.  0xfffff000 would incorrectly destroy
+        // bits 12..19 for large negative displacements.
+        shifted |= 0xfff00000u;
     }
     return static_cast<Raw>(shifted);
 }
@@ -198,36 +301,19 @@ inline RawVec3 to_model_local_units(const RawVec3& raw_position,
 inline Raw plane_value(const RawVec3& point,
                        const FaceGeometry& face,
                        const RawVec3& model_local_vertex0) {
-    std::int64_t value = 0;
+    Raw value = 0;
     for (std::size_t axis = 0; axis < point.size(); ++axis) {
-        value += (static_cast<std::int64_t>(point[axis]) - model_local_vertex0[axis]) *
-                 face.plane_normal[axis];
+        const auto product =
+            (static_cast<std::int64_t>(point[axis]) - model_local_vertex0[axis]) *
+            face.plane_normal[axis];
+        value = wrapping_from_i64(static_cast<std::int64_t>(value) + product);
     }
-    return wrapping_from_i64(value);
-}
-
-inline double oriented_edge_dot(const RawVec3& a,
-                                const RawVec3& b,
-                                const RawVec3& point,
-                                const RawVec3& direction) {
-    const double ax = static_cast<double>(a[0]) - point[0];
-    const double ay = static_cast<double>(a[1]) - point[1];
-    const double az = static_cast<double>(a[2]) - point[2];
-    const double bx = static_cast<double>(b[0]) - point[0];
-    const double by = static_cast<double>(b[1]) - point[1];
-    const double bz = static_cast<double>(b[2]) - point[2];
-    const double dx = direction[0];
-    const double dy = direction[1];
-    const double dz = direction[2];
-    // This ordering matches the cross-product expressions in 0x00462a20.
-    return (ax * by - ay * bx) * dz +
-           (az * bx - ax * bz) * dy +
-           (ay * bz - az * by) * dx;
+    return value;
 }
 
 inline bool plane_crossing_accepted(Raw plane_start, Raw plane_end) {
-    // The PC code's integer gates are asymmetric and include a small
-    // penetration threshold before the triangle-side predicate runs.
+    // 0x00462a20's integer gate is asymmetric and includes a small
+    // penetration threshold before the double-precision side tests.
     if (plane_start < 0 || plane_end > 0) {
         return false;
     }
@@ -240,28 +326,44 @@ inline bool plane_crossing_accepted(Raw plane_start, Raw plane_end) {
     return true;
 }
 
+inline double oriented_triple_product(const RawVec3& lhs,
+                                      const RawVec3& rhs,
+                                      const RawVec3& direction) {
+    // This is the exact algebra emitted by the x87 block at 0x4630ae:
+    // (lhs x rhs) dot direction.  The assembly writes the terms in z/y/x
+    // order, but the result is the ordinary right-handed expansion below.
+    return (static_cast<double>(lhs[1]) * rhs[2] -
+            static_cast<double>(lhs[2]) * rhs[1]) * direction[0] +
+           (static_cast<double>(lhs[2]) * rhs[0] -
+            static_cast<double>(lhs[0]) * rhs[2]) * direction[1] +
+           (static_cast<double>(lhs[0]) * rhs[1] -
+            static_cast<double>(lhs[1]) * rhs[0]) * direction[2];
+}
+
 inline bool triangle_side_accepted(const RawVec3& start,
                                    const RawVec3& end,
-                                   const FaceGeometry& face,
-                                   double tolerance = 0.0) {
+                                   const FaceGeometry& face) {
     const RawVec3 direction{
         wrapping_sub(end[0], start[0]),
         wrapping_sub(end[1], start[1]),
         wrapping_sub(end[2], start[2]),
     };
-    const auto edge_ok = [&](const RawVec3& a, const RawVec3& b) {
-        return oriented_edge_dot(a, b, start, direction) >= tolerance;
-    };
+    const auto side_ok = [](double value) { return value >= 0.0; };
 
-    if (!edge_ok(face.vertex2, face.vertex0) ||
-        !edge_ok(face.vertex1, face.vertex0)) {
+    if (!side_ok(oriented_triple_product(face.vertex2, face.vertex0,
+                                         direction)) ||
+        !side_ok(oriented_triple_product(face.vertex1, face.vertex0,
+                                         direction))) {
         return false;
     }
     if (face.is_triangle) {
-        return edge_ok(face.vertex2, face.vertex1);
+        return side_ok(oriented_triple_product(face.vertex2, face.vertex1,
+                                               direction));
     }
-    return edge_ok(face.vertex3, face.vertex1) &&
-           edge_ok(face.vertex3, face.vertex2);
+    return side_ok(oriented_triple_product(face.vertex3, face.vertex1,
+                                           direction)) &&
+           side_ok(oriented_triple_product(face.vertex3, face.vertex2,
+                                           direction));
 }
 
 inline std::optional<RawVec3> contact_at_parameter(const QueryRecord& query,
@@ -278,10 +380,8 @@ inline std::optional<RawVec3> contact_at_parameter(const QueryRecord& query,
     return result;
 }
 
-// 0x00462a20 performs the triangle-side predicate before this record update.
-// The predicate is intentionally a caller concern here; this helper models
-// only the recovered plane parameter, nearest-candidate comparison, contact,
-// and traveled-distance writes. The plane arguments are evaluated at q+0 and
+// 0x00462a20 performs the model-local plane and triangle-side predicates
+// before this record update. The plane arguments are evaluated at q+0 and
 // q+0xc respectively, matching the endpoint ordering above.
 inline bool record_nearest_plane_candidate(QueryRecord& query,
                                             Raw plane_start,
@@ -308,25 +408,22 @@ inline bool record_nearest_plane_candidate(QueryRecord& query,
     return true;
 }
 
-// Complete the lowest-level static-face predicate recovered from
-// 0x00462a20, leaving the level's model/face tables outside this header.
 inline bool record_nearest_face_candidate(QueryRecord& query,
                                            const FaceGeometry& face,
                                            const RawVec3& model_origin_raw,
                                            std::uint32_t body,
                                            std::uint32_t face_record,
-                                           std::uint16_t model_index,
-                                           double tolerance = 0.0) {
+                                           std::uint16_t model_index) {
     const auto start = to_model_local_units(query.start, model_origin_raw);
     const auto end = to_model_local_units(query.end, model_origin_raw);
     const auto plane_start = plane_value(start, face, face.vertex0);
     const auto plane_end = plane_value(end, face, face.vertex0);
     if (!plane_crossing_accepted(plane_start, plane_end) ||
-        !triangle_side_accepted(start, end, face, tolerance)) {
+        !triangle_side_accepted(start, end, face)) {
         return false;
     }
     return record_nearest_plane_candidate(query, plane_start, plane_end,
-                                           body, face_record, model_index);
+                                          body, face_record, model_index);
 }
 
 // 0x00463d50 supplies the finalized normal only after q+0x68 identifies a
@@ -343,12 +440,21 @@ inline bool finalize_hit(QueryRecord& query,
 
 inline FaceFlagView decode_face_flags(std::uint32_t face_word_zero,
                                       std::uint32_t face_word_c) {
-    return {
-        .surface_bit_40 = ((face_word_c >> 16) & 0x40u) != 0,
-        .inverse_bit_23 = ((~face_word_c >> 23) & 1u) != 0,
-        .face_bit_80 = (face_word_zero & 0x80u) != 0,
-        .inverse_bit_24 = ((~face_word_c >> 24) & 1u) != 0,
-        .surface_class = static_cast<std::uint8_t>((face_word_c >> 25) & 0xfu),
+    const auto base_flags = static_cast<std::uint16_t>(face_word_zero);
+    const auto surface_flags = static_cast<std::uint16_t>(face_word_c >> 16u);
+    return FaceFlagView{
+        .base_flags = base_flags,
+        .surface_flags = surface_flags,
+        .is_triangle = (base_flags & 0x10u) != 0,
+        .base_nonphysical = (base_flags & 0x80u) != 0,
+        .surface_bit_40 = (surface_flags & 0x40u) != 0,
+        .surface_wallrideable = (surface_flags & 0x10u) != 0,
+        .surface_large_polygon = (surface_flags & 0x40u) != 0,
+        .surface_skateable = (surface_flags & 0x100u) == 0,
+        .inverse_bit_23 = ((~face_word_c >> 23u) & 1u) != 0,
+        .inverse_bit_24 = ((~face_word_c >> 24u) & 1u) != 0,
+        .face_bit_80 = (base_flags & 0x80u) != 0,
+        .surface_class = static_cast<std::uint8_t>((face_word_c >> 25u) & 0xfu),
     };
 }
 

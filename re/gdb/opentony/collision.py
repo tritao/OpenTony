@@ -43,7 +43,11 @@ def _collision_model_geometry(model: int, face: int, model_index: int, memory) -
     if not memory.valid(slot + 3):
         return None
     table = memory.u32(slot)
-    model_data = memory.u32(table + model_index * 4) if table and memory.valid(table + model_index * 4 + 3) else 0
+    model_data = (
+        memory.u32(table + model_index * 4)
+        if table and memory.valid(table + model_index * 4 + 3)
+        else 0
+    )
     if not model_data or not memory.valid(model_data + 7):
         return None
     vertex_count = memory.u16(model_data + 2)
@@ -56,13 +60,20 @@ def _collision_model_geometry(model: int, face: int, model_index: int, memory) -
         "model_table_kind": kind,
         "model_table": f"0x{table:08x}" if table else None,
         "model_data": f"0x{model_data:08x}",
+        "model_data_header_words": _u32_words(model_data, 7, memory),
         "model_counts": [vertex_count, normal_count, face_count],
         "model_face_base": f"0x{face_base:08x}",
         "face_record_delta": face - face_base if face else None,
     }
     if not face or not memory.valid(face + 0x0F):
         return result
-    vertex_indices = [memory.u8(face + offset) for offset in (1, 5, 6, 7)]
+    face_word_zero = memory.u32(face)
+    result["face_base_flags"] = face_word_zero & 0xFFFF
+    result["face_length_bytes"] = (face_word_zero >> 16) & 0xFFFF
+    result["face_stride_bytes"] = 4 + ((face_word_zero >> 18) * 4)
+    # 0x00462a20 uses cache bytes +4,+5,+6,+7 as vertex indices.  The
+    # cache word at +0 is flags; +1 is not the first vertex index.
+    vertex_indices = [memory.u8(face + offset) for offset in (4, 5, 6, 7)]
     result["face_normal_index"] = (memory.u16(face + 0x0C) & 0xFFFF) >> 3
     result["face_vertices"] = []
     for index in vertex_indices:
@@ -161,7 +172,12 @@ class CollisionQueryProbe:
             "model_index": model_index,
             "face_flags": ctx.memory.u32(face + 0x0C) if face and ctx.memory.valid(face + 0x0C) else None,
             "face_words": _u32_words(face, 4, ctx.memory),
-            "face_vertex_bytes": [ctx.memory.u8(face + offset) for offset in (1, 5, 6, 7)]
+            "face_stride_bytes": (
+                4 + ((ctx.memory.u32(face) >> 18) * 4)
+                if face and ctx.memory.valid(face + 3)
+                else None
+            ),
+            "face_vertex_bytes": [ctx.memory.u8(face + offset) for offset in (4, 5, 6, 7)]
             if face and ctx.memory.valid(face + 7)
             else None,
             "model_header_words": _u32_words(model, 8, ctx.memory),

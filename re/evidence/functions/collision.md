@@ -104,9 +104,9 @@ PC port's `SLineInfo`-like object rather than an ad-hoc skater-only struct.
 - `0x004660b0` asserts `No zone information` with the embedded source path
   `H:\TonyHawk\Pc2\m3dzone.cpp`, derives collision masks from globals, and
   traverses the loaded zone data. It calls `0x004628f0` when the mode is
-  nonzero, loops over a zone table with a `0x198`-byte stride, rejects zones
-  whose bounds do not overlap the query bounds, and passes candidate face
-  lists to `0x004638d0`. It finishes by calling `0x00463d50(q)`.
+  nonzero, loops over a zone table with a **`0x660`-byte stride**, rejects
+  zones whose bounds do not overlap the query bounds, and passes candidate
+  face lists to `0x004638d0`. It finishes by calling `0x00463d50(q)`.
 
 ### Level/scene data entering the path
 
@@ -117,13 +117,21 @@ the wrapper; the query does not parse a file on each call.
   follows a linked list through node offset `+0x20`. This is a strong global
   root candidate for dynamic/linked collision zones.
 - `DAT_00567f80` is used as the zone-table presence/base check by
-  `0x004660b0`; the loop uses entries spaced `0x198` bytes apart. Per-zone
-  bounds are read from the entry region beginning around `+0x84`, and a
-  per-zone candidate list is selected through `DAT_00567fa0`.
+  `0x004660b0`; the loop index is multiplied by `0x660` before indexing this
+  table. Per-zone bounds are read from `entry+0x84`, `+0x88`, `+0x8c`, and
+  `+0x90`; `entry+0x94` is used as the grid-cell divisor and signed values at
+  `+0x9c/+0x9e` adjust cell coordinates. The candidate-list table at
+  `DAT_00567fa0` is addressed in a separate per-zone group whose stride is
+  `51 * 8 = 0x198` entries/bytes-of-index-space; that is the source of the
+  earlier `0x198` observation, not the zone-record stride.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
-  candidate face. These names are address-level labels only; the complete
-  level collision file format was not attempted here.
+  candidate face. Its reusable model-cache entries at `DAT_00567a70` are
+  0x10 bytes each: model pointer, model-data pointer, face count, and the
+  starting index in the 0x1c-byte face-AABB cache. Each AABB cache record
+  stores the low 16-bit face flags followed by min/max X/Y/Z fixed-point
+  bounds. These names are address-level labels only; the complete level
+  collision file format was not attempted here.
 
 ### Candidate testing and result finalization
 
@@ -138,6 +146,68 @@ the wrapper; the query does not parse a file on each call.
   nearer than the current `q+0x8c` value. Its diagnostics include
   `Can't handle rotated objects`, `pModel Wrong`, `Faces Wrong`,
   `Illegal number of faces`, and `Multiple trigger poly hit`.
+- The static face-record/data path is now concrete enough to constrain a C++
+  loader, even though the full level format is still out of scope. The model
+  kind is read from `model+0x1f`, the model/item index from `model+0x1a`, and
+  the selected model-data pointer comes from the kind-specific table at
+  `DAT_0056d43c`. In that model-data block, counts are read at `+0x2`,
+  `+0x4`, and `+0x6`; vertex records begin at `+0x1c`, normal records follow
+  the vertex count at eight bytes per record, and the face-record region
+  follows the normal count at the same stride. Each vertex/normal record is
+  read as three signed 16-bit components plus padding.
+- The cached face record's word at `+0x0` supplies the triangle/quad choice
+  through bit `0x10`; its vertex-index bytes are **`+0x4`, `+0x5`, `+0x6`, and
+  `+0x7`**. The lower 16 bits of `face+0xc`, shifted right three, select the
+  normal record. The `+0x1` byte is not the first vertex index; this was
+  corrected after comparing the face-test assembly with the runtime face
+  words. Ghidra's decompilation of the x87 block at `0x004630ae` now resolves
+  the side predicate as oriented triple products. With all vertices expressed
+  relative to the query start in model-local units and `d = end - start`, the
+  triangle path accepts when all three expressions are nonnegative:
+
+  ```text
+  (v2 × v0) · d >= 0
+  (v1 × v0) · d >= 0
+  (v2 × v1) · d >= 0
+  ```
+
+  The quad path uses the first two tests, then checks `(v3 × v1) · d` and
+  `(v3 × v2) · d`. The zero constant is the double at `0x00518d68`; equality
+  takes the alternate branch visible at `0x004631a4`, but the same oriented
+  tests and final nonnegative comparison apply. This is now implemented in
+  `collision_reference.hpp`; it supersedes the earlier deliberately
+  unverified cross-product guess.
+- The first face word packs a 16-bit base flag field and a 16-bit payload
+  length. The face walker advances by
+  `4 + 4*(face_word_zero >> 18)` bytes, equivalent to `4 + length_bytes`
+  for the observed four-byte-aligned records. The recovered model-data view
+  is therefore:
+
+  ```text
+  model_data+0x00  uint16 unknown/flags
+  model_data+0x02  uint16 vertex_count
+  model_data+0x04  uint16 normal_count
+  model_data+0x06  uint16 face_count
+  model_data+0x08  uint32 radius
+  model_data+0x0c  six int16 bounds values
+  model_data+0x18  uint32 unknown
+  model_data+0x1c  vertex records, 8 bytes each
+                  normal records, 8 bytes each
+                  variable-length face records
+  face+0x00       uint16 base_flags, uint16 length_bytes
+  face+0x04       four vertex-index bytes
+  face+0x08       four render/GPU bytes
+  face+0x0c       uint16 normal_index<<3, uint16 surface_flags
+  ```
+
+  The layout is directly constrained by the PC loads and the packaged
+  `SLineInfo`/model artifacts; it does not imply that the complete zone file
+  parser is solved.
+- Before those side tests, the face tester applies the asymmetric plane gate
+  visible at `0x00462ecd..0x462ef7`: reject when `plane_start < 0` or
+  `plane_end > 0`; reject coplanar endpoints; and, when `plane_start < 0x800`,
+  require `plane_end <= -0x800`. This gate is independent of the later
+  nearest-candidate update documented below.
 - On a nearer hit, `0x00462a20` writes the following strong result
   candidates:
 
@@ -194,6 +264,14 @@ the wrapper; the query does not parse a file on each call.
   handling, wall riding, and surface-class behavior. They should be exposed
   to a later C++ reconstruction as raw flags plus a provisional decoded view,
   not yet as named materials.
+
+  The packaged cross-build model notes make several aliases plausible, but
+  they remain aliases rather than final PC material names: base `0x10` is the
+  triangle bit, base `0x80` is the non-physical/invisible bit, surface `0x10`
+  is wall-rideable, surface `0x40` is the large-polygon/quarter-pipe class,
+  and surface `0x100` is cleared for skateable faces. The C++ view keeps both
+  raw words and these provisional interpretations so a later PC runtime
+  comparison can falsify them without changing the byte layout.
 - The alternate model path `0x00463e50` contains the diagnostic
   `Collision check on a model with normals` and calls `0x004f4b00` and
   `0x004f4c50`; it is a reusable oriented/dynamic-object branch underneath
@@ -357,6 +435,8 @@ of that API without fabricating the unresolved zone/model format. It provides:
 
 - x86-compatible arithmetic-shift and signed-truncation helpers;
 - query preparation of bounds, integer line length, and hit sentinels;
+- model-local plane gating and the recovered triangle/quad oriented triple
+  products from the x87 face predicate;
 - the `0x4000` segment parameter, interpolated contact, and traveled-distance
   calculations;
 - nearest-candidate record updates after a caller-provided triangle predicate;

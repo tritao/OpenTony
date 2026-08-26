@@ -7,6 +7,30 @@
 using namespace opentony::collision_reference;
 
 int main() {
+    CollisionModelHeader model;
+    model.vertex_count = 14;
+    model.normal_count = 6;
+    model.face_count = 6;
+    assert(model_normal_offset(model) == 0x8c);
+    assert(model_face_offset(model) == 0xbc);
+    assert(model_record_offset(13) == 13u * 8u);
+
+    CollisionFacePrefix face;
+    face.base_flags = 0x1083;
+    face.length_bytes = 0x1c;
+    face.normal_index_shifted = 0x20;
+    face.surface_flags = 0x10;
+    assert(face_record_stride_bytes(0x001c1083) == 0x20);
+    assert(face_normal_index(face.normal_index_shifted) == 4);
+
+    CollisionModelCacheEntry cache_entry;
+    cache_entry.face_aabb_start = 17;
+    assert(cache_entry.face_aabb_start == 17);
+    CollisionFaceAabbRecord aabb;
+    aabb.min_x = -10;
+    aabb.max_z = 20;
+    assert(aabb.min_x == -10 && aabb.max_z == 20);
+
     QueryRecord query;
     query.start = {-4098781, -647119, -16628281};
     query.end = {-4098749, -420744, -16813694};
@@ -42,6 +66,18 @@ int main() {
     const RawVec3 expected_triangle_contact{4096, 4096, 0};
     assert(triangle_query.hit_position == expected_triangle_contact);
 
+    QueryRecord quad_query;
+    quad_query.start = triangle_query.start;
+    quad_query.end = triangle_query.end;
+    prepare(quad_query);
+    FaceGeometry quad = triangle;
+    quad.vertex2 = {10, 10, 0};
+    quad.vertex3 = {0, 10, 0};
+    quad.is_triangle = false;
+    assert(record_nearest_face_candidate(quad_query, quad, {0, 0, 0},
+                                         0x11, 0x21, 8));
+    assert(quad_query.hit_parameter == 8192);
+
     QueryRecord arithmetic_shift;
     arithmetic_shift.start = {0, 0, 0};
     arithmetic_shift.end = {0, 0, -1};
@@ -49,6 +85,8 @@ int main() {
     assert(arithmetic_shift.line_length == 1);
     assert(arithmetic_shift.bounds_min[2] == -1);
     assert(arithmetic_shift.bounds_max[2] == 0);
+
+    assert(arithmetic_shift_right_12(-33'554'432) == -8192);
 
     const std::array<std::int16_t, 3> airborne_normal{1, -2897, 2897};
     assert(finalize_hit(query, airborne_normal));
@@ -70,13 +108,21 @@ int main() {
 
     const auto flags = decode_face_flags(0x80, 0x04200008);
     assert(!flags.surface_bit_40);
+    assert(!flags.is_triangle);
+    assert(flags.base_nonphysical);
+    assert(!flags.surface_wallrideable);
+    assert(!flags.surface_large_polygon);
+    assert(flags.surface_skateable);
     assert(flags.inverse_bit_23);
     assert(flags.face_bit_80);
     assert(flags.inverse_bit_24);
     assert(flags.surface_class == 2);
 
-    const auto surface_flags = decode_face_flags(0, 0x04600000);
+    const auto surface_flags = decode_face_flags(0, 0x04700000);
     assert(surface_flags.surface_bit_40);
+    assert(surface_flags.surface_large_polygon);
+    assert(surface_flags.surface_wallrideable);
+    assert(surface_flags.surface_class == 2);
 
     std::cout << "collision reference checks passed\n";
 }
