@@ -79,3 +79,37 @@ def test_overlay_case_insensitive_preserves_base_tree_casing(tmp_path: Path):
 
     assert (destination / "BIN/LINK.EXE").read_bytes() == b"sp3"
     assert not (destination / "bin").exists()
+
+
+def test_compare_vc6_module_matches_extracted_text(tmp_path: Path, monkeypatch, capsys):
+    original = tmp_path / "match/original/modules/text_test.bin"
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"retail bytes")
+    source = tmp_path / "function.cpp"
+    source.write_text("function", encoding="ascii")
+
+    monkeypatch.setattr(vc6, "resolve", lambda path: tmp_path / path)
+    monkeypatch.setattr(
+        vc6,
+        "_matching_module",
+        lambda _selector: {
+            "id": "text_test",
+            "cpp_source": str(source),
+            "cpp_flags": ["/O2"],
+        },
+    )
+
+    def fake_compile(_source, output, _flags):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"object")
+        return output
+
+    def fake_extract(_obj, output):
+        output.write_bytes(b"retail bytes")
+        return output
+
+    monkeypatch.setattr(vc6, "compile_vc6", fake_compile)
+    monkeypatch.setattr(vc6, "_extract_coff_text", fake_extract)
+
+    assert vc6.compare_vc6_module("text_test") is True
+    assert "MATCH text_test: 12 bytes (/O2)" in capsys.readouterr().out

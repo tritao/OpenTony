@@ -14,6 +14,15 @@ bytes pad it through the next function at `0x004caa50`.
 Both matching-assembly modules reproduce their original bytes exactly before
 participating in the full-image rebuild.
 
+`Math_Vector3Add` at `0x004ca9f0` also has a matching C++ reconstruction. The
+pinned Visual C++ 6.0 SP3 compiler emits all 48 retail bytes, including seven
+alignment NOPs, from `match/cpp/Math_Vector3Add.cpp` with `/O2 /GX- /GR-`.
+Ghidra recovered the three in-place additions but modeled the function as
+`void`; exact recompilation establishes that returning `*this` accounts for the
+retail `mov eax, ecx` without changing the observed mutations.
+The split manifest retains the reviewed NASM module as the full-image rebuild
+oracle and records the C++ source and `vc6-coff-text` matching strategy.
+
 Four more adjacent leaf helpers use the same three-component layout:
 
 - `0x004caa50–0x004caa72` multiplies every component by the signed scalar

@@ -229,8 +229,14 @@ modules:
   end_va: 5024288
   file_offset: 829936
   size: 48
-  status: asm
+  status: cpp
   source: match/modules/text/text_004ca9f0.asm
+  cpp_source: match/cpp/Math_Vector3Add.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
   sha256: 4bba71a05057c3f816f72fbf98bce486211af11f5bd352646af786ee9f193109
 - id: text_004caa20
   section: .text

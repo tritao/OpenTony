@@ -36,3 +36,11 @@ tony split propose-modules --safe-only --range 0x004c0000:0x004d0000
 tony split accept-proposal Math_Vector3Add --dry-run
 tony split accept-proposals --tracked-only --range 0x004c0000:0x004d0000 --dry-run
 ```
+
+Compile a tracked C/C++ reconstruction with the pinned VC6 SP3 toolchain and
+compare its COFF `.text` bytes with the original module using:
+
+```bash
+tony vc6 compile match/cpp/Math_Vector3Add.cpp
+tony vc6 compare text_004ca9f0
+```

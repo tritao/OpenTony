@@ -13,6 +13,7 @@ from .common import ROOT, load_yaml, resolve, sha256
 
 _CHUNK_SIZE = 1024 * 1024
 _PROGRESS_INTERVAL = 16 * _CHUNK_SIZE
+_DEFAULT_COMPILE_FLAGS = ["/O2", "/GX-", "/GR-"]
 
 
 def _spec() -> dict:
@@ -90,9 +91,7 @@ def _initialize_prefix(prefix: Path) -> None:
     subprocess.run(command, cwd=ROOT, env=_wine_environment(prefix), check=True)
     subprocess.run(["wineserver", "-k"], cwd=ROOT, env=_wine_environment(prefix), check=False)
     try:
-        subprocess.run(
-            ["wineserver", "-w"], cwd=ROOT, env=_wine_environment(prefix), timeout=10, check=False
-        )
+        subprocess.run(["wineserver", "-w"], cwd=ROOT, env=_wine_environment(prefix), timeout=10, check=False)
     except subprocess.TimeoutExpired:
         pass
 
@@ -152,27 +151,136 @@ def verify_vc6() -> dict[str, str]:
     return {"compiler": compiler_version, "linker": linker_version}
 
 
+def _wine_path(path: Path, env: dict[str, str]) -> str:
+    return subprocess.run(
+        ["winepath", "-w", str(path.resolve())],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+
+def _compiler_environment(install: Path, prefix: Path) -> dict[str, str]:
+    vc98 = install / "VC98"
+    env = _wine_environment(prefix)
+    env["PATH"] = f"{vc98 / 'BIN'}{os.pathsep}{env.get('PATH', '')}"
+    env["INCLUDE"] = _wine_path(vc98 / "INCLUDE", env)
+    env["LIB"] = _wine_path(vc98 / "LIB", env)
+    return env
+
+
+def compile_vc6(source: Path, output: Path, flags: list[str] | None = None) -> Path:
+    spec = _spec()
+    install = resolve(spec["install_dir"])
+    prefix = resolve(spec["prefix"])
+    verify_vc6()
+    if not source.is_file():
+        raise SystemExit(f"VC6 source not found: {source}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    env = _compiler_environment(install, prefix)
+    command = [
+        "wine",
+        str(install / "VC98/BIN/CL.EXE"),
+        "/nologo",
+        "/c",
+        *(flags if flags is not None else _DEFAULT_COMPILE_FLAGS),
+        _wine_path(source, env),
+        f"/Fo{_wine_path(output, env)}",
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if result.returncode != 0 or not output.is_file():
+        raise SystemExit(f"VC6 compilation failed ({result.returncode}):\n{result.stdout.strip()}")
+    return output
+
+
+def _extract_coff_text(obj: Path, output: Path) -> Path:
+    if shutil.which("objcopy") is None:
+        raise SystemExit("objcopy is required to extract VC6 COFF sections")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["objcopy", "-O", "binary", "--only-section=.text", str(obj), str(output)],
+        cwd=ROOT,
+        check=True,
+    )
+    if not output.is_file():
+        raise SystemExit(f"objcopy did not produce a .text image: {output}")
+    return output
+
+
+def _matching_module(selector: str) -> dict:
+    manifest = load_yaml("match/manifest.yml")
+    matches = [module for module in manifest.get("modules", []) if module["id"] == selector]
+    if not matches:
+        try:
+            address = int(selector, 0)
+        except ValueError:
+            address = -1
+        matches = [module for module in manifest.get("modules", []) if int(module["start_va"]) == address]
+    if len(matches) != 1:
+        raise SystemExit(f"could not identify one split module from {selector!r}")
+    return matches[0]
+
+
+def compare_vc6_module(selector: str, source: Path | None = None, flags: list[str] | None = None) -> bool:
+    module = _matching_module(selector)
+    source_value = source or (resolve(module["cpp_source"]) if module.get("cpp_source") else None)
+    if source_value is None:
+        raise SystemExit(f"module has no cpp_source; pass --source: {module['id']}")
+    compile_flags = flags if flags is not None else list(module.get("cpp_flags", _DEFAULT_COMPILE_FLAGS))
+    output_dir = resolve("build/vc6")
+    obj = compile_vc6(source_value, output_dir / f"{module['id']}.obj", compile_flags)
+    generated = _extract_coff_text(obj, output_dir / f"{module['id']}.text.bin")
+    original = resolve(f"match/original/modules/{module['id']}.bin")
+    if not original.is_file():
+        raise SystemExit(f"original module bytes not found: {original}; run: tony split extract")
+
+    expected = original.read_bytes()
+    actual = generated.read_bytes()
+    if actual == expected:
+        print(f"MATCH {module['id']}: {len(actual)} bytes ({' '.join(compile_flags)})")
+        return True
+    common = 0
+    for left, right in zip(expected, actual, strict=False):
+        if left != right:
+            break
+        common += 1
+    if common < min(len(expected), len(actual)):
+        detail = f"expected 0x{expected[common]:02x}, got 0x{actual[common]:02x}"
+    else:
+        detail = "common prefix ends at the shorter image"
+    print(
+        f"MISMATCH {module['id']}: expected {len(expected)} bytes, got {len(actual)}; "
+        f"first difference +0x{common:x} ({detail})"
+    )
+    return False
+
+
 def _compile_probe(install: Path, prefix: Path) -> Path:
     probe_dir = install / "probe"
     probe_dir.mkdir(parents=True, exist_ok=True)
     source = probe_dir / "probe.c"
     source.write_text("int main(void) { return 0; }\n", encoding="ascii")
     output = probe_dir / "probe.exe"
-    vc98 = install / "VC98"
-    env = _wine_environment(prefix)
-    env["PATH"] = f"{vc98 / 'BIN'}{os.pathsep}{env.get('PATH', '')}"
-
-    def wine_path(path: Path) -> str:
-        return subprocess.run(
-            ["winepath", "-w", str(path)], env=env, text=True, capture_output=True, check=True
-        ).stdout.strip()
-
-    wine_include = wine_path(vc98 / "INCLUDE")
-    wine_lib = wine_path(vc98 / "LIB")
-    env["INCLUDE"] = wine_include
-    env["LIB"] = wine_lib
+    obj = compile_vc6(source, probe_dir / "probe.obj")
+    env = _compiler_environment(install, prefix)
     result = subprocess.run(
-        ["wine", str(vc98 / "BIN/CL.EXE"), "/nologo", wine_path(source), f"/Fe{wine_path(output)}"],
+        [
+            "wine",
+            str(install / "VC98/BIN/LINK.EXE"),
+            "/nologo",
+            "/subsystem:console",
+            _wine_path(obj, env),
+            f"/out:{_wine_path(output, env)}",
+        ],
         cwd=probe_dir,
         env=env,
         text=True,
@@ -181,7 +289,7 @@ def _compile_probe(install: Path, prefix: Path) -> Path:
         check=False,
     )
     if result.returncode != 0 or not output.is_file():
-        raise SystemExit(f"VC6 probe compilation failed ({result.returncode}):\n{result.stdout.strip()}")
+        raise SystemExit(f"VC6 probe link failed ({result.returncode}):\n{result.stdout.strip()}")
     return output
 
 
@@ -258,3 +366,16 @@ def vc6_verify(_args) -> int:
     print(f"CL {versions['compiler']}")
     print(f"LINK {versions['linker']}")
     return 0
+
+
+def vc6_compile(args) -> int:
+    source = resolve(args.source)
+    output = resolve(args.output) if args.output else resolve(f"build/vc6/{source.stem}.obj")
+    compiled = compile_vc6(source, output, args.flag or None)
+    print(f"Compiled VC6 object: {compiled}")
+    return 0
+
+
+def vc6_compare(args) -> int:
+    source = resolve(args.source) if args.source else None
+    return 0 if compare_vc6_module(args.module, source, args.flag or None) else 1

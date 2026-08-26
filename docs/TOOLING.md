@@ -82,6 +82,8 @@ Provisioning verifies `CL.EXE` version `12.00.8168` and `LINK.EXE` version `6.00
 ```bash
 tony setup vc6
 tony vc6 verify
+tony vc6 compile match/cpp/Math_Vector3Add.cpp
+tony vc6 compare text_004ca9f0
 ```
 
 The archived Microsoft media remains subject to its original licensing; availability from the configured archive does not grant a license.
