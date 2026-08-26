@@ -147,6 +147,7 @@ void test_stateful_dispatch() {
 void test_retail_link_target_filters() {
     LevelTriggerState state;
     state.on_spawn_node(1, 1, 0xcb, {0, 0, 0}, {});
+    assert(state.object(1)->flags == 0x0041);
     state.on_spawn_node(2, 5, 0, {0, 0, 0}, {});
     state.on_linked_node(3, 2, 0x1234, {});
     state.on_special_node(4, 12, {});
@@ -186,6 +187,109 @@ void test_script_object_state() {
     assert((state.script_objects()[0].flags & 1U) == 0);
 }
 
+void test_type10_type11_pulse_and_kill_state() {
+    LevelTriggerState state;
+    const std::array<std::int32_t, 3> position{10, 20, 30};
+    state.on_special_node(4, 10, {});
+    state.on_special_node_state(4, 10, 0x0042, position);
+    const TriggerObjectState* object = state.object(4);
+    assert(object != nullptr);
+    assert(object->has_trigger_runtime);
+    assert(object->trigger_flags == 0x0042);
+    assert(object->trigger_mode == 2);
+    assert(object->trigger_state == 0);
+    assert(!object->active);
+    assert(object->position == position);
+
+    state.on_node_pulse(4);
+    assert(state.object(4)->trigger_state == 1);
+    assert(state.object(4)->active);
+    const std::array<std::uint16_t, 1> links{4};
+    state.on_kill(0, 0x000c, links);
+    assert(state.object(4)->trigger_state == 0);
+    assert(!state.object(4)->active);
+    assert(state.object(4)->alive);
+    assert(!state.object(4)->killed);
+}
+
+void test_type12_type14_runtime_activation() {
+    LevelTriggerState state;
+    state.set_special_runtime_context(2, 0x13579bdf);
+    state.on_linked_node(8, 12, 0xfeedcafe, {});
+    const TriggerObjectState* object = state.object(8);
+    assert(object != nullptr);
+    assert(object->has_special_runtime);
+    assert(!object->special_runtime_active);
+    assert(object->link_key == 0xfeedcafe);
+    state.on_node_pulse(8);
+    assert(state.object(8)->special_runtime_active);
+    assert(state.object(8)->has_special_runtime_context);
+    assert(state.object(8)->special_runtime_owner == 2);
+    assert(state.object(8)->special_runtime_control == 0x13579bdf);
+    assert(state.object(8)->has_special_asset_state);
+    assert(state.object(8)->special_asset_flags_or == 4);
+    assert(state.object(8)->special_asset_marker == 0x202020);
+    assert(state.object(8)->active);
+}
+
+void test_dispatcher_field_writes() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0099);
+    u16(stream, 0xffff);
+    u16(stream, 0x009a);
+    u16(stream, 0x8000);
+    u16(stream, 0x00a0);
+    u16(stream, 0x1234);
+    u16(stream, 0x00aa);
+    u16(stream, 0x0bad);
+    u16(stream, 0x00a4);
+    u16(stream, 0x0055);
+    u16(stream, 0x00a5);
+    u16(stream, 0x0066);
+    u16(stream, 0x00a8);
+    u16(stream, 0x0077);
+    u16(stream, 0x00ac);
+    u16(stream, 0x0088);
+    u16(stream, 0x00a3);
+    u16(stream, 0x0099);
+    u16(stream, 0x00b1);
+    u16(stream, 0x00aa);
+    u16(stream, 0x00a7);
+    u16(stream, 0x1000);
+    u16(stream, 0);
+    u16(stream, 0x00a7);
+    u16(stream, 0x1200);
+    u16(stream, 4);
+    u16(stream, 0x00ad);
+    u16(stream, 0xffff);
+    const std::array<std::uint16_t, 0> links{};
+
+    LevelTriggerState state;
+    TriggerRuntime runtime(TrgFile::parse(make_file({
+        type6_node(links, 0x10203040, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), state);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    const TriggerCurrentObjectFields& object = state.current_object_fields();
+    assert(object.has_4d4 && object.field_4d4 == -1);
+    assert(object.has_4d8 && object.field_4d8 == static_cast<std::int16_t>(0x8000));
+    assert(object.has_504 && object.field_504 == 0x1234);
+    assert(state.global_word(0x00aa) == 0x0bad);
+    assert(object.has_4dc && object.field_4dc == 0x55);
+    assert(object.has_4de && object.field_4de == 0x66);
+    assert(object.has_434 && object.field_434 == 0x77);
+    assert(object.has_436 && object.field_436 == 0x88);
+    assert(object.has_40c && object.field_40c == 0x1000);
+    assert(object.has_410 && object.field_410 == 4);
+    assert(object.has_414 && object.field_414 == 0x80);
+    assert(object.copied_3dc_from_3a4);
+    assert(state.current_skater_fields().field_3198 == 0x99);
+    assert(state.current_skater_fields().field_319c == 0xaa);
+    assert(state.dispatcher_field_writes().size() == 12);
+}
+
 void test_objectives_and_timers() {
     const GapTable& retail = retail_warehouse_gap_table();
     assert(retail.definitions().size() == 132);
@@ -201,10 +305,21 @@ void test_objectives_and_timers() {
     state.set_gap_table(&table);
     state.on_timer(100);
     state.advance_time(99);
-    assert(state.timers().size() == 1);
-    assert(!state.timers()[0].fired);
+    assert(state.timers().empty());
+    assert(state.timer_reset_requests() == 1);
+    assert(state.last_timer_request_ms() == 100);
     state.advance_time(1);
-    assert(state.timers()[0].fired);
+    assert(state.events().back().kind == TriggerEvent::Kind::TimerReset);
+
+    state.on_level_event_state();
+    assert(state.level_event_updates() == 1);
+    assert(state.level_event_initialized());
+    assert(state.level_event_timer_value() == 0x50);
+    assert(state.level_event_mode_value() == 0x40);
+    assert(state.secondary_turn_reset());
+    state.on_level_event_state();
+    assert(state.level_event_updates() == 2);
+    assert(state.level_event_timer_value() == 0x50);
 
     state.on_gap(4, 0x1234, 1001);
     assert(state.gaps().size() == 1);
@@ -225,15 +340,36 @@ void test_objectives_and_timers() {
     assert(state.gaps()[1].definition_found);
     assert(state.gaps()[1].deferred);
     assert(!state.gaps()[1].completed);
+    state.mark_gap_complete(0x5678);
+    assert(state.gaps()[1].completed);
+    assert(state.gaps()[1].awarded);
+    assert(state.take_gap_pulse(0x5678, 1002));
+    assert(state.events().back().kind == TriggerEvent::Kind::GapCompleted);
 
     state.on_spawn_node(10, 1, 0x00cb, {1, 2, 3}, {});
     assert(state.object(10)->spawn_family == TriggerSpawnFamily::ObjectCb);
+    assert(state.object(10)->flags == 0x0041);
+    const std::array<std::uint8_t, 3> object_options{2, 4, 7};
+    state.on_spawn_node_options(10, 1, object_options);
+    assert(state.object(10)->spawn_options
+        == std::vector<std::uint8_t>({2, 4, 7}));
+    assert(state.object(10)->has_spawn_option_2);
+    assert(state.object(10)->has_spawn_option_4);
+    assert(state.object(10)->factory_requires_environment_registration == false);
+    assert(state.object(10)->factory_clears_object_flag_2);
     state.on_spawn_node(11, 5, 4, {4, 5, 6}, {});
     assert(state.object(11)->spawn_family == TriggerSpawnFamily::Pickup);
     state.on_spawn_node(12, 1, 0x00d7, {7, 8, 9}, {});
     assert(state.object(12)->factory_resource == "c_bus");
     assert(state.object(12)->has_factory_model_selector);
     assert(state.object(12)->factory_model_selector == 0x121);
+    state.on_spawn_node_options(12, 7, {});
+    assert(state.object(12)->factory_requires_environment_registration);
+    assert(state.object(12)->factory_sets_object_flag_4);
+
+    state.on_spawn_node(13, 1, 0x0192, {0, 0, 0}, {});
+    assert(state.object(13)->spawn_family == TriggerSpawnFamily::Object192);
+    assert(state.object(13)->flags == 0x0111);
 
     state.set_career_flag(3);
     state.mark_goal_complete(5);
@@ -245,6 +381,8 @@ void test_scene_registry() {
     LevelTriggerState state;
     state.on_linked_node(7, 2, 0x1111, {});
     state.on_spawn_node(8, 1, 0x00cb, {100, 200, 300}, {});
+    const std::array<std::uint8_t, 2> scene_options{2, 4};
+    state.on_spawn_node_options(8, 1, scene_options);
     const opentony::assets::PsxArchive archive =
         opentony::assets::PsxArchive::parse(synthetic_psx(), "scene.psx");
     state.bind_psx_models(archive);
@@ -263,6 +401,10 @@ void test_scene_registry() {
     assert(spawned != nullptr);
     assert(!spawned->bound_to_psx);
     assert(scene.entity(spawned->entities[0])->spawn_family == TriggerSpawnFamily::ObjectCb);
+    assert(scene.entity(spawned->entities[0])->spawn_options
+        == std::vector<std::uint8_t>({2, 4}));
+    assert(scene.entity(spawned->entities[0])->factory_clears_object_flag_2);
+    assert(scene.entity(spawned->entities[0])->has_spawn_option_2);
 
     const std::array<std::uint16_t, 1> links{7};
     state.on_visible(0, 1, links);
@@ -276,6 +418,9 @@ int main() {
     test_stateful_dispatch();
     test_retail_link_target_filters();
     test_script_object_state();
+    test_type10_type11_pulse_and_kill_state();
+    test_type12_type14_runtime_activation();
+    test_dispatcher_field_writes();
     test_objectives_and_timers();
     test_scene_registry();
     std::cout << "Level trigger state tests passed\n";

@@ -2,6 +2,7 @@
 #include "../runtime/level_frame.hpp"
 #include "../runtime/psx_collision_probe.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -111,6 +112,27 @@ int main() {
     }
     assert(loaded_factory_assets == 0);
 
+    // Warehouse node 120 is a type-12 linked special object. Its TRG key
+    // resolves into the SKWARE model-name namespace, and a pulse carries the
+    // verified FUN_004bdc40 asset-side writes into the scene binding.
+    const auto* warehouse_special = runtime.state().object(120);
+    assert(warehouse_special != nullptr);
+    assert(warehouse_special->has_special_runtime);
+    const auto* warehouse_binding = runtime.scene().binding(120);
+    assert(warehouse_binding != nullptr);
+    assert(warehouse_binding->bound_to_psx);
+    runtime.pulse_node(120);
+    warehouse_special = runtime.state().object(120);
+    assert(warehouse_special->special_runtime_active);
+    assert(warehouse_special->special_asset_flags_or == 4);
+    assert(warehouse_special->special_asset_marker == 0x202020);
+    assert(runtime.scene().entity(warehouse_binding->entities.front())
+        ->has_special_asset_state);
+    assert(runtime.scene().entity(warehouse_binding->entities.front())
+        ->has_special_runtime);
+    assert(runtime.scene().entity(warehouse_binding->entities.front())
+        ->special_runtime_active);
+
     const std::string special_trg = asset_path("SKPH_T.TRG");
     const std::string special_psx = asset_path("SKPH.PSX");
     if (std::filesystem::is_regular_file(special_trg)
@@ -143,8 +165,26 @@ int main() {
 
     const auto* point = runtime.triggers().command_point(141);
     assert(point != nullptr);
+    const std::size_t event_count_before_visible = runtime.state().events().size();
     runtime.pulse_node(141);
     assert(runtime.triggers().command_point(141)->pulse_count == 1);
+    const auto* visible_target = runtime.state().object(0x00cf);
+    assert(visible_target != nullptr);
+    assert(visible_target->visible_commanded);
+    assert((visible_target->flags & 0x0041U) == 0);
+    assert(runtime.state().events().size() > event_count_before_visible);
+    const bool saw_cf_visible = std::any_of(
+        runtime.state().events().begin()
+            + static_cast<std::ptrdiff_t>(event_count_before_visible),
+        runtime.state().events().end(),
+        [](const opentony::trg::TriggerEvent& event) {
+            return event.kind == opentony::trg::TriggerEvent::Kind::Visible
+                && event.source_node == 141
+                && event.target_node == 0x00cf
+                && event.opcode == 0x000d
+                && event.value == 1;
+        });
+    assert(saw_cf_visible);
 
     std::cout << "level runtime ok\n";
 }

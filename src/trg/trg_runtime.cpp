@@ -105,6 +105,8 @@ namespace {
 [[nodiscard]] bool is_two_word_opcode(std::uint16_t opcode) {
     switch (opcode) {
     case 0x000d:
+    case 0x0069:
+    case 0x006a:
     case 0x0083:
     case 0x0084:
     case 0x0086:
@@ -318,6 +320,29 @@ std::uint16_t TrgFile::node_subtype(std::size_t index) const {
     return u16_at(backing_, static_cast<std::size_t>(current.offset) + 2);
 }
 
+std::vector<std::uint8_t> TrgFile::node_spawn_options(std::size_t index) const {
+    const NodeView& current = node(index);
+    if (current.type != 1 && current.type != 7) {
+        throw FormatError("node has no type-1/type-7 spawn options");
+    }
+    const std::size_t begin = current.offset;
+    const std::size_t end = begin + current.size;
+    const std::uint16_t link_words = u16_at(backing_, begin + 6);
+    if (link_words > (std::numeric_limits<std::size_t>::max() - 8) / 2) {
+        throw FormatError("TRG object option offset overflows the host size");
+    }
+    std::size_t cursor = begin + 8 + static_cast<std::size_t>(link_words) * 2;
+    std::vector<std::uint8_t> result;
+    while (cursor < end) {
+        const std::uint8_t value = byte_at(backing_, cursor++);
+        if (value == 0xff) {
+            return result;
+        }
+        result.push_back(value);
+    }
+    throw FormatError("TRG object option list has no terminator");
+}
+
 std::array<std::int32_t, 3> TrgFile::node_position(std::size_t index) const {
     const NodeView& current = node(index);
     const std::size_t begin = current.offset;
@@ -372,6 +397,24 @@ std::array<std::int32_t, 3> TrgFile::node_position(std::size_t index) const {
     }
     const std::array<std::int32_t, 6> fixed = raw.fixed12();
     return {fixed[0], fixed[1], fixed[2]};
+}
+
+std::uint16_t TrgFile::node_trigger_flags(std::size_t index) const {
+    const NodeView& current = node(index);
+    if (current.type != 10 && current.type != 11) {
+        throw FormatError("node has no type-10/type-11 trigger flags");
+    }
+    const std::size_t begin = current.offset;
+    const std::size_t end = begin + current.size;
+    const std::uint16_t link_words = u16_at(backing_, begin + 2);
+    const std::size_t position =
+        (begin + static_cast<std::size_t>(link_words) * 2 + 7) & ~static_cast<std::size_t>(3);
+    if (position > end || end - position < 14) {
+        throw FormatError("type-10/type-11 trigger flags exceed the node");
+    }
+    // FUN_004c8650 returns the word immediately after the three coordinates;
+    // FUN_004a9f70 reads that word for the PC build.
+    return u16_at(backing_, position + 12);
 }
 
 std::array<std::uint16_t, 3> TrgFile::node_orientation(std::size_t index) const {
@@ -777,7 +820,7 @@ void TriggerRuntime::build() {
     for (const NodeView& current : file_.nodes()) {
         switch (current.type) {
         case 1:
-        case 7:
+        case 7: {
             services_.on_object_node(current.index);
             services_.on_object_node_data(current.index, file_.node_bytes(current.index));
             services_.on_spawn_node(
@@ -786,8 +829,11 @@ void TriggerRuntime::build() {
                 file_.node_subtype(current.index),
                 file_.node_position(current.index),
                 file_.node_bytes(current.index));
+            const std::vector<std::uint8_t> options = file_.node_spawn_options(current.index);
+            services_.on_spawn_node_options(current.index, current.type, options);
             services_.on_spawn_orientation(current.index, file_.node_orientation(current.index));
             break;
+        }
         case 2:
         case 9:
             // Retail creates these records with a static link command stream;
@@ -827,6 +873,18 @@ void TriggerRuntime::build() {
                 current.index,
                 file_.restart_auxiliary(current.index),
                 file_.restart_auxiliary_word(current.index));
+            break;
+        case 10:
+        case 11:
+            // FUN_004aa8c0 registers these nodes in the DAT_0056b860 list.
+            // Its object stores the node index at +0x06 and the raw
+            // FUN_004a9f70 word controls the initial +0x04 state byte.
+            services_.on_special_node(current.index, current.type, file_.node_bytes(current.index));
+            services_.on_special_node_state(
+                current.index,
+                current.type,
+                file_.node_trigger_flags(current.index),
+                file_.node_position(current.index));
             break;
         case 12:
         case 14:
@@ -1073,6 +1131,56 @@ void TriggerRuntime::dispatch(
         case 0x0081:
             services_.on_flush_resources();
             break;
+        case 0x0073:
+            // The PC dispatcher consumes the string and reports this command
+            // as unavailable; it does not mutate the level state.
+            (void)cursor.read_string();
+            services_.on_diagnostic("TRG command no longer supported");
+            break;
+        case 0x0077:
+            // Resource-stream cursor path with no PC-side helper.
+            (void)cursor.read_string();
+            break;
+        case 0x0079:
+            services_.on_diagnostic("CamFollowPath command not currently supported");
+            break;
+        case 0x007a:
+            services_.on_diagnostic("ClearOtherRegion command not currently supported");
+            break;
+        case 0x008a:
+            (void)cursor.read_u16();
+            services_.on_diagnostic("SeekXA command not supported");
+            break;
+        case 0x008b:
+            (void)cursor.read_u16_triplet();
+            services_.on_diagnostic("PlayXA command not supported");
+            break;
+        case 0x0082:
+        case 0x0087:
+        case 0x008f:
+        case 0x0090:
+        case 0x0091:
+        case 0x0092:
+        case 0x0096:
+        case 0x009b:
+        case 0x009c:
+        case 0x009f:
+        case 0x00a1:
+            // These helpers are present in the PC dispatcher but are empty
+            // in this executable (or only route to an unavailable subsystem).
+            // Consume their verified operands and retain the raw command for
+            // traceability without inventing a gameplay mutation.
+            if (opcode == 0x009f) {
+                (void)cursor.read_string();
+            } else if (opcode == 0x0082 || opcode == 0x0087
+                       || opcode == 0x008f || opcode == 0x0090
+                       || opcode == 0x0091 || opcode == 0x0092) {
+                (void)cursor.read_u16_triplet();
+            } else {
+                (void)cursor.read_u16();
+            }
+            services_.on_legacy_command(opcode, cursor.raw(opcode_offset), source_node);
+            break;
         case 0x0085: {
             const std::size_t records_start = cursor.position();
             const std::vector<FixedPathRecord> records = cursor.read_fixed_path_records(records_start);
@@ -1197,7 +1305,38 @@ void TriggerRuntime::dispatch(
             break;
         case 0x00a6:
         case 0x00a9:
+        case 0x00aa:
             services_.on_global_word(opcode, cursor.read_u16());
+            break;
+        case 0x0099:
+        case 0x009a:
+        case 0x00a0:
+        case 0x00a4:
+        case 0x00a5:
+        case 0x00a8:
+        case 0x00ac:
+            services_.on_current_object_word(source_node, opcode, cursor.read_u16());
+            break;
+        case 0x00a3:
+        case 0x00b1:
+            services_.on_current_skater_word(source_node, opcode, cursor.read_u16());
+            break;
+        case 0x00a7: {
+            const std::uint16_t first = cursor.read_u16();
+            const std::uint16_t second = cursor.read_u16();
+            services_.on_current_object_pair(source_node, opcode, first, second);
+            break;
+        }
+        case 0x00a2:
+            // The retail branch consumes an aligned string and reports that
+            // LoadAI is unsupported in this PC dispatcher. Keep the command
+            // visible to the legacy hook after reproducing that diagnostic.
+            (void)cursor.read_string();
+            services_.on_diagnostic("LoadAI command not supported");
+            services_.on_legacy_command(opcode, cursor.raw(opcode_offset), source_node);
+            break;
+        case 0x00ad:
+            services_.on_current_object_copy(source_node, opcode);
             break;
         case 0x00c8: {
             const std::uint32_t value = (static_cast<std::uint32_t>(cursor.read_u16()) << 16) | cursor.read_u16();
@@ -1260,11 +1399,12 @@ void TriggerRuntime::dispatch(
                         static_cast<std::uint32_t>(opcode_offset),
                         source_node,
                         remaining);
-                    std::ostringstream detail;
-                    detail << error.what()
-                           << " at file offset 0x" << std::hex << opcode_offset
-                           << " in node " << std::dec << source_node;
-                    throw FormatError(detail.str());
+                    // Retail's default switch arm reports the unknown word
+                    // and advances past the opcode only. Do the same here;
+                    // guessing an operand width would desynchronise the
+                    // historical opaque tails in SKATE_T/SKPARK_T.
+                    services_.on_diagnostic("unknown TRG command");
+                    continue;
                 }
                 throw;
             }

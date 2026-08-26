@@ -32,6 +32,21 @@ struct LevelSceneEntity {
     std::string factory_resource;
     std::uint32_t factory_model_selector{};
     bool has_factory_model_selector{};
+    std::vector<std::uint8_t> spawn_options;
+    bool has_spawn_option_2{};
+    bool has_spawn_option_4{};
+    bool factory_requires_environment_registration{};
+    bool factory_clears_object_flag_2{};
+    bool factory_sets_object_flag_4{};
+    std::uint16_t trigger_flags{};
+    std::uint8_t trigger_state{};
+    std::uint8_t trigger_mode{};
+    bool has_trigger_runtime{};
+    std::uint8_t special_runtime_owner{};
+    std::uint32_t special_runtime_control{};
+    bool has_special_runtime_context{};
+    bool has_special_runtime{};
+    bool special_runtime_active{};
     std::string factory_asset_path;
     bool factory_asset_available{};
     bool factory_asset_loaded{};
@@ -41,6 +56,9 @@ struct LevelSceneEntity {
     std::array<std::uint16_t, 3> orientation{};
     bool has_orientation{};
     std::uint32_t asset_flags{};
+    std::uint8_t special_asset_flags_or{};
+    std::uint32_t special_asset_marker{};
+    bool has_special_asset_state{};
     std::uint16_t gameplay_flags{};
     bool active{true};
     bool suspended{};
@@ -94,6 +112,9 @@ private:
     [[nodiscard]] static const TriggerObjectState* find_state(
         const LevelTriggerState& state,
         std::size_t node) noexcept;
+    static void copy_source_metadata(
+        LevelSceneEntity& entity,
+        const TriggerObjectState& source);
     void sync_binding(const LevelTriggerState& state, const LevelSceneBinding& binding);
 };
 

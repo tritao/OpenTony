@@ -36,9 +36,12 @@ namespace {
 void LevelTriggerState::reset() {
     const std::uint16_t configured_visible_mask = visible_mask_;
     const GapTable* configured_gap_table = gap_table_;
+    const TriggerSpecialRuntimeContext configured_special_runtime_context =
+        special_runtime_context_;
     *this = LevelTriggerState{};
     visible_mask_ = configured_visible_mask;
     gap_table_ = configured_gap_table;
+    special_runtime_context_ = configured_special_runtime_context;
 }
 
 void LevelTriggerState::set_object_identifier(std::size_t node, std::uint16_t identifier) {
@@ -103,10 +106,24 @@ void LevelTriggerState::mark_gap_complete(std::uint32_t checksum) {
         TriggerGapState state{};
         state.checksum = checksum;
         state.completed = true;
+        state.awarded = true;
+        state.pulse_pending = true;
         gaps_.push_back(std::move(state));
     } else {
         found->completed = true;
+        if (!found->awarded) {
+            found->awarded = true;
+            found->pulse_pending = true;
+        }
     }
+    events_.push_back(TriggerEvent{
+        TriggerEvent::Kind::GapCompleted,
+        CommandPointRuntime::npos,
+        CommandPointRuntime::npos,
+        0x00c9,
+        0,
+        checksum,
+    });
 }
 
 void LevelTriggerState::mark_goal_complete(std::uint16_t goal, bool complete) {
@@ -197,8 +214,16 @@ void LevelTriggerState::on_spawn_node(
         current.spawn_family = TriggerSpawnFamily::Pickup;
     } else if (subtype == 0x00cb) {
         current.spawn_family = TriggerSpawnFamily::ObjectCb;
+        // FUN_00403000 starts the common object flag word at zero and ORs
+        // 0x41 into object +0x04 before the factory returns.  Keep this in
+        // the same mutable word used by SendVisible/SendKill so later
+        // trigger commands start from the retail constructor state.
+        current.flags = static_cast<std::uint16_t>(current.flags | 0x0041U);
     } else if (subtype == 0x0192) {
         current.spawn_family = TriggerSpawnFamily::Object192;
+        // FUN_0049f250 applies (flags & ~2) | 0x111 to object +0x04.
+        current.flags = static_cast<std::uint16_t>(
+            (current.flags & static_cast<std::uint16_t>(~0x0002U)) | 0x0111U);
     } else if (subtype >= 0x00d5 && subtype <= 0x00dc) {
         current.spawn_family = TriggerSpawnFamily::SpecialVehicle;
         switch (subtype) {
@@ -246,6 +271,26 @@ void LevelTriggerState::on_spawn_node(
     }
 }
 
+void LevelTriggerState::on_spawn_node_options(
+    std::size_t node,
+    std::uint16_t type,
+    std::span<const std::uint8_t> options) {
+    TriggerObjectState& current = ensure_object(
+        node,
+        type,
+        type == 5 ? TriggerObjectKind::Pickup : TriggerObjectKind::Object);
+    current.spawn_options.assign(options.begin(), options.end());
+    current.has_spawn_option_2 = std::find(options.begin(), options.end(), 2) != options.end();
+    current.has_spawn_option_4 = std::find(options.begin(), options.end(), 4) != options.end();
+    // FUN_004c5460 passes option-4 to the factory as a clear of object flag
+    // bit 1. Type-7 creation additionally sets bit 2 through bVar2.
+    current.factory_clears_object_flag_2 = current.has_spawn_option_4;
+    current.factory_sets_object_flag_4 = type == 7;
+    // Without option 2, the retail path expects the new object to be one of
+    // the environment/baddy lists and registers it there after construction.
+    current.factory_requires_environment_registration = !current.has_spawn_option_2;
+}
+
 void LevelTriggerState::on_spawn_orientation(
     std::size_t node,
     std::array<std::uint16_t, 3> orientation) {
@@ -262,6 +307,21 @@ void LevelTriggerState::on_special_node(
     (void)ensure_object(node, type, TriggerObjectKind::Special);
 }
 
+void LevelTriggerState::on_special_node_state(
+    std::size_t node,
+    std::uint16_t type,
+    std::uint16_t flags,
+    std::array<std::int32_t, 3> position) {
+    TriggerObjectState& current = ensure_object(node, type, TriggerObjectKind::Special);
+    current.position = position;
+    current.has_position = true;
+    current.trigger_flags = flags;
+    current.trigger_mode = static_cast<std::uint8_t>(flags & 0x000fU);
+    current.trigger_state = (flags & 0x0040U) != 0 ? 0 : 1;
+    current.has_trigger_runtime = true;
+    current.active = current.trigger_state != 0;
+}
+
 void LevelTriggerState::on_linked_node(
     std::size_t node,
     std::uint16_t type,
@@ -273,7 +333,11 @@ void LevelTriggerState::on_linked_node(
     const TriggerObjectKind kind = type == 12 || type == 14
         ? TriggerObjectKind::Special
         : TriggerObjectKind::LinkedObject;
-    (void)ensure_object(node, type, kind, key);
+    TriggerObjectState& current = ensure_object(node, type, kind, key);
+    if (type == 12 || type == 14) {
+        current.has_special_runtime = true;
+        current.special_runtime_active = false;
+    }
 }
 
 void LevelTriggerState::on_restart_node(
@@ -309,6 +373,28 @@ void LevelTriggerState::on_restart_node_data(
 void LevelTriggerState::on_node_pulse(std::size_t node) {
     if (TriggerObjectState* current = find_object(node); current != nullptr) {
         ++current->pulses;
+        if (current->node_type == 10 || current->node_type == 11) {
+            // FUN_004aa420(node) -> FUN_004aa3c0(node, 1).
+            current->trigger_state = 1;
+            current->active = true;
+        } else if (current->node_type == 12 || current->node_type == 14) {
+            // FUN_004bdbd0 -> FUN_004bdc40(node) sets the type-12/type-14
+            // runtime record's +0x0a active byte after resolving its +0x04
+            // link key. The resolved +0x14 pointer remains a service seam.
+            current->special_runtime_active = true;
+            if (special_runtime_context_.configured) {
+                current->special_runtime_owner = special_runtime_context_.owner;
+                current->special_runtime_control = special_runtime_context_.control;
+                current->has_special_runtime_context = true;
+            }
+            // FUN_004bdc40 also ORs byte +0x05 of the resolved asset with 4
+            // and writes 0x202020 to its +0x24 marker field.
+            current->special_asset_flags_or = static_cast<std::uint8_t>(
+                current->special_asset_flags_or | 0x04U);
+            current->special_asset_marker = 0x00202020U;
+            current->has_special_asset_state = true;
+            current->active = true;
+        }
     }
     record_target_event(TriggerEvent::Kind::Pulse, CommandPointRuntime::npos, node);
 }
@@ -351,7 +437,13 @@ void LevelTriggerState::on_kill(
         if (TriggerObjectState* current = find_object(target);
             current != nullptr && accepts_kill(current->node_type)) {
             ++current->kills;
-            if (opcode == 0x000c) {
+            if (current->node_type == 10 || current->node_type == 11) {
+                // FUN_004c7a00 routes both kill opcodes for types 10/11 to
+                // FUN_004aa410(node), which writes the runtime +0x04 byte to
+                // zero without applying the generic object kill flags.
+                current->trigger_state = 0;
+                current->active = false;
+            } else if (opcode == 0x000c) {
                 current->alive = false;
                 current->killed = true;
                 current->active = false;
@@ -425,6 +517,92 @@ void LevelTriggerState::on_global_word(std::uint16_t opcode, std::uint16_t value
     if (opcode < global_words_.size()) {
         global_words_[opcode] = value;
         has_global_word_[opcode] = true;
+    }
+}
+
+void LevelTriggerState::on_current_object_word(
+    std::size_t source,
+    std::uint16_t opcode,
+    std::uint16_t value) {
+    dispatcher_field_writes_.push_back(
+        DispatcherFieldWrite{source, opcode, {value, 0}, 1});
+    switch (opcode) {
+    case 0x0099:
+        current_object_fields_.field_4d4 = static_cast<std::int16_t>(value);
+        current_object_fields_.has_4d4 = true;
+        break;
+    case 0x009a:
+        current_object_fields_.field_4d8 = static_cast<std::int16_t>(value);
+        current_object_fields_.has_4d8 = true;
+        break;
+    case 0x00a0:
+        current_object_fields_.field_504 = value;
+        current_object_fields_.has_504 = true;
+        break;
+    case 0x00a4:
+        current_object_fields_.field_4dc = value;
+        current_object_fields_.has_4dc = true;
+        break;
+    case 0x00a5:
+        current_object_fields_.field_4de = value;
+        current_object_fields_.has_4de = true;
+        break;
+    case 0x00a8:
+        current_object_fields_.field_434 = value;
+        current_object_fields_.has_434 = true;
+        break;
+    case 0x00ac:
+        current_object_fields_.field_436 = value;
+        current_object_fields_.has_436 = true;
+        break;
+    default:
+        break;
+    }
+}
+
+void LevelTriggerState::on_current_object_pair(
+    std::size_t source,
+    std::uint16_t opcode,
+    std::uint16_t first,
+    std::uint16_t second) {
+    dispatcher_field_writes_.push_back(
+        DispatcherFieldWrite{source, opcode, {first, second}, 2});
+    if (opcode != 0x00a7) {
+        return;
+    }
+    current_object_fields_.field_410 = second;
+    current_object_fields_.has_410 = true;
+    if (second == 0) {
+        current_object_fields_.field_40c = first;
+        current_object_fields_.has_40c = true;
+    } else if (current_object_fields_.has_40c) {
+        current_object_fields_.field_414 =
+            (static_cast<std::int32_t>(first) -
+             static_cast<std::int32_t>(current_object_fields_.field_40c)) /
+            static_cast<std::int32_t>(second);
+        current_object_fields_.has_414 = true;
+    }
+}
+
+void LevelTriggerState::on_current_object_copy(std::size_t source, std::uint16_t opcode) {
+    dispatcher_field_writes_.push_back(DispatcherFieldWrite{source, opcode, {}, 0});
+    if (opcode == 0x00ad) {
+        current_object_fields_.copied_3dc_from_3a4 = true;
+    }
+}
+
+void LevelTriggerState::on_current_skater_word(
+    std::size_t source,
+    std::uint16_t opcode,
+    std::uint16_t value) {
+    dispatcher_field_writes_.push_back(
+        DispatcherFieldWrite{source, opcode, {value, 0}, 1});
+    if (opcode == 0x00a3) {
+        current_skater_fields_.field_3198 = value;
+        current_skater_fields_.has_3198 = true;
+    } else if (opcode == 0x00b1) {
+        current_skater_fields_.field_319c = value;
+        current_skater_fields_.has_319c = true;
     }
 }
 
@@ -512,9 +690,14 @@ void LevelTriggerState::on_initial_state(std::uint16_t state) {
 }
 
 void LevelTriggerState::on_timer(std::uint32_t milliseconds) {
-    timers_.push_back(TriggerTimerState{time_ms_ + milliseconds, milliseconds, false});
+    // Retail 0x97 calls FUN_004c5da0, which releases and clears the global
+    // timer object, then calls FUN_004c5d90. The latter is a one-instruction
+    // ret in this PC build, so the operand does not schedule an expiry.
+    timers_.clear();
+    ++timer_reset_requests_;
+    last_timer_request_ms_ = milliseconds;
     events_.push_back(TriggerEvent{
-        TriggerEvent::Kind::TimerScheduled,
+        TriggerEvent::Kind::TimerReset,
         CommandPointRuntime::npos,
         CommandPointRuntime::npos,
         0x0097,
@@ -529,6 +712,23 @@ void LevelTriggerState::on_reverb_type(std::uint8_t type) {
 
 void LevelTriggerState::on_level_event_state() {
     ++level_event_updates_;
+    // FUN_00466c10's first-call initialization is independent of the mode
+    // specific versus/stat branches above it. Preserve those verified raw
+    // global writes while leaving the player/mode inputs to a higher service.
+    if (!level_event_initialized_) {
+        level_event_initialized_ = true;
+        level_event_timer_value_ = 0x50;
+        level_event_mode_value_ = 0x40;
+        secondary_turn_reset_ = true;
+    }
+    events_.push_back(TriggerEvent{
+        TriggerEvent::Kind::LevelEventUpdated,
+        CommandPointRuntime::npos,
+        CommandPointRuntime::npos,
+        0x009e,
+        0,
+        0,
+    });
 }
 
 void LevelTriggerState::on_script_value(std::uint32_t value) {

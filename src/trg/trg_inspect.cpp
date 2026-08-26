@@ -7,20 +7,42 @@
 #include <string_view>
 
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 4 || (argc == 4 && std::string_view(argv[3]) != "--warehouse-gaps")) {
-        std::cerr << "usage: opentony_trg_inspect FILE.trg [LEVEL.psx] [--warehouse-gaps]\n";
+    if (argc < 2 || argc > 5) {
+        std::cerr << "usage: opentony_trg_inspect FILE.trg [LEVEL.psx] [--warehouse-gaps] [--dispatch-all]\n";
         return 2;
     }
     try {
+        bool warehouse_gaps = false;
+        bool dispatch_all = false;
+        for (int index = 2; index < argc; ++index) {
+            const std::string_view argument = argv[index];
+            if (argument == "--warehouse-gaps") {
+                warehouse_gaps = true;
+            } else if (argument == "--dispatch-all") {
+                dispatch_all = true;
+            }
+        }
+        const bool has_psx = argc >= 3
+            && std::string_view(argv[2]).starts_with("--") == false;
         opentony::trg::TrgFile file = opentony::trg::TrgFile::load(argv[1]);
         opentony::trg::LevelTriggerState state;
         opentony::trg::LevelSceneRegistry scene;
-        if (argc == 4) {
+        if (warehouse_gaps) {
             state.set_gap_table(&opentony::trg::retail_warehouse_gap_table());
         }
         opentony::trg::TriggerRuntime runtime(std::move(file), state);
         runtime.initialize();
-        if (argc >= 3) {
+        std::size_t dispatched = 0;
+        if (dispatch_all) {
+            for (const auto& node : runtime.file().nodes()) {
+                if (node.type != 6) {
+                    continue;
+                }
+                runtime.pulse_node(node.index);
+                ++dispatched;
+            }
+        }
+        if (has_psx) {
             const opentony::assets::PsxArchive archive =
                 opentony::assets::PsxArchive::load(argv[2]);
             state.bind_psx_models(archive);
@@ -66,6 +88,7 @@ int main(int argc, char** argv) {
                   << " scene_trigger=" << scene.trigger_entity_count()
                   << " scene_bound=" << scene.bound_trigger_count()
                   << " scene_unresolved=" << scene.unresolved_trigger_count()
+                  << " dispatched=" << dispatched
                   << " legacy=" << state.legacy_commands().size()
                   << " diagnostics=" << state.diagnostics().size() << '\n';
     } catch (const opentony::trg::FormatError& error) {

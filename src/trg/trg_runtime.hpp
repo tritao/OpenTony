@@ -45,6 +45,13 @@ struct ScriptObjectCommand {
     std::array<std::uint16_t, 3> parameters{};
 };
 
+struct DispatcherFieldWrite {
+    std::size_t source_node{};
+    std::uint16_t opcode{};
+    std::array<std::uint16_t, 2> operands{};
+    std::uint8_t operand_count{};
+};
+
 class TrgFile {
 public:
     static TrgFile parse(std::span<const std::byte> bytes);
@@ -56,7 +63,15 @@ public:
     [[nodiscard]] const NodeView& node(std::size_t index) const;
     [[nodiscard]] std::span<const std::byte> node_bytes(std::size_t index) const;
     [[nodiscard]] std::uint16_t node_subtype(std::size_t index) const;
+    // Type-1/type-7 object factories scan the byte list after the link words
+    // for option values before the fixed-point position. Preserve that list
+    // exactly; FUN_004c5460 gives values 2 and 4 distinct flag semantics.
+    [[nodiscard]] std::vector<std::uint8_t> node_spawn_options(std::size_t index) const;
     [[nodiscard]] std::array<std::int32_t, 3> node_position(std::size_t index) const;
+    // Type-10/type-11 constructors read the u16 immediately after their
+    // fixed-point position triplet through FUN_004a9f70.  Keep that raw word
+    // available instead of folding it into a guessed gameplay meaning.
+    [[nodiscard]] std::uint16_t node_trigger_flags(std::size_t index) const;
     [[nodiscard]] std::array<std::uint16_t, 3> node_orientation(std::size_t index) const;
 
     // The retail loader uses this conditional 2-byte alignment for type-6
@@ -145,11 +160,20 @@ public:
         std::uint16_t,
         std::array<std::int32_t, 3>,
         std::span<const std::byte>) {}
+    virtual void on_spawn_node_options(
+        std::size_t,
+        std::uint16_t,
+        std::span<const std::uint8_t>) {}
     virtual void on_spawn_orientation(std::size_t, std::array<std::uint16_t, 3>) {}
     virtual void on_special_node(
         std::size_t,
         std::uint16_t,
         std::span<const std::byte>) {}
+    virtual void on_special_node_state(
+        std::size_t,
+        std::uint16_t,
+        std::uint16_t,
+        std::array<std::int32_t, 3>) {}
     virtual void on_unhandled_node(
         std::size_t,
         std::uint16_t,
@@ -175,6 +199,13 @@ public:
         std::span<const std::uint16_t>) {}
     virtual void on_object_flag_by_id(std::uint16_t, bool) {}
     virtual void on_global_word(std::uint16_t, std::uint16_t) {}
+    // Preserve dispatcher helpers that write fields on the current level
+    // object/skater. The receiver owns the current-object identity; these
+    // callbacks carry only verified raw operands and source ordering.
+    virtual void on_current_object_word(std::size_t, std::uint16_t, std::uint16_t) {}
+    virtual void on_current_object_pair(std::size_t, std::uint16_t, std::uint16_t, std::uint16_t) {}
+    virtual void on_current_object_copy(std::size_t, std::uint16_t) {}
+    virtual void on_current_skater_word(std::size_t, std::uint16_t, std::uint16_t) {}
 
     virtual void on_fog_range(std::uint16_t, std::uint16_t, std::uint16_t) {}
     virtual void on_music(std::int16_t) {}

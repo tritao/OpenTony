@@ -70,6 +70,8 @@ std::vector<std::byte> object_node() {
     u16(node, 0);
     u16(node, 0);
     u16(node, 0);
+    node.push_back(std::byte{2});
+    node.push_back(std::byte{4});
     node.push_back(std::byte{0xff});
     node.insert(node.end(), 24, std::byte{0});
     return node;
@@ -89,20 +91,35 @@ struct Recorder final : TriggerServices {
     std::vector<std::uint16_t> initial_states;
     std::vector<std::size_t> node_pulses;
     std::vector<std::pair<std::uint16_t, std::uint16_t>> global_words;
+    std::vector<std::vector<std::uint8_t>> spawn_options;
     std::vector<std::size_t> selected_restarts;
     std::vector<std::size_t> applied_restarts;
     std::vector<std::pair<std::uint32_t, std::uint16_t>> restart_data;
     std::vector<std::pair<std::uint32_t, std::uint16_t>> applied_restart_data;
     std::vector<std::tuple<std::size_t, std::uint32_t, std::array<std::uint16_t, 3>>> script_objects;
+    std::vector<std::tuple<std::size_t, std::uint16_t, std::uint16_t, std::array<std::int32_t, 3>>> special_states;
     std::vector<std::tuple<std::uint16_t, std::uint32_t, std::size_t>> unknown_commands;
 
     void on_object_node(std::size_t) override { ++objects; }
     void on_pickup_node(std::size_t) override { ++pickups; }
+    void on_spawn_node_options(
+        std::size_t,
+        std::uint16_t,
+        std::span<const std::uint8_t> options) override {
+        spawn_options.emplace_back(options.begin(), options.end());
+    }
     void on_script_object(
         std::size_t source,
         std::uint32_t key,
         std::array<std::uint16_t, 3> parameters) override {
         script_objects.emplace_back(source, key, parameters);
+    }
+    void on_special_node_state(
+        std::size_t node,
+        std::uint16_t type,
+        std::uint16_t flags,
+        std::array<std::int32_t, 3> position) override {
+        special_states.emplace_back(node, type, flags, position);
     }
     void on_restart_node(std::size_t index, std::string_view name, std::array<std::int32_t, 3>) override {
         restarts.emplace_back(index, std::string(name));
@@ -161,12 +178,15 @@ void test_visible_pulse_and_record_layout() {
     assert(file.node_bytes(0).size() == type6_node(links, 0, stream).size());
     assert(file.script(0).offset == 36);
     assert(file.links(0) == std::vector<std::uint16_t>{1});
+    assert(file.node_spawn_options(1) == std::vector<std::uint8_t>({2, 4}));
 
     Recorder recorder;
     TriggerRuntime runtime(std::move(file), recorder);
     runtime.build();
     runtime.pulse_node(0);
     assert(recorder.objects == 1);
+    const std::vector<std::vector<std::uint8_t>> expected_spawn_options{{2, 4}};
+    assert(recorder.spawn_options == expected_spawn_options);
     assert(recorder.visible_values == std::vector<std::uint16_t>{1});
     assert(recorder.visible_links == std::vector<std::vector<std::uint16_t>>{{1}});
     const CommandPointRuntime* point = runtime.command_point(0);
@@ -229,6 +249,28 @@ void test_initial_pulses_and_timer() {
     runtime.pulse_node(0);
     assert(recorder.node_pulses == std::vector<std::size_t>{1});
     assert(point->pulse_count == 2);
+}
+
+void test_conditional_skip_consumes_music_and_sound_operands() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0094);
+    u16(stream, 0); // pulse count deliberately does not match the first pulse
+    u16(stream, 0x0069);
+    u16(stream, 7);
+    u16(stream, 0x006a);
+    u16(stream, 8);
+    u16(stream, 0x0095);
+    u16(stream, 0xffff);
+
+    const std::array<std::uint16_t, 0> links{};
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node(links, 0, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+    assert(recorder.diagnostics.empty());
 }
 
 void test_restart_selection_and_checksum_lookup() {
@@ -387,6 +429,63 @@ void test_script_object_command() {
     assert(recorder.script_objects == expected);
 }
 
+void test_load_ai_reports_retail_unsupported_diagnostic() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x00a2);
+    stream.push_back(std::byte{'A'});
+    stream.push_back(std::byte{'I'});
+    stream.push_back(std::byte{0});
+    // read_string() advances to the next even absolute byte before the
+    // following command word.
+    stream.push_back(std::byte{0});
+    u16(stream, 0xffff);
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    const std::vector<std::string> expected_diagnostics{
+        "LoadAI command not supported",
+    };
+    assert(recorder.diagnostics == expected_diagnostics);
+}
+
+void test_type10_type11_runtime_list_state() {
+    // With two nodes the first node begins at absolute offset 20.  The
+    // retail type-10/type-11 position rule aligns (node + link_words + 7)
+    // down to absolute offset 24, then reads the trailing flag word after
+    // the three u32 coordinates.
+    std::vector<std::byte> trigger;
+    u16(trigger, 10);
+    u16(trigger, 0);
+    u32(trigger, 0x1000);
+    u32(trigger, 0x2000);
+    u32(trigger, 0x3000);
+    u16(trigger, 0x0042);
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({trigger, {std::byte{0xff}, std::byte{0}}})), recorder);
+    runtime.build();
+    assert(recorder.special_states.size() == 1);
+    assert(std::get<0>(recorder.special_states[0]) == 0);
+    assert(std::get<1>(recorder.special_states[0]) == 10);
+    assert(std::get<2>(recorder.special_states[0]) == 0x0042);
+    const std::array<std::int32_t, 3> expected_position{
+        0x1000 << 12,
+        0x2000 << 12,
+        0x3000 << 12,
+    };
+    assert(std::get<3>(recorder.special_states[0]) == expected_position);
+    assert(runtime.file().node_trigger_flags(0) == 0x0042);
+
+    runtime.pulse_node(0);
+    assert(recorder.node_pulses == std::vector<std::size_t>{0});
+}
+
 void test_restart_view_and_autoexec() {
     std::vector<std::byte> restart;
     u16(restart, 8);
@@ -412,25 +511,23 @@ void test_restart_view_and_autoexec() {
     assert(recorder.restart_data == expected_restart_data);
 }
 
-void test_unknown_opcode_is_rejected() {
+void test_unknown_opcode_matches_retail_fallthrough() {
     std::vector<std::byte> stream;
     u16(stream, 0x1234);
+    u16(stream, 0x0086);
+    u16(stream, 1);
     u16(stream, 0xffff);
     const std::vector<std::byte> file_bytes = trg_file({type6_node({}, 0, stream), {std::byte{0xff}, std::byte{0}}});
     Recorder recorder;
     TriggerRuntime runtime(TrgFile::parse(file_bytes), recorder);
     runtime.build();
-    bool rejected = false;
-    try {
-        runtime.pulse_node(0);
-    } catch (const FormatError&) {
-        rejected = true;
-    }
-    assert(rejected);
+    runtime.pulse_node(0);
     const std::vector<std::tuple<std::uint16_t, std::uint32_t, std::size_t>> expected_unknown{
         {0x1234, 28, 0},
     };
     assert(recorder.unknown_commands == expected_unknown);
+    assert(!recorder.diagnostics.empty());
+    assert(runtime.command_point(0)->initialized == 1);
 }
 
 } // namespace
@@ -439,11 +536,14 @@ int main() {
     test_visible_pulse_and_record_layout();
     test_c9_alignment_and_gap_dispatch();
     test_initial_pulses_and_timer();
+    test_conditional_skip_consumes_music_and_sound_operands();
     test_restart_selection_and_checksum_lookup();
     test_two_player_restart_selection_command();
     test_kill_bruce_applies_linked_restart();
     test_script_object_command();
+    test_load_ai_reports_retail_unsupported_diagnostic();
+    test_type10_type11_runtime_list_state();
     test_restart_view_and_autoexec();
-    test_unknown_opcode_is_rejected();
+    test_unknown_opcode_matches_retail_fallthrough();
     std::cout << "TRG runtime tests passed\n";
 }
