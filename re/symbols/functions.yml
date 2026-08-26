@@ -1,5 +1,13 @@
 version: 1
 functions:
+  - address: 0x00468b30
+    name: AnimationClock_Update
+    gdb_aliases:
+      - animation_clock_update
+    description: recompute global animation time scale and advance animation clock
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
   - address: 0x00502f74
     name: PE_EntryPoint
     gdb_aliases:
@@ -2268,3 +2276,109 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/scripting.md
+  - address: 0x00430920
+    name: Decomp_GetAnimTransform
+    description: animation-frame decode and per-part transform cache
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00464bb0
+    name: M3dUtils_ClearPoseStuff
+    description: release pose and model-part mapping allocations
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00465300
+    name: M3dUtils_BuildPose
+    description: root-first skeleton hierarchy pose composition boundary
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480730
+    name: CSuper_RunAnim
+    gdb_aliases:
+      - animation_run
+    description: select and initialize the current animation cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480890
+    name: CSuper_CycleAnim
+    gdb_aliases:
+      - animation_cycle
+    description: initialize a looping animation cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480950
+    name: CSuper_UpdateFrame
+    gdb_aliases:
+      - animation_update
+    description: advance the fixed-point animation cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480c30
+    name: CSuper_FrameReached
+    gdb_aliases:
+      - animation_frame_reached
+    description: inclusive old/new animation-frame crossing query
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480cd0
+    name: CSuper_SetAnimOrder
+    gdb_aliases:
+      - animation_set_order
+    description: map model/render parts to animation parts
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480f50
+    name: CSuper_ApplyPose
+    gdb_aliases:
+      - animation_apply_pose
+    description: bind model resources and build the pose stages
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00480fa0
+    name: CSuper_AnimationUpdate
+    gdb_aliases:
+      - animation_dispatch
+    description: per-object animation update and callback dispatcher
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00492f20
+    name: Skater_SteeringAnimationSelector
+    gdb_aliases:
+      - animation_selector
+    description: grounded steering animation and target-frame selector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00492ed0
+    name: Skater_ApproachAnimationFrame
+    gdb_aliases:
+      - animation_approach_frame
+    description: move a steering pose toward its target by 1, 3, or 5 frames
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00493370
+    name: Skater_ActionUpdate
+    gdb_aliases:
+      - skater_action_update
+    description: update smoothed steering state before the animation selector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x0049d8a0
+    name: Skater_DeriveAnimationRate
+    gdb_aliases:
+      - animation_rate
+    description: derive per-skater animation rate from recent physics records
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/animation.md

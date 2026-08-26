@@ -94,6 +94,17 @@ raw result and material flags at `0x00498a7d`; arm it with the dispatcher,
 in-air-handler, state-request, and state-writer probes to correlate a nonzero
 cast result with the exact `1 -> 0` landing write.
 
+Animation probes are available for controlled Warehouse runs:
+`tony-animation-sample COUNT FILE [--force]` samples the generated player's
+cursor at `0x00480fa0`; `tony-animation-request-sample COUNT FILE [--force]`
+logs `RunAnim` requests at `0x00480730`; and
+`tony-animation-selector-sample COUNT FILE [--force]` samples steering state at
+`0x00492f20`. `tony-key-loop SCAN PRESS RELEASE CYCLES` synthesizes bounded
+DirectInput scan-code press/release cycles, and `tony-key-clear [SCAN]`
+releases and disables them. For gameplay animation traces, arm the probes
+with `tony-skip-movies` and `tony-force-level warehouse`; the level-force
+breakpoint stops once at launch, so send `continue` again to reach gameplay.
+
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe
 to remove with `tony sessions clean SESSION`. `tony sessions stop SESSION`

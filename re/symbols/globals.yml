@@ -24,6 +24,30 @@ globals:
     confidence: inferred
     evidence:
       - re/evidence/functions/audio-runtime.md
+  - address: 0x005685f4
+    name: AnimationClock
+    gdb_aliases:
+      - animation_clock
+    description: integer global animation clock used by mode-3 playback
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x0056865c
+    name: AnimationTimeScale
+    gdb_aliases:
+      - animation_time_scale
+    description: global 8.8-style frame-time scale multiplied into animation rate
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
+  - address: 0x00568810
+    name: AnimationClockAccumulator
+    gdb_aliases:
+      - animation_clock_accumulator
+    description: sub-frame global accumulator from which the integer animation clock is derived
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation.md
   - address: 0x0056a858
     name: Player
     gdb_aliases:

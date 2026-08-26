@@ -56,6 +56,7 @@ ACTION_STATE_RECORDS = {
 
 _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
+_key_loop_breakpoints = []
 
 
 def _argv(arg: str, usage: str) -> list[str]:
@@ -683,6 +684,333 @@ class TonyJumpEdge(gdb.Command):
             f"mask 0x{breakpoint.action_mask:04x}; delay {delay} physics frames, "
             f"hold {hold} input updates"
         )
+class TonyKeyLoopBreakpoint(CountingBreakpoint):
+    """Drive one DirectInput scan-code byte with a repeatable press/release loop."""
+
+    def __init__(self, scan_code: int, press_ticks: int, release_ticks: int, cycles: int):
+        period = press_ticks + release_ticks
+        super().__init__(THPS2_ADDRESSES["input_state"][0], count=period * cycles, internal=True)
+        self.key_address = GLOBALS["KeyboardState"] + scan_code
+        self.scan_code = scan_code
+        self.press_ticks = press_ticks
+        self.release_ticks = release_ticks
+        self.phase = 0
+
+    def on_count(self, ctx):
+        del ctx
+        value = 0x80 if self.phase < self.press_ticks else 0
+        mem.write(self.key_address, bytes((value,)))
+        self.phase = (self.phase + 1) % (self.press_ticks + self.release_ticks)
+        if self.remaining == 1:
+            mem.write(self.key_address, b"\0")
+        return True
+
+    def on_complete(self):
+        mem.write(self.key_address, b"\0")
+        _write(f"keyboard loop complete for scan code {self.scan_code}")
+
+
+class TonyKeyLoop(gdb.Command):
+    """tony-key-loop SCAN PRESS RELEASE CYCLES -- synthesize repeated key edges."""
+
+    def __init__(self):
+        super().__init__("tony-key-loop", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-key-loop SCAN PRESS RELEASE CYCLES")
+        if len(values) != 4:
+            raise gdb.GdbError("usage: tony-key-loop SCAN PRESS RELEASE CYCLES")
+        scan_code, press_ticks, release_ticks, cycles = (_integer(value) for value in values)
+        if not 0 <= scan_code < 0x100:
+            raise gdb.GdbError("SCAN must be a DirectInput scan code between 0 and 255")
+        if press_ticks <= 0 or release_ticks <= 0 or cycles <= 0:
+            raise gdb.GdbError("PRESS, RELEASE, and CYCLES must be positive")
+        breakpoint = TonyKeyLoopBreakpoint(scan_code, press_ticks, release_ticks, cycles)
+        _key_loop_breakpoints.append(breakpoint)
+        _write(
+            f"keyboard loop armed for scan code {scan_code}: "
+            f"{press_ticks} pressed / {release_ticks} released ticks, {cycles} cycles"
+        )
+
+
+class TonyKeyClear(gdb.Command):
+    """tony-key-clear [SCAN] -- disable synthesized key loops and release keys."""
+
+    def __init__(self):
+        super().__init__("tony-key-clear", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-key-clear [SCAN]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-key-clear [SCAN]")
+        scan_code = _integer(values[0]) if values else None
+        if scan_code is not None and not 0 <= scan_code < 0x100:
+            raise gdb.GdbError("SCAN must be a DirectInput scan code between 0 and 255")
+        cleared = 0
+        for breakpoint in _key_loop_breakpoints:
+            if scan_code is not None and breakpoint.scan_code != scan_code:
+                continue
+            breakpoint.enabled = False
+            mem.write(breakpoint.key_address, b"\0")
+            cleared += 1
+        suffix = "" if scan_code is None else f" for scan code {scan_code}"
+        _write(f"disabled {cleared} synthesized keyboard loop(s){suffix}")
+
+
+class TonyAnimationSampleBreakpoint(CountingBreakpoint):
+    """Collect the live player's animation cursor before its object update."""
+
+    def __init__(self, count: int, path: Path, writer=None):
+        super().__init__(THPS2_ADDRESSES["animation_dispatch"][0], count=count, internal=True)
+        self.path = path
+        self.sample = 0
+        self.writer = writer
+
+    def on_count(self, ctx):
+        player = mem.u32(GLOBALS["Player"])
+        if player == 0 or ctx.this_ptr() != player:
+            return False
+        record = {
+            "sample": self.sample,
+            "eip": ctx.eip,
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "action_mask": mem.u16(GLOBALS["ActionMask"]),
+            "animation": {
+                "id": mem.u16(player + 0xF6),
+                "frame": mem.s16(player + 0xF4),
+                "fraction": mem.u16(player + 0x104),
+                "rate": mem.u32(player + 0x108),
+                "mode": mem.u8(player + 0xF8),
+                "direction": mem.s8(player + 0x100),
+                "endpoint": mem.s8(player + 0x101),
+                "alternate_endpoint": mem.s8(player + 0x102),
+                "finished": mem.u8(player + 0x107),
+                "old_frame": mem.s16(player + 0x10C),
+                "new_frame": mem.s16(player + 0x10E),
+                "old_anim": mem.u16(player + 0x110),
+                "old_anim_dir": mem.s8(player + 0x112),
+            },
+        }
+        try:
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        except OSError as exc:
+            raise gdb.GdbError(f"could not write animation sample {self.path}: {exc}") from exc
+        if self.writer is not None:
+            self.writer.event({"type": "animation_sample", **record})
+        self.sample += 1
+        return True
+
+    def on_complete(self):
+        self.should_stop = True
+        _write(f"animation sampling complete: {self.sample} samples -> {self.path}")
+
+
+class TonyAnimationSample(gdb.Command):
+    """tony-animation-sample COUNT FILE [--force] -- sample the player cursor."""
+
+    def __init__(self):
+        super().__init__("tony-animation-sample", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-animation-sample COUNT FILE [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-animation-sample COUNT FILE [--force]")
+        count = _integer(values[0])
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        path = Path(values[1]).expanduser()
+        if path.exists() and not force:
+            raise gdb.GdbError(f"refusing to overwrite {path}; add --force if intended")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if force:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise gdb.GdbError(f"could not prepare animation sample {path}: {exc}") from exc
+        breakpoint = TonyAnimationSampleBreakpoint(count, path, writer=_trace_writer)
+        _runtime_breakpoints.append(breakpoint)
+        _write(f"animation sampling armed for {count} player updates -> {path}")
+
+
+class TonyAnimationRequestBreakpoint(CountingBreakpoint):
+    """Collect calls into CSuper::RunAnim for the generated player."""
+
+    def __init__(self, count: int, path: Path, writer=None):
+        super().__init__(THPS2_ADDRESSES["animation_run"][0], count=count, internal=True)
+        self.path = path
+        self.sample = 0
+        self.writer = writer
+
+    def on_count(self, ctx):
+        player = mem.u32(GLOBALS["Player"])
+        if player == 0 or ctx.this_ptr() != player:
+            return False
+        wrapper_return = ctx.caller()
+        # RunAnim is reached through one of the four fixed-arity request
+        # wrappers.  Recover the wrapper's caller from below its saved
+        # registers/arguments so a live request can be tied to a selector.
+        outer_stack_offset = {
+            0x00490414: 0x18,
+            0x00490447: 0x18,
+            0x0049047A: 0x18,
+            0x004904AD: 0x18,
+        }.get(wrapper_return)
+        record = {
+            "sample": self.sample,
+            "eip": ctx.eip,
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "caller": f"0x{wrapper_return:08x}",
+            "outer_caller": (
+                f"0x{mem.u32(ctx.esp + outer_stack_offset):08x}"
+                if outer_stack_offset is not None else None
+            ),
+            "action_mask": mem.u16(GLOBALS["ActionMask"]),
+            "request": {
+                "animation": ctx.arg(0),
+                "start": ctx.arg(1),
+                "end": ctx.arg(2),
+                "alternate_endpoint": ctx.arg(3),
+            },
+            "before": {
+                "animation": mem.u16(player + 0xF6),
+                "frame": mem.s16(player + 0xF4),
+                "fraction": mem.u16(player + 0x104),
+                "rate": mem.u32(player + 0x108),
+                "mode": mem.u8(player + 0xF8),
+                "direction": mem.s8(player + 0x100),
+                "endpoint": mem.s8(player + 0x101),
+                "alternate_endpoint": mem.s8(player + 0x102),
+                "finished": mem.u8(player + 0x107),
+                "old_frame": mem.s16(player + 0x10C),
+                "new_frame": mem.s16(player + 0x10E),
+                "old_anim": mem.u16(player + 0x110),
+                "old_anim_dir": mem.s8(player + 0x112),
+            },
+        }
+        try:
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        except OSError as exc:
+            raise gdb.GdbError(f"could not write animation request sample {self.path}: {exc}") from exc
+        if self.writer is not None:
+            self.writer.event({"type": "animation_request", **record})
+        self.sample += 1
+        return True
+
+    def on_complete(self):
+        self.should_stop = True
+        _write(f"animation request sampling complete: {self.sample} samples -> {self.path}")
+
+
+class TonyAnimationRequestSample(gdb.Command):
+    """tony-animation-request-sample COUNT FILE [--force] -- sample RunAnim calls."""
+
+    def __init__(self):
+        super().__init__("tony-animation-request-sample", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-animation-request-sample COUNT FILE [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-animation-request-sample COUNT FILE [--force]")
+        count = _integer(values[0])
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        path = Path(values[1]).expanduser()
+        if path.exists() and not force:
+            raise gdb.GdbError(f"refusing to overwrite {path}; add --force if intended")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if force:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise gdb.GdbError(f"could not prepare animation request sample {path}: {exc}") from exc
+        breakpoint = TonyAnimationRequestBreakpoint(count, path, writer=_trace_writer)
+        _runtime_breakpoints.append(breakpoint)
+        _write(f"animation request sampling armed for {count} player requests -> {path}")
+
+
+class TonyAnimationSelectorBreakpoint(CountingBreakpoint):
+    """Collect the input/state gate seen by the steering animation selector."""
+
+    def __init__(self, count: int, path: Path, writer=None):
+        super().__init__(THPS2_ADDRESSES["animation_selector"][0], count=count, internal=True)
+        self.path = path
+        self.sample = 0
+        self.writer = writer
+
+    def on_count(self, ctx):
+        player = mem.u32(GLOBALS["Player"])
+        if player == 0 or ctx.this_ptr() != player:
+            return False
+        record = {
+            "sample": self.sample,
+            "eip": ctx.eip,
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "action_mask": mem.u16(GLOBALS["ActionMask"]),
+            "selector_state": {
+                "current_animation": mem.u16(player + 0xF6),
+                "current_frame": mem.s16(player + 0xF4),
+                "steering_value": mem.s32(player + 0x3148),
+                "transition_gate": mem.u32(player + 0x2DD8),
+                "object_flags": mem.u32(player + 0xD8),
+                "speed_branch": mem.s8(player + 0x31A2),
+                "physics_state": mem.u32(player + 0x30B8),
+            },
+        }
+        try:
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        except OSError as exc:
+            raise gdb.GdbError(f"could not write animation selector sample {self.path}: {exc}") from exc
+        if self.writer is not None:
+            self.writer.event({"type": "animation_selector", **record})
+        self.sample += 1
+        return True
+
+    def on_complete(self):
+        self.should_stop = True
+        _write(f"animation selector sampling complete: {self.sample} samples -> {self.path}")
+
+
+class TonyAnimationSelectorSample(gdb.Command):
+    """tony-animation-selector-sample COUNT FILE [--force] -- sample steering selector state."""
+
+    def __init__(self):
+        super().__init__("tony-animation-selector-sample", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-animation-selector-sample COUNT FILE [--force]")
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) != 2:
+            raise gdb.GdbError("usage: tony-animation-selector-sample COUNT FILE [--force]")
+        count = _integer(values[0])
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        path = Path(values[1]).expanduser()
+        if path.exists() and not force:
+            raise gdb.GdbError(f"refusing to overwrite {path}; add --force if intended")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if force:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise gdb.GdbError(f"could not prepare animation selector sample {path}: {exc}") from exc
+        breakpoint = TonyAnimationSelectorBreakpoint(count, path, writer=_trace_writer)
+        _runtime_breakpoints.append(breakpoint)
+        _write(f"animation selector sampling armed for {count} player hits -> {path}")
 
 
 def _watch_limit(values: list[str], usage: str, *, default_limit: int | None) -> tuple[list[str], int | None]:
@@ -1165,6 +1493,11 @@ def register_commands() -> None:
     TonyInputSample()
     TonyActionEdge()
     TonyJumpEdge()
+    TonyKeyLoop()
+    TonyKeyClear()
+    TonyAnimationSample()
+    TonyAnimationRequestSample()
+    TonyAnimationSelectorSample()
     TonyWatch()
     TonyWatchOnce()
     TonyWatchBatch()
@@ -1192,6 +1525,8 @@ def register_commands() -> None:
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-action-edge, tony-jump-edge, "
+        "tony-key-loop, tony-key-clear, tony-animation-sample, tony-animation-request-sample, "
+        "tony-animation-selector-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-camera-probe, tony-view-probe, tony-player-diff, tony-position-commit, "
