@@ -1,6 +1,6 @@
 # PC WAV sound-effect runtime path
 
-Status: confirmed WAV resource load, PCM extraction, DirectSound-buffer creation, and sound-bank handoff
+Status: confirmed/live WAV resource load, PCM extraction, DirectSound-buffer creation, and sound-bank handoff
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004ad020`, `0x004ad180`, `0x004f2960`, `0x004f2b40`, `0x004ed9b0`, `0x004f2c70`, `0x004f2e20`
 
@@ -32,15 +32,19 @@ consumed by the loader and playback path are:
 
 ```text
 description +0x00  sound ID; -1 terminates the bank table
-description +0x0c  WAV resource-name pointer
+description +0x0c  inline WAV resource-name bytes (32-byte field)
 description +0x2c  post-start flag copied to runtime slot state bit 1
 description +0x30  runtime sound-slot index returned by the WAV loader
 ```
 
-`DAT_0054ca80 + bank * 0xd68` is the selected bank table base, so the
-0x42-entry count and stride are runtime facts rather than assumptions about
-the VAB format. The remaining description words are not assigned a public
-meaning because the proven consumers do not read them on this path.
+`DAT_0054ca80 + bank * 0xd68` is the selected bank cursor; the first
+description begins 0x30 bytes before that cursor and each subsequent
+description advances by 0x34 bytes. The loader tests the description ID before
+using the inline name, so a `-1` record terminates the bank before the 0x42
+iteration safety bound. The 0x42-entry limit and stride are runtime facts
+rather than assumptions about the VAB format. The remaining description words
+are not assigned a public meaning because the proven consumers do not read
+them on this path.
 
 ## WAV file-to-sample conversion
 
@@ -80,9 +84,14 @@ device object at `DAT_029d8360`:
 descriptor +0x00 = 0x24                 descriptor size
 descriptor +0x04 = 0xe2                 creation flags
 descriptor +0x08 = decoded sample size
-descriptor +0x20 = pointer to WAVEFORMATEX
+descriptor +0x10 = pointer to WAVEFORMATEX
 destination      = DAT_029d6920 + slot * 0x28
 ```
+
+The descriptor is a 0x24-byte zeroed structure; the nine zeroed dwords are
+written before the three observed values and the format pointer. The
+`+0x10` location is the field actually passed to the audio-device vtable, not
+the end-of-structure padding.
 
 The created buffer is initialized by `0x004f2c70`. It locks the buffer through
 the DirectSound object vtable, retries after a lost-buffer result by restoring
@@ -130,11 +139,22 @@ hardcoded sound-description tables and are converted directly to
 `audio/<name>.wav`. `.SFX` therefore remains legacy or build-time metadata
 until a producer or consumer is independently identified.
 
-A live forced-Warehouse startup independently reached the level audio phase and
-printed `VAB OPENED: skate2.vab, 1`, `VAB OPENED: ware.vab, 15`, and an attempted
-`audio/drip3.wav` open. The WAV was absent in that isolated run, so this is
-startup/naming corroboration only; it is not being promoted to a live decoded
-buffer witness.
+A controlled level-12 launch reached the live level-audio phase and printed
+`VAB OPENED: skate2.vab, 1` followed by `VAB OPENED: ware.vab, 15`. Breakpoints
+at the WAV parser, buffer creator, and fill routine then captured successful
+Warehouse-bank buffer construction, for example:
+
+```text
+AUDIO_BUFFER_CREATE path=audio/rollconcrete2.wav
+AUDIO_WAV_OPEN      path=audio/rollconcrete2.wav
+AUDIO_BUFFER_FILL   rec=06655338 dsound=766c0140 flags=00000000 state=00000000
+```
+
+The same run reached the known missing-resource path for
+`audio/drip3.wav`, where the open returned null and the sound loader emitted
+its error. The heap and DirectSound pointers are run-specific; the ordered
+VAB selection, WAV name, parser entry, and successful buffer-fill boundary are
+the reusable evidence.
 
 ## Confidence and limits
 
@@ -143,6 +163,7 @@ buffer witness.
   buffer descriptor values, lock/copy/unlock handoff, sound-slot capacity, and
   the sound-id playback boundary.
 - `observed`: the extracted WAV corpus, the four front-end/level VAB family
-  selections, and live forced-Warehouse VAB/name selection.
+  selections, live Warehouse VAB/name selection, and successful WAV-parser to
+  DirectSound-buffer fill records.
 - `inferred`: public DirectSound class names, the complete sound-description
   record fields, and the audio-device initialization call.

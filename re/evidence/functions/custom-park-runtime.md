@@ -50,15 +50,40 @@ table is copied to `DAT_0056a1fc`. The exact semantic names of every editor
 item field are not assigned here; the packed-to-runtime widths and offsets
 are directly visible in the parser.
 
-For the current `0x4e25` format, the operational item-record mapping is:
+For the current `0x4e25` load branch, the operational item-record mapping is:
 
 ```text
 disk +0x00..+0x05  -> runtime +0x00..+0x05      two endpoint/index groups
-disk +0x06         -> runtime +0x08..+0x0b      four packed nibbles
-disk +0x08         -> runtime +0x06,+0x0a,+0x0c packed values
-disk +0x0a         -> runtime +0x28             item byte
-disk +0x0b..       -> runtime +0x0d..           bounded item name
+disk +0x06 u16     -> runtime +0x08..+0x0b      four nibbles, low-to-high
+disk +0x08 u16     -> runtime +0x06,+0x07,+0x0c 2-bit, 2-bit, remaining byte
+disk +0x0a         -> runtime +0x28             item byte (current 0x4e25 load)
+disk +0x0b..       -> runtime +0x0d             NUL-terminated visible name (current load)
 ```
+
+There is a one-byte compatibility quirk worth preserving. The older `0x4e24`
+load branch reads the item byte at disk `+0x09` and starts the name at `+0x0a`;
+the current `0x4e25` load branch reads the item byte at `+0x0a` and starts the
+name at `+0x0b`. The `0x4e25` serializer also writes the item byte at `+0x0a`
+and the name at `+0x0b`, so a faithful recreation should retain these
+observed offsets rather than normalize them into one abstract record. In the
+`PARK0` witness, `+0x0a = 0x06` is the current-load/serialized item byte and
+the visible name begins at `+0x0b`.
+
+The split is literal: the parser extracts four 4-bit values from the
+`+0x06` word, extracts two 2-bit values from the low four bits of the `+0x08`
+word, and preserves the shifted remainder as the runtime byte at `+0x0c`.
+This explains why the expanded record does not retain either source word as a
+single integer. The two endpoint/index groups remain six independent bytes;
+the generator later reads their low/high endpoint bytes as the three-index
+tuple for each side.
+
+The generator's use of that tuple is independently visible. For each side it
+reads runtime bytes `+0/+2/+4` (or `+1/+3/+5` for the second side), validates
+the first and third against the active grid dimensions, and indexes
+`cell_model_table[third][second + first*5]`. The diagnostics identify the
+first index as X and the third as Z; the middle index is the table's five-wide
+subindex. Thus the record can be recreated as two endpoint index triplets,
+without treating the six bytes as a packed coordinate integer.
 
 This is a width/offset correspondence, not a semantic claim for every editor
 label. A concrete `PARK0.PRK` example starts its ten-record table at file
@@ -141,6 +166,14 @@ translated PRK cell reference
   -> source object +0x22c = pointer to the published runtime record
 ```
 
+`0x00440190` also gives a stable generated-piece prefix contract: it copies
+three source-model dimensions to `+0x10/+0x12/+0x14`, clears the intermediate
+state beginning at `+0x18`, stores the source model's real-height-cell byte at
+`+0x0b`, and initializes the generated member-list/state links before the
+piece is placed in the level-generation chain. The later generator writes
+the cell position at `+0x21c/+0x21e/+0x220`, while `+0x224` remains the source
+descriptor and `+0x22c` becomes the reverse link to the published 0x4c object.
+
 The item records have a parallel consumer. `0x0043b8d0` reads each runtime
 item's two endpoint/index groups, resolves each endpoint through the generated
 cell-model table, allocates a zeroed 0x58-byte gap-member record, stores the
@@ -156,12 +189,20 @@ Those values are sufficient to reproduce the two generated gap members and
 follow their later source-record back-pointers, even though the editor's
 user-facing label is not treated as a model/class name.
 
+The two members are created in endpoint order. The first receives
+`+0x00 = 1` and the second `+0x00 = 0` in the observed constructor path;
+each member's `+0x08` points to its partner, while the list chain uses
+`+0x0c`. Disabled item marker `0x81` clears member `+0x38` and publishes the
+last such member through the level-generation disabled-item state; ordinary
+items set `+0x38` active. This separates endpoint pairing from list order and
+from the editor marker byte.
+
 The gap-member structure is now field-supported beyond the pair link. The
 constructor `0x004410b0` clears the record and initializes `+0x38` to 1 and
 `+0x39` to 0. `0x0043b8d0` then stores the selected source gap model at `+0x04`,
 the partner at `+0x08`, the next member at `+0x0c`, and the source PRK item
 ordinal at `+0x1c`. `0x00441630` copies the item marker into `+0x38` (normal
-items are active; the `0x7f` disabled marker clears the active path), and
+items are active; the `0x81` disabled marker clears the active path), and
 `0x00441240` writes the fixed words `0x864`, `0x3c8`, `0x1c`, `0x48`, and
 `0x31` at `+0x3c..+0x4c`.
 
@@ -190,7 +231,8 @@ PRK endpoint tuple + item marker
 
 - Confirmed: magic/version/map-variant header, five supported version grid
   dimensions, eight-byte packed cells, 16-byte expanded cells, ten 36-byte
-  item records, serializer size formula, common file read, PSX-slot creation,
+  item records, the nibble/2-bit item unpacking and name/item-byte mapping,
+  serializer size formula, common file read, PSX-slot creation,
   object/model table publication, and zone-consumer convergence.
 - Observed: the 0x1e00 temporary buffer used by the asynchronous/state-machine
   path and the 0x40-byte trailing table copy.

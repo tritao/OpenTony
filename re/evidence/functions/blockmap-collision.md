@@ -98,6 +98,18 @@ pointers. For each object it:
 - passes the object and face cache to `0x00462a20` for the actual face/query
   tests.
 
+The runtime object record is more than position/model/link data. The PSX
+parser's count-prefixed allocation runs the record constructor before copying
+the 36-byte disk object fields. That constructor installs the record vtable,
+zeros the three transform components at `+0x14/+0x16/+0x18`, and initializes
+the three transform defaults at `+0x28/+0x2a/+0x2c` to `0x1000`. The parser
+then copies the disk flags at `+0x04`, the three 16-bit transform components,
+and the trailing source word at `+0x24`; finalization sets a model-derived bit
+at `+0x19`. `0x00462a20` checks `+0x14`, `+0x16`, and `+0x18` together and
+reports `Can't handle rotated objects` if any are nonzero. This independently
+identifies the transform triplet as a real object field and marks the rotated
+object case as a known runtime limitation.
+
 The face cache is a runtime acceleration structure, not a second copy of the
 scene model. For each visited object/model pair, the cell walker writes one
 `0x1c`-byte entry per face into the shared cache at `DAT_005643b0`. The entry
@@ -110,11 +122,33 @@ reach the face test without rebuilding the bounds.
 The face test applies the query's fixed-point bounds/segment against the
 cached face AABB before reading the model vertices. It uses the face's normal
 and vertex indices for the oriented intersection test and, on a hit, writes
-the object pointer, model index, face pointer, hit distance, and surface
-normal through the collision-query record. The exact meaning of every
-query-record word remains intentionally open, but these output fields are
-directly assigned by `0x00462a20` and connect the collision result back to the
-PSX object/model pair.
+the object pointer, model index, face pointer, contact point, and hit distance
+through the collision-query record. The exact writes in `0x00462a20` are:
+
+```text
+query +0x40  hit metric, initialized to 0x7fffffff and replaced by the best hit
+query +0x68  RuntimePsxObjectRecord pointer
+query +0x6c  contact X, clamped along the query segment
+query +0x70  contact Y, clamped along the query segment
+query +0x74  contact Z, clamped along the query segment
+query +0x80  RuntimePsxFaceRecord pointer
+query +0x84  model index (u32)
+query +0x8c  hit distance/metric, initialized to 0x7fffffff
+```
+
+`0x004624d0` initializes the same fixed 0x90-byte query before broadphase
+submission. It derives the horizontal/vertical segment length into `+0x44`,
+computes the segment AABB at `+0x18..+0x2c`, initializes the 3x3 signed-12-bit
+basis matrix at `+0x48..+0x58`, and clears `+0x68`, `+0x80`, `+0x84`, `+0x88`,
+and the two hit metrics. Its generation word at `+0x8a` comes from the
+incrementing global query generation counter. The face walker copies that
+generation into each visited object/cache record, so repeated model visits can
+reuse the 20-entry face-bound cache during one query. When the selected object
+carries a collision-surface component, `0x00463d50` runs after the zone pass
+and publishes the final surface basis into query `+0x78`, `+0x7a`, and `+0x7c`
+as three signed 16-bit components. This is the concrete query-result boundary
+used by the skater physics path; the public orientation names remain
+intentionally unassigned.
 
 The upper collision entry point also establishes the ordering between dynamic
 and level geometry. `0x004628f0` first prepares the query against the global
@@ -141,8 +175,11 @@ SKWARE.PSX type-10 blockmap
 ## Confidence and limits
 
 - `confirmed`: Warehouse tag type and location, 20 x 20 grid, cell reference
-  layout, skipped per-cell metadata words, pointer rewrite formula, runtime object stride, model-table lookup,
-  and the collision call chain.
+  layout, skipped per-cell metadata words, pointer rewrite formula, runtime
+  object stride, model-table lookup, collision call chain, fixed 0x90-byte
+  query initialization, endpoint-derived AABB, basis-matrix initialization,
+  generation/cache reuse, selected object/model/face outputs, contact
+  coordinates, hit metrics, and surface-basis publication.
 - `observed`: the exact object-17 lists in cells 147 and 167 from the offline
   parser and the matching runtime object/model records from the load run.
 - `inferred`: the semantic names of the two source-format words and the

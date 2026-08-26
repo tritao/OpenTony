@@ -1,6 +1,6 @@
 # PSX texture and palette runtime path
 
-Status: confirmed PSX scene-material hash relocation, material-to-PC-texture ownership, static PSX image/palette handoff, inline source-palette lookup, one disk-to-runtime texture witness, live Warehouse bitmap-hash lookup, PC bitmap lookup templates, normalized texture allocation, indexed/RGB conversion, and upload handoff into the PC texture manager
+Status: confirmed PSX scene-material hash relocation, material-to-PC-texture ownership, static PSX image/palette handoff, inline source-palette lookup, four Warehouse disk-to-runtime texture witnesses, live Warehouse bitmap-hash lookup, PC bitmap lookup templates, normalized texture allocation, indexed/RGB conversion, and upload handoff into the PC texture manager
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x0048a360`, `0x0048a400`, `0x004b1f70`, `0x004b2030`, `0x004b20f0`, `0x004b2450`, `0x004b2b70`, `0x004b4e70`, `0x0048a7e0`, `0x004da260`, `0x004da3e0`, `0x004da460`, `0x004da680`, `0x004d8c60`, `0x004d8cd0`, `0x004d8df0`, `0x004d8f10`, `0x004d98d0`, `0x004d9880`, `0x004d9950`
 
@@ -99,8 +99,9 @@ with an inline texture table. For each referenced record it validates the
 declared colour count (`0x10` or `0x100`), resolves the runtime texture entry,
 and uses the record's dimensions and name/checksum fields to prepare a PC
 texture. The Warehouse scene's hash-only material table is therefore a proven
-scene-material association, while its later mapping from the scene material
-record to a loaded PC bitmap remains open.
+scene-material association. The controlled four-hash Warehouse run below adds
+the independent bitmap-open/upload witness for that later material-to-PC
+bitmap mapping; the inline reference path remains a separate format variant.
 
 In the inline path, the same routine calls `0x0048a400` with
 `DAT_0056db3c + reference[+0x08]` before preparing the PC texture. This proves
@@ -182,6 +183,16 @@ record +0x1c/+0x1e = image-header dimensions after the PC image is opened
 record +0x20  = image/header-ready marker set before upload
 ```
 
+There is a short-lived dimension ordering detail that a compatible loader must
+preserve. In `0x004d8cd0`, after accepting the BMP header, the constructor
+temporarily writes the BMP width/height to `+0x14/+0x16` and moves the
+declared PSX width/height to `+0x1c/+0x1e`; it also sets the bitmap flag
+`0x08` and the ready sentinel at `+0x20`. `0x004d8f10` uses the temporary
+BMP dimensions to choose the realized resource size. After a successful upload
+it swaps the two dimension pairs back, yielding the stable post-upload
+contract shown below. This is observable in the constructor and upload code,
+not a naming convention inferred from the final heap record.
+
 The checked PC image path accepts a 24-bit bitmap header for this branch; an
 unsupported bit depth or nonzero compression field tears down the pending
 texture and returns through the error path. `0x004d8f10` then chooses the
@@ -208,16 +219,37 @@ opens the basename under `NEWBMP`. The filename policy is therefore a
 checksum/material lookup rather than a runtime scan of all images. Static data
 at `DAT_00549f24` is `1` in this executable and has no discovered writer, so
 the configured branch is enabled by default; `DAT_006a6964 == 1` also selects
-it when the graphics mode is active. `DAT_006a0548` is populated from the
-frontend's selected `D3DLevelName` before the level launch call. The
-render-time disk-name template, 24-bit/uncompressed validation, and
-record-to-upload boundary are fixed.
+it when the graphics mode is active. `DAT_006a0548` is populated by
+`FrontEnd_Main` (`0x00452ff0`) from the selected-level index before the level
+launch call. The switch covers the named front-end levels; index 12
+(Warehouse) takes the default branch and copies the empty string at
+`0x0055fe10`. The render-time disk-name template, 24-bit/uncompressed
+validation, and record-to-upload boundary are fixed.
 
 For the Warehouse model-140 witness, the two material keys therefore produce
 the candidate bitmap names `D783CF21.BMP` and `288CA4C4.BMP` under either the
 configured `NEWTEX\\<root>` subdirectory or the fallback `NEWTEX` directory.
 This is a deterministic loader prediction, not evidence that both files were
 resident or opened in the captured Warehouse frame.
+
+The extracted `ALL.PKR` bitmap corpus supplies four stronger Warehouse-root
+candidates. Their files are directly under `newtex/`, which is the directory
+selected when the normal Warehouse root string is empty, and their hashes are
+used by concrete `SKWARE.PSX` faces:
+
+```text
+hash       BMP dimensions   Warehouse model/face       scene object(s)
+032BBB26   128 x 128         model 187 / face 24       object 174
+559F8A4B   256 x 128         model 68  / face 0        objects 68, 69, 72, 120, 126, 153
+7F9ACEA9   128 x 64          model 104 / face 0        object 104
+E75D1EF6    64 x 32          model 235 / faces 1,7     object 210
+```
+
+`7F9ACEA9` is also used by models 284..287 (objects 248..251), and
+`E75D1EF6` by model 236 (object 211). The files are 24-bit, uncompressed
+bitmaps, so they satisfy the exact `0x004d8df0`/`0x004d8cd0` acceptance gate.
+This is the disk-side material-to-image correspondence used to identify the
+runtime records in the controlled Warehouse launch below.
 
 ## Live Warehouse bitmap lookup
 
@@ -233,13 +265,38 @@ WAREHOUSE_BMP_LOOKUP hash=0x288ca4c4
 These are the offline `SKWARE.PSX` material/name hashes, not guessed filenames;
 the loader's `%08X.BMP` formatting therefore connects the Warehouse PSX
 material table to the live PC bitmap lookup function. However, the same forced
-level log records `D3DLevelName: Hangar` before the level argument is
-overridden, so this run proves the hash lookup but not a
-`NEWTEX\\Warehouse` directory selection. The controlled extracted asset tree
-contains neither `D783CF21.BMP` nor `288CA4C4.BMP`, and this run did not capture
-a successful `0x004d8f10` upload for either key. Actual bitmap residency remains
-conditional on the external configured-root files being present; a normal
-Warehouse selection is required to prove the final subdirectory value.
+level log records `D3DLevelName: Hangar` because the helper replaces the later
+`0x004544a0` argument, after the frontend has already selected the root. Static
+control flow now proves that a normal index-12 Warehouse selection would use
+the empty root (`0x0055fe10`), not a literal `Warehouse` subdirectory. The
+controlled extracted asset tree contains neither `D783CF21.BMP` nor
+`288CA4C4.BMP`, although it does contain the four root-level candidates listed
+above.
+
+A second controlled launch redirected `FrontEnd_Main` to
+`Front_LaunchGameLevel(12, 3)` before the frontend selected a different level.
+It reached the actual Warehouse load and captured all four root-level
+candidate images at the bitmap/open and upload boundaries:
+
+```text
+Loading Level: Warehouse
+WAREHOUSE_BMP     hash=e75d1ef6 arg2=00000000 root=<>
+WAREHOUSE_UPLOAD  rec=03b4b240 src=05cc0058 hash=e75d1ef6 flags=0000001a dims=64,32  ready=00000001
+WAREHOUSE_BMP     hash=032bbb26 arg2=00000000 root=<>
+WAREHOUSE_UPLOAD  rec=03b4b140 src=05cc50a8 hash=032bbb26 flags=0000001a dims=128,128 ready=00000001
+WAREHOUSE_BMP     hash=7f9acea9 arg2=00000000 root=<>
+WAREHOUSE_UPLOAD  rec=03b4b0c0 src=05cc88d0 hash=7f9acea9 flags=0000001a dims=128,64  ready=00000001
+WAREHOUSE_BMP     hash=559f8a4b arg2=00000000 root=<>
+WAREHOUSE_UPLOAD  rec=03b4b040 src=05cc9ef8 hash=559f8a4b flags=0000001a dims=256,128 ready=00000001
+```
+
+The filtered `0x004d8df0` calls show the normal Warehouse root as an empty
+string, and the following `0x004d8f10` records have the expected 24-bit BMP
+dimensions and the ready sentinel at `+0x20`. Combined with the offline face
+map above and the renderer's material `+0x14` link, this is a proven
+disk-image -> hashed scene material -> PC texture record -> renderer path for
+four Warehouse materials. The repeated bitmap calls are the loader's second
+lookup/cache pass; the upload line is the success boundary.
 
 The stable record fields set before the upload are:
 
@@ -261,10 +318,34 @@ The stable record fields set before the upload are:
 
 The field names above are deliberately operational rather than claims about a
 public C++ class. The generated `NEWTEX`/`NEWBMP` path policy and the level-root
-input are now recorded above; only the successful Warehouse upload witness
-remains to be collected.
+input are now recorded above.
 
-## Upload and realized-resource contract
+## PC texture lifetime and inverse ownership
+
+The inverse path is `0x004d8b50`, called by `0x004da400` when a scene material
+is released. It establishes the PC texture ownership contract:
+
+```text
+RuntimePsxMaterialRecord +0x14
+  -> 0x004da400
+  -> 0x004d8b50
+       Direct3D texture object vtable +0x08 release
+       0x004da3e0(material, 0) reverse-link detach
+       unlink record +0x24/+0x28 from the global texture list
+       DAT_006a04d4--
+       release owned source/name buffers according to +0x10 flags
+       release +0x20 palette-cache node when the cache flag is set
+       free the 0x2c-byte record
+```
+
+`0x004b2390` performs the material-side sweep after region teardown. It walks
+the 512 checksum buckets, selects records whose reference count at `+0x10` is
+zero, releases their PC texture at `+0x14`, and unlinks/frees the material
+record through `0x004b1fd0`. The source-palette cleanup at `0x0048a420`
+similarly walks the source-palette list, releases each owned converted record,
+restores the corresponding palette-state flags, and unlinks the lookup node.
+Thus a shared scene material and its PC texture survive individual region
+clears until the final reference is gone.
 
 The decompiled upload routine is a dispatcher over two concrete data paths.
 Before dispatch, `0x004d8f10` resolves the optional converted-palette cache node
@@ -311,6 +392,12 @@ width, copies rows with their source pitch, and releases the temporary source
 object after the copy succeeds. These helpers close the disk-image-to-texture
 memory boundary even though the Direct3D resource object and its vtable remain
 unidentified.
+
+The converted-palette cache has the matching inverse at `0x004da4d0`: it
+unlinks the `+0x10/+0x14` list links, decrements the cache count, frees the
+converted buffer at `+0x08`, optionally frees the source buffer at `+0x0c`,
+and frees the `0x18`-byte cache record. This is the resource-level cleanup used
+by both texture destruction and source-palette teardown.
 
 ## Dynamic PC-texture witness
 
@@ -372,12 +459,12 @@ PSX variant with inline palette/texture records
 
 The Warehouse run did reach `0x004b2b70` through slot 6 and reported the raw
 scene buffer at `0x005d74ef0`, whose header agrees with the parsed scene
-(`252` objects and `288` models). That is only a slot/parser boundary witness:
-because `SKWARE.PSX` has no inline texture records in the offline parse, it is
-not promoted to a Warehouse checksum-to-PC-texture correspondence. The
-scene-material record itself is nevertheless proven by the parser's checksum
-bucket and face-field rewrite; only the subsequent PC-bitmap ownership needs
-another consumer-side witness.
+(`252` objects and `288` models). Because `SKWARE.PSX` has no inline texture
+records in the offline parse, that slot/parser boundary is kept separate from
+the PC-bitmap path. The scene-material record itself is proven by the parser's
+checksum bucket and face-field rewrite; the four root-level Warehouse hashes
+above now supply the independent bitmap-open/upload witness for its subsequent
+PC-texture ownership.
 
 ## Confidence and limits
 
@@ -388,9 +475,9 @@ another consumer-side witness.
   texture-record correspondence, PC texture-record size/list linkage, bitmap
   path templates, image header read, 24-bit/uncompressed validation, dimension
   propagation, indexed nibble/byte expansion, 24-bit BGR conversion,
-  normalized-resource sizing, and Direct3D upload branch.
+  normalized-resource sizing, Direct3D upload branch, and four Warehouse
+  material-hash to successful PC bitmap/upload correspondences.
 - `observed`: the operational field offsets, the cache-pointer-or-ready
   marker at `+0x20`, the separate indexed/color branches, and a live
   constructor-to-upload record with 64x64 dimensions.
-- `inferred`: the exact PC-bitmap ownership reached from a Warehouse scene
-  material record, `0x004e8770`'s complete role, and all Direct3D texture flags.
+- `inferred`: `0x004e8770`'s complete role and all Direct3D texture flags.

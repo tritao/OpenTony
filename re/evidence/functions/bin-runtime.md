@@ -1,6 +1,6 @@
 # PC binary-asset runtime paths
 
-Status: confirmed for `TRICKS.BIN` and `CRETEX.BIN`; a generic relocatable
+Status: confirmed for `TRICKS.BIN` section/database/bytecode and `CRETEX.BIN`; a generic relocatable
 module helper is observed, but the extracted module pairs remain unproven or
 belong to the legacy/console side of the asset set
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
@@ -45,13 +45,21 @@ later calls return without rereading the file. This is a table-of-offsets
 loader, not a decompression or object allocator; the allocation belongs to
 the common raw resource layer.
 
+The shipped image has one additional signed word at `buffer + 0x0e`
+(`0x2b3b`), but the exact-build loader at `0x00492a90` reads and publishes
+only the seven offsets at `+0x00..+0x0c`. That eighth header word is retained
+as raw file data here; no runtime section is assigned to it without a caller
+that independently reads it.
+
 `0x004bb4f0` is the downstream manager constructor/initializer. It calls the
-loader, stores the successful result at an object field near `+0x1408`, and
+loader, stores the successful result at manager `+0x1408`, and
 validates relationships between the section pointers. It then reads a version
 word from one section and selects one of several fixed runtime table sizes
-(`0x200`, `0x100`, `0x800`, or `0x2000` in the observed branches). That gives a
-concrete consumer of the loaded binary even though the individual trick
-record fields are not yet fully named.
+(`0x200`, `0x100`, `0x800`, or `0x2000` in the observed branches). The same
+manager initializes its record count at `+0x1404`; `0x004bba50` appends records
+inline at `manager + 0x04 + count * 0x28` and enforces a maximum of `0x80`
+records. Thus the fixed manager prefix is independently bounded through
+`+0x1408`: 128 records, a count, and the retained raw resource pointer.
 
 The constructor also proves the descriptor dispatch rather than merely
 observing it in the first record: it reads a 1..4 button-count prefix, uses the
@@ -69,6 +77,15 @@ descriptor word. The next descriptor begins immediately after those fields;
 there is no separate next-offset field. `0x004bb4f0` selects the runtime table
 class from the type (`0x2000` for types 1/2, `0x100` for 9, `0x200` for 10,
 `0x800` for 12) and passes the resolved data pointer to `0x004bb7e0`.
+
+The other published sections have distinct consumers. Section 1 (`0x3440`) is
+the 0xd0-entry signed-offset table used by `0x00491c10` for bounded grind
+selection (`0..0xcf`). Section 2 (`0x6bcc`) supplies the signed offsets used
+by the skater trick/state-start path in `0x004904d0`. Sections 3 and 4 are the
+zero-filled/generated per-player destinations at `0x7990` and `0x7d90`;
+sections 5 and 6 are the source streams at `0x1736` and `0x161a`. These roles
+are runtime consumer classifications, not names for the intermediate table
+records.
 
 For the first descriptor in the loaded GTricks section at file offset `0x1736`,
 the independently decoded values are:
@@ -107,6 +124,219 @@ bit `0x0800` and sets runtime bit `0x4000`. A duplicate listed record sets
 `0x8000` in both words and emits the duplicate warning. The record boundary,
 flag propagation, and disk-to-runtime name/source correspondence are proven;
 the downstream trick physics fields remain open.
+
+The manager/record ownership is now concrete even though the action semantics
+are not. `TRICKS.BIN` is read once into a raw buffer; the manager retains that
+buffer at `+0x1408`, owns up to 128 fixed records beginning at `+0x04`, and
+publishes the live count at `+0x1404`. A faithful recreation can therefore
+preserve the source offset as the stable bridge from a decoded command stream
+to its runtime trick record without pretending that the table-class bits are
+physics labels.
+
+The level-side object bridge is now separate and proven in
+[trick-object-runtime.md](trick-object-runtime.md): TRG type-12/14 nodes carry
+model-name checksums into 0x18-byte runtime records, which are activated by
+player/rail events and consumed by the per-frame trick-object update. This
+does not yet assign the full `TRICKS.BIN` scoring/physics semantics.
+
+### Per-player key table and script handoff
+
+The runtime also materializes a per-player key table from the same database.
+`0x00492de0` loads `TRICKS.BIN`, resets the extra-animation list, initializes
+the trick manager through `0x004bd1e0`, and then parses the table at
+`DAT_00568a50` (and `DAT_00568a4c` for the second player). The table-builder
+`0x004bcf00` writes a zero-terminated sequence of variable-length entries. Its
+ordinary and special append passes resolve each source offset through
+`0x004bc300`, so the output does not duplicate an unrelated copy of the disk
+database.
+
+Each generated key-table entry has this physical layout:
+
+```text
++0x00                 u16 button_count (1..4)
++0x02                 u16 button_code[button_count]
++0x02 + 2*count       s16 source_data_offset
++0x04 + 2*count       u16 descriptor_flags
++0x06 + 2*count       next entry; a zero button_count terminates the table
+```
+
+`0x004bcf00` combines player-return combos, ordinary built-in combinations,
+special combinations, and configuration slots filtered by table-class masks.
+The diagnostic bound is 512 shorts or less. The output table is therefore a
+runtime selection/index structure, not a second format for the raw trick
+script data.
+
+The consumer boundary is explicit. `0x00492d50` walks the generated table,
+adds each signed `source_data_offset` to the loaded TRICKS base, and passes
+the resulting script pointer to `0x00492d10`. That stream parser validates
+variable-length commands with `0x004bf6c0`; command type 1 registers an extra
+animation through `0x00492ba0`, and the parser stops at command type 7. The
+same source offsets are used by gameplay start paths: `0x00491c10` selects a
+grind-script offset from the loaded section table, and `0x00491b80` stores the
+resolved pointer at the skater's `+0x29cc` command cursor. `0x004be450` then
+executes the cursor's bytecode during the physics/trick state transitions.
+
+The resulting disk-to-runtime chain is:
+
+```text
+TRICKS.BIN section/key descriptor
+  -> RuntimeTrickRecord (+0x20 source offset, +0x26 descriptor flags)
+  -> per-player key table [button codes, source offset, flags]
+  -> selected source offset + TRICKS base
+  -> skater trick cursor +0x29cc
+  -> 0x004be450 trick-script execution
+```
+
+The interpreter's raw command ABI is now established, including byte/u16/u32
+operand widths and cursor advances. The direct state mutations and helper-call
+edges are listed below; the original gameplay names and full physics effects
+remain intentionally unassigned.
+
+### Trick-script command/state contract
+
+The command loop at `0x004be450` is more than a parser: it mutates the live
+skater object and can leave its cursor at the current command for a later
+physics frame. `0x004be3b0` reads one byte, `0x004be3c0` reads one little-endian
+u16/s16, and every relative branch adds a signed 16-bit operand to
+`TricksBinaryBase`. `0x004bf6c0` independently validates the same variable
+lengths before the script-table parser advances.
+
+The following effects are direct executable contracts. Names such as
+`wait_frame` and `branch_if_*` describe the observed operation only; they are
+not claims about the original source enum.
+
+| Opcode | Operand | Proven effect |
+| --- | --- | --- |
+| `0x01` | `u16` | select animation `+0xf6`, clear frame `+0xf4` |
+| `0x02` | `u16` | call the animation transition helper with the current animation and mode `0xd8` |
+| `0x03` | none | negate direction `+0x100`, swap range fields `+0x114`/`+0x101`, clear `+0x107` |
+| `0x07` | none | finish the script: clear `+0x2c68`/`+0x29c8`, set `+0x2c6c` |
+| `0x09` | `s16` | advance frame `+0xf4` by direction and clamp to the active range |
+| `0x0a` | `u16` | write script scalar `+0x29c0` |
+| `0x0b` | NUL string | save string pointer at `+0x29c4`, advance after the terminator |
+| `0x0c` | none | call the runtime action helper using `+0x29c0`/`+0x29c4`, set `+0x2c70` |
+| `0x0d` | `s16` | frame-gated wait; when the comparison passes, rewind the cursor to this command |
+| `0x0e` | `s16` | write `+0x2c64` |
+| `0x0f` | `s16[3]` | write three position/vector words at `+0x4c`, `+0x50`, `+0x54` as `operand << 12` |
+| `0x10` | `s16` | conditionally rewind on the frame gate and `0x004924f0` result |
+| `0x11` | `s16` | conditionally call `0x0048f720(operand)` and rewind |
+| `0x12` | `s16` | conditionally set the cursor to `base + operand` |
+| `0x13`/`0x14` | none | write animation mode `+0xf8 = 2`/`0` |
+| `0x15` | `s16` | unconditional relative branch |
+| `0x16` | none | rewind while any pending movement word `+0x2ca0/+0x2ca4/+0x2ca8` is nonzero |
+| `0x17` | `s16[2]` | call `0x0048f720` with a speed-scaled expression and the two script operands |
+| `0x18` | `s16` | set tween/range fields `+0xfa/+0xfc/+0xfe`, select animation mode `+0xf8 = 3` |
+| `0x19`/`0x2a` | `s16` | save relative pointers at `+0x29d0`/`+0x29d4` |
+| `0x1a` | none | rewind while `+0x2e90` is nonzero |
+| `0x1b` | `s16` | write `+0x2ed8`; the executable validates the value as `1` or `-1` (`RailFlip` diagnostic) |
+| `0x1c` | none | write animation mode `+0xf8 = 4` |
+| `0x1d` | `s16` | write fixed-point timing/scalar `+0x108 = operand * 0x20000 / 60` |
+| `0x1e` | none | call the state/animation reset helper `0x004904d0(0, 0)` |
+| `0x1f` | `s16` | write `+0x29ec` |
+| `0x20` | none | clear script-active word `+0x2c68` |
+| `0x21` | `s16` | rotate/rebuild the three basis vectors stored at `+0x2e58..+0x2e68` |
+| `0x22` | none | toggle bit `0x02` in `+0xd8` |
+| `0x23` | `s16` | write `+0x2f00` |
+| `0x24..0x28` | `s16` | branch when one of raw condition words `+0x2be8..+0x2bf8` is nonzero |
+| `0x2b` | `s16[3]` | write indexed words at `+0x2ca0` and `+0x2c94`; a zero third operand clears the associated pending slots |
+| `0x2c` | none | rewind while any pending movement word `+0x2ca0/+0x2ca4/+0x2ca8` is nonzero |
+| `0x2d` | `s16` | write `abs(operand)` to `+0x2e2c` |
+| `0x2e` | `s16` | write `+0x2c10` |
+| `0x2f` | `s16` | branch only when physics state `+0x30b8` is `1` or `2` |
+| `0x30` | none | call `0x0046dd20(0, 0xfa)` |
+| `0x31` | none | clear/reset movement and motion fields, then choose one of two animation/state transition helpers |
+| `0x32`/`0x33` | none | call the two distinct helpers `0x0046c630`/`0x0046c5f0` |
+| `0x34` | `s16` | if `+0x2c04` is nonzero, branch relative; then clear `+0x2c04` |
+| `0x35` | none | set `+0x2c78` |
+| `0x36..0x38` | `s16[1..3]` | submit one sound request with one, two, or three script arguments |
+| `0x39` | `s16` count, `s16[count]` | choose one relative target using the runtime PRNG and branch to it |
+| `0x3a` | `s16` | branch based on the bit `+0xd8 & 2` and byte `+0x163` |
+| `0x3b`/`0x3c` | none | write `+0x2c80 = 1`/`0` |
+| `0x3d` | `s16` | one-level `Gosub`: save return cursor at `+0x29d8`, branch relative |
+| `0x3e` | none | `Gosub` return through `+0x29d8`, then clear it |
+| `0x3f`/`0x40` | `s16` | write `+0x29f2`/`+0x29f0` |
+| `0x41` | `s16` | branch when `+0x2bfc` is nonzero |
+| `0x42` | `s16` | build/normalize a vector from skater state and replace position `+0x08/+0x0c/+0x10` through the shared math helpers |
+| `0x43` | `s16` | branch when bit `0x02` in `+0xd8` is clear |
+| `0x44` | `s16` | write `+0x29f4` |
+| `0x45` | `s16[3]` | invoke vibration with the absolute first operand, motor `0/1`, and power `0..255`; the executable validates both ranges |
+| `0x46` | none | call `0x00431260(+0x30b0, 1)` |
+| `0x47` | `s16[2]` | branch when the current `+0x4c` vector magnitude crosses the supplied threshold |
+| `0x48` | `s16[2]` | branch when the resolved frame has reached the supplied target, or `+0x107` is set |
+| `0x49` | `s16` | reset motion/state fields, set physics state `+0x30b8 = 8`, rebuild position state, and clear `+0x2c68` |
+| `0x4a` | none | choose a state-dependent transition/sound path and write a vertical motion word at `+0x50` |
+| `0x4b` | `s16` | branch on the shared magnitude test involving `+0x30f4` and `+0x4c` |
+| `0x4c` | `u8, s16` | branch when `+0x30b8` equals the byte operand |
+| `0x4d` | none | set `+0x2c7c` |
+| `0x4e` | `s16` | if `+0x31f8` is nonzero, clear it and branch relative |
+| `0x4f` | `s16[4]` | choose one of four sound IDs by `+0x2e8c` and submit it; the source labels this path `TRICK_LIPSND` |
+| `0x50` | NUL string | skip a NUL-terminated script string |
+| `0x51`/`0x58` | `s16` | consume and discard one signed word |
+| `0x52` | `u8` | write `+0x2dd4`; clear `+0x3078` when `+0x306c` is zero |
+| `0x53` | `s16` | branch when `+0x29e8` is nonzero |
+| `0x54` | `s16` | write `+0x2dfc` |
+| `0x55` | `u8` | write `+0x31f8` |
+| `0x56` | none | choose the `0x513`/`0x50f` animation/state transition path |
+| `0x57` | none | set `+0x2c08` |
+| `0x59` | `u8` | write `+0x3210` |
+
+Commands `0x04..0x06` and `0x08`, plus any other byte not in the validator,
+take the executable's undefined-command path. This table closes the
+asset-to-bytecode-to-skater-state boundary while deliberately leaving the
+original gameplay names of the raw fields and helper calls open.
+
+The on-disk witness at `TRICKS.BIN + 0x325e` begins with the same command
+grammar: `40 03 00` writes a script word, `0b` introduces the NUL-terminated
+name `Handplant`, and `0a ee 02` writes a following u16 script value. The
+remaining bytes select animation/range, movement, branch, and sound commands
+through the table above. This is a direct file-byte-to-interpreter-state
+example rather than a command table inferred only from the disassembly.
+
+### Runtime character/config consumer
+
+The loaded trick database has a direct downstream consumer in the career/menu
+configuration path. `0x00416050` maps a character index to a fixed global
+configuration record at `0x00568a6c + index * 0x104`. `0x004170d0` clears that
+0x104-byte record, copies ten character-specific cost bytes into `+0x38`,
+sets `+0x34` to either `1` or `0x3ff` from the character metadata flags, then
+invokes both `0x004bbd70(index, 0)` and `0x004bbf00(index, 0)`.
+
+`0x004bbf00` consumes the key stream from the TRICKS section, whose record
+shape is independently visible in the extracted bytes:
+
+```text
+u16 button_count
+u16 button_code[button_count]
+u16 source_data_offset
+u16 descriptor_flags
+```
+
+For each entry it resolves `source_data_offset` through
+`0x004bc300` against trick-record `+0x20`. Ordinary entries are then matched
+against the built-in button-combination table by `0x004bc7e0`; the resulting
+slot and a secondary runtime-record key from `0x004bc330` are written into the
+configuration's `+0xcc` assignment map by `0x00416230`. Entries with descriptor
+bit `0x8000` use the parallel special-combination table at `0x004bc900` and
+the five-slot updater `0x00416380`. Unassigned bytes are initialized to
+`0xff`, so the sentinel is part of the runtime contract.
+
+The companion `0x004bbd70` pass walks the same section family and updates the
+per-character trick state through `0x00416140`: the helper checks/decrements
+the remaining-point field at config `+0x08` when a nonzero cost is supplied,
+and the observed database pass invokes it with zero cost to set a bit in the
+config unlock bitmap at `+0xac`. The larger menu object constructor at `0x004c0430` also
+initializes the trick manager and invokes this database-to-config path for the
+active character. This is a proven
+
+```text
+TRICKS.BIN source offset 0x325e (Handplant descriptor)
+  -> RuntimeTrickRecord { name, +0x20 source, +0x24 flags, +0x26 descriptor }
+  -> matching key-stream source-offset lookup when selected for a character
+  -> per-character config +0xcc assignment/special slots
+```
+
+bridge. It stops at input/configuration state; no physics interpretation of
+the resulting trick index is claimed here.
 
 ```text
 ALL.PKR/data/TRICKS.BIN
@@ -158,33 +388,126 @@ set to fewer than five texture parts, copies all 17 words, and increments the
 set count at manager `+0x6604`. This identifies the runtime ownership units:
 individual texture records are 0x1c bytes, while assembled sets are 0x44 bytes.
 
+The individual texture manager prefix is also bounded: its sorted pointer
+array starts at `+0x04`, has capacity `0x100`, and its count is at `+0x404`.
+`0x0041d9c0` allocates each pointed-to record as seven copied words. The name
+used by `0x0041d860` is inline at record `+0x08` and occupies 16 bytes; it is
+not a pointer. The parser writes one observed role byte at `+0x18`, while the
+other copied words remain raw until a downstream texture consumer identifies
+them.
+
 The record-group boundaries and the manager capacity are confirmed. The
 commit-side field contract is also narrower than the raw parser makes it look:
 `0x0041ef50` reads the set ID at input `+0x00`, rejects an input part count of
 five or more at `+0x40`, copies 17 words into the manager's 0x44-byte record,
-and increments the manager count. `0x0041d860` compares the individual
-texture name at texture-record `+0x08`; `0x0041d9c0` allocates and inserts the
-same 0x1c-byte record in sorted name order. The remaining label fields and
-the four-part array's semantic names are not yet sufficiently cross-checked to
-publish.
+and increments the manager count. The copy has a stable physical layout:
 
-The player frontend has an independently proven consumer of the set/deck
-metadata at `0x004547f0`. It validates a set and deck index, returns a pointer
-from the set/deck table for ordinary entries, and returns static fallback name
-pointers for deck values eight and above. `Skater_SetupAppearance` then changes
-the third character of the returned `s2d*.bmp` source name to `g` before the PC
-bitmap loader runs. This is the concrete CRETEX metadata -> player bitmap-name
-handoff; the full meaning of the other set-record words remains open.
+```text
++0x00         set ID / parser index
++0x04         parser grouping/link word (semantic name open)
++0x08..0x17   first copied label field (16 bytes)
++0x18..0x2f   second copied label field (24 bytes)
++0x30..0x3f   four pointers to resolved texture records
++0x40         texture-part count (u8, must be < 5)
++0x41..0x43   three parser flag bytes
+```
+
+The four pointers are populated from the records returned by
+`0x0041d860`, so this is a proven disk-metadata -> texture-record ownership
+edge even though the public meaning of the two labels and three flags remains
+open. `0x0041d860` compares the individual texture name at record `+0x08`;
+`0x0041d9c0` allocates and inserts the same 0x1c-byte record in sorted name
+order.
+
+The frontend has two independently visible consumers of the set/deck
+metadata. `0x004547f0` validates a set and deck index, returns a pointer from
+the set/deck table for ordinary entries, and returns static fallback name
+pointers for deck values eight and above. `Skater_SetupAppearance` then
+changes the third character of the returned `s2d*.bmp` source name to `g`
+before the PC bitmap loader runs. This is the concrete CRETEX metadata ->
+player bitmap-name handoff.
+
+The create/customization path consumes the committed runtime set records more
+directly. `0x004208a0` looks up a set by ID, selects one of the body groups,
+and passes the texture records at set `+0x30`, `+0x34`, `+0x38`, and `+0x3c`
+to the corresponding appearance/preview helpers. Its group-0, group-1,
+group-4, group-5, and group-6 cases also use set flag `+0x41` to decide
+whether a secondary texture is present; group 1 additionally checks texture
+record `+0x18`, and group 4 derives the inverse of the same set flag into the
+preview state. `0x00422d80` invokes this consumer for body groups 1 and 4 and
+conditionally group 5. The exact UI names of the groups remain open, but
+this proves that the four resolved texture pointers are runtime-selected
+appearance inputs rather than dead parser fields.
+
+The next handoff is now field-level. The part-database helpers used by
+`0x004208a0` resolve model-part material checksums before the bitmap load:
+`0x00422020` selects the fixed part slots (its table uses the strings `head`,
+`chest`, `left_bicep`, `left_forearm`, `left_hand`, `left_thigh`, `left_shin`,
+and `left_shoe`), while `0x00421910`/`0x00421ba0` search the source-region
+part-name table and suppress duplicate checksum matches. The first helper can
+select the candidate with the largest or smallest decoded palette area; this
+is the same material evidence used by the player path, but here it is driven
+by the create body-part slot.
+
+`0x004221a0` then receives the selected material checksum and the inline name
+at `RuntimeCreateTextureRecord +0x08`. It calls `0x004674d0(checksum, name)`;
+that routine resolves the material, opens the bitmap, validates 4-bit versus
+8-bit depth, and enters the common PC texture creation path. On success the
+create context records the selected name at `+0x288 + slot*0x10` and stores
+the material's palette pointer at `+0x140 + slot*4` through
+`0x00422460`. The texture-animation update at `0x004214f0` consumes the same
+part slot and palette state. A nonzero create-context word at `+0x04` takes
+the streaming/spooler branch instead of the direct bitmap branch, so both
+runtime modes are represented at this boundary.
+
+The body-group-to-part-slot map is also explicit in `0x004208a0`:
+
+| create body-group case | source texture-set fields | create part slots | checksum/name selection |
+| --- | --- | --- | --- |
+| `0` | `+0x30`, optional `+0x34` | `0`, `1` | `head` variants; secondary slot is omitted when set flag `+0x41` is zero |
+| `1` | `+0x30`, `+0x34`, optional `+0x38`, `+0x3c` | `2`, `3`, `4`, `5` | `chest`/`left_bicep`/`left_forearm` relationships; texture-record `+0x18` selects the first variant |
+| `4` | `+0x30` | `6` | `left_thigh`/`pelvis` |
+| `5` | `+0x30` | `7` | `left_shin`/`left_thigh` |
+| `6` | `+0x30` | `8` | `left_shoe`/`left_shin`, preview helper |
+
+For cases `0`, `1`, and `4`, the source label at set `+0x08` is independently
+looked up in the global part-name table by `0x0041fe50` using table columns
+`0`, `1`, and `2`; the resulting entry indices are cached in the create
+context at `+0x70`, `+0x74`, and `+0x78`. This is a name-to-model-part link,
+not a positional assumption about the four texture pointers.
+
+For the observed body-group calls, the proven path is therefore:
+
+```text
+CRETEX set +0x30/+0x34/+0x38/+0x3c
+  -> 0x004208a0 body-group selection
+  -> 0x00422020 / 0x00421910 / 0x00421ba0 model-part checksum
+  -> 0x004221a0 checksum + texture-record name
+  -> 0x004674d0 bitmap open/decode
+  -> 0x00422460 create-context +0x140 palette slot
+  -> create-context +0x288 applied-name slot
+  -> 0x004214f0 texture-animation state
+  -> appearance/model preview consumers
+```
+
+This is the concrete CRETEX disk -> allocated texture record -> selected
+runtime appearance slot bridge. It also explains why a set record's four
+texture pointers are not themselves the final material handles: the selected
+part database maps them into per-slot palette/bitmap state on the create
+object.
 
 ## Other `.BIN` and adjacent metadata files
 
 The corpus contains several files named `.BIN`, but the extension alone does
 not imply one common runtime format:
 
-- `MAINMENU.BIN`, `EDMOD.BIN`, and `CREATESELECT.BIN` begin with MIPS-style
-  executable/data bytes. A generic relocatable-module helper does exist in
-  the executable, but no PC caller was proven for these names, so they are
-  not claimed as PC runtime assets.
+- The 23 non-`TRICKS.BIN`/`CRETEX.BIN` `.BIN` files in the extracted corpus
+  are console/tool blobs or placeholders. Six begin with the little-endian
+  MIPS entry bytes `27 bd ff e8`, fifteen begin with the big-endian MIPS
+  bytes `00 00 02 3c`, `TEST.BIN` is empty, and `XXXX.BIN` has an
+  unidentified non-MIPS header. A generic relocatable-module helper does
+  exist in the executable, but no extracted `.REL` pair or direct PC caller
+  was proven for these names, so they are not claimed as PC runtime assets.
 - The helper around `0x004ac0c0` computes a CRC key for a requested module
   name, constructs `<name>.bin` and `<name>.rel`, loads both through the raw
   resource reader `0x00448dd0`, relocates the `.rel` records into the `.bin`
@@ -197,9 +520,10 @@ not imply one common runtime format:
   builds `audio/<name>.wav` from hardcoded sound-description tables; no `.SFX`
   open or filename cross-reference was found. They remain legacy/input
   metadata until a producer or consumer is located.
-- `REC`, `SEQ`, `SBL`, `TST`, and similar files have corpus signatures, but
-  their PC disk-to-runtime consumers are not yet proven. They should not be
-  silently mapped onto the PKR/PSX loader.
+- `REC` is a separate, proven replay/card family documented in
+  [replay-runtime.md](replay-runtime.md). `SEQ`, `SBL`, `TST`, and similar
+  files have corpus signatures, but their PC disk-to-runtime consumers are not
+  yet proven. They should not be silently mapped onto the PKR/PSX loader.
 
 ## Confidence boundary
 
@@ -207,14 +531,24 @@ not imply one common runtime format:
   variable descriptor boundaries, type-to-table-class handoff, command/name
   decode including prefix cleanup, flag propagation, 0x28-byte trick-record
   allocation/lookup, and the first
-  `Handplant` disk-to-record values; the trick-manager consumer; `CRETEX.BIN`
-  parser, 0x1c-byte texture allocation/lookup, texture name at record `+0x08`,
-  0x44-byte set commit, set ID at `+0x00`, part-count input at `+0x40`, and
-  limits; extracted sizes and hashes.
+  `Handplant` disk-to-record values; the trick-manager consumer, including its
+  `+0x04` record array, `+0x1404` count, and `+0x1408` raw resource pointer;
+  the `0x104`-byte character trick configuration stride and its
+  TRICKS.BIN-to-assignment-map consumer;
+  `CRETEX.BIN` parser, 0x1c-byte texture allocation/lookup, inline texture
+  name at record `+0x08`, sorted texture-pointer array/count, 0x44-byte set
+  commit, set ID at `+0x00`, four resolved texture pointers at `+0x30`,
+  part-count input at `+0x40`, the set-record consumer at
+  `0x004208a0`/`0x00422d80`, body-part checksum selection through
+  `0x00422020`/`0x00421910`/`0x00421ba0`, create-context texture-name and
+  palette publication at `+0x288`/`+0x140`, and limits; extracted sizes and
+  hashes.
 - `observed`: fixed manager capacities and the version-selected trick table
-  sizes.
+  sizes, plus the remaining copied CRETEX label/flag words.
 - `observed`: generic relocatable `.bin`/`.rel` construction, relocation, and
   entrypoint call at `0x004ac0c0`/`0x004ac2e0`.
-- `open`: complete trick command/physics fields, complete texture-set records,
-  a proven PC caller for the MIPS-style `.BIN`/`.REL` modules, and direct
-  `.SFX` loading.
+- `open`: the original gameplay names and full physics consequences of the
+  recovered trick-script state/helper calls, the semantic meaning of remaining
+  CRETEX label/flag words beyond the observed secondary-texture behavior, a
+  proven PC caller for the MIPS-style
+  `.BIN`/`.REL` modules, and direct `.SFX` loading.

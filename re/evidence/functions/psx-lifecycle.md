@@ -4,7 +4,8 @@ Status: confirmed region-slot cleanup, material-usage decrement, environment
 detach, and level teardown call site
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004b1bb0`, `0x004b2120`, `0x004b3090`, `0x004b32f0`,
-`0x00466030`, `0x0046a250`, `0x004544a0`
+`0x0043e080`, `0x0047fdb0`, `0x0047fe20`, `0x00466030`, `0x0046a250`,
+`0x004544a0`
 
 The common PSX loader has an explicit inverse path. It is not sufficient to
 drop the raw file buffer: the runtime clears relocated tables, decrements
@@ -33,6 +34,26 @@ ordinary PSX region
     -> free raw/final buffer
 ```
 
+The relocated object-record array has an explicit C++-style lifetime boundary.
+The parser's record initializer `0x0047fdb0` installs vtable
+`0x00519388` at record `+0x00`; its vtable first entry is the region-array
+destructor `0x0043e080`. When `0x004b32f0` clears a normal region with
+`release_tables == 0`, it calls that entry with flag `3`. The destructor then:
+
+```text
+0x0043e080(record_array, 3)
+  -> read record count from record_array - 0x04
+  -> call 0x0050030c(record_array, 0x4c, count, 0x0047fe20)
+       -> 0x0047fe20 resets each record's vtable to 0x00519388
+  -> flag 0x01: free the count-prefixed allocation through 0x0047fda0
+```
+
+With flag `0x02` clear, the destructor applies the single-record cleanup
+variant; with the clear-path flag `3`, all records are visited and the whole
+count-prefixed block is released. This is the inverse of the parser's
+`4 + count * 0x4c` allocation and proves that the `RuntimePsxObjectRecord`
+array is an owned runtime object collection, not merely a copied disk table.
+
 The decompiler exposes the exact published arrays cleared by the ordinary
 branch:
 
@@ -45,13 +66,25 @@ DAT_0056d44c[region * 0x11]  model/material metadata
 DAT_0056d454/458              region-side auxiliary pointers
 DAT_0056d428[region * 0x44]  bounded region name
 DAT_0056d432/433              region type/state bytes
-DAT_0056d463/464              texture/runtime state bytes
+DAT_0056d463..465             texture/runtime state bytes
 ```
 
+These addresses are one packed 0x44-byte slot record, not unrelated global
+objects. At slot base `DAT_0056d428 + region * 0x44`, the bounded name occupies
+`+0x00..+0x09`, the type/state bytes are at `+0x0a/+0x0b`, and the published
+object/model/raw/animation products begin at `+0x10`. The material metadata,
+auxiliary pointers, and three teardown texture-state bytes occupy the later
+fields listed above. Modeling this as `RuntimePsxRegionSlot` preserves the
+ownership relationship used by both named-resource commands and region clear.
+
 `cleanup_flags != 0` additionally calls the adjacent material/texture cleanup
-helpers after the slot tables are cleared. The exact graphics-device release
-performed by those helpers remains a lower-level texture-manager question; the
-ownership edge is confirmed at this boundary.
+helpers after the slot tables are cleared. `0x004b2390` sweeps zero-reference
+scene materials, releases their attached PC textures through `0x004da400`, and
+unlinks the material records. `0x0048a420` removes source-palette lookup nodes
+and releases their converted cache records. The actual PC texture destructor
+`0x004d8b50` releases the Direct3D object, detaches the reverse material link,
+unlinks the global texture record, frees owned source/cache buffers, and
+decrements `DAT_006a04d4`.
 
 ## Shared material lifetime
 
@@ -64,7 +97,9 @@ material allocation and face-reference relocation documented in
 The consequence for a recreation is important: a material record is shared by
 faces/models/regions and cannot be freed merely because one model's raw file
 buffer is going away. The loader's checksum table and the teardown usage pass
-form a reference-counted ownership layer.
+form a reference-counted ownership layer. A zero reference count is the
+specific condition that permits the PC texture and material records to be
+destroyed.
 
 ## Environment-list and blockmap cleanup
 
@@ -107,5 +142,11 @@ file open/read
   blockmap reset, and level teardown caller.
 - `observed`: optional cleanup flag path and the exact list of auxiliary slot
   words cleared.
-- `open`: the complete internal behavior of the final graphics/material cleanup
-  helpers and the destructor implementation behind the relocated table vtable.
+- `confirmed`: zero-reference material sweep, PC texture destruction and list
+  unlink, reverse material detachment, converted-palette cache release, and
+  the graphics/material cleanup call chain.
+- `confirmed`: relocated object-record vtable construction, per-record
+  destructor reset, count-prefixed object-array destruction, and whole-array
+  free during ordinary region clear.
+- `open`: the original names of lower Direct3D release methods and the public
+  C++ class names behind the recovered region/material records.

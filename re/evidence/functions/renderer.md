@@ -1,8 +1,8 @@
 # Warehouse PSX scene-object renderer path
 
-Status: confirmed static renderer consumer for the loaded PSX environment,
-including transformed-vertex, polygon-packet, dispatch-table, and hardware
-primitive contracts
+Status: confirmed live/static renderer consumer for the loaded PSX environment,
+including object/model selection, transformed-vertex, polygon-packet,
+dispatch-table, and hardware primitive contracts
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x00467c90`, `0x0045e8e0`, `0x0045f530`, `0x004610f0`, `0x00461a50`, `0x00461a90`, `0x00461b10`, `0x004d0c30`, `0x004d11d0`, `0x004d14d0`, `0x004d18b0`, `0x004d1960`, `0x004d1d40`, `0x004d20f0`, `0x004d29e0`, `0x004d3160`, `0x004d3480`, `0x004d3510`, `0x004d3600`, `0x004d3780`, `0x004d3a40`, `0x004d41e0`, `0x004d42f0`, `0x004d45f0`, `0x004d49e0`, `0x004d4bf0`, `0x004d5040`, `0x004d5280`, `0x004d56c0`, `0x004d5960`, `0x004d5e40`, `0x004d6090`, `0x004d60c0`, `0x004d60f0`, `0x004d6120`, `0x004d6320`, `0x004d6560`, `0x004d66f0`, `0x004d68b0`
 
@@ -54,6 +54,25 @@ control the packed-geometry walk. In the textured branch the function passes
 the packet-derived stream pointer and count to `0x004d11d0` and uses the
 adjacent m3d helpers for texture/material state.
 
+For animation-capable objects, `0x004610f0` is also the concrete pose-to-model
+consumer. It obtains an array of 0x18-byte pose records from
+`0x00430920`, or from the object's cached pose array at `+0x138` when the
+object flags select the built-pose path. It walks the loaded model-part count,
+optionally remaps each part through the one-byte order table at `+0x150`,
+reads the pose record's nine fixed-point basis words and three translation
+words, composes them with the object transform, and submits the corresponding
+model packet through `0x004d11d0`. This is rigid per-part model deformation
+(one PSX model packet per animated part), not a claim of vertex-weighted
+skinning. Together with the animation evidence, it closes the path:
+
+```text
+SK2ANIM.PSX compressed channels
+    -> 0x00430920 per-part 0x18-byte pose records
+    -> 0x004610f0 per-part basis/translation composition
+    -> 0x004d11d0 model-packet submission
+    -> Direct3D polygon list
+```
+
 The model finalizer at `0x004647c0` provides the stronger packet-layout
 boundary. For each entry in the count-prefixed model-pointer table it reads:
 
@@ -67,6 +86,31 @@ packet +0x0c  six signed 16-bit bound words
 packet +0x18  additional 32-bit header word
 packet +0x1c  packed 8-byte geometry records followed by variable-size face data
 ```
+
+For version-4 PSX resources, the first geometry records are independently
+cross-checked by the offline reader and the renderer's pointer arithmetic:
+
+```text
+packet +0x1c + vertex_index * 0x08
+    s16 position_x, position_y, position_z
+    u16 source_padding_or_auxiliary_word
+
+packet +0x1c + vertex_count * 0x08 + normal_index * 0x08
+    s16 normal_x, normal_y, normal_z
+    u16 source_padding_or_auxiliary_word
+
+face stream
+    u16 packed_face_flags
+    u16 record_length_in_bytes
+    ... variable face payload, ending at face_start + record_length_in_bytes
+```
+
+The runtime keeps these records in the relocated model packet; it does not
+expand them into a second per-model vertex class before collision/render
+consumers read them. Version 3 uses the same two eight-byte geometry strides
+but stores 32-bit face vertex indices, while version 6 widens the UV values;
+those source-format variants remain distinct from the common version-4
+Warehouse path.
 
 It normalizes the packet in place, records the realized model/part count in
 `DAT_0056d460[slot * 0x44]`, and leaves the same model pointers for collision
@@ -94,12 +138,21 @@ textured face form, `0x004d1d40` reads the runtime face texture/material field
 at `face + 0x10` and the four UV bytes at `face + 0x14`; those fields are the
 post-loader values, not the original Warehouse checksum-table index. The
 exact Direct3D texture-resource field behind a scene material record remains
-open, but the disk index -> hash record -> runtime face pointer -> polygon
-submission chain is established. When the material has been populated, its
-`+0x14` points to the `RuntimePcTextureRecord`; that record's `+0x00` is the
-Direct3D texture resource consumed by the lower upload/render state. Whether
-every Warehouse hash is resident in that field at every render frame remains
-the remaining runtime-residency question.
+open for hashes that are not loaded in the controlled frame, but the disk index
+-> hash record -> runtime face pointer -> polygon submission chain is
+established. When the material has been populated, its `+0x14` points to the
+`RuntimePcTextureRecord`; that record's `+0x00` is the Direct3D texture resource
+consumed by the lower upload/render state. Four Warehouse hashes are now
+observed at that upload boundary; the remaining residency question concerns
+the other material keys and frame-to-frame lifetime, not the ownership layout.
+
+The inverse ownership path is also fixed. Region teardown decrements the shared
+material's `+0x10` reference count. The zero-reference sweep releases the PC
+texture at material `+0x14`; `0x004d8b50` releases its Direct3D object, calls
+`0x004da3e0(material, 0)` to detach the reverse link, unlinks the texture's
+`+0x24/+0x28` list links, and frees its owned source/cache buffers before
+freeing the 0x2c-byte record. Renderer material state is therefore shared and
+reference-counted, not owned independently by each face.
 
 The renderer therefore consumes the same model pointer table and the same
 runtime object fields already established by the PSX loader and collision
@@ -199,9 +252,22 @@ more precisely than the outer object traversal. It stores the model packet in
 `DAT_0056e870`, derives the packed vertex stream at `packet + 0x1c`, and
 derives the normal stream from the vertex count. It then calls `0x004d29e0`
 to transform the packed vertices into seven-float working records at
-`DAT_00570878`. The working record contains projected coordinates and clip
-flags; indexed/controlled source vertices can instead point into the same
-working table through the renderer's override table.
+`DAT_00570878`. The working record layout is:
+
+```text
+working +0x00  projected X (f32)
+working +0x04  projected Y (f32)
+working +0x08  projected Z (f32)
+working +0x0c  reciprocal depth (f32)
+working +0x10  source packed-vertex flags (f32 storage)
+working +0x14  clip flags (f32 storage; bit values are written as integers)
+working +0x18  auxiliary/override value (f32 storage)
+```
+
+Indexed/controlled source vertices can instead point into the same working
+table through the renderer's override table. The transformer also copies all
+seven words when an override entry is materialized, so the stride is a runtime
+contract rather than merely a temporary decompiler artifact.
 
 `0x004d18b0` walks the variable-size face stream using the face record's
 length word. Visible records go through `0x004d1960`, which resolves the
@@ -218,11 +284,33 @@ polygon +0x14  vertex count (3 or 4)
 polygon +0x18  variable transformed vertex/color/UV stream
 ```
 
+`0x004d1d40` writes that tail in two exact forms. Every vertex starts with the
+four transformed words `(x, y, z, reciprocal_depth)` and one packed color
+word. Solid records therefore use a `0x14`-byte stride; textured records append
+two normalized `f32` UV values and use a `0x1c`-byte stride. The builder emits
+four vertices unless the face flags select three, then records the resulting
+count at polygon `+0x14`. This is the boundary a renderer recreation should
+preserve before translating the packet to a modern graphics API.
+
 For textured faces the builder copies the four UV byte pairs from the runtime
-face record at `face + 0x14`, normalizing them with the PC texture dimensions
-read through the material's `+0x14` texture record. This independently confirms
-that the scene-material pointer is consumed after PSX parsing and that the
-renderer does not use the original disk texture-table index at this stage.
+face record at `face + 0x14`. It resolves the scene material at polygon
+`+0x10`, follows material `+0x14` to the `RuntimePcTextureRecord`, and reads
+the post-upload source/declared texture dimensions at texture `+0x14/+0x16`.
+(`0x004d8cd0` temporarily puts the BMP dimensions there before the upload;
+`0x004d8f10` swaps the dimension pairs back after creation.) Each UV component
+is normalized by the exact integer-sized texture dimension plus the engine's
+half-texel constant:
+
+```text
+polygon_uv_u = (float(face_uv_u) + DAT_00519948) / (float)texture->+0x14
+polygon_uv_v = (float(face_uv_v) + DAT_00519948) / (float)texture->+0x16
+```
+
+This independently confirms that the scene-material pointer is consumed after
+PSX parsing and that the renderer does not use the original disk texture-table
+index at this stage. A face with source flags selecting three vertices emits a
+three-vertex polygon; otherwise the builder emits four vertices, and quads may
+later be split by `0x004d20f0`.
 Quads may be split into two triangle submissions by `0x004d20f0`; that helper
 performs the projected-space winding/depth tests and links accepted polygons
 into the renderer's bucketed list. The final list consumer is `0x004d3160`;
@@ -334,7 +422,8 @@ environment witness above.
   consumption, opcode/state dispatch, E1/E3 control packets, viewport
   submission, dispatch-table initialization, solid/textured/Gouraud
   triangle/quad emitters, line and rectangle emitters, general polygon path,
-  and draw synchronization/presentation.
+  draw synchronization/presentation, and the animation pose to per-part model
+  packet handoff through `0x004610f0`.
 - `observed`: live `0x004d11d0` calls for front-end assets and the separate
   flagged/special-object branch; exact original Direct3D enum names and the
   full meanings of several packet flag bits.

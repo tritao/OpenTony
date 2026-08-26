@@ -62,27 +62,46 @@ and reads it through `0x0046f490`, and walks up to 1000 records until the `#`
 terminator.
 
 The line parser at `0x00426c00` copies each ordinary line into a 0x31-byte
-working buffer at manager `+0xfb0`. It recognizes these control records:
+working buffer at manager `+0xfb0`. It recognizes these control records. The
+tag scanner is exact about both case and payload boundaries:
 
 ```text
-@B...  -> record type 1 (bitmap/image directive)
-@F...  -> alternate font/source mode
-@M2,d  -> record type 2 with two decimal digit parameters
+@B / @b + 3 bytes  -> record type 1; the line payload begins after the tag
+@F / @f + 4 bytes  -> keep text-record type 0 and switch to the alternate font source
+@M / @m + 5 bytes  -> record type 2; digits at tag offsets 2 and 4
 ```
 
-The parser stores the active type at `+0xfe4`, an active source pointer at
-`+0xfe8`, and the two `@M` digits at `+0xfec`/`+0xff0`. A `#` at the
-start of the next record terminates the stream.
+At the start of each record, `0x00426c00` resets the type to 0 and the active
+source pointer to the s2font2-derived descriptor at `0x00560d08`.
+`@F` switches that pointer to the s2font1-derived descriptor at
+`0x00560e58`; `@B` changes only the type and leaves the line payload for the
+bitmap constructor. The parser stores the active type at `+0xfe4`, the active
+source pointer at `+0xfe8`, and the two `@M` digits at `+0xfec`/`+0xff0`. A
+`#` at the start of the next record terminates the stream.
 
 For each parsed record, `0x004266e0` allocates and publishes one runtime
 object through the manager's pointer array at `manager + 0x04`. The observed
 record families are:
 
 ```text
-type 0 -> 0x44-byte record; text copied at +0x0c, metric/size at +0x08
+type 0 -> 0x44-byte record; text copied at +0x0c..+0x3f, metric/size at +0x08, active font source at +0x40
 type 1 -> 0x10-byte record; image object at +0x0c, metric/size at +0x08
 type 2 -> 0x18-byte record; @M parameters at +0x0c/+0x10, +0x14 cleared
 ```
+
+The type-1 path is a direct image handoff. For a source line such as the
+first `CREDITS.TXT` record `@B thcredit.bmp`, the parser skips the three-byte
+`@B ` prefix, passes the remaining `thcredit.bmp` line to
+`0x00426f50`, and that constructor calls the normal bitmap loader
+`0x00457420`. The returned image object is retained at record `+0x0c`; the
+temporary line buffer is not the runtime image storage.
+
+The type-0 path passes both the copied text line and the active font-source
+descriptor to `0x00426e60`, which stores the source pointer at record `+0x40`.
+Thus `@F` is a font-selection modifier for the following text record, while
+`@B` is a bitmap record with its own image object. This resolves the formerly
+open `@F`/`@B` payload ownership without assigning names to the lower font or
+image class internals.
 
 The manager publishes the record count at `+0xfa4`, accumulated stream size at
 `+0xfa8`, a current offset at `+0x00`, and a timing origin at `+0xfac`.
@@ -102,6 +121,8 @@ MUSIC.TXT/CREDITS.TXT
   -> frame-clock offset -> per-record virtual update/render calls
 ```
 
-The exact meaning of all credits record vtable methods and the complete
-`@F`/`@B` payload semantics remain open. These files should not be grouped
+The exact meaning of all credits record vtable methods remains open. The
+`@F`/`@B` payload ownership is resolved above: `@F` selects the active font
+source for a text record, while `@B` creates a bitmap record retaining the
+image object returned by the bitmap loader. These files should not be grouped
 with the unreferenced tool/debug text corpus.

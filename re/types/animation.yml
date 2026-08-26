@@ -23,21 +23,218 @@ types:
     kind: fixed_layout
     size: 0x08
     confidence: confirmed
-    description: Fixed-stride source/runtime record selected by animation index. The loader treats the two words as frame metadata and a source-stream boundary.
+    description: Fixed-stride source/runtime record selected by animation index. The decompression path treats the two words as a source offset/pointer and frame-count/stream-length metadata.
     fields:
       - offset: 0x00
-        name: frame_count
+        name: source_offset_or_pointer
         type: u32
         confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
       - offset: 0x04
-        name: source_stream_end
+        name: frame_count_or_stream_length
         type: u32
         confidence: confirmed
-        description: Source-stream boundary/offset consumed by the animation-table compaction pass; the playback consumer uses only the low byte of the first word.
+        description: Frame-count/stream-length value consumed by the compressed-frame decoder and adjacent interpolation path. The intermediate compact-table interpretation of the playback byte read remains open.
         evidence:
           - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationDecompressedChannelFrame
+    size: 0x0c
+    confidence: confirmed
+    description: Six signed 16-bit channel samples decoded for one model part and animation frame.
+    fields:
+      - offset: 0x00
+        name: channel_words
+        type: array<i16, 6>
+        confidence: confirmed
+        description: Six consecutive channel samples written by Animation_DecompressStream; rotation/translation order is not assigned.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationPoseJoint
+    size: 0x18
+    confidence: confirmed
+    description: Per-part pose record returned by animation decompression and used by pose/hook position consumers.
+    fields:
+      - offset: 0x00
+        name: basis_matrix
+        type: array<i16, 9>
+        confidence: observed
+        description: 3x3 fixed-point basis written by the pose builder or inherited from decompressed pose data.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x12
+        name: world_position_x
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x14
+        name: world_position_y
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x16
+        name: world_position_z
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationLinkPoseRecord
+    size: 0x0c
+    confidence: observed
+    description: Six-word per-link record allocated by the links-packet reader; individual link/pose meanings are not yet assigned.
+    fields:
+      - offset: 0x00
+        name: link_words
+        type: array<i16, 6>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimePlayerHookPacketRecord
+    size: 0x08
+    confidence: observed
+    description: Four-word hook record exposed by the static player hook-packet table. The first three signed words are passed unchanged to the hook-transform helper; the final word selects the animation part.
+    fields:
+      - offset: 0x00
+        name: hook_transform_word_0
+        type: i16
+        confidence: observed
+        description: Copied to the hook-transform input globals; its axis/vector meaning is not independently assigned.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x02
+        name: hook_transform_word_1
+        type: i16
+        confidence: observed
+        description: Copied to the hook-transform input globals; its axis/vector meaning is not independently assigned.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x04
+        name: hook_transform_word_2
+        type: i16
+        confidence: observed
+        description: Copied to the hook-transform input globals; its axis/vector meaning is not independently assigned.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x06
+        name: animation_part_index
+        type: i16
+        confidence: confirmed
+        description: Part index selected by M3D_GetPartPosition and M3D_GetHookPosition after the hook packet is bound.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/skater-asset-runtime.md
+
+  - name: RuntimePlayerHookPacketTemplate
+    size: 0x14
+    confidence: observed
+    description: Static player hook-packet template selected by object +0x2cc0 and bound through M3D_ReadHooksPacket.
+    fields:
+      - offset: 0x00
+        name: packet_header
+        type: array<u16, 2>
+        confidence: observed
+        description: Four-byte packet prefix; its semantic fields are not assigned.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x04
+        name: hook_records
+        type: array<RuntimePlayerHookPacketRecord, 2>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+
+  - name: RuntimeAnimationObjectPoseState
+    size: null
+    confidence: observed
+    description: Pose/deformation-related fields embedded in an animation-capable runtime object.
+    fields:
+      - offset: 0xe8
+        name: hierarchy_calculation_order
+        type: pointer<u16>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xec
+        name: decompressed_animation_and_pose_buffer
+        type: pointer<u8>
+        confidence: confirmed
+        description: Buffer containing six-channel decompressed frames followed by 0x18-byte current pose records.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf0
+        name: hierarchy_root_part
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf2
+        name: pose_animation_cache
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf3
+        name: pose_frame_cache
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x138
+        name: pose_joints
+        type: pointer<RuntimeAnimationPoseJoint>
+        confidence: observed
+        description: Per-part pose cache allocated by the hook/pose setup path.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x13c
+        name: link_pose_records
+        type: pointer<RuntimeAnimationLinkPoseRecord>
+        confidence: observed
+        description: Object-owned 0x0c-byte-per-link records initialized by the links-packet reader; the complete record semantics are open.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x140
+        name: links_packet_payload
+        type: pointer<u8>
+        confidence: observed
+        description: Bound link-packet payload; full record layout is open.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x144
+        name: links_packet_source
+        type: pointer<void>
+        confidence: observed
+        description: Source packet retained by the pose update method after the first link-packet setup.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationObjectRenderState
+    size: null
+    confidence: observed
+    description: Per-part render-selection fields used when an animation-capable object is converted to model packets.
+    fields:
+      - offset: 0x14c
+        name: render_order_enabled
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x150
+        name: render_part_order
+        type: array<u8>
+        confidence: observed
+        description: One-byte per-part remapping table consulted by the per-part renderer when render_order_enabled is nonzero; extent is not established here.
+        evidence:
+          - re/evidence/functions/renderer.md
 
   - name: RuntimeAnimationObjectState
     kind: fixed_layout

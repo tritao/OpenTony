@@ -33,6 +33,21 @@ types:
     confidence: confirmed
     description: 0x4c-stride environment object record allocated by the PSX parser. The allocation has a four-byte count prefix before record zero.
     fields:
+      - offset: 0x00
+        name: vtable_or_record_dispatch
+        type: pointer<void>
+        confidence: confirmed
+        description: Parser-installed vtable pointer; the first entry is called by region teardown and record cleanup resets it to 0x00519388.
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x04
+        name: object_flags
+        type: u32
+        confidence: confirmed
+        description: Low and high flag halves copied from the disk object record; finalization also sets a derived bit in the high byte.
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
       - offset: 0x08
         name: position_x
         type: i32
@@ -54,6 +69,27 @@ types:
         evidence:
           - re/evidence/functions/asset-loading.md
           - re/evidence/functions/blockmap-collision.md
+      - offset: 0x14
+        name: rotation_component_x
+        type: i16
+        confidence: confirmed
+        description: Low 16 bits of disk object word +0x10; the collision face test rejects objects when the three components at +0x14/+0x16/+0x18 are nonzero.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x16
+        name: rotation_component_y
+        type: i16
+        confidence: confirmed
+        description: High 16 bits of disk object word +0x10.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x18
+        name: rotation_component_z
+        type: i16
+        confidence: confirmed
+        description: Disk object word +0x14 copied as the third collision-tested transform component.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
       - offset: 0x1a
         name: model_index
         type: u16
@@ -68,6 +104,39 @@ types:
         evidence:
           - re/evidence/functions/blockmap-collision.md
           - re/evidence/functions/renderer.md
+      - offset: 0x19
+        name: model_feature_flags
+        type: u8
+        confidence: confirmed
+        description: Finalization sets bit 0x20 here when the selected model header carries bit 0x10.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x24
+        name: source_rgbx_word
+        type: u32
+        confidence: observed
+        description: Fourth trailing word copied from the 36-byte disk object record; its public meaning remains open.
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x28
+        name: transform_scale_x
+        type: i16
+        confidence: observed
+        description: Constructor initializes this transform component to 0x1000; later semantic use remains open.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x2a
+        name: transform_scale_y
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x2c
+        name: transform_scale_z
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
       - offset: 0x20
         name: next
         type: pointer<RuntimePsxObjectRecord>
@@ -172,6 +241,54 @@ types:
         evidence:
           - re/evidence/functions/asset-loading.md
           - re/evidence/functions/blockmap-collision.md
+
+  - name: RuntimePsxGeometryRecord
+    size: 0x08
+    confidence: confirmed
+    description: Version-4 PSX vertex or normal record retained in the relocated model packet. The renderer derives the normal base by advancing vertex_count records.
+    fields:
+      - offset: 0x00
+        name: component_x
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x02
+        name: component_y
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x04
+        name: component_z
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x06
+        name: source_padding_or_auxiliary_word
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimePsxFaceHeader
+    size: 0x04
+    confidence: confirmed
+    description: Variable-face prefix used by the version-4 PSX model stream; the length includes this prefix and bounds the remaining face payload.
+    fields:
+      - offset: 0x00
+        name: packed_face_flags
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x02
+        name: record_length_bytes
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/renderer.md
 
   - name: RuntimePsxFaceRecord
     kind: fixed_layout
@@ -333,17 +450,111 @@ types:
         evidence:
           - re/evidence/functions/asset-loading.md
 
+  - name: RuntimePsxRegionSlot
+    size: 0x44
+    confidence: confirmed
+    description: One of twenty slot records at DAT_0056d428 + region * 0x44. The first ten bytes hold the bounded region name; the remaining fields publish parser products and teardown state.
+    fields:
+      - offset: 0x00
+        name: region_name
+        type: char[10]
+        confidence: confirmed
+        description: Case-insensitive bounded name used by the named-region lookup and cleared during slot teardown.
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x0a
+        name: region_type
+        type: u8
+        confidence: confirmed
+        description: Selects the ordinary PSX cleanup path versus the type-2 raw-buffer path.
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x0b
+        name: region_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x10
+        name: object_records
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x14
+        name: model_pointers
+        type: pointer<pointer<RuntimePsxModelPacketHeader>>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/psx-lifecycle.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x18
+        name: raw_psx_buffer
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x1c
+        name: animation_table
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x24
+        name: model_material_or_hook_metadata
+        type: pointer<void>
+        confidence: observed
+        description: Player hook binding stores the selected static packet payload here; other PSX region paths use this slot for model/material metadata.
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x2c
+        name: auxiliary_pointer_0
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x30
+        name: auxiliary_pointer_1
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x3b
+        name: texture_state_byte_0
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x3c
+        name: texture_state_byte_1
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+      - offset: 0x3d
+        name: texture_state_byte_2
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-lifecycle.md
+
   - name: RuntimePsxSpoolQueueEntry
     kind: fixed_layout
     size: 0x11
-    confidence: observed
+    confidence: confirmed
     description: Compact queue entry used while registering a named PSX region for player/vehicle loading.
     fields:
       - offset: 0x00
         name: queued_name
         type: array<char,13>
-        confidence: observed
-        description: Bounded base name plus the appended .psx suffix.
+        confidence: confirmed
+        description: NUL-terminated base name (maximum eight characters) plus the appended .psx suffix.
         evidence:
           - re/evidence/functions/skater-asset-runtime.md
       - offset: 0x0d
@@ -373,9 +584,9 @@ types:
 
   - name: RuntimePlayerSpoolManager
     kind: fixed_layout
-    size: null
-    confidence: observed
-    description: Player-resource spool manager containing forty 0x28-byte entries and queue lifecycle counters.
+    size: 0xa10
+    confidence: confirmed
+    description: Player-resource spool manager containing sixty-four 0x28-byte entries beginning at +0x04 and queue lifecycle counters at the end of the entry array.
     fields:
       - offset: 0x00
         name: vtable
@@ -406,8 +617,8 @@ types:
   - name: RuntimePlayerSpoolEntry
     kind: fixed_layout
     size: 0x28
-    confidence: observed
-    description: One player-resource spool entry. The resource name starts at +0x05; the manager owns forty entries at this stride.
+    confidence: confirmed
+    description: One player-resource spool entry. The resource name starts at +0x05; the manager owns sixty-four entries at this stride.
     fields:
       - offset: 0x04
         name: processed
@@ -418,8 +629,9 @@ types:
           - re/evidence/functions/skater-asset-runtime.md
       - offset: 0x05
         name: resource_name
-        type: sequence<char>
-        confidence: observed
+        type: array<char,19>
+        confidence: confirmed
+        description: NUL-terminated resource base name occupying +0x05 through +0x17; the mode word begins at +0x18.
         evidence:
           - re/evidence/functions/skater-asset-runtime.md
       - offset: 0x18

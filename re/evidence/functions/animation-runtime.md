@@ -1,8 +1,9 @@
 # PSX animation resource to runtime animation state
 
-Status: confirmed `sk2anim.PSX` load and animation-table consumer path
+Status: confirmed `sk2anim.PSX` load, decompression, hierarchy calculation order,
+pose-buffer/build, and part/hook-position consumer path
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x004b46a0`, `0x004b37a0`, `0x004b40a0`, `0x00452390`, `0x00469a30`, `0x00480730`, `0x00480950`, `0x00480fa0`
+Addresses: `0x004b46a0`, `0x004b37a0`, `0x004b40a0`, `0x00452390`, `0x00469a30`, `0x004305f0`, `0x00430920`, `0x00464b90`, `0x00464bb0`, `0x00464c00`, `0x00464d10`, `0x00464e90`, `0x00465060`, `0x00465110`, `0x00465300`, `0x00480730`, `0x00480950`, `0x00480fa0`, `0x00480f50`
 
 This is the next PSX family after level geometry. It uses the common PSX
 parser, but its post-model data is transformed into animation tables rather
@@ -42,9 +43,8 @@ When the slot is not already in final state 2, it:
 
 1. consumes the animation metadata pointer at `DAT_0056d444[slot * 0x11]`;
 2. copies the animation count and the table's 8-byte records into a runtime
-   area beginning at raw PSX buffer `+0x14`; each record is two 32-bit words,
-   with the first consumed as the frame count and the second used as a
-   source-stream end marker;
+   area beginning at raw PSX buffer `+0x14`; operationally, the two record
+   words are a source offset/pointer and a frame-count/stream-length word;
 3. filters/compacts source byte streams against the default and extra animation
    index lists, whose indices are checked below `0x200`; and
 4. replaces `DAT_0056d448[slot * 0x11]` with the compacted hierarchy/source
@@ -52,7 +52,111 @@ When the slot is not already in final state 2, it:
 
 The function also validates that source-byte boundaries match the table's
 record lengths. This means the runtime animation table is derived from the
-PSX post-model data, not from the scene object's model table alone.
+PSX post-model data, not from the scene object's model table alone. The
+low-byte read in `0x00480730` is retained as an operational detail of the
+runtime table; it should not be used to rename the on-disk pair until the
+intermediate compact-table layout is reconstructed completely.
+
+## Compressed animation payload
+
+The Warehouse `SK2ANIM.PSX` post-model tags make the animation input
+concrete. Its first post-model tag is:
+
+```text
+tag type       0x2c
+tag size       586160 (0x8f1b0)
+payload        0x4804
+animation count 218
+record stride  8 bytes
+source stream  payload + 4 + 218 * 8 = 0x4ed8
+```
+
+The 218 source records are pairs of little-endian 32-bit words. Their first
+words are monotonic source offsets in the tag payload and their second words
+are frame-count/stream-length values. The second words have zero high halves
+in this asset. The next post-model tag is type `0x52454948` (`REIH`), size
+`0x28`, with the hierarchy payload at `0x939bc`.
+
+`0x004305f0` is the compressed-channel decoder called by
+`0x00430920`. The first byte selects both an interpolation/repetition count
+(high nibble) and a channel encoding (low nibble): encoding zero stores
+literal 16-bit targets with interpolation, encodings one through thirteen
+read signed packed deltas, `0xe` repeats one 16-bit value, and `0xf` emits
+zeroes. It returns the next byte in the stream, allowing six channels to be
+decoded consecutively for each model part and frame. The exact channel order
+(rotation convention versus translation convention) remains open.
+
+## Hierarchy and pose/deformation handoff
+
+`0x00430920` (`Decomp_GetAnimTransform`, identified by the executable's
+`decomp.cpp` source string) is the first direct disk-animation-to-pose
+boundary. For a runtime animation object it reads the region slot at `+0x1f`,
+animation index at `+0xf6`, and frame at `+0xf4`. For type `0x2c` data it:
+
+1. allocates `object +0xec` for `(maximum record word + 2) * model_count *
+   0x0c` bytes, where Warehouse has 19 models/parts;
+2. allocates a `model_count * 2`-byte calculation-order array at `+0xe8`;
+3. reads the `REIH` hierarchy, finds the single root, and emits a parent-
+   before-child order;
+4. decodes six signed 16-bit channels per part/frame into 0x0c-byte records;
+   and
+5. converts each part through the parent transform, adding the parent's
+   world translation to the child output. The returned current pose is an
+   array of 0x18-byte per-part records at `object +0xec`; their translation
+   words are at `+0x12`, `+0x14`, and `+0x16`.
+
+The raw `REIH` payload contains 20 16-bit values, but the runtime model
+count is 19 and the decompressor's calculation-order loop is bounded by 19.
+The twentieth value is therefore not promoted here to a twentieth runtime
+joint.
+
+`0x00464b90` (`M3dUtils_ReadHooksPacket`) binds the region's hook packet into
+the slot-indexed hook table by storing `packet + 4` at the selected region
+slot's `+0x24` metadata/hook pointer. The player-side caller selects the
+packet at `0x00534620 + object[+0x2cc0] * 0x14`; the static packet values and
+the downstream transform contract are listed in [skater-asset-runtime.md](skater-asset-runtime.md).
+`0x00464c00` (`M3dUtils_ReadLinksPacket`) binds a
+link packet to the object: it stores the packet payload at `+0x140`, allocates
+0x18-byte pose records at `+0x138`, allocates 0x0c-byte packet-link records at
+`+0x13c`, and resolves packet IDs to pose slots. `0x00464bb0`
+(`M3dUtils_ClearPoseStuff`) releases those two object-owned buffers. `0x00465300`
+then builds the final per-part pose cache, composing any
+packet-provided local transforms with the decompressed animation pose and
+filling untouched parts from the `+0xec` pose array. This is the first
+runtime deformation-oriented structure recovered here; the full packet
+record and matrix-stack semantics remain open.
+
+`0x00464d10` and `0x00464e90` are downstream part-position and hook-position
+helpers. They select either the decompressed pose, the tween buffer at
+`DAT_00567cb0`, or the cached `+0x138` pose, transform it with the part/hook
+record and object rotation, and return a fixed-point world position after
+adding object position at `+0x08/+0x0c/+0x10`. The hook helper is consumed by
+runtime effects such as the rail/camera effect at `0x0046da70` and the dust
+effect at `0x00431320`. This proves that animation pose data reaches live
+world-space consumers. The renderer-side per-part model consumer is
+`0x004610f0`: it takes the same 0x18-byte pose records (or the `+0x138` cache),
+composes each record with the object transform, and submits each corresponding
+PSX model packet through `0x004d11d0`. The recovered operation is rigid
+per-part transform composition; no vertex-weighted skinning is claimed.
+
+The hook record's first three words have a narrower proven contract than their
+public names suggest. `0x00464e90` reads the final signed-16 word at
+`hook + 0x06` as a part index and selects that part's 0x18-byte pose. It then
+passes the hook record, pose record, and the object's transform block at
+`object + 0x118` to `0x004f5160`. That helper copies hook words `+0x00`,
+`+0x02`, and `+0x04` into three global transform inputs, copies the complete
+12-word pose record, copies six transform words from `object + 0x118`, and
+invokes the lower matrix/position helpers. The words are therefore live
+transform inputs, while their axis/vector meanings remain intentionally raw.
+
+`0x00465060` and `0x00465110` implement the alternate/tween path. The latter
+selects adjacent source frames from the animation record, computes a 12-bit
+interpolation fraction, and writes 0x18-byte joint records into the global
+`DAT_00567cb0` buffer. `0x00480f50` ties the object-side setup together by
+initializing the hook/pose buffers, updating the tween state, and—when the
+object flags permit—calling the pose builder. Its direct external caller is
+not recovered, so the method contract is recorded without claiming that
+this exact entry is the only live update route.
 
 `0x00452390` is the adjacent region-sharing helper used by the front-end. It
 copies animation/hierarchy pointers from one loaded model region to another
@@ -126,6 +230,9 @@ SK2ANIM.PSX
   -> DAT_0056d444[slot * 0x11]
   -> 0x00480730 object animation selection
   -> 0x00480950 frame/update state
+  -> 0x00430920 compressed-frame decode and hierarchy composition
+  -> 0x00465300 pose/hook composition
+  -> 0x00464d10 / 0x00464e90 world-space part and hook consumers
 ```
 
 This is a runtime-object bridge analogous to the Warehouse object/model bridge,
@@ -136,14 +243,15 @@ identity is an animation table index rather than a scene blockmap object index.
 
 - `confirmed`: exact `sk2anim.PSX` asset identity, load call, common PSX parser
   boundary, animation-table compaction, region sharing, runtime table
-  lookup/start/update fields, and the gameplay-side `0x00469a30` selection to
-  `0x00480730` consumer call.
+  lookup/start/update fields, compressed-channel decoder, hierarchy root and
+  calculation order, pose-buffer geometry, and the gameplay-side
+  `0x00469a30` selection to `0x00480730` consumer call.
 - `observed`: 19-object/19-model offline counts and the 8-byte animation record
-  stride used by the consumer.
-- `confirmed`: the record's second word is used as a source-stream boundary by
-  the compaction pass; selected source bytes are copied into the compacted
-  hierarchy stream.
-- `inferred`: the public names for the numeric playback modes and the full
-  meaning of the compacted hierarchy stream. The playback fields
-  above are operational names based on direct reads/writes, not claims about
-  the original public class members.
+  stride used by the consumer, and six decoded channel words per part/frame.
+- `confirmed`: the record's first word supplies the source offset/pointer and
+  its second word supplies frame-count/stream-length data to the decompression
+  path; selected source bytes are copied into the compacted hierarchy stream.
+- `inferred`: the public names for the numeric playback modes, exact channel
+  order, and hook-record prefix/header semantics. The playback and pose field names
+  above are operational names
+  based on direct reads/writes, not claims about original public members.

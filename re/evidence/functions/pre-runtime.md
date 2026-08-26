@@ -54,15 +54,20 @@ level-select state -> 0x004a90f0("levelsel.pre", 0)
 level-load setup   -> 0x004a90f0("panel.pre", 1)
 ```
 
-`0x004a9330` unloads by case-insensitive name, frees the corresponding loaded
-buffer through `0x0046f4d0`, and clears its pointer slot. The normal panel and
-level-select flows call the unload wrapper after leaving those states.
+`0x004a9330` unloads by case-insensitive name, overwrites the matching 16-byte
+name slot with the empty-name template, frees the corresponding loaded buffer
+through `0x0046f4d0`, and clears its pointer slot. If no slot matches, it
+asserts `PRE_file_is_not_loaded` after scanning all 16 entries. The normal
+panel and level-select flows call the unload wrapper after leaving those
+states.
 
 ## Embedded resource lookup
 
-`0x004a9410(manager, embedded_name, out_size)` lowercases the requested name
-and scans the 16 loaded PRE slots. For each loaded buffer it calls
-`0x004a9480`.
+`0x004a9410(manager, embedded_name, out_size)` copies at most the caller's
+short-name input into a 16-byte local, lowercases ASCII capitals in that
+copy, and scans the 16 loaded PRE slots. For each loaded buffer it calls
+`0x004a9480`. The manager's stored container names are compared
+case-insensitively by the separate unload path at `0x004a9330`.
 
 `0x004a9480` parses the in-memory PRE layout conservatively and returns a
 pointer into the buffer when a name matches. Its observed record walk is:
@@ -71,10 +76,15 @@ pointer into the buffer when a name matches. Its observed record walk is:
 u32 file_count at buffer +0x00
 for each entry:
     NUL-terminated name
-    4-byte alignment
+    4-byte alignment after the name (including its NUL)
     u32 payload_size
     payload bytes
     4-byte alignment before the next entry
+
+The alignment is performed independently for every name and payload. In
+other words, the next entry is computed as
+`entry + align4(strlen(name) + 1) + 4 + align4(payload_size)`; no fixed-size
+record header is inserted between entries.
 ```
 
 It writes the matched payload size to the caller's output pointer and returns
@@ -107,11 +117,36 @@ levelsel.pre / panel.pre
   -> font/text renderer
 ```
 
+The same lookup is independently exercised by the panel bitmap initializer
+`0x0048ad50` (`Panel_LoadRuntimeSprites`). Its static call sites pass
+`s2switch.bmp` and `s2icon8.bmp` to the normal image constructor
+`0x00457420`; that constructor calls `0x00449030`, whose short-name fast path
+calls `0x004a9410` before falling back to disk. Both names are present in the
+offline `PANEL.PRE` table:
+
+```text
+PANEL.PRE / s2switch.bmp  payload offset 0x4620  size 1444
+PANEL.PRE / s2icon8.bmp   payload offset 0x4bd4  size 1008
+```
+
+The panel call site supplies 64x64 realization dimensions and retains each
+returned image object in the panel's sprite slots. This is a concrete
+embedded-BMP bridge, distinct from the FNT path:
+
+```text
+PANEL.PRE
+  -> 0x004a9480 embedded name/size/payload walk
+  -> 0x00457420 image constructor
+  -> panel sprite handle/slot
+  -> panel renderer
+```
+
 ## Confidence and limits
 
 - `confirmed`: manager allocation size, 16-slot/16-name layout, file-open and
   allocation path, case-insensitive embedded-resource search, payload pointer
-  return, unload behavior, and the FNT payload-to-runtime-font consumer path.
+  return, unload behavior, the FNT payload-to-runtime-font consumer path, and
+  the panel embedded-BMP-to-image-object path.
 - `observed`: `levelsel.pre` and `panel.pre` call sites and the fixed-size
   manager table.
 - `inferred`: which individual embedded BMP/FNT entries are consumed by each

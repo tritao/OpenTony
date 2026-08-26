@@ -69,7 +69,8 @@ types:
       - offset: 0xfe8
         name: active_source_pointer
         type: pointer<void>
-        confidence: observed
+        confidence: confirmed
+        description: Per-record font/source descriptor; initialized to the s2font2-derived source at 0x00560d08 and switched to the s2font1-derived source at 0x00560e58 by @F.
         evidence:
           - re/evidence/functions/text-runtime.md
       - offset: 0xfec
@@ -99,15 +100,16 @@ types:
           - re/evidence/functions/text-runtime.md
       - offset: 0x0c
         name: text
-        type: sequence<char>
-        confidence: observed
-        description: Text is copied into the record's inline region by the constructor; exact capacity is not assigned.
+        type: array<char,52>
+        confidence: confirmed
+        description: Text is copied into the record's inline 0x34-byte region after the vtable/metric words.
         evidence:
           - re/evidence/functions/text-runtime.md
       - offset: 0x40
         name: source_parameter
-        type: u32
-        confidence: observed
+        type: pointer<void>
+        confidence: confirmed
+        description: Active font/source descriptor passed by the tag parser.
         evidence:
           - re/evidence/functions/text-runtime.md
 
@@ -126,7 +128,8 @@ types:
       - offset: 0x0c
         name: image_object
         type: pointer<void>
-        confidence: observed
+        confidence: confirmed
+        description: Image object returned by the bitmap loader for the line payload after @B/@b.
         evidence:
           - re/evidence/functions/text-runtime.md
 
