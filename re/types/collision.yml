@@ -71,8 +71,9 @@ types:
     size: 0x10
     confidence: strong
     description: >-
-      First 16 bytes of a variable-length face record. The face walker uses
-      4 + (word0 >> 18) * 4 as the record stride.
+      First 16 bytes of a variable-length face record. The encoded upper
+      halfword is the byte stride; the static walker reaches the same value
+      as 4 * (word0 >> 18) because records are four-byte aligned.
     fields:
       - offset: 0x00
         name: base_flags

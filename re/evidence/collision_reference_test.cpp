@@ -9,6 +9,9 @@
 using namespace opentony::collision_reference;
 
 int main() {
+    assert(face_record_stride_bytes(0x001c1083) == 0x1c);
+    assert(face_record_stride_bytes(0x00205823) == 0x20);
+
     CollisionModelHeader model;
     model.vertex_count = 14;
     model.normal_count = 6;
@@ -26,7 +29,7 @@ int main() {
     face.length_bytes = 0x1c;
     face.normal_index_shifted = 0x20;
     face.surface_flags = 0x10;
-    assert(face_record_stride_bytes(0x001c1083) == 0x20);
+    assert(face_record_stride_bytes(0x001c1083) == 0x1c);
     assert(face_normal_index(face.normal_index_shifted) == 4);
 
     CollisionModelCacheEntry cache_entry;
@@ -69,8 +72,10 @@ int main() {
     prepare(triangle_query);
     FaceGeometry triangle;
     triangle.vertex0 = {0, 0, 0};
-    triangle.vertex1 = {10, 0, 0};
-    triangle.vertex2 = {0, 10, 0};
+    // The recovered side predicates expect the model's stored winding to be
+    // opposite the positive plane-normal convention used by this fixture.
+    triangle.vertex1 = {0, 10, 0};
+    triangle.vertex2 = {10, 0, 0};
     triangle.plane_normal = {0, 0, 1};
     triangle.is_triangle = true;
     assert(record_nearest_face_candidate(triangle_query, triangle, {0, 0, 0},
@@ -86,7 +91,7 @@ int main() {
     prepare(quad_query);
     FaceGeometry quad = triangle;
     quad.vertex2 = {10, 10, 0};
-    quad.vertex3 = {0, 10, 0};
+    quad.vertex3 = {10, 0, 0};
     quad.is_triangle = false;
     assert(record_nearest_face_candidate(quad_query, quad, {0, 0, 0},
                                          0x11, 0x21, 8));
@@ -134,15 +139,15 @@ int main() {
         put_i16(offset + 4, z);
     };
     put_vertex(0, 0, 0, 0);
-    put_vertex(1, 10, 0, 0);
-    put_vertex(2, 0, 10, 0);
+    put_vertex(1, 0, 10, 0);
+    put_vertex(2, 10, 0, 0);
     put_vertex(3, 10, 10, 0);
     put_i16(vertex_base + 4 * 8, 0);
     put_i16(vertex_base + 4 * 8 + 2, 0);
     put_i16(vertex_base + 4 * 8 + 4, 4096);
     const auto face_offset = vertex_base + 4 * 8 + 8;
     put16(face_offset, 0x0010);       // triangle bit
-    put16(face_offset + 2, 0x000c);   // 12-byte payload; 16-byte record
+    put16(face_offset + 2, 0x0010);   // 16-byte minimum face record
     model_bytes[face_offset + 4] = 0;
     model_bytes[face_offset + 5] = 1;
     model_bytes[face_offset + 6] = 2;
@@ -174,6 +179,33 @@ int main() {
     assert(model_query.hit_face_record == 0x5000u + face_offset);
     const RawVec3 expected_model_contact{4096, 4096, 0};
     assert(model_query.hit_position == expected_model_contact);
+
+    std::array<DynamicVertexRecord, 4> transformed_vertices{};
+    const std::array<std::int16_t, 9> identity_q12{
+        0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
+    assert(transform_model_vertices(model_view, {0, 0, 0}, identity_q12,
+                                     20, transformed_vertices) == 0);
+    assert(transformed_vertices[1].x == 0);
+    assert(transformed_vertices[1].y == 10);
+    assert(transformed_vertices[2].x == 10);
+    assert(transformed_vertices[2].y == 0);
+    const auto dynamic_indices = dynamic_face_indices(0x03020100);
+    assert(dynamic_indices.vertex0 == 0);
+    assert(dynamic_indices.vertex1 == 1);
+    assert(dynamic_indices.vertex2 == 2);
+    assert(dynamic_indices.vertex3 == 3);
+    assert(dynamic_face_clip_accepts(transformed_vertices[0],
+                                     transformed_vertices[1],
+                                     transformed_vertices[2],
+                                     transformed_vertices[3]));
+
+    QueryRecord translated_query;
+    translated_query.start = {8192, 8192, 4096};
+    translated_query.end = {8192, 8192, -4096};
+    prepare(translated_query);
+    assert(query_model_faces(translated_query, model_view, {0, 0, 0}, 9) == 1);
+    const RawVec3 expected_translated_contact{8192, 8192, 0};
+    assert(translated_query.hit_position == expected_translated_contact);
 
     CollisionZoneGrid zone{
         .min_x = -5000,

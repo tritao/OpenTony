@@ -9,6 +9,11 @@ from .player import PlayerView
 QUERY_WRAPPER = 0x00466090
 QUERY_RETURN = 0x0046609F
 COLLISION_MODEL_TABLE = 0x0056D43C
+COLLISION_LINKED_ROOT = 0x0056AF40
+COLLISION_ZONE_TABLE = 0x00567F80
+COLLISION_CANDIDATE_TABLE = 0x00567FA0
+COLLISION_FACE_CACHE = 0x005643B0
+COLLISION_MODEL_CACHE = 0x00567A70
 
 
 def _signed16(value: int) -> int:
@@ -35,6 +40,42 @@ def _u32_words(address: int, count: int, memory) -> list[int] | None:
     if not address or not memory.valid(address + count * 4 - 1):
         return None
     return [memory.u32(address + offset * 4) for offset in range(count)]
+
+
+def _global_u32(address: int, memory) -> int | None:
+    return memory.u32(address) if memory.valid(address + 3) else None
+
+
+def _zone_entry_snapshot(address: int, memory) -> dict | None:
+    if not memory.valid(address + 0x9F):
+        return None
+    return {
+        "address": f"0x{address:08x}",
+        "present_word": memory.u32(address),
+        "min_x": memory.u32(address + 0x84),
+        "min_z": memory.u32(address + 0x88),
+        "max_x": memory.u32(address + 0x8C),
+        "max_z": memory.u32(address + 0x90),
+        "cell_divisor": memory.u32(address + 0x94),
+        "cell_count_x": memory.u16(address + 0x9C),
+        "cell_count_z": memory.u16(address + 0x9E),
+    }
+
+
+def _scene_roots(memory) -> dict:
+    """Capture addresses/ownership markers without walking unbounded memory."""
+
+    return {
+        "linked_root_value": _global_u32(COLLISION_LINKED_ROOT, memory),
+        "zone_table_base": f"0x{COLLISION_ZONE_TABLE:08x}",
+        "zone0": _zone_entry_snapshot(COLLISION_ZONE_TABLE, memory),
+        "candidate_table_base": f"0x{COLLISION_CANDIDATE_TABLE:08x}",
+        "candidate0": _global_u32(COLLISION_CANDIDATE_TABLE, memory),
+        "model_table_base": f"0x{COLLISION_MODEL_TABLE:08x}",
+        "model_table_kind0": _global_u32(COLLISION_MODEL_TABLE, memory),
+        "face_cache_base": f"0x{COLLISION_FACE_CACHE:08x}",
+        "model_cache_base": f"0x{COLLISION_MODEL_CACHE:08x}",
+    }
 
 
 def _collision_model_geometry(model: int, face: int, model_index: int, memory) -> dict | None:
@@ -74,7 +115,7 @@ def _collision_model_geometry(model: int, face: int, model_index: int, memory) -
     face_word_zero = memory.u32(face)
     result["face_base_flags"] = face_word_zero & 0xFFFF
     result["face_length_bytes"] = (face_word_zero >> 16) & 0xFFFF
-    result["face_stride_bytes"] = 4 + ((face_word_zero >> 18) * 4)
+    result["face_stride_bytes"] = face_word_zero >> 16
     # 0x00462a20 uses cache bytes +4,+5,+6,+7 as vertex indices.  The
     # cache word at +0 is flags; +1 is not the first vertex index.
     vertex_indices = [memory.u8(face + offset) for offset in (4, 5, 6, 7)]
@@ -137,6 +178,7 @@ class CollisionQueryProbe:
             "start_raw": _vec_words(query, ctx.memory),
             "end_raw": _vec_words(query + 0x0C, ctx.memory),
             "query_flags": ctx.memory.u8(query + 0x88),
+            "scene_roots": _scene_roots(ctx.memory),
             "player": f"0x{player.address:08x}" if player is not None else None,
             "physics_state": player.physics_state if player is not None else None,
         }
@@ -166,6 +208,7 @@ class CollisionQueryProbe:
             "start_raw": active["start_raw"],
             "end_raw": active["end_raw"],
             "query_flags": active["query_flags"],
+            "scene_roots": active["scene_roots"],
             "direction_flag": ctx.memory.u8(query + 0x89),
             "query_stamp": ctx.memory.u16(query + 0x8A),
             "line_basis_s16": _short_words(query + 0x48, 9, ctx.memory),
@@ -178,7 +221,7 @@ class CollisionQueryProbe:
             "face_flags": ctx.memory.u32(face + 0x0C) if face and ctx.memory.valid(face + 0x0C) else None,
             "face_words": _u32_words(face, 4, ctx.memory),
             "face_stride_bytes": (
-                4 + ((ctx.memory.u32(face) >> 18) * 4)
+                ctx.memory.u32(face) >> 16
                 if face and ctx.memory.valid(face + 3)
                 else None
             ),

@@ -459,9 +459,10 @@ inline constexpr std::size_t model_record_offset(std::uint16_t index) {
 
 inline constexpr std::size_t face_record_stride_bytes(
     std::uint32_t face_word_zero) {
-    // The face walker advances by 4 + 4*(word0 >> 18).  The upper halfword
-    // is therefore a byte length in this build, normally divisible by four.
-    return 4u + (static_cast<std::size_t>(face_word_zero >> 18u) * 4u);
+    // The static walker advances a uint32_t pointer by word0 >> 18 words;
+    // the dynamic walker adds word0 >> 16 bytes.  The upper halfword is the
+    // encoded byte length, normally divisible by four, so both paths agree.
+    return static_cast<std::size_t>(face_word_zero >> 16u);
 }
 
 inline constexpr std::uint16_t face_normal_index(
@@ -688,6 +689,114 @@ struct CollisionModelView {
         };
     }
 };
+
+// 0x004f4b00 writes a temporary transformed-vertex stream with the same
+// eight-byte record size as model vertices: three signed shorts followed by
+// a six-bit clipping mask.  The stream is q-oriented, so the query segment
+// runs along its positive Z axis and the dynamic face walker can reject a
+// whole face with a shared clip-code AND.
+#pragma pack(push, 1)
+struct DynamicVertexRecord {
+    std::int16_t x = 0;
+    std::int16_t y = 0;
+    std::int16_t z = 0;
+    std::uint16_t clip_mask = 0;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(DynamicVertexRecord) == 0x08);
+
+struct DynamicFaceIndices {
+    std::uint8_t vertex0 = 0;
+    std::uint8_t vertex1 = 0;
+    std::uint8_t vertex2 = 0;
+    std::uint8_t vertex3 = 0;
+};
+
+inline constexpr DynamicFaceIndices dynamic_face_indices(
+    std::uint32_t packed_indices) {
+    // 0x004f4c50 consumes the bytes in face order +4,+5,+6,+7.  Its
+    // decompiler names the accesses by significance because the word is
+    // loaded as a uint32_t.
+    return {
+        static_cast<std::uint8_t>(packed_indices),
+        static_cast<std::uint8_t>(packed_indices >> 8u),
+        static_cast<std::uint8_t>(packed_indices >> 16u),
+        static_cast<std::uint8_t>(packed_indices >> 24u),
+    };
+}
+
+inline constexpr std::uint16_t dynamic_clip_mask(Raw x, Raw y, Raw z,
+                                                  Raw line_length) {
+    return static_cast<std::uint16_t>(
+        (x < 0 ? 0x004u : 0u) |
+        (y < 0 ? 0x002u : 0u) |
+        (z < 0 ? 0x001u : 0u) |
+        (line_length < z ? 0x008u : 0u) |
+        (x > 0 ? 0x400u : 0u) |
+        (y > 0 ? 0x200u : 0u));
+}
+
+inline bool dynamic_face_clip_accepts(const DynamicVertexRecord& vertex0,
+                                      const DynamicVertexRecord& vertex1,
+                                      const DynamicVertexRecord& vertex2,
+                                      const DynamicVertexRecord& vertex3) {
+    return (vertex0.clip_mask & vertex1.clip_mask & vertex2.clip_mask &
+            vertex3.clip_mask & 0x60fu) == 0;
+}
+
+inline Raw q12_transform_component_raw(const std::array<std::int16_t, 9>& basis,
+                                       std::size_t row,
+                                       Raw x,
+                                       Raw y,
+                                       Raw z) {
+    const auto offset = row * 3;
+    const auto sum = static_cast<std::int64_t>(basis[offset]) * x +
+                     static_cast<std::int64_t>(basis[offset + 1]) * y +
+                     static_cast<std::int64_t>(basis[offset + 2]) * z;
+    return wrapping_from_i64(sum >> 12u);
+}
+
+// Reference reconstruction of 0x004f4b00.  model_origin_units is the
+// object-origin minus query-start displacement after the original >>12
+// conversion (the fast non-rotated path in 0x00463e50 computes exactly this
+// value).  The returned AND mask is the value tested against 0x60f by the
+// caller before 0x004f4c50 scans faces.
+inline std::uint16_t transform_model_vertices(
+    const CollisionModelView& model,
+    const RawVec3& model_origin_units,
+    const std::array<std::int16_t, 9>& query_basis,
+    Raw line_length,
+    std::span<DynamicVertexRecord> output) {
+    const auto model_header = model.header();
+    if (!model_header || output.size() < model_header->vertex_count) {
+        return 0x60f;
+    }
+    std::uint16_t mask = 0x60f;
+    for (std::uint16_t index = 0; index < model_header->vertex_count; ++index) {
+        const auto vertex = model.vertex(index);
+        if (!vertex) {
+            return 0x60f;
+        }
+        const Raw x = wrapping_add((*vertex)[0], model_origin_units[0]);
+        const Raw y = wrapping_add((*vertex)[1], model_origin_units[1]);
+        const Raw z = wrapping_add((*vertex)[2], model_origin_units[2]);
+        const Raw transformed_x = wrapping_add(
+            q12_transform_component_raw(query_basis, 0, x, y, z), 0);
+        const Raw transformed_y = wrapping_add(
+            q12_transform_component_raw(query_basis, 1, x, y, z), 0);
+        const Raw transformed_z = wrapping_add(
+            q12_transform_component_raw(query_basis, 2, x, y, z), 0);
+        auto& record = output[index];
+        record.x = static_cast<std::int16_t>(transformed_x);
+        record.y = static_cast<std::int16_t>(transformed_y);
+        record.z = static_cast<std::int16_t>(transformed_z);
+        record.clip_mask = dynamic_clip_mask(transformed_x, transformed_y,
+                                              transformed_z, line_length);
+        mask = static_cast<std::uint16_t>(mask & record.clip_mask);
+    }
+    return mask;
+}
 
 template <typename Visitor>
 inline void visit_model_face_aabbs(const CollisionModelView& model,
@@ -1047,21 +1156,31 @@ inline bool triangle_side_accepted(const RawVec3& start,
         wrapping_sub(end[2], start[2]),
     };
     const auto side_ok = [](double value) { return value >= 0.0; };
+    const auto relative_to_start = [&start](const RawVec3& vertex) {
+        return RawVec3{
+            wrapping_sub(vertex[0], start[0]),
+            wrapping_sub(vertex[1], start[1]),
+            wrapping_sub(vertex[2], start[2]),
+        };
+    };
+    const auto vertex0 = relative_to_start(face.vertex0);
+    const auto vertex1 = relative_to_start(face.vertex1);
+    const auto vertex2 = relative_to_start(face.vertex2);
+    const auto vertex3 = relative_to_start(face.vertex3);
 
-    if (!side_ok(oriented_triple_product(face.vertex2, face.vertex0,
-                                         direction)) ||
-        !side_ok(oriented_triple_product(face.vertex1, face.vertex0,
-                                         direction))) {
+    // The original expressions correspond to the consistently oriented
+    // edges v2->v0, v0->v1, and v1->v2.  Treating all three as
+    // oriented_triple_product(vertexN, vertex0, direction) changes the sign
+    // of the latter two tests and rejects valid stored windings.
+    if (!side_ok(oriented_triple_product(vertex2, vertex0, direction)) ||
+        !side_ok(oriented_triple_product(vertex0, vertex1, direction))) {
         return false;
     }
     if (face.is_triangle) {
-        return side_ok(oriented_triple_product(face.vertex2, face.vertex1,
-                                               direction));
+        return side_ok(oriented_triple_product(vertex1, vertex2, direction));
     }
-    return side_ok(oriented_triple_product(face.vertex3, face.vertex1,
-                                           direction)) &&
-           side_ok(oriented_triple_product(face.vertex3, face.vertex2,
-                                           direction));
+    return side_ok(oriented_triple_product(vertex1, vertex3, direction)) &&
+           side_ok(oriented_triple_product(vertex2, vertex3, direction));
 }
 
 inline std::optional<RawVec3> contact_at_parameter(const QueryRecord& query,

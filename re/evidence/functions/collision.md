@@ -179,20 +179,23 @@ the wrapper; the query does not parse a file on each call.
 
   ```text
   (v2 × v0) · d >= 0
-  (v1 × v0) · d >= 0
-  (v2 × v1) · d >= 0
+  (v0 × v1) · d >= 0
+  (v1 × v2) · d >= 0
   ```
 
-  The quad path uses the first two tests, then checks `(v3 × v1) · d` and
-  `(v3 × v2) · d`. The zero constant is the double at `0x00518d68`; equality
+  The latter two signs are easy to lose when translating the emitted
+  expressions because the compiler reverses their subtraction order. The
+  quad path uses the first two tests, then checks `(v1 × v3) · d` and
+  `(v2 × v3) · d`. The zero constant is the double at `0x00518d68`; equality
   takes the alternate branch visible at `0x004631a4`, but the same oriented
   tests and final nonnegative comparison apply. This is now implemented in
   `collision_reference.hpp`; it supersedes the earlier deliberately
   unverified cross-product guess.
 - The first face word packs a 16-bit base flag field and a 16-bit payload
-  length. The face walker advances by
-  `4 + 4*(face_word_zero >> 18)` bytes, equivalent to `4 + length_bytes`
-  for the observed four-byte-aligned records. The recovered model-data view
+  length. The dynamic walker advances by `face_word_zero >> 16` bytes; the
+  static walker advances by `face_word_zero >> 18` `uint32_t` words, which is
+  the same byte length for the observed four-byte-aligned records. The
+  recovered model-data view
   is therefore:
 
   ```text
@@ -300,16 +303,23 @@ the wrapper; the query does not parse a file on each call.
     transformed face pass.
   - `0x00463e50` transforms the query into object/model space and calls
     `0x004f4b00` to transform all model vertices into a temporary buffer.
-    The returned six-bit clip mask must have `(mask & 0x60f) == 0` before
-    `0x004f4c50` scans faces. The model data layout and face strides are the
-    same as the static path.
+    Each temporary record is three signed shorts plus a 16-bit clip mask.
+    The transform uses the query's Q12 basis and the object-origin minus
+    query-start displacement in model units. The returned AND mask must have
+    `(mask & 0x60f) == 0` before `0x004f4c50` scans faces. The model data
+    layout and face strides are the same as the static path. The dynamic face
+    walker consumes face index bytes in +4,+5,+6,+7 order and applies the
+    same scene collision-mask words before its projected-face test.
   - `0x004f4c50` applies scene collision masks, reconstructs face vertices
-    from the transformed buffer, performs a cross-product side test, and
-    writes the same q hit body/contact/face/model-index fields. Its nearest
-    comparison is against `q+0x40` (traveled distance), whereas the static
-    `0x00462a20` path compares the `0x4000` segment parameter at `q+0x8c`.
-    This is a real behavioral distinction, not just a decompiler naming
-    artifact.
+    from the transformed buffer, performs a projected cross-product test,
+    and writes the dynamic hit body, traveled distance, face, and model-index
+    fields. Its nearest comparison is against `q+0x40` (traveled distance),
+    whereas the static `0x00462a20` path compares the `0x4000` segment
+    parameter at `q+0x8c`. This is a real behavioral distinction, not just a
+    decompiler naming artifact. The decompiled dynamic face-hit branch does
+    not itself assign `q+0x6c..0x74`; those contact words are assigned by the
+    static tester and by the dynamic routine's no-face fallback, so dynamic
+    contact ownership remains a targeted runtime question.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
