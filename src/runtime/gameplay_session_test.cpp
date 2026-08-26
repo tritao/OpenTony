@@ -36,9 +36,61 @@ int main() {
     assert(!session.initialized());
     session.initialize();
     assert(session.initialized());
+    assert(session.level().triggers().selected_restart()
+        != opentony::trg::CommandPointRuntime::npos);
+    assert(session.level().state().last_restart().set);
+    assert(session.player().position()
+        == session.level().state().last_restart().position);
+    assert(session.player().previous_position()
+        == session.level().state().last_restart().position);
     assert(session.level().scene().static_entity_count() == 252);
     assert(session.physics_hooks().collision_query);
     assert(session.physics_hooks().air_gravity_input);
+
+    opentony::runtime::GameplaySessionConfig tricks_config{};
+    tricks_config.tricks_path = asset_path("TRICKS.BIN");
+    tricks_config.use_tricks_retail_builder = true;
+    opentony::runtime::GameplaySession tricks_session(
+        trg,
+        psx,
+        asset_path(""),
+        opentony::runtime::PlayerState{},
+        tricks_config);
+    assert(tricks_session.physics_hooks().action_sequence_source.has_value());
+    assert(tricks_session.physics_hooks().action_sequence_source->tricks != nullptr);
+    assert(!tricks_session.physics_hooks().action_sequence_source
+        ->use_source_sequence_fallback);
+    assert(!tricks_session.physics_hooks().action_sequence_source
+        ->sequence_table.empty());
+    assert(tricks_session.physics_hooks().action_sequence_source
+        ->sequence_table.size() < 0x1000);
+    assert(tricks_session.physics_hooks().action_sequence_source->tricks
+        ->source_sequence_table().has_value());
+    tricks_session.initialize();
+    static_cast<void>(tricks_session.advance(16, 0x4000U, 0, 0));
+    const auto trick_step = tricks_session.advance(16, 0x1000U, 0, 0);
+    assert(trick_step.last.physics.action_sequence.has_value());
+    assert(trick_step.last.physics.action_sequence->match.matched);
+    assert(trick_step.last.physics.action_sequence->stream_resolved);
+
+    // Exercise the mapped/static pass against the real Warehouse-era archive.
+    // Resource ID 0 is a real section-5 record and mapping index 0 is the
+    // first DAT_00540e30 entry; the pair is deliberately supplied through the
+    // same selection-view arrays used by the retail builder.
+    opentony::runtime::GameplaySessionConfig mapped_tricks_config = tricks_config;
+    mapped_tricks_config.tricks_mapped_resource_ids[0] = 0;
+    mapped_tricks_config.tricks_mapped_mapping_indices[0] = 0;
+    opentony::runtime::GameplaySession mapped_tricks_session(
+        trg,
+        psx,
+        asset_path(""),
+        opentony::runtime::PlayerState{},
+        mapped_tricks_config);
+    assert(mapped_tricks_session.physics_hooks().action_sequence_source.has_value());
+    assert(mapped_tricks_session.physics_hooks().action_sequence_source
+        ->sequence_table.size()
+        > tricks_session.physics_hooks().action_sequence_source
+            ->sequence_table.size());
 
     const auto snapshot = session.render_snapshot();
     assert(snapshot.entities().size() == session.level().scene().entities().size());
@@ -96,6 +148,9 @@ int main() {
     assert(observation.scene_entity_count == session.level().scene().entities().size());
     assert(observation.position == session.player().position());
     assert(observation.orientation == session.player().orientation());
+    assert(observation.action_stream_active == session.player().action_stream_active());
+    assert(observation.action_stream_relative == session.player().action_stream_relative());
+    assert(observation.action_stream_cursor == session.player().action_stream_cursor());
 
     const std::size_t events_before_pulse = session.level().state().events().size();
     session.pulse_node(141);
@@ -141,6 +196,27 @@ int main() {
         assert(b1_session.player().restart_auxiliary() == b1_restart.auxiliary);
         assert(b1_session.player().restart_auxiliary_word()
             == b1_restart.auxiliary_word);
+
+        opentony::runtime::GameplaySession b1_checksum_session(
+            b1_trg,
+            b1_psx,
+            asset_path(""));
+        b1_checksum_session.initialize();
+        const auto* b1_command_point =
+            b1_checksum_session.level().triggers().command_point(11);
+        assert(b1_command_point != nullptr);
+        b1_checksum_session.pulse_checksum(b1_command_point->checksum);
+        const auto& b1_checksum_restart =
+            b1_checksum_session.level().state().last_restart();
+        assert(b1_checksum_restart.set);
+        assert(b1_checksum_session.player().position()
+            == b1_checksum_restart.position);
+        assert(b1_checksum_session.player().previous_position()
+            == b1_checksum_restart.position);
+        assert(b1_checksum_session.player().restart_auxiliary()
+            == b1_checksum_restart.auxiliary);
+        assert(b1_checksum_session.player().restart_auxiliary_word()
+            == b1_checksum_restart.auxiliary_word);
     }
     std::cout << "Gameplay session tests passed\n";
 }

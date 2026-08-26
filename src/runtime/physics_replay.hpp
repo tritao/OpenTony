@@ -28,6 +28,7 @@ struct PlayerReplaySnapshot {
     std::uint16_t restart_auxiliary_word{};
     std::int32_t physics_state{};
     std::int32_t ground_update_state{};
+    std::int32_t ground_physics_mode{};
     std::int32_t turn_accumulator{};
     bool dispatch_handled{};
     PositionCommitResult position_commit{};
@@ -39,6 +40,7 @@ struct PlayerReplaySnapshot {
     bool velocity_damped{};
     VelocityDampingResult velocity_damping{};
     std::optional<GroundBrakeResult> ground_brake;
+    std::optional<GroundPhysicsResult> ground_physics;
     std::optional<OlliePrePhysicsResult> ollie;
     OllieBookkeeping ollie_state{};
     PhysicsStateRequest state_request{};

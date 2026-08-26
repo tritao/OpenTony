@@ -4,12 +4,18 @@
 #include "fixed_step_driver.hpp"
 #include "player_state.hpp"
 #include "psx_collision_probe.hpp"
+#include "action_sequence_builder.hpp"
+#include "../assets/tricks_bin.hpp"
 #include "../trg/level_render_snapshot.hpp"
 #include "../trg/level_runtime.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace opentony::runtime {
 
@@ -21,6 +27,27 @@ struct GameplaySessionConfig {
     FixedStepConfig fixed_step{};
     AirGravityConfig air_gravity{};
     bool apply_air_gravity{true};
+    // Optional PC TRICKS.BIN image. When set, the session exposes the
+    // archive-backed action source to PlayerPhysicsFrame. The source-table
+    // fallback is intentionally opt-in because the retail per-player table
+    // is synthesized in heap memory by FUN_004bd1e0.
+    std::string tricks_path{};
+    bool use_tricks_source_sequence_fallback{false};
+    // Port the deterministic retail builder when the selected player-input
+    // table and section-5 resource database are available. The normal player
+    // slot supplies the selection view at +0xcc; its mapped ID/index pairs
+    // are view-relative +0x2b/+0x30 (physical slot +0xf7/+0xfc). These bytes
+    // are populated by the retail skater/resource setup path, so they remain
+    // explicit until that path is connected.
+    bool use_tricks_retail_builder{false};
+    std::size_t tricks_player_index{0};
+    std::array<std::uint8_t, 4> tricks_direct_resource_ids{
+        0xff, 0xff, 0xff, 0xff};
+    std::array<std::uint8_t, 5> tricks_mapped_resource_ids{
+        0xff, 0xff, 0xff, 0xff, 0xff};
+    std::array<std::uint8_t, 5> tricks_mapped_mapping_indices{
+        0xff, 0xff, 0xff, 0xff, 0xff};
+    assets::PsxCollisionQueryOptions collision_query_options{};
     bool apply_collision_response_bias{false};
     std::int32_t collision_response_bias_q12{0xcd};
 };
@@ -47,6 +74,11 @@ struct GameplaySessionObservation {
     RetailBasis retail_basis{};
     std::int32_t physics_state{};
     std::int32_t ground_update_state{};
+    std::int32_t ground_physics_mode{};
+    ActionCommandRuntimeState action_command_state{};
+    bool action_stream_active{};
+    std::int16_t action_stream_relative{};
+    std::size_t action_stream_cursor{};
     std::uint32_t restart_auxiliary{};
     std::uint16_t restart_auxiliary_word{};
 };
@@ -135,9 +167,14 @@ private:
     PlayerState player_;
     GameplayFrame gameplay_;
     GameplaySessionConfig config_;
+    std::optional<assets::TricksBinArchive> tricks_archive_;
+    std::optional<assets::TricksBinView> tricks_view_;
+    std::vector<std::uint8_t> tricks_sequence_table_{};
     FixedStepDriver driver_;
     PlayerPhysicsFrameHooks hooks_;
     GameplayFrameResult last_frame_{};
+
+    void apply_restart_events(std::size_t event_start);
 };
 
 } // namespace opentony::runtime

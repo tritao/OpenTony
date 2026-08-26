@@ -53,6 +53,15 @@ struct RetailBasis final {
 // exact one-axis operation first.
 [[nodiscard]] Q12Matrix3 q12_yaw_matrix(std::int32_t angle12) noexcept;
 
+// FUN_004c4d10 rebuilds the retail restart basis from the high word of the
+// restart auxiliary field.  The restart matrix is a yawed, negative identity
+// basis: forward/right/down are stored as the three matrix columns.
+[[nodiscard]] std::int32_t retail_restart_angle12(
+    std::uint32_t auxiliary) noexcept;
+
+[[nodiscard]] Q12Matrix3 q12_restart_matrix(
+    std::uint32_t auxiliary) noexcept;
+
 [[nodiscard]] Q12Matrix3 q12_apply_yaw(
     const Q12Matrix3& current,
     std::int32_t angle12) noexcept;

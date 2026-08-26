@@ -15,8 +15,9 @@ class PsxPositionCollisionProbe final {
 public:
     PsxPositionCollisionProbe(
         const assets::PsxCollisionWorld& world,
-        FixedPosition start) noexcept
-        : world_(world), start_(start) {}
+        FixedPosition start,
+        assets::PsxCollisionQueryOptions options = {}) noexcept
+        : world_(world), start_(start), options_(options) {}
 
     [[nodiscard]] bool operator()(const FixedPosition& candidate) const;
 
@@ -29,6 +30,7 @@ public:
 private:
     const assets::PsxCollisionWorld& world_;
     FixedPosition start_{};
+    assets::PsxCollisionQueryOptions options_{};
 };
 
 } // namespace opentony::runtime

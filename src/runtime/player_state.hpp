@@ -13,11 +13,20 @@
 #include "velocity_damping.hpp"
 #include "air_motion.hpp"
 #include "queued_motion.hpp"
+#include "action_commands.hpp"
+#include "action_profile.hpp"
+#include "action_sequence.hpp"
 #include "ground_motion.hpp"
 #include "ground_animation.hpp"
+#include "ground_physics.hpp"
 #include "ground_motion_threshold.hpp"
 
 #include <cstdint>
+#include <span>
+
+namespace opentony::assets {
+struct TricksBinView;
+}
 
 namespace opentony::runtime {
 
@@ -65,6 +74,9 @@ public:
     }
     [[nodiscard]] std::int32_t ground_update_state() const noexcept {
         return ground_update_state_;
+    }
+    [[nodiscard]] std::int32_t ground_physics_mode() const noexcept {
+        return ground_physics_mode_;
     }
     [[nodiscard]] std::int32_t turn_accumulator() const noexcept {
         return turn_accumulator_;
@@ -120,6 +132,21 @@ public:
     [[nodiscard]] const QueuedMotionState& queued_motion() const noexcept {
         return queued_motion_;
     }
+    [[nodiscard]] const ActionCommandRuntimeState& action_command_state() const noexcept {
+        return action_command_state_;
+    }
+    [[nodiscard]] bool action_stream_active() const noexcept {
+        return action_stream_active_;
+    }
+    [[nodiscard]] std::int16_t action_stream_relative() const noexcept {
+        return action_stream_relative_;
+    }
+    [[nodiscard]] std::size_t action_stream_cursor() const noexcept {
+        return action_stream_cursor_;
+    }
+    [[nodiscard]] const RetailActionHistory& action_history() const noexcept {
+        return action_history_;
+    }
 
     void set_position(FixedPosition position) noexcept { position_ = position; }
     void set_previous_position(FixedPosition position) noexcept {
@@ -140,6 +167,37 @@ public:
         std::int16_t rate) noexcept;
     [[nodiscard]] QueuedMotionDrainResult drain_queued_motion(
         std::int32_t frame_scale_q8 = 0x100) noexcept;
+    // Completes the confirmed FUN_00493370 queued-motion handoff. The action
+    // command stores local-axis amounts; retail transforms the drained vector
+    // through the live orientation before adding it to the position.
+    [[nodiscard]] FixedPosition apply_queued_motion(
+        const QueuedMotionDrainResult& motion) noexcept;
+    // Executes one recovered FUN_004be450 action command against the live
+    // player boundary: 0x2b/0x2c use queued local-motion fields and 0x0f
+    // writes the retail +0x4c/+0x50/+0x54 response vector.
+    [[nodiscard]] ActionCommandDispatchResult dispatch_action_command(
+        std::span<const std::uint8_t> stream,
+        std::size_t& cursor) noexcept;
+    [[nodiscard]] ActionStreamDispatchResult run_action_stream(
+        std::span<const std::uint8_t> stream,
+        std::size_t& cursor,
+        std::size_t max_commands = 256) noexcept;
+    // Publishes the action records written by FUN_00492190 for this player.
+    // The optional lean bytes complete FUN_00492120's four-bit table index.
+    void publish_action_profile(
+        const ActionProfileState& profile,
+        std::uint32_t timestamp,
+        std::int8_t vertical_lean = 0,
+        std::int8_t horizontal_lean = 0) noexcept;
+    // Resolves a generated per-player sequence record against the live
+    // history and executes its signed stream offset through the existing
+    // bounded command dispatcher.
+    [[nodiscard]] ActionSequenceExecutionResult run_action_sequences(
+        const assets::TricksBinView& tricks,
+        std::span<const std::uint8_t> sequence_table,
+        const ActionSequenceMatcherInput& input,
+        std::size_t max_records = 256,
+        std::size_t max_commands = 256) noexcept;
     // FUN_004c4e30 applies the selected TRG restart's position and the two
     // adjacent restart fields before dispatching its post-name stream.
     void apply_restart(
@@ -149,6 +207,9 @@ public:
     void set_physics_state(std::int32_t state) noexcept { physics_state_ = state; }
     void set_ground_update_state(std::int32_t state) noexcept {
         ground_update_state_ = state;
+    }
+    void set_ground_physics_mode(std::int32_t mode) noexcept {
+        ground_physics_mode_ = mode;
     }
     void set_turn_accumulator(std::int32_t value) noexcept {
         turn_accumulator_ = value;
@@ -222,6 +283,13 @@ public:
     // normal/stat inputs; a qualifying stop requests state 7.
     [[nodiscard]] GroundBrakeResult apply_ground_brake(
         GroundBrakeInput input = {}) noexcept;
+
+    // Executes the evidence-backed stateful portion of retail FUN_0049df00.
+    // The caller supplies surface/profile predicates and raw animation
+    // readiness; this method owns response writes, +0x2df8 mode changes,
+    // cooldown, and recovered physics-state requests.
+    [[nodiscard]] GroundPhysicsResult update_ground_physics(
+        GroundPhysicsInput input = {}) noexcept;
 
     // Connects the confirmed movement records to the bounded grounded turn
     // producer and the recovered Q12 yaw/basis handoff.
@@ -327,6 +395,7 @@ private:
     FixedPosition air_motion_{};
     std::int32_t physics_state_{};
     std::int32_t ground_update_state_{};
+    std::int32_t ground_physics_mode_{};
     std::int32_t turn_accumulator_{};
     std::int32_t turn_mirror_{};
     bool ground_turn_wide_profile_{};
@@ -338,6 +407,14 @@ private:
     Q12Matrix3 orientation_{q12_identity_matrix()};
     RetailBasis retail_basis_{retail_basis_from_matrix(orientation_)};
     QueuedMotionState queued_motion_{};
+    ActionCommandRuntimeState action_command_state_{};
+    RetailActionHistory action_history_{};
+    // FUN_00491b80 installs the resolved image-relative stream at +0x29cc
+    // and marks +0x29c8 active. Keep the asset-relative identity alongside
+    // the bounded native byte cursor so a 0x2c yield can resume next frame.
+    bool action_stream_active_{};
+    std::int16_t action_stream_relative_{};
+    std::size_t action_stream_cursor_{};
     OllieBookkeeping ollie_{};
     PhysicsStateRequest last_state_request_{};
     std::uint32_t restart_auxiliary_{};

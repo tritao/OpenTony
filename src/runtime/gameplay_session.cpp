@@ -18,12 +18,53 @@ GameplaySession::GameplaySession(
       config_(config),
       driver_(gameplay_, config_.fixed_step),
       hooks_() {
+    if (!config_.tricks_path.empty()) {
+        tricks_archive_ = assets::TricksBinArchive::load(config_.tricks_path);
+        tricks_view_ = tricks_archive_->view();
+
+        std::span<const std::uint8_t> sequence_table{};
+        if (config_.use_tricks_retail_builder) {
+            const auto input_table = tricks_view_->player_input_sequence_table(
+                config_.tricks_player_index);
+            const auto source_table = tricks_view_->source_sequence_table();
+            if (input_table.has_value() && source_table.has_value()) {
+                const auto resources = parse_retail_action_resources(
+                    *source_table,
+                    tricks_view_->bytes);
+                if (resources.has_value()) {
+                    const RetailActionSequenceBuilderInput builder_input{
+                        *input_table,
+                        *resources,
+                        config_.tricks_direct_resource_ids,
+                        config_.tricks_mapped_resource_ids,
+                        config_.tricks_mapped_mapping_indices,
+                    };
+                    const auto built = build_retail_action_sequence_table(
+                        builder_input);
+                    if (built.has_value()) {
+                        tricks_sequence_table_ = built->table;
+                        sequence_table = tricks_sequence_table_;
+                    }
+                }
+            }
+        }
+        hooks_.action_sequence_source = ActionSequenceSource{
+            &*tricks_view_,
+            sequence_table,
+            {},
+            sequence_table.empty() &&
+                config_.use_tricks_source_sequence_fallback,
+        };
+    }
     // The query is deliberately created at the frame boundary because the
     // probe's start point is the player's live position for that update.
     hooks_.collision_query = [this](
         const FixedPosition& start,
         const FixedPosition& end) {
-        return PsxPositionCollisionProbe(level_.collision(), start).query(end);
+        return PsxPositionCollisionProbe(
+            level_.collision(),
+            start,
+            config_.collision_query_options).query(end);
     };
 
     if (config_.apply_air_gravity) {
@@ -49,6 +90,21 @@ void GameplaySession::initialize(
     bool two_player,
     const trg::GapTable* gap_table) {
     level_.initialize(two_player, gap_table);
+    // Front_LoadGame calls FUN_004c4e30 after the TRG autoexec/object pass.
+    // That routine applies the restart selected by 0x8c/0xb0, including its
+    // post-name command stream, before the first gameplay frame.
+    const std::size_t selected_restart = level_.triggers().selected_restart();
+    if (selected_restart != trg::CommandPointRuntime::npos) {
+        level_.execute_restart(selected_restart);
+        const trg::TriggerRestartApplication& restart =
+            level_.state().last_restart();
+        if (restart.set) {
+            player_.apply_restart(
+                restart.position,
+                restart.auxiliary,
+                restart.auxiliary_word);
+        }
+    }
     driver_.reset();
     last_frame_ = {};
 }
@@ -87,6 +143,19 @@ void GameplaySession::pulse_node(std::size_t node) {
     }
     const std::size_t event_start = level_.state().events().size();
     level_.pulse_node(node);
+    apply_restart_events(event_start);
+}
+
+void GameplaySession::pulse_checksum(std::uint32_t checksum) {
+    if (!initialized()) {
+        throw std::logic_error("gameplay session pulsed before initialize");
+    }
+    const std::size_t event_start = level_.state().events().size();
+    level_.pulse_checksum(checksum);
+    apply_restart_events(event_start);
+}
+
+void GameplaySession::apply_restart_events(std::size_t event_start) {
     const auto& events = level_.state().events();
     const bool restart_applied = std::any_of(
         events.begin() + static_cast<std::ptrdiff_t>(event_start),
@@ -102,13 +171,6 @@ void GameplaySession::pulse_node(std::size_t node) {
             restart.auxiliary_word);
         driver_.reset();
     }
-}
-
-void GameplaySession::pulse_checksum(std::uint32_t checksum) {
-    if (!initialized()) {
-        throw std::logic_error("gameplay session pulsed before initialize");
-    }
-    level_.pulse_checksum(checksum);
 }
 
 FixedStepAdvanceResult GameplaySession::advance(
@@ -184,6 +246,11 @@ const GameplaySessionObservation GameplaySession::observation() const noexcept {
     result.retail_basis = player_.retail_basis();
     result.physics_state = player_.physics_state();
     result.ground_update_state = player_.ground_update_state();
+    result.ground_physics_mode = player_.ground_physics_mode();
+    result.action_command_state = player_.action_command_state();
+    result.action_stream_active = player_.action_stream_active();
+    result.action_stream_relative = player_.action_stream_relative();
+    result.action_stream_cursor = player_.action_stream_cursor();
     result.restart_auxiliary = player_.restart_auxiliary();
     result.restart_auxiliary_word = player_.restart_auxiliary_word();
     return result;

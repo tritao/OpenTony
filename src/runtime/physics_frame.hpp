@@ -4,8 +4,25 @@
 #include "action_profile.hpp"
 
 #include <functional>
+#include <optional>
+#include <span>
+
+namespace opentony::assets {
+struct TricksBinView;
+}
 
 namespace opentony::runtime {
+
+struct ActionSequenceSource final {
+    const assets::TricksBinView* tricks{};
+    std::span<const std::uint8_t> sequence_table{};
+    ActionSequenceMatcherInput matcher{};
+    // The retail builder normally supplies a per-player table at header
+    // sections 3/4. When that heap result is not available, callers may
+    // explicitly use the shipped source table as a broad, asset-backed
+    // fallback while reconstructing the player-specific filters.
+    bool use_source_sequence_fallback{false};
+};
 
 // Hooks for the parts of the retail frame whose stat tables or collision
 // classifiers are not yet fully recovered. A stage hook runs at stage entry,
@@ -15,15 +32,21 @@ namespace opentony::runtime {
 struct PlayerPhysicsFrameHooks {
     std::function<void(PlayerState&, const InputState&)> on_prephysics;
     // Retail FUN_00493370 drains the queued local-motion words before the
-    // later FUN_004be450 action stream can seed the next frame. The native
-    // callback owns the still-unverified FUN_004e85a0 basis transform and may
-    // apply the returned local delta to a presentation/world position.
+    // later FUN_004be450 action stream can seed the next frame. The frame now
+    // performs the confirmed FUN_004e85a0 orientation transform by default;
+    // this callback remains available for observers or additional effects.
     std::function<void(PlayerState&, const QueuedMotionDrainResult&)>
         on_queued_motion;
     // FUN_00492ea0 invokes FUN_004be450 after the frame's action update and
     // after the queued-motion drain. This preserves the producer/consumer
     // ordering for callers that decode the recovered action stream.
     std::function<void(PlayerState&)> on_action_stream;
+    // Optional fully connected generated-table/action-archive path. The
+    // source is intentionally a view so loaders can keep ownership outside
+    // the frame object while PlayerState owns the history ring.
+    std::optional<ActionSequenceSource> action_sequence_source;
+    std::function<void(PlayerState&, const ActionSequenceExecutionResult&)>
+        on_action_sequence;
     // FUN_0049b010 runs after the grounded turn handoff and before the later
     // action bookkeeping. The callback receives the verified action-profile
     // slots; the frame fills the recovered animation, turn-gate, cooldown,
@@ -51,6 +74,11 @@ struct PlayerPhysicsFrameHooks {
     // braking branch at retail 0x0049df00.
     std::function<std::optional<GroundBrakeInput>(
         const PlayerState&, const InputState&)> ground_brake_input;
+    // Stateful FUN_0049df00 boundary. The callback supplies the unresolved
+    // surface/profile predicates; PlayerState fills response, raw mode,
+    // animation fields, and applies the returned state/cooldown writes.
+    std::function<std::optional<GroundPhysicsInput>(
+        const PlayerState&, const InputState&)> ground_physics_input;
     // Optional config seam for the confirmed scalar in-air gravity producer
     // at FUN_00497df0. The candidate air-motion vector lives separately from
     // the +4c collision/platform response until the remaining transform and
@@ -110,6 +138,9 @@ struct PlayerPhysicsFrameHooks {
     // dispatcher states 0 and 7. Callers can still use on_prephysics for
     // state-specific airborne rotation.
     bool apply_ground_turn{true};
+    // Confirmed queued local-motion transform/position commit from
+    // FUN_00493370. Disable only for isolated producer tests.
+    bool apply_queued_motion{true};
     bool integrate_position{true};
     bool integrate_motion_correction{true};
     bool bypass_collision{false};
@@ -136,14 +167,17 @@ struct PlayerPhysicsFrameResult {
     bool velocity_damped{};
     VelocityDampingResult velocity_damping{};
     std::optional<GroundBrakeResult> ground_brake;
+    std::optional<GroundPhysicsResult> ground_physics;
     std::optional<AirGravityResult> air_gravity;
     std::optional<AirMotionBasisResult> air_motion_basis;
     std::optional<AirDirectionInputResult> air_direction_input;
     std::optional<OlliePrePhysicsResult> ollie;
+    std::optional<ActionSequenceExecutionResult> action_sequence;
     std::optional<GroundMotionResult> ground_motion;
     std::optional<GroundAnimationResult> ground_animation;
     std::optional<GroundMotionThresholdResult> ground_motion_threshold;
     QueuedMotionDrainResult queued_motion{};
+    FixedPosition queued_motion_world_delta{};
 };
 
 // Native execution boundary for the confirmed portion of FUN_0049e680.
