@@ -333,8 +333,8 @@ public:
         QueryRecord result;
         result.start = start;
         result.end = end;
-        result.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         reference::prepare(result, query_stamp);
+        result.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         query(result, filter);
         return result;
     }
@@ -345,8 +345,8 @@ public:
         PsxCollisionResult result;
         result.query.start = start;
         result.query.end = end;
-        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         reference::prepare(result.query, query_stamp);
+        result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
         query(result.query, filter, &result);
         return result;
     }
