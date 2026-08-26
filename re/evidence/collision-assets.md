@@ -106,6 +106,12 @@ The heap addresses are allocation-specific. The stable result is the field
 layout and the agreement between the node, model table, face geometry and
 query result.
 
+The `collision-root` capture also sampled the two nearby engine roots. The
+global root used by `0x004628f0` was `0x05f26c84` and had a different model-kind
+chain; the adjacent `0x0056af44` root was null. The winning node at
+`0x05f2e844` therefore belongs to the selected spatial candidate list, not
+automatically to the global dynamic-object root.
+
 ## What remains separate
 
 The PSX 20×20 blockmap is a useful source-level spatial partition and a good

@@ -8,7 +8,9 @@ Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
 Addresses: `0x0049db80`, `0x00497f40`, `0x00496550`, `0x00494210`,
 `0x00499710`, `0x004993f0`, `0x004624d0`, `0x00466090`, `0x004660b0`,
-`0x004628f0`, `0x004638d0`, `0x00462a20`, `0x00463d50`, `0x0048ea80`
+`0x004628f0`, `0x004638d0`, `0x00462a20`, `0x00463d50`, `0x0048ea80`,
+`0x004f43e0`, `0x004f4940`, `0x004f4b00`, `0x004f4c50`, `0x004f4130`,
+`0x004f4240`
 
 ## Result
 
@@ -32,8 +34,10 @@ Skater_PhysicsDispatcher (0x0049db80)
        ↓
   scene/zone traversal 0x004660b0(q, mode)
        ├─ dynamic/linked zone path 0x004628f0
-       │    └─ oriented/model checks 0x00463e50 → 0x004f4b00/0x004f4c50
+       │    └─ object cull 0x004f43e0 → oriented/model checks
+       │         0x00463e50 → 0x004f4b00/0x004f4c50
        └─ zone/block candidate path 0x004638d0
+            ├─ candidate cull 0x004f4940 → 0x004f4130/0x004f4240
             └─ face/triangle test 0x00462a20
                  ↓
             hit finalization 0x00463d50
@@ -59,6 +63,8 @@ schema; the original PC code uses caller-local storage.
 | `0x004660b0` | wrapper `0x00466090`; a few direct level/physics paths | `void QueryScene(SLineInfo*, int mode)` | visits linked zones and spatial cells, then calls finalizer |
 | `0x004628f0` | scene traversal `0x004660b0` when mode is nonzero | `void VisitLinkedZones(void* root, SLineInfo*)` | tests dynamic/linked collision objects; writes candidate fields |
 | `0x004638d0` | scene traversal calls at `0x004662fa`, `0x0046670f`, `0x004667a5` | `void VisitModelFaces(void* list, SLineInfo*)` | builds/reuses face AABBs and invokes the face tester |
+| `0x004f43e0` | linked traversal `0x004628f0` | `void CullLinkedObjects(void* root, ..., SLineInfo*, uint16 stamp)` | walks `node+0x20`, applies object bounds/cross tests, and marks tested nodes |
+| `0x004f4940` | candidate traversal `0x004638d0` | `void CullCandidateObjectLists(void* head_array, ..., SLineInfo*, uint16 stamp)` | walks the selected null-terminated head array and applies the same object broad phase |
 | `0x00462a20` | model-face traversal calls at `0x004639b2`, `0x00463d03` | `void TestFace(void* model, SLineInfo*, void* cache)` | segment/triangle test; updates nearest hit fields; no useful return |
 | `0x00463d50` | scene traversal call at `0x004667c3` | `int FinalizeHit(SLineInfo*)` | returns `1` iff `q+0x68` is nonzero and writes the normal |
 | `0x0048ea80` | ground/in-air calls `0x0049587e`, `0x00495a4f`, `0x0049695a`, `0x00496fdc`, `0x00498a6e`, `0x00498ac9`, `0x004993b0`, `0x00499ae5`, `0x00499dd5` | `void ConsumeHitFlags(SLineInfo*)` | translates face metadata into shared collision/material flags |
@@ -127,6 +133,15 @@ the wrapper; the query does not parse a file on each call.
 - `DAT_0056af40` is passed as the first argument to `0x004628f0`, which then
   follows a linked list through node offset `+0x20`. This is a strong global
   root candidate for dynamic/linked collision zones.
+- The static/block candidate path is separate. `0x004660b0` indexes the
+  candidate-pointer table at `DAT_00567fa0`; `0x004638d0` receives the selected
+  pointer, invokes `0x004f4940` to prefilter its linked object heads, and then
+  walks the same node `+0x20` links for face testing. The selected candidate
+  pointer is treated as a null-terminated array of object-list heads: the
+  walker checks `[candidate+0]`, then `[candidate+4]`, and so on until a null
+  head. This is the source path for the per-cell object record that can be
+  written to `q+0x68`; it is not interchangeable with the global
+  `DAT_0056af40` root.
 - `DAT_00567f80` is used as the zone-table presence/base check by
   `0x004660b0`; the loop index is multiplied by `0x660` before indexing this
   table. Per-zone bounds are read from `entry+0x84`, `+0x88`, `+0x8c`, and
@@ -532,6 +547,13 @@ were `0`, `0x41`, and `0x8041`; all three angle shorts remained zero in this
 static Hangar object chain. This is evidence for a compact runtime collision
 object list, but not a claim that the complete allocation is only 0x4c bytes:
 the recovered collision ABI consumes only the prefix through `+0x23`.
+
+The follow-up `collision-root` capture sampled both engine roots at query
+entry. The `DAT_0056af40` value was `0x05f26c84` and began a different chain
+whose first 32 records were mostly model kind 4; `DAT_0056af44` was null. The
+winning `q+0x68` value was `0x05f2e844`, outside that root chain, and matched
+the per-cell candidate-list object chain above. This runtime separation keeps
+the two linked-list owners distinct in the native reconstruction.
 ```
 
 The first hit also exposed model data at `0x05db86b4`, through the kind-6
