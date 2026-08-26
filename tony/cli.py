@@ -242,6 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sessions_sub.add_parser("clean", help="remove stopped debug session metadata")
     p.add_argument("session_id")
     p.set_defaults(func=commands.sessions_clean)
+    p = sessions_sub.add_parser("prune", help="remove stale isolated Wine prefixes across worktrees")
+    p.add_argument("--dry-run", action="store_true", help="report stale prefixes without removing them")
+    p.set_defaults(func=commands.sessions_prune)
 
     ghidra = sub.add_parser("ghidra", help="generated Ghidra project operations")
     ghidra_sub = ghidra.add_subparsers(dest="ghidra_command", required=True)

@@ -6,6 +6,7 @@ import re
 import shutil
 import signal
 import socket
+import subprocess
 import tempfile
 import time
 import uuid
@@ -16,7 +17,7 @@ from fcntl import LOCK_EX, flock
 from pathlib import Path
 
 from .audio import cleanup_muted_audio
-from .common import load_yaml, resolve
+from .common import ROOT, load_yaml, resolve
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _ACTIVE_STATUSES = {"starting", "proxy-started", "running"}
@@ -30,12 +31,33 @@ def _config() -> dict:
     return load_yaml("re/config/wine.yml")["wine"]
 
 
+def _shared_resolve(path: str | Path) -> Path:
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        common_dir = Path(result.stdout.strip())
+        if result.returncode == 0 and common_dir.name == ".git":
+            return common_dir.parent / path
+    except OSError:
+        pass
+    return resolve(path)
+
+
 def _sessions_root() -> Path:
-    return resolve(_config().get("sessions_dir", "build/debug/sessions"))
+    return _shared_resolve(_config().get("sessions_dir", "build/debug/sessions"))
 
 
 def _prefix_root() -> Path:
-    return resolve(_config().get("session_prefix_dir", ".tools/debug-sessions"))
+    return _shared_resolve(_config().get("session_prefix_dir", ".tools/debug-sessions"))
 
 
 def _validate_session_id(value: str) -> str:
@@ -347,6 +369,92 @@ def clean_session(session_id: str) -> None:
     shutil.rmtree(session.path)
 
 
+def cleanup_session_prefix(session: DebugSession) -> bool:
+    """Remove a stopped session's disposable Wine prefix, retaining its records."""
+
+    prefix = session.prefix
+    if prefix is None or not prefix.exists():
+        return False
+    if session.active or prefix.resolve() in _live_wine_prefixes():
+        return False
+    shutil.rmtree(prefix)
+    session.update(prefix_cleaned_at=_timestamp())
+    return True
+
+
+def _live_wine_prefixes(proc_root: Path = Path("/proc"), *, attempts: int = 3) -> set[Path]:
+    """Return a conservative union of live prefixes across repeated /proc scans."""
+
+    prefixes: set[Path] = set()
+    for attempt in range(attempts):
+        try:
+            processes = list(proc_root.iterdir())
+        except OSError:
+            return prefixes
+        for process in processes:
+            if not process.name.isdigit():
+                continue
+            try:
+                environment = (process / "environ").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            for entry in environment:
+                if entry.startswith(b"WINEPREFIX="):
+                    value = os.fsdecode(entry.removeprefix(b"WINEPREFIX="))
+                    if value:
+                        prefixes.add(Path(value).resolve())
+                    break
+        if attempt + 1 < attempts:
+            time.sleep(0.05)
+    return prefixes
+
+
+def _worktree_prefix_roots() -> set[Path]:
+    roots = {_prefix_root().resolve()}
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return roots
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                roots.add((Path(line.removeprefix("worktree ")) / ".tools/debug-sessions").resolve())
+    return roots
+
+
+def prune_session_prefixes(*, dry_run: bool = False) -> tuple[list[Path], list[Path]]:
+    """Remove orphaned Wine prefixes while protecting every live process prefix."""
+
+    live = _live_wine_prefixes()
+    removed: list[Path] = []
+    protected: list[Path] = []
+    for root in sorted(_worktree_prefix_roots()):
+        if not root.is_dir():
+            continue
+        for prefix in sorted(root.iterdir()):
+            if not prefix.is_dir():
+                continue
+            resolved = prefix.resolve()
+            # Refresh immediately before each deletion. Wine may launch after
+            # the initial inventory, and /proc entries can transiently vanish
+            # while a process is execing.
+            live.update(_live_wine_prefixes())
+            if resolved in live:
+                protected.append(prefix)
+                continue
+            if not dry_run:
+                shutil.rmtree(prefix)
+            removed.append(prefix)
+    return removed, protected
+
+
 def sessions_list(_args) -> int:
     sessions = list_sessions()
     if not sessions:
@@ -372,4 +480,11 @@ def sessions_stop(args) -> int:
 def sessions_clean(args) -> int:
     clean_session(args.session_id)
     print(f"Cleaned debug session: {args.session_id}")
+    return 0
+
+
+def sessions_prune(args) -> int:
+    removed, protected = prune_session_prefixes(dry_run=getattr(args, "dry_run", False))
+    verb = "Would remove" if getattr(args, "dry_run", False) else "Removed"
+    print(f"{verb} {len(removed)} stale Wine prefixes; protected {len(protected)} live prefixes.")
     return 0
