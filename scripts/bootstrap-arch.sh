@@ -18,7 +18,7 @@ case "${ID:-}" in
     ;;
 esac
 
-echo "[1/4] System packages"
+echo "[1/5] System packages"
 sudo pacman -Syu --needed --noconfirm \
   base-devel git ca-certificates curl wget unzip \
   python python-pip \
@@ -27,16 +27,19 @@ sudo pacman -Syu --needed --noconfirm \
   lib32-libglvnd lib32-mesa lib32-vulkan-icd-loader \
   cmake ninja clang lld pkgconf jq ripgrep
 
-echo "[2/4] OpenTony virtual environment"
+echo "[2/5] OpenTony virtual environment"
 mkdir -p .tools
 python -m venv .tools/venv
 .tools/venv/bin/python -m pip install --upgrade pip setuptools wheel
 .tools/venv/bin/python -m pip install -e '.[dev]'
 
-echo "[3/4] Pinned Ghidra + matching PyGhidra"
+echo "[3/5] Pinned Ghidra + matching PyGhidra"
 .tools/venv/bin/tony setup ghidra
 
-echo "[4/4] Health check"
+echo "[4/5] Verified THPS2 disc image"
+.tools/venv/bin/tony setup media
+
+echo "[5/5] Health check"
 set +e
 .tools/venv/bin/tony doctor
 status=$?
