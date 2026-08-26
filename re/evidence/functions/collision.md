@@ -948,6 +948,14 @@ level-to-heap ownership into these interfaces. The collision-facing node
 prefix and object broad-phase records are now available. The Q12 object-angle
 basis used by normal finalization is covered by `build_object_rotation_basis`.
 
+The native `PsxScene::execute_query_wrapper` models the exact outer contract
+of `0x00466090`: it accepts a caller-prepared `QueryRecord`, publishes hit or
+no-hit state into that record, gates the optional linked-object pass on the
+mode argument, and returns zero in every case. Its synthetic scene test covers
+both a hit and a no-hit record, including the unchanged query stamp and the
+initialized `0x7fffffff` sentinels. The wrapper is therefore native-tested;
+complete retail zone/global ownership remains a separate boundary.
+
 ## Open questions / falsifiers
 
 - Confirm integer-division edge behavior at endpoint and coplanar hits; the

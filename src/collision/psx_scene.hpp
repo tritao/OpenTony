@@ -412,6 +412,39 @@ public:
         return result;
     }
 
+    // Native equivalent of the cdecl wrapper at 0x00466090. The caller owns
+    // the already-prepared query record; scene traversal publishes its result
+    // into that record and the wrapper's return value is always zero. A
+    // nonzero mode admits the caller-supplied linked-object pass before the
+    // static blockmap pass, matching 0x004660b0's mode gate. Empty linked
+    // input naturally leaves this as the static query path.
+    int execute_query_wrapper(
+        QueryRecord& query_record, int mode,
+        std::span<const PsxLinkedCollisionObject> linked_objects = {},
+        CollisionFaceFilter filter = {}) const {
+        PsxCollisionResult linked_result;
+        if (mode != 0 && !linked_objects.empty()) {
+            linked_result = query_linked_objects(
+                query_record.start, query_record.end, linked_objects,
+                query_record.query_stamp, filter);
+        }
+
+        PsxCollisionResult static_result;
+        static_result.query = query_record;
+        static_result.query.query_mask_mode = filter.query_mask_mode ? 1 : 0;
+        query(static_result.query, filter, &static_result);
+
+        if (mode != 0 && !linked_objects.empty() && linked_result.hit() &&
+            (!static_result.hit() ||
+             linked_result.query.hit_distance <
+                 static_result.query.hit_distance)) {
+            query_record = linked_result.query;
+        } else {
+            query_record = static_result.query;
+        }
+        return 0;
+    }
+
     // Native boundary for the recovered 0x004f4b00 dynamic preprocessing
     // pass.  The caller supplies the already-composed query/object Q12
     // basis.  For an unrotated object, model_origin_units is the object
