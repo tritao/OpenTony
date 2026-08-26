@@ -328,6 +328,59 @@ def ghidra_type_plan(root: Path = TYPE_ROOT) -> dict[str, Any]:
     }
 
 
+def validate_symbol_type_bindings(root: Path = TYPE_ROOT) -> list[str]:
+    definitions = load_type_definitions(root)
+    errors: list[str] = []
+
+    def check_type(value: object, context: str) -> None:
+        try:
+            expression = parse_type_expression(value)
+        except ValueError as exc:
+            errors.append(f"{context}: {exc}")
+            return
+        for referenced in _referenced_names(expression):
+            if referenced not in definitions and referenced != "void":
+                errors.append(f"{context}: unknown referenced type {referenced!r}")
+
+    functions = load_yaml_bindings("re/symbols/functions.yml", "functions")
+    for item in functions:
+        signature = item.get("signature")
+        if signature is None:
+            continue
+        context = f"re/symbols/functions.yml:{item.get('name')}"
+        if not isinstance(signature, dict):
+            errors.append(f"{context}: signature must be a mapping")
+            continue
+        if signature.get("calling_convention") not in {"cdecl", "stdcall", "thiscall", "fastcall"}:
+            errors.append(f"{context}: invalid calling convention")
+        check_type(signature.get("return"), f"{context}.return")
+        parameters = signature.get("parameters")
+        if not isinstance(parameters, list):
+            errors.append(f"{context}: parameters must be a list")
+            continue
+        names: set[str] = set()
+        for parameter in parameters:
+            if not isinstance(parameter, dict) or not NAME_RE.fullmatch(str(parameter.get("name", ""))):
+                errors.append(f"{context}: parameter has an invalid name")
+                continue
+            if parameter["name"] in names:
+                errors.append(f"{context}: duplicate parameter {parameter['name']!r}")
+            names.add(parameter["name"])
+            check_type(parameter.get("type"), f"{context}.{parameter['name']}")
+
+    for path, key in (("re/symbols/globals.yml", "globals"), ("re/symbols/data.yml", "data")):
+        for item in load_yaml_bindings(path, key):
+            if "type" in item:
+                check_type(item["type"], f"{path}:{item.get('name')}")
+    return errors
+
+
+def load_yaml_bindings(path: str, key: str) -> list[dict[str, Any]]:
+    with resolve(path).open("r", encoding="utf-8") as stream:
+        document = yaml.load(stream, Loader=UniqueKeyLoader) or {}
+    return document.get(key, [])
+
+
 def _referenced_names(expression: TypeExpression) -> set[str]:
     if expression.kind == "named":
         return {expression.name or ""}
@@ -338,6 +391,8 @@ def _referenced_names(expression: TypeExpression) -> set[str]:
 
 def types_verify(_args) -> int:
     errors, counts = validate_type_documents()
+    if not errors:
+        errors.extend(validate_symbol_type_bindings())
     print(f"recovered types: {counts['types']} types, {counts['fields']} fields across {counts['files']} files")
     if errors:
         for error in errors:

@@ -12,6 +12,23 @@ Everything under `re/` should be reviewable evidence or a reproducible input to 
 
 Generated analysis belongs in `build/`, not here.
 
+Function entries may carry an evidence-backed Ghidra signature using the same
+canonical type grammar as `re/types/`:
+
+```yaml
+signature:
+  calling_convention: cdecl
+  return: i32
+  parameters:
+    - {name: query, type: "pointer<SLineInfo>"}
+```
+
+Global and data entries may carry a `type` expression. `tony types verify`
+validates all such bindings, and `tony ghidra rebuild` applies them after
+generating recovered structures. Do not add a signature merely to improve
+decompiler output; its calling convention, order, and types need supporting
+evidence.
+
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.
 

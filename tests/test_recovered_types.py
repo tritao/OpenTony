@@ -97,6 +97,7 @@ def test_types_verify_reports_repository_summary(monkeypatch, capsys):
         "validate_type_documents",
         lambda: ([], {"files": 2, "types": 3, "fields": 4}),
     )
+    monkeypatch.setattr(recovered_types, "validate_symbol_type_bindings", list)
 
     assert recovered_types.types_verify(SimpleNamespace()) == 0
     assert "3 types, 4 fields across 2 files" in capsys.readouterr().out
@@ -135,3 +136,26 @@ def test_ghidra_plan_is_conservative_and_preserves_declared_extent(tmp_path: Pat
     ]
     assert plan["aliases"] == [{"name": "OldExample", "target": "Example"}]
     assert {item["name"] for item in plan["skipped"]} == {"Example.guess", "Stream"}
+
+
+def test_symbol_binding_validation_rejects_unknown_types_and_duplicate_parameters(monkeypatch):
+    monkeypatch.setattr(recovered_types, "load_type_definitions", lambda _root: {"Known": {}})
+
+    def bindings(path, _key):
+        if path.endswith("functions.yml"):
+            return [{
+                "name": "Broken",
+                "signature": {
+                    "calling_convention": "cdecl",
+                    "return": "pointer<Missing>",
+                    "parameters": [{"name": "value", "type": "Known"}, {"name": "value", "type": "u32"}],
+                },
+            }]
+        return []
+
+    monkeypatch.setattr(recovered_types, "load_yaml_bindings", bindings)
+
+    errors = recovered_types.validate_symbol_type_bindings(Path("unused"))
+
+    assert any("unknown referenced type 'Missing'" in error for error in errors)
+    assert any("duplicate parameter 'value'" in error for error in errors)

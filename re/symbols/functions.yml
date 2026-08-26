@@ -279,6 +279,12 @@ functions:
       - re/evidence/functions/collision.md
   - address: 0x004660b0
     name: M3D_ZoneCollisionBroadphase
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: query, type: "pointer<SLineInfo>"}
+        - {name: mode, type: i32}
     gdb_aliases:
       - collision_query_execute
     description: select blockmap cells intersecting a collision query
@@ -289,6 +295,12 @@ functions:
       - re/evidence/functions/collision-query.md
   - address: 0x004638d0
     name: M3D_CollisionCell
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: list, type: "pointer<void>"}
+        - {name: query, type: "pointer<SLineInfo>"}
     description: walk runtime objects and model faces in one blockmap cell
     confidence: confirmed
     evidence:
@@ -296,12 +308,24 @@ functions:
       - re/evidence/functions/collision.md
   - address: 0x00462a20
     name: M3D_CollisionFaceTest
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: model, type: "pointer<void>"}
+        - {name: query, type: "pointer<SLineInfo>"}
+        - {name: cache, type: "pointer<void>"}
     description: test cached model faces against a collision query
     confidence: confirmed
     evidence:
       - re/evidence/functions/blockmap-collision.md
   - address: 0x004624d0
     name: M3D_InitCollisionQuery
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: query, type: "pointer<SLineInfo>"}
     gdb_aliases:
       - collision_query_initialize
     description: initialize segment bounds, hit outputs, and collision basis fields
@@ -312,6 +336,12 @@ functions:
       - re/evidence/functions/collision-query.md
   - address: 0x00466090
     name: M3D_QueryZoneCollision
+    signature:
+      calling_convention: cdecl
+      return: i32
+      parameters:
+        - {name: query, type: "pointer<SLineInfo>"}
+        - {name: mode, type: i32}
     gdb_aliases:
       - collision_query_wrapper
     description: thin wrapper that submits a collision query to the static zone broadphase
@@ -323,6 +353,11 @@ functions:
       - re/evidence/functions/collision-query.md
   - address: 0x0048ea80
     name: M3D_ReadSurfaceFlags
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: query, type: "pointer<SLineInfo>"}
     description: read collision/surface bits from the selected PSX face into physics globals
     confidence: observed
     evidence:
@@ -345,6 +380,12 @@ functions:
       - re/evidence/functions/physics.md
   - address: 0x004628f0
     name: M3D_PrepareCollisionObjectList
+    signature:
+      calling_convention: cdecl
+      return: void
+      parameters:
+        - {name: root, type: "pointer<void>"}
+        - {name: query, type: "pointer<SLineInfo>"}
     description: prepare collision-query state and walk the attached runtime object list
     confidence: confirmed
     evidence:
@@ -352,6 +393,11 @@ functions:
       - re/evidence/functions/collision.md
   - address: 0x00463d50
     name: M3D_CommitCollisionSurface
+    signature:
+      calling_convention: cdecl
+      return: i32
+      parameters:
+        - {name: query, type: "pointer<SLineInfo>"}
     description: publish the selected collision surface and normal back to the query record
     confidence: observed
     evidence:

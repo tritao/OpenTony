@@ -143,6 +143,112 @@ def _apply_recovered_types(program, pyghidra) -> dict:
     return plan
 
 
+def _apply_type_bindings(program, pyghidra) -> dict:
+    from ghidra.program.model.data import (
+        ArrayDataType,
+        ByteDataType,
+        CategoryPath,
+        CharDataType,
+        DoubleDataType,
+        DWordDataType,
+        FloatDataType,
+        IntegerDataType,
+        LongLongDataType,
+        PointerDataType,
+        QWordDataType,
+        ShortDataType,
+        SignedByteDataType,
+        VoidDataType,
+        WordDataType,
+    )
+    from ghidra.program.model.listing import Function, ParameterImpl, ReturnParameterImpl
+    from ghidra.program.model.symbol import SourceType
+    from java.util import ArrayList
+
+    manager = program.getDataTypeManager()
+    category = CategoryPath("/OpenTony/Recovered")
+    address_space = program.getAddressFactory().getDefaultAddressSpace()
+    primitive = {
+        "i8": SignedByteDataType.dataType,
+        "u8": ByteDataType.dataType,
+        "char": CharDataType.dataType,
+        "i16": ShortDataType.dataType,
+        "u16": WordDataType.dataType,
+        "i32": IntegerDataType.dataType,
+        "u32": DWordDataType.dataType,
+        "q12_i32": IntegerDataType.dataType,
+        "q16_i32": IntegerDataType.dataType,
+        "i64": LongLongDataType.dataType,
+        "u64": QWordDataType.dataType,
+        "f32": FloatDataType.dataType,
+        "f64": DoubleDataType.dataType,
+    }
+
+    def resolve_type(expression: TypeExpression):
+        if expression.kind == "primitive":
+            return primitive[expression.name]
+        if expression.kind == "named":
+            if expression.name == "void":
+                return VoidDataType.dataType
+            data_type = manager.getDataType(category, expression.name)
+            if data_type is None:
+                raise ValueError(f"Ghidra type was not generated: {expression.name}")
+            return data_type
+        if expression.kind == "pointer":
+            return PointerDataType(resolve_type(expression.element), 4, manager)
+        if expression.kind == "array":
+            element = resolve_type(expression.element)
+            return ArrayDataType(element, expression.count, element.getLength(), manager)
+        if expression.kind == "bytes":
+            return ArrayDataType(ByteDataType.dataType, expression.count, 1, manager)
+        raise ValueError(f"cannot bind non-fixed Ghidra type expression: {expression.kind}")
+
+    report = {"functions": [], "globals": []}
+    conventions = {"cdecl": "__cdecl", "stdcall": "__stdcall", "thiscall": "__thiscall", "fastcall": "__fastcall"}
+    with pyghidra.transaction(program):
+        for item in load_yaml("re/symbols/functions.yml").get("functions", []):
+            signature = item.get("signature")
+            if not signature:
+                continue
+            address = address_space.getAddress(int(item["address"]))
+            function = program.getFunctionManager().getFunctionAt(address)
+            if function is None:
+                raise ValueError(f"cannot bind missing function {item['name']} at {address}")
+            parameters = ArrayList()
+            for parameter in signature["parameters"]:
+                parameters.add(
+                    ParameterImpl(
+                        parameter["name"], resolve_type(parse_type_expression(parameter["type"])), program
+                    )
+                )
+            return_value = ReturnParameterImpl(resolve_type(parse_type_expression(signature["return"])), program)
+            function.updateFunction(
+                conventions[signature["calling_convention"]],
+                return_value,
+                parameters,
+                Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS,
+                True,
+                SourceType.USER_DEFINED,
+            )
+            report["functions"].append({"address": int(item["address"]), "name": item["name"], **signature})
+
+        # Global/data bindings use the same canonical `type` expression. None
+        # are asserted until the corresponding symbol entry carries one.
+        from ghidra.program.model.data import DataUtilities
+
+        for path, key in (("re/symbols/globals.yml", "globals"), ("re/symbols/data.yml", "data")):
+            for item in load_yaml(path).get(key, []):
+                if "type" not in item:
+                    continue
+                address = address_space.getAddress(int(item["address"]))
+                data_type = resolve_type(parse_type_expression(item["type"]))
+                DataUtilities.createData(
+                    program, address, data_type, -1, DataUtilities.ClearDataMode.CLEAR_ALL_DEFAULT_CONFLICT_DATA
+                )
+                report["globals"].append({"address": int(item["address"]), "name": item["name"], "type": item["type"]})
+    return report
+
+
 def rebuild() -> None:
     exe = _exe_path()
     pyghidra = _require_pyghidra()
@@ -171,6 +277,7 @@ def rebuild() -> None:
             pyghidra.analyze(program, pyghidra.task_monitor())
             _apply_symbols(program, pyghidra)
             type_report = _apply_recovered_types(program, pyghidra)
+            type_report["bindings"] = _apply_type_bindings(program, pyghidra)
             program.save("OpenTony deterministic rebuild", pyghidra.task_monitor())
 
     report_path = project_parent / "recovered-types.json"
