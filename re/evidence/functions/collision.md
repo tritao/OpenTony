@@ -611,6 +611,20 @@ and all 608 finalized normal magnitudes fell between `4094` and `4098` in the
 observed short-vector scale. The same audit found 27 calls from the in-air
 wrapper callsite and one in-air hit.
 
+That audit is reproducible with the tracked standard-library checker:
+
+```text
+python re/evidence/verify_collision_trace.py \
+  build/debug/collision-air4.trace.ndjson
+python re/evidence/verify_collision_trace.py \
+  build/debug/collision-dynamic-positive5.trace.ndjson
+```
+
+The first command checks all 2,000 wrapper records, including the 608 static
+hits; the second checks the controlled dynamic hit's distance-derived contact
+fallback. The checker intentionally validates recorded arithmetic invariants
+only; it does not replace the native query implementation.
+
 The probe implementation is tracked in `re/gdb/opentony/collision.py` and is
 registered as `tony-collision-probe`; it records the wrapper `mode`,
 `start_raw`, `end_raw`, hit, contact, normal shorts, model/face pointers, face
