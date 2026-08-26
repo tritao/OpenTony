@@ -268,6 +268,30 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004cad60
+    name: Math_Vector3sMask12
+    description: mask three packed signed 16-bit components to 12 bits
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cad80
+    name: Math_Vector3sSnapNearZero
+    description: zero packed 16-bit components in the inclusive range -1 to 1
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cae10
+    name: Math_Vector3sAdd
+    description: add three packed 16-bit components in place
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cae30
+    name: Math_Vector3sSub
+    description: subtract three packed 16-bit components in place
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred

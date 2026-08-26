@@ -70,3 +70,19 @@ out-of-place unary operator. It negates each signed component from the `ECX`
 input vector and writes the results through the stack-supplied output pointer.
 Padding begins at `0x004cad53` and remains a separate raw fragment. The
 35-byte matching-assembly function reproduces the retail bytes exactly.
+
+The compact signed-16-bit vector family begins nearby:
+
+- `0x004cad60–0x004cad71` masks all three words with `0x0fff`.
+- `0x004cad80–0x004cadbd` zeros each word when its signed value is in the
+  inclusive range `[-1, 1]`.
+- `0x004cae10–0x004cae2f` adds three source words into a destination in place.
+- `0x004cae30–0x004cae4f` performs the corresponding subtraction.
+
+Ghidra classified the first two ranges as safe proposals, and they were
+accepted together through the tracked-only transactional batch. The add range
+was instruction-aligned but marked `unknown-adjacent`; Ghidra missed the
+adjacent subtract function. Those two boundaries were therefore split
+explicitly from their observed instruction/return ranges instead of bypassing
+the safe-proposal policy. All four assembly modules exactly match their retail
+bytes; padding remains in separate raw fragments.

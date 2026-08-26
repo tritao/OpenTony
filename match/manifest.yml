@@ -307,12 +307,84 @@ modules:
 - id: text_004cad53
   section: .text
   start_va: 5025107
-  end_va: 5050368
+  end_va: 5025120
   file_offset: 830803
-  size: 25261
+  size: 13
   status: raw
   source: match/modules/text/text_004cad53.asm
-  sha256: 0c1db2e1f351a0fc21c20fa36fa3ddbd59a08e139f14ff7282c99e31b5c42211
+  sha256: aff312c80e826834eed3e424180d0b1150cd49ab4454e19d6d9cd884a2178915
+- id: text_004cad60
+  section: .text
+  start_va: 5025120
+  end_va: 5025137
+  file_offset: 830816
+  size: 17
+  status: asm
+  source: match/modules/text/text_004cad60.asm
+  sha256: c60368e6ff5039cc9b42798de12128482134d78c8acff9574a7d0b52ff0364ad
+- id: text_004cad71
+  section: .text
+  start_va: 5025137
+  end_va: 5025152
+  file_offset: 830833
+  size: 15
+  status: raw
+  source: match/modules/text/text_004cad71.asm
+  sha256: 40f0d021fa824f3b40dc646f67479997734d273d9121690b6f042c512df3a838
+- id: text_004cad80
+  section: .text
+  start_va: 5025152
+  end_va: 5025213
+  file_offset: 830848
+  size: 61
+  status: asm
+  source: match/modules/text/text_004cad80.asm
+  sha256: d3b307be3f9fc08e26258e59a19df87ed64c1b16ae8fdd1896f78371fff81061
+- id: text_004cadbd
+  section: .text
+  start_va: 5025213
+  end_va: 5025296
+  file_offset: 830909
+  size: 83
+  status: raw
+  source: match/modules/text/text_004cadbd.asm
+  sha256: 6e7cbca67495bfe3a65b5d979253cadd45a7f246e4fcef058f26754ac8018a03
+- id: text_004cae10
+  section: .text
+  start_va: 5025296
+  end_va: 5025327
+  file_offset: 830992
+  size: 31
+  status: asm
+  source: match/modules/text/text_004cae10.asm
+  sha256: eb59955e7c1abe07269ccf346a3895677c757aebd8b5ee2a90ebec4f9a2c5297
+- id: text_004cae2f
+  section: .text
+  start_va: 5025327
+  end_va: 5025328
+  file_offset: 831023
+  size: 1
+  status: raw
+  source: match/modules/text/text_004cae2f.asm
+  sha256: 9e076ceaf246b6003d9c2680a2b4cf0bffd069805902b0b5edeebf49039fe4bd
+- id: text_004cae30
+  section: .text
+  start_va: 5025328
+  end_va: 5025359
+  file_offset: 831024
+  size: 31
+  status: asm
+  source: match/modules/text/text_004cae30.asm
+  sha256: 0adabf1f16bc81a06280a35ff33164823cbb5c00240fa60e5dc9f3c55933ddff
+- id: text_004cae4f
+  section: .text
+  start_va: 5025359
+  end_va: 5050368
+  file_offset: 831055
+  size: 25009
+  status: raw
+  source: match/modules/text/text_004cae4f.asm
+  sha256: 26015fab4b57d2cf93596fd9a08c93bd6ecf21941be7e9d25bea5fa922baa8b9
 - id: text_004d1000
   section: .text
   start_va: 5050368
