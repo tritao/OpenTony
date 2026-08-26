@@ -469,6 +469,51 @@ claim about the retail range of the Q12 basis values. A retail frame-to-frame
 join of this write to the subsequent position candidate remains open because
 the existing B010 trace did not capture the write and commit in one record.
 
+## Ground-physics mode-1 transition
+
+The selected unresolved unit for this run is the `case 1` branch of
+`FUN_0049df00`. It owns the ground-motion mode
+transition and the raw animation-control handoff; it does not own the
+surface/material predicate, the audio/script callees, or general physics-state
+dispatch.
+
+The static decompilation at `build/ghidra/decomp/ground-physics.c:107-128`
+establishes this exact predicate and order:
+
+```text
+advance = !surface_allows_brake ||
+          speed_metric < (signed animation_frame * 0x1000) + slope_threshold
+if (advance) {
+    old_start = *(u16 *)(player + 0x114)
+    *(u8  *)(player + 0x107) = 0
+    *(u8  *)(player + 0x100) = 0xff
+    *(i16 *)(player + 0x114) = (signed char)*(player + 0x101)
+    *(char *)(player + 0x101) = (char)old_start
+    *(i32 *)(player + 0x2df8) = 3
+    if (surface_allows_brake)
+        play surface-selected service / update object +0x30b0
+}
+*(i32 *)(player + 0x2f2c) = 2
+return
+```
+
+The comparison is strict: equality leaves `+0x2df8` at `1`, while the
+surface-failure side of the `||` advances regardless of speed and suppresses
+the surface-eligible service. The byte/short exchange is also significant:
+`+0x114` contributes only its low byte to `+0x101`, and the old `+0x101` byte
+is sign-extended when restored to `+0x114`. This is recorded as a raw handoff,
+not as a new animation-selection policy; the animation session remains the
+consumer of the resulting control fields.
+
+The native `update_ground_physics()` result now reports this handoff alongside
+mode `1 -> 3`, the caller-visible `animation_transition` service gate, and the
+unconditional cooldown `2`. `src/runtime/ground_physics_test.cpp` covers the
+equal boundary (`speed_metric == slope_threshold`), the strict-below side,
+the low-byte/sign-extension exchange (`0x1234` and `0x82`), and the
+surface-failure bypass. Confidence is static-confirmed and native-tested;
+the retail frame-to-animation-request join and the service owners remain
+open.
+
 ## Native reference core
 
 The supported arithmetic is implemented in the focused native reference core:

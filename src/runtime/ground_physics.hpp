@@ -25,6 +25,25 @@ struct GroundPhysicsInput final {
     bool blocked_or_special{};          // skater +0x2dd8
     bool animation_ready{};             // skater +0x107
     std::int32_t frame_scale_q8{0x100};  // DAT_0056865c-equivalent scale
+    // Raw CSuper animation fields read by the mode-1 transition. They remain
+    // caller-owned so this movement boundary does not select an animation.
+    std::uint8_t playback_endpoint{};     // skater +0x101 raw byte
+    std::int16_t original_start_frame{};  // skater +0x114
+};
+
+// The mode-1 branch updates these animation-control bytes before handing the
+// actual animation request to the animation service. Keep the values raw and
+// preserve the retail byte/short truncation at this boundary.
+struct GroundAnimationControlHandoff final {
+    bool applied{};
+    std::uint8_t animation_finished{};   // skater +0x107, cleared by retail
+    std::int8_t playback_direction{};    // skater +0x100, written as 0xff
+    std::uint8_t playback_endpoint{};    // skater +0x101, old +0x114 low byte
+    std::int16_t original_start_frame{}; // skater +0x114, sign-extended +0x101
+
+    friend bool operator==(
+        const GroundAnimationControlHandoff&,
+        const GroundAnimationControlHandoff&) = default;
 };
 
 enum class GroundPhysicsAction : std::uint8_t {
@@ -53,6 +72,7 @@ struct GroundPhysicsResult final {
     std::uint32_t requested_physics_reason{};
     bool animation_transition{};
     GroundPhysicsAction action{GroundPhysicsAction::None};
+    GroundAnimationControlHandoff animation_handoff{};
 
     friend bool operator==(
         const GroundPhysicsResult&,

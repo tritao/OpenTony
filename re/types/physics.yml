@@ -121,9 +121,38 @@ types:
         name: ground_motion_mode
         type: i32
         confidence: observed
-        description: Grounded motion mode read by the producer-side gate; its state-machine ownership remains outside this movement slice.
+        description: Grounded motion mode read and updated by FUN_0049df00; mode 1 advances to mode 3 at the selected strict speed boundary.
         evidence:
           - re/evidence/functions/physics.md
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x2f2c
+        name: ground_motion_cooldown
+        type: i32
+        confidence: observed
+        description: Cooldown word written as 2 by the mode-1 branch and related ground-motion modes.
+        evidence:
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x29c8
+        name: ground_physics_block_29c8
+        type: i32
+        confidence: observed
+        description: First aggregate block predicate tested by FUN_0049df00 before the grounded mode switch; semantic owner remains open.
+        evidence:
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x2dd0
+        name: ground_physics_block_2dd0
+        type: i32
+        confidence: observed
+        description: Second aggregate block predicate tested by FUN_0049df00 before the grounded mode switch; semantic owner remains open.
+        evidence:
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x2f64
+        name: ground_physics_block_2f64
+        type: i32
+        confidence: observed
+        description: Fourth aggregate block predicate tested by FUN_0049df00 before the grounded mode switch; semantic owner remains open.
+        evidence:
+          - re/evidence/functions/ground-movement.md
       - offset: 0x3144
         name: movement_target_x
         type: i32
@@ -211,9 +240,17 @@ types:
         name: animation_finished
         type: u8
         confidence: observed
-        description: Animation completion/enable byte read by the producer's early event branch; event dispatch remains outside the movement boundary.
+        description: Animation completion/enable byte read by the producer's early event branch and cleared by the mode-1 animation-control handoff; event dispatch remains outside the movement boundary.
         evidence:
           - re/evidence/functions/physics.md
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x30b0
+        name: ground_animation_service_argument
+        type: u32
+        confidence: observed
+        description: Player word passed to the surface-eligible mode-1 animation/audio service; its owner and interpretation remain open.
+        evidence:
+          - re/evidence/functions/ground-movement.md
       - offset: 0x2dd8
         name: heading_transition_override
         type: i32

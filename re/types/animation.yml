@@ -279,12 +279,14 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md
       - offset: 0x101
         name: playback_end_frame
         type: u8
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md
       - offset: 0x102
         name: playback_start_frame
         type: u8
@@ -339,3 +341,4 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md
