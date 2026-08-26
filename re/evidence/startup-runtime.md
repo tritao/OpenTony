@@ -26,6 +26,21 @@ Using the WineDbg GDB proxy and `tony debug`:
 
 These observations establish a reproducible startup-to-frontend path for this exact executable build. The GDB bootstrap command `tony-skip-movies` installs the recorded `0x004e5ec0` bypass; `tony-bp-thps2 frontend temporary` captures the resulting frontend entry. They do not yet dynamically confirm the level loop, frame boundary, or player state.
 
+## Setup and media file probes
+
+The startup configuration helper at `0x004f6850` constructs a path from the
+configured section and filename, then probes it through the Win32/CRT file
+layer. Its callers use the configuration keys `MOVPATH` and `MUSPATH` with
+the literals `Intro.dat` and `LTIX30.dat`; these are setup/media probes, not
+PSX scene or gameplay-object assets. The same helper is also used for the
+configured package path before the normal PKR-backed resource loads.
+
+`GrayMat.dat` is passed at `0x0046a549` to the blocking movie path
+`0x004e5ec0`, alongside the `ATVILOGO.STR`, `NSLOGO.STR`, and `INTRO.STR`
+startup movies. It is therefore recorded as startup movie media rather than
+as a level texture. The extracted gameplay-asset inventory contains no
+separate proven runtime object family for any of these files.
+
 ## Open questions / next experiment
 
 - Automate frontend input far enough to select Warehouse and capture `0x0046a3a0` at runtime.

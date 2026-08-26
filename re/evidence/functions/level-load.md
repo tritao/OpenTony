@@ -1,6 +1,6 @@
 # Frontend level selection and loading
 
-Status: Warehouse launch observed
+Status: Warehouse launch observed; complete 13-entry level-resource table recovered
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004524a0`, `0x004544a0`, `0x00458900`, `0x0046a8d0`
 
@@ -19,6 +19,31 @@ The headless Free Skate Hangar run dynamically confirmed this chain. `0x004544a0
 
 The per-skater career initializer at `0x00416790` creates exactly 13 level records. Their static ordering starts with Hangar at index `0` and places the legacy Warehouse entry at index `12`. The GDB helper `tony-force-level warehouse` replaces the next `0x004544a0` level argument with `12`, allowing the normal load/session path to be tested independently of save-game unlock state.
 
+The same initializer walks a static table at `DAT_0053c240` with a `0x1ac`
+byte record stride. The resource-root name pointer at record `+0x04` gives the
+complete PC level mapping:
+
+```text
+0   SkHan_T   (The Hangar)
+1   SkSl2_T   (School II)
+2   SkMar_T   (Marseille)
+3   SkNY_T    (New York)
+4   SkVen_T   (Venice)
+5   SkSS_T    (Skate Street)
+6   SkPh_T    (Philadelphia)
+7   SkBul_T   (The Bullring)
+8   SkB1_T    (School)
+9   SkHvn_T   (Hawaii)
+10  SkJam_T   (Chicago/Jam)
+11  SkVans_T  (Vans)
+12  SkWare_T  (Warehouse)
+```
+
+The table entry is the filename stem used by the level loader for the paired
+`_T.TRG`, `.PSX`, and auxiliary level resources. This is static data-table
+evidence; the live run independently confirmed the index-12 `SkWare` open
+and parser path.
+
 A headless validation selected the normal first level and used that one-shot override. At `0x004544a0`, the stack contained level `12` and mode `3`; `DAT_0056a898` became `12`. The normal loader then logged `Loading Level: Warehouse`, opened `ware.vab`, initialized Tony Hawk, and proceeded to `0x0046a3a0`.
 
 ## Interpretation
@@ -28,4 +53,3 @@ The PC binary has a recoverable level-selection chain independent of the PSX sym
 ## Open questions / falsifiers
 
 - Determine whether `DAT_0056a898` is only the selected level index or a broader current-level/session field.
-- Map the remaining 11 numeric level indices and their table records.

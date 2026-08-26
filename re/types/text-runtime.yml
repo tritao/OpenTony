@@ -1,0 +1,157 @@
+version: 1
+types:
+  - name: RuntimeCdParksLabelTable
+    confidence: confirmed
+    description: Retained CDPARKS source buffer and 50 borrowed display-label pointers.
+    fields:
+      - offset: 0x78
+        name: source_buffer
+        type: pointer<char>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x7c
+        name: labels_by_index
+        type: pointer<char>[50]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+
+  - name: RuntimeCreditsTextManager
+    confidence: observed
+    description: Credits/music parser manager with a pointer array of parsed runtime records.
+    fields:
+      - offset: 0x00
+        name: current_source_offset
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x04
+        name: records
+        type: pointer<void>[1000]
+        confidence: observed
+        description: Parsed record pointers begin at manager +0x04.
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfa4
+        name: record_count
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfa8
+        name: source_size_or_extent
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfac
+        name: timing_origin
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfb0
+        name: line_buffer
+        type: char[49]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfe4
+        name: active_record_type
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfe8
+        name: active_source_pointer
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xfec
+        name: music_parameter_0
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0xff0
+        name: music_parameter_1
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+
+  - name: RuntimeCreditsTextRecord
+    size: 0x44
+    confidence: observed
+    description: Type-0 parsed text record allocated by the credits/music manager.
+    fields:
+      - offset: 0x08
+        name: metric_or_extent
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x0c
+        name: text
+        type: char[?]
+        confidence: observed
+        description: Text is copied into the record's inline region by the constructor; exact capacity is not assigned.
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x40
+        name: source_parameter
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+
+  - name: RuntimeCreditsBitmapRecord
+    size: 0x10
+    confidence: observed
+    description: Type-1 image directive record.
+    fields:
+      - offset: 0x08
+        name: metric_or_extent
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x0c
+        name: image_object
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+
+  - name: RuntimeCreditsMusicMarker
+    size: 0x18
+    confidence: observed
+    description: Type-2 @M marker record.
+    fields:
+      - offset: 0x08
+        name: reserved_or_extent
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x0c
+        name: parameter_0
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x10
+        name: parameter_1
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md
+      - offset: 0x14
+        name: cleared_word
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/text-runtime.md

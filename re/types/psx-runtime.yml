@@ -1,0 +1,443 @@
+version: 1
+types:
+  - name: RuntimePsxBlockmapCellSourceHeader
+    size: 0x0c
+    confidence: confirmed
+    description: Three-word source cell prefix. The PC zone loader skips the first two words and consumes the third as the object-reference count.
+    fields:
+      - offset: 0x00
+        name: source_cell_word_0
+        type: u32
+        confidence: observed
+        description: Preserved in the disk format but not read by the PC zone loader after the cell walk begins.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x04
+        name: source_cell_word_1
+        type: u32
+        confidence: observed
+        description: Preserved in the disk format but not read by the PC zone loader after the cell walk begins.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x08
+        name: object_reference_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+
+  - name: RuntimePsxObjectRecord
+    size: 0x4c
+    confidence: confirmed
+    description: 0x4c-stride environment object record allocated by the PSX parser. The allocation has a four-byte count prefix before record zero.
+    fields:
+      - offset: 0x08
+        name: position_x
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x0c
+        name: position_y
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x10
+        name: position_z
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x1a
+        name: model_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x1f
+        name: psx_slot
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x20
+        name: next
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimePsxModelPacketHeader
+    size: null
+    confidence: observed
+    description: Header at the start of a relocated PSX model packet. The packet is selected through the slot model-pointer table.
+    fields:
+      - offset: 0x00
+        name: model_flags
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x08
+        name: radius
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x0c
+        name: bounds_word_0
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x0e
+        name: bounds_word_1
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x10
+        name: bounds_word_2
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x12
+        name: bounds_word_3
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x14
+        name: bounds_word_4
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x16
+        name: bounds_word_5
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x18
+        name: unknown_header_word_pair
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x02
+        name: vertex_count
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x04
+        name: normal_count
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x06
+        name: face_count
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x1c
+        name: packed_geometry_stream
+        type: bytes
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x1c
+        name: face_stream_after_vertices_and_normals
+        type: bytes
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+
+  - name: RuntimePsxFaceRecord
+    size: null
+    confidence: observed
+    description: Variable-size PSX face record; the loader replaces the disk texture-table index at +0x10 with a shared scene-material pointer for textured faces.
+    fields:
+      - offset: 0x00
+        name: packed_flags_and_length
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x04
+        name: vertex_indices
+        type: array<u8,4>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x08
+        name: gpu_command
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+      - offset: 0x0c
+        name: normal_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+      - offset: 0x0e
+        name: surface_flags
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x10
+        name: material_record_or_disk_texture_index
+        type: pointer<RuntimePsxMaterialRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x14
+        name: uv_bytes
+        type: array<u8,8>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/renderer.md
+
+  - name: RuntimeCollisionFaceCacheRecord
+    size: 0x1c
+    confidence: observed
+    description: World-space acceleration entry built from one PSX model face before collision testing. It is transient cache state, not part of the disk model packet.
+    fields:
+      - offset: 0x00
+        name: packed_face_word
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x04
+        name: min_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x08
+        name: min_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x0c
+        name: min_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x10
+        name: max_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x14
+        name: max_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x18
+        name: max_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+
+  - name: RuntimeCollisionModelCacheEntry
+    size: 0x10
+    confidence: observed
+    description: One of twenty rotating model-cache entries used by the collision cell walker.
+    fields:
+      - offset: 0x00
+        name: object
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x04
+        name: model
+        type: pointer<RuntimePsxModelPacketHeader>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x08
+        name: face_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x0c
+        name: face_cache_base
+        type: u32
+        confidence: observed
+        description: Index into the shared 0x1c-byte face-cache array.
+        evidence:
+          - re/evidence/functions/blockmap-collision.md
+
+  - name: RuntimePsxSlotArrays
+    size: null
+    confidence: confirmed
+    description: Global slot-indexed pointers used by the PSX parser and consumers. One slot entry is 0x11 integers (0x44 bytes) apart.
+    fields:
+      - offset: 0x0056d438
+        name: object_records_by_slot
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/blockmap-collision.md
+      - offset: 0x0056d43c
+        name: model_pointers_by_slot
+        type: pointer<pointer<RuntimePsxModelPacketHeader>>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x0056d440
+        name: raw_psx_by_slot
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/asset-loading.md
+
+  - name: RuntimePsxSpoolQueueEntry
+    size: 0x11
+    confidence: observed
+    description: Compact queue entry used while registering a named PSX region for player/vehicle loading.
+    fields:
+      - offset: 0x00
+        name: queued_name
+        type: char[13]
+        confidence: observed
+        description: Bounded base name plus the appended .psx suffix.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x0d
+        name: active
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x0e
+        name: mode
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x0f
+        name: region_slot
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x10
+        name: request_flags
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+
+  - name: RuntimePlayerSpoolManager
+    size: null
+    confidence: observed
+    description: Player-resource spool manager containing forty 0x28-byte entries and queue lifecycle counters.
+    fields:
+      - offset: 0x00
+        name: vtable
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0xa04
+        name: queued_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0xa08
+        name: consume_index
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0xa0c
+        name: state
+        type: u32
+        confidence: observed
+        description: 0 idle, 1 actively starting an item, 2 waiting for the finalize/synchronization pass.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+
+  - name: RuntimePlayerSpoolEntry
+    size: 0x28
+    confidence: observed
+    description: One player-resource spool entry. The resource name starts at +0x05; the manager owns forty entries at this stride.
+    fields:
+      - offset: 0x04
+        name: processed
+        type: u8
+        confidence: observed
+        description: Initialized to zero and set to one when the entry advances through the queue.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x05
+        name: resource_name
+        type: char[?]
+        confidence: observed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x18
+        name: load_mode
+        type: u32
+        confidence: confirmed
+        description: One for the PSH/region path and zero for the direct PSX path.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x1c
+        name: region_handle
+        type: i32
+        confidence: observed
+        description: Associated region/loader handle; initialized to -1 for an unused entry.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x20
+        name: loaded_buffer
+        type: pointer<void>
+        confidence: observed
+        description: Direct PSX allocation retained until the entry release path.
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x24
+        name: heap_selector
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/skater-asset-runtime.md
+    notes:
+      - The requested-size/limit argument is observed at the next-stride base word, manager + (entry_index + 1) * 0x28, rather than as a modeled field within this entry.

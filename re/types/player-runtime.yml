@@ -1,0 +1,125 @@
+version: 1
+types:
+  - name: RuntimeGameplaySkater
+    size: 0x3538
+    confidence: confirmed
+    description: Gameplay skater object allocated by the player-object creator; this is the object published at the two global player slots, not the contained camera object.
+    fields:
+      - offset: 0x1f
+        name: psx_region_slot
+        type: u8
+        confidence: observed
+        description: Region/object slot byte consumed by the shared PSX model/appearance path.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/renderer.md
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x1a
+        name: model_index
+        type: u16
+        confidence: observed
+        description: Model-table index paired with psx_region_slot by the shared renderer path.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/renderer.md
+      - offset: 0x29b0
+        name: camera
+        type: pointer<RuntimeSkaterCameraObject>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x29bc
+        name: peer_skater
+        type: pointer<RuntimeGameplaySkater>
+        confidence: confirmed
+        description: Bidirectional peer link established for two-player mode.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x2cc0
+        name: skater_resource
+        type: ptr
+        confidence: confirmed
+        description: Selected skater-manager resource pointer.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/skater-asset-runtime.md
+      - offset: 0x2cc4
+        name: player_index
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x2ccc
+        name: action_record_bank
+        type: ptr
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/physics.md
+      - offset: 0x2cd0
+        name: appearance_resource_10
+        type: ptr
+        confidence: observed
+        description: Appearance resource handle returned by the manager lookup for resource id 0x10.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x2cd4
+        name: appearance_resource_11
+        type: ptr
+        confidence: observed
+        description: Appearance resource handle returned by the manager lookup for resource id 0x11.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x2cd8
+        name: appearance_resource_12
+        type: ptr
+        confidence: observed
+        description: Appearance resource handle returned by the manager lookup for resource id 0x12.
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x30b8
+        name: physics_state
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/physics.md
+      - offset: 0x3144
+        name: turn_accumulator
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x3148
+        name: turn_accumulator_mirror
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/ground-movement.md
+
+  - name: RuntimeSkaterCameraObject
+    size: 0x674
+    confidence: confirmed
+    description: Camera object allocated and owned by one RuntimeGameplaySkater.
+    fields:
+      - offset: 0x3a4
+        name: owner_skater
+        type: pointer<RuntimeGameplaySkater>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x504
+        name: active
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/player-runtime.md
+      - offset: 0x5b4
+        name: update_accumulator
+        type: i32
+        confidence: observed
+        description: Per-frame camera update accumulator incremented by the gameplay update.
+        evidence:
+          - re/evidence/functions/player-runtime.md

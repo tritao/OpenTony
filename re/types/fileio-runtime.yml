@@ -1,0 +1,85 @@
+version: 1
+types:
+  - name: RuntimeResourceStream
+    size: 0x38
+    confidence: observed
+    description: Package/stream object allocated by the runtime resource backend. Field names describe behavior established by the seek, read, refill, and cleanup paths.
+    fields:
+      - offset: 0x00
+        name: input_cursor
+        type: pointer<u8>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x04
+        name: input_remaining
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x08
+        name: input_buffer
+        type: pointer<u8>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x0c
+        name: state_flags
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x10
+        name: underlying_runtime_handle
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x18
+        name: transfer_size
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x1c
+        name: auxiliary_owned_pointer
+        type: pointer<void>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+
+  - name: RuntimePkrFileRecord
+    size: 0x30
+    confidence: confirmed
+    description: Runtime copy of a PKR2 file-table record used by the package lookup and payload dispatch.
+    fields:
+      - offset: 0x00
+        name: name
+        type: char[32]
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x20
+        name: payload_marker
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x24
+        name: payload_offset_absolute
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x28
+        name: payload_size
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md
+      - offset: 0x2c
+        name: payload_size_duplicate
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/fileio-runtime.md

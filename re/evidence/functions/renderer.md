@@ -1,0 +1,341 @@
+# Warehouse PSX scene-object renderer path
+
+Status: confirmed static renderer consumer for the loaded PSX environment,
+including transformed-vertex, polygon-packet, dispatch-table, and hardware
+primitive contracts
+Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
+Addresses: `0x00467c90`, `0x0045e8e0`, `0x0045f530`, `0x004610f0`, `0x00461a50`, `0x00461a90`, `0x00461b10`, `0x004d0c30`, `0x004d11d0`, `0x004d14d0`, `0x004d18b0`, `0x004d1960`, `0x004d1d40`, `0x004d20f0`, `0x004d29e0`, `0x004d3160`, `0x004d3480`, `0x004d3510`, `0x004d3600`, `0x004d3780`, `0x004d3a40`, `0x004d41e0`, `0x004d42f0`, `0x004d45f0`, `0x004d49e0`, `0x004d4bf0`, `0x004d5040`, `0x004d5280`, `0x004d56c0`, `0x004d5960`, `0x004d5e40`, `0x004d6090`, `0x004d60c0`, `0x004d60f0`, `0x004d6120`, `0x004d6320`, `0x004d6560`, `0x004d66f0`, `0x004d68b0`
+
+This document records the renderer boundary without assigning full Direct3D
+semantics to the lower-level helpers. The scene loader's material rewrite is
+recorded in [asset-loading.md](asset-loading.md); renderer face submission
+consumes the resulting runtime face records rather than re-resolving the disk
+texture index.
+
+## Static call graph
+
+The render-stage routine `0x00467c90` calls `0x0045f530` first with
+`DAT_0056db28`, the head of the attached PSX environment list, and then with
+`DAT_0056af40`, the separate game-object list. The environment call is the
+scene-geometry branch established by the asset-loading and attach traces.
+
+```text
+DAT_0056db28 (attached PSX environment list)
+    -> 0x0045f530  m3d object traversal, culling, model selection
+
+ordinary environment object branch
+    -> 0x00461a50 / 0x00461a90  state-geometry wrapper
+    -> 0x004d14d0  model-packet state/geometry submission
+
+flagged/special object branch
+    -> 0x004610f0  m3d model/part preparation
+    -> 0x004d11d0  indexed geometry packet submission
+    -> Direct3D/state helpers (not yet fully named)
+```
+
+`0x0045f530` walks the runtime object's `+0x20` next pointer. For each object
+it checks the object flags and the slot finalization state, reads the slot byte
+at `+0x1f` and model index at `+0x1a`, and selects the model from
+`DAT_0056d43c[slot * 0x11]`. It applies model-flag tests and view/culling
+logic before selecting one of the two render branches below.
+
+For ordinary environment objects, a selected model packet with flag `0x0004`
+set enters the indexed path through `0x004d11d0`; otherwise the object goes
+through `0x00461a50` or `0x00461a90`, both of which call `0x004d14d0`.
+`0x004610f0` is a separate flagged/special-object path and must not be treated
+as the only environment renderer entry.
+
+`0x004610f0` is identified by the embedded source string as
+`H:\\TonyHawk\\Pc2\\m3d.cpp`. It repeats the slot/model selection, walks the
+model-part count in `DAT_0056d460[slot * 0x44]`, and consumes each variable-size
+model packet. The model header counts at offsets `+0x02`, `+0x04`, and `+0x06`
+are read as the vertex, normal, and face counts by the model finalizer and
+control the packed-geometry walk. In the textured branch the function passes
+the packet-derived stream pointer and count to `0x004d11d0` and uses the
+adjacent m3d helpers for texture/material state.
+
+The model finalizer at `0x004647c0` provides the stronger packet-layout
+boundary. For each entry in the count-prefixed model-pointer table it reads:
+
+```text
+packet +0x00  flags (u16)
+packet +0x02  vertex count (u16)
+packet +0x04  normal count (u16)
+packet +0x06  face count (u16)
+packet +0x08  radius (u32)
+packet +0x0c  six signed 16-bit bound words
+packet +0x18  additional 32-bit header word
+packet +0x1c  packed 8-byte geometry records followed by variable-size face data
+```
+
+It normalizes the packet in place, records the realized model/part count in
+`DAT_0056d460[slot * 0x44]`, and leaves the same model pointers for collision
+and rendering. The offline parser's Warehouse model 17 header is therefore a
+direct check of this runtime header: flags `8`, counts `20/12/12`, and the six
+bound words `(0, 0, 1229, -1228, 342, -343)`.
+
+`0x004d11d0` consumes the stream/count pair from the textured branch. Its
+packet loop reads the per-record flag/length area, resolves indexed texture
+state through the active palette/texture table when the record requests it,
+and emits transformed color/geometry data to the lower Direct3D path. The
+stable boundary for a recreation is the call contract; the exact GPU packet
+bitfield names remain intentionally open.
+
+`0x00461a50` and `0x00461a90` forward their model-packet argument to
+`0x004d14d0` with `DAT_005620a4` plus an optional `0x200` state bit.
+`0x00461b10` is the more general state wrapper: it adds the low state bit and
+conditionally adds `0x200` and `0x08` before calling the same submitter. The
+submitter at `0x004d14d0` records the state word, derives the vertex and normal
+streams from `packet + 0x1c` using the packet counts, and invokes lower
+transformation/state helpers. It then walks the variable-size face records
+through `0x004d18b0`: visible faces enter `0x004d1960` for color-table/vertex
+state resolution and `0x004d1d40` for the 0x30-byte D3D polygon record. In the
+textured face form, `0x004d1d40` reads the runtime face texture/material field
+at `face + 0x10` and the four UV bytes at `face + 0x14`; those fields are the
+post-loader values, not the original Warehouse checksum-table index. The
+exact Direct3D texture-resource field behind a scene material record remains
+open, but the disk index -> hash record -> runtime face pointer -> polygon
+submission chain is established. When the material has been populated, its
+`+0x14` points to the `RuntimePcTextureRecord`; that record's `+0x00` is the
+Direct3D texture resource consumed by the lower upload/render state. Whether
+every Warehouse hash is resident in that field at every render frame remains
+the remaining runtime-residency question.
+
+The renderer therefore consumes the same model pointer table and the same
+runtime object fields already established by the PSX loader and collision
+path. It is not a second, unrelated scene representation.
+
+At the frame boundary, `0x00467c90` selects the per-view polygon arena at
+`DAT_00560fd4 + 0x88 + view * 0x8000` and calls `0x0045e8e0` with the active
+viewport and that view's bucket-head array. `0x0045e8e0` binds the viewport,
+resets the polygon allocation cursor, stores the bucket-head pointer in
+`DAT_0056433c`, and seeds the first head record. Accepted polygons from
+`0x004d20f0` are linked into this array using the depth/class bucket returned
+by its lower classifier. This establishes the per-frame arena and bucket-list
+ownership that feeds the `0x004d3160` Direct3D command consumer.
+
+## Polygon-list consumer and hardware state
+
+The later draw loop is now identified as `0x004d3160`. It receives the head
+of the current linked polygon/command list, begins the render-state bracket
+with `0x20000/0x30000`, and follows each record through its `+0x00` next link.
+The byte at `+0x07` is the command opcode/format byte and `+0x04` is the
+record-enable/payload word checked before dispatch.
+
+For ordinary geometry, `0x004d3160` uses `opcode & 0xfc` to select a handler
+from the executable's geometry dispatch table. The low bits control state:
+
+```text
+opcode bit 0  records the geometry mode in DAT_006a0064
+opcode bit 1  selects opaque versus alpha/texture state
+opcode bit 2  selects texture/blend setup, except for fixed command classes
+opcode bit 4  selects the alternate per-record texture word (+0x1a vs +0x16)
+```
+
+The texture/blend state path is concrete. It changes the Direct3D render-state
+slots through the device vtable at `+0x50` and `+0x94`, sets the current
+texture-blend mode through `0x004d3480`, and selects the blend/color mode
+through `0x004d3510`. Four encoded texture modes map to the observed color
+constants `0x80000000`, `0xff000000`, `0`, and `0x40000000`, with corresponding
+blend factors `(1,1)`, `(2,2)`, `(4,4)`, and `(2,2)` plus packet flags
+`0x08/0x18/0x28/0x38`. These are operational state mappings; the original
+Direct3D enum names are not needed for a faithful recreation.
+
+The same consumer handles non-geometry command records. An `0xe1` packet
+updates the active texture mode from its word at `+0x04` and obtains the PC
+texture resource through the material pointer at `+0x0c` and material `+0x14`.
+An `0xe3` packet is sent to `0x004d3600`, which sign-extends and clamps its
+viewport rectangle before `0x004d36c0` submits it to the device. The reverse
+heap path (`0x004d3a40` -> `0x004d3a70` -> `0x004d3780`) reverses a bounded
+command list and applies the same opcode/state dispatch, preserving the
+ordering required by the alternate render path.
+
+The handler table is initialized by `0x004d41e0`: all 256 entries at
+`DAT_0065f82c` start at the no-op routine `0x004d7420`, after which the
+following concrete opcode bases are installed. The handlers emit the legacy
+Direct3D `DrawPrimitive`-style calls with vertex type `0x44`; the vertex count
+below is the count passed to that device call.
+
+| Opcode base | Handler | Proven primitive/behavior |
+| --- | --- | --- |
+| `0x20` | `0x004d42f0` | solid triangle, 3 vertices |
+| `0x24` | `0x004d45f0` | textured triangle, 3 vertices |
+| `0x28` | `0x004d49e0` | solid quad, 4 vertices |
+| `0x2c` | `0x004d4bf0` | textured quad, 4 vertices |
+| `0x30` | `0x004d5040` | Gouraud/color triangle, 3 vertices |
+| `0x34` | `0x004d5280` | textured Gouraud triangle, 3 vertices |
+| `0x38` | `0x004d56c0` | Gouraud/color quad, 4 vertices |
+| `0x3c` | `0x004d5960` | textured Gouraud quad, 4 vertices |
+| `0x40` | `0x004d6560` | two-vertex line, one color |
+| `0x48` | `0x004d6120` | line strip, four vertices |
+| `0x4c` | `0x004d6320` | closed line strip, five vertices |
+| `0x50` | `0x004d66f0` | two-vertex colored line |
+| `0x60` | `0x004d5e40` | solid rectangle/quad fan, four vertices |
+| `0x68` | `0x004d6090` | unit rectangle wrapper around `0x60` |
+| `0x70` | `0x004d60c0` | 8-unit rectangle wrapper around `0x60` |
+| `0x78` | `0x004d60f0` | 16-unit rectangle wrapper around `0x60` |
+| `0xb0` | `0x004d68b0` | general polygon/vertex-list path; stride and primitive mode depend on flags |
+
+The table explains the previously opaque final boundary: model faces reach
+the polygon list with a format byte, and that byte selects one of the exact
+solid, textured, Gouraud, line, rectangle, or general-polygon emitters. The
+same handlers have a separate modern-device path, but both paths consume the
+same packet fields and vertex counts. `0x004d68b0` additionally walks a
+variable vertex list at `packet + 0x28` with either five- or seven-word records
+and forwards it to the textured/untextured lower submitters.
+
+After the list is consumed, `0x004d0c30` performs draw synchronization and
+buffer presentation through the Direct3D device objects. The packet format,
+list ownership, state selection, control packets, viewport handoff,
+individual geometry-handler table, and final present boundary are proven. The
+original high-level names of the legacy Direct3D enums remain unrecovered,
+but the primitive family and exact vertex counts are sufficient for a
+faithful recreation.
+
+## Transformed vertex and polygon packet contracts
+
+The common submitter at `0x004d14d0` establishes the internal renderer handoff
+more precisely than the outer object traversal. It stores the model packet in
+`DAT_0056e870`, derives the packed vertex stream at `packet + 0x1c`, and
+derives the normal stream from the vertex count. It then calls `0x004d29e0`
+to transform the packed vertices into seven-float working records at
+`DAT_00570878`. The working record contains projected coordinates and clip
+flags; indexed/controlled source vertices can instead point into the same
+working table through the renderer's override table.
+
+`0x004d18b0` walks the variable-size face stream using the face record's
+length word. Visible records go through `0x004d1960`, which resolves the
+packed face color against the active color/palette tables, and then through
+`0x004d1d40`, which allocates a fixed 0x30-byte polygon record from the
+per-frame polygon arena. The observed stable fields are:
+
+```text
+polygon +0x00  linked-list next pointer
+polygon +0x07  packet format byte (0xb0)
+polygon +0x08  packed face/render flags
+polygon +0x10  runtime scene-material / PC-texture record pointer, textured faces
+polygon +0x14  vertex count (3 or 4)
+polygon +0x18  variable transformed vertex/color/UV stream
+```
+
+For textured faces the builder copies the four UV byte pairs from the runtime
+face record at `face + 0x14`, normalizing them with the PC texture dimensions
+read through the material's `+0x14` texture record. This independently confirms
+that the scene-material pointer is consumed after PSX parsing and that the
+renderer does not use the original disk texture-table index at this stage.
+Quads may be split into two triangle submissions by `0x004d20f0`; that helper
+performs the projected-space winding/depth tests and links accepted polygons
+into the renderer's bucketed list. The final list consumer is `0x004d3160`;
+whose concrete opcode handlers are described above.
+
+The indexed/special path at `0x004d11d0` has a separate color-packet contract:
+it walks eight-byte records, checks their flags, and expands indexed color
+values into the renderer color table before ordinary polygon submission. It
+should remain a separate path in a recreation rather than being folded into
+the environment model packet format.
+
+## Warehouse object-17 bridge
+
+The controlled load established:
+
+```text
+SKWARE.PSX object #17 / model #17
+    -> slot 6 runtime object record 0x005f34f6c
+    -> slot 6 model-table entry 0x005d78d2c
+```
+
+The static renderer selection contract is:
+
+```text
+object[+0x1f] = 6
+object[+0x1a] = 17
+DAT_0056d43c[6 * 0x11][17] = 0x005d78d2c
+model flags 8 -> 0x00461a50/0x00461a90 -> 0x004d14d0
+```
+
+The exact pointer values are run-specific heap addresses. The slot, index,
+stride, and model-table relationship are the stable evidence.
+
+## Live Warehouse render witness
+
+A controlled gameplay frame reached the actual render stage with
+`CurrentLevel = 12`:
+
+```text
+0x00467c90:
+    attached environment head = 0x05f34a5c
+    game-object head          = 0x05f30f48
+
+environment record #140:
+    pointer                   = 0x05f373ec
+    record stride              = 0x4c
+    position                  = (0x023e6000, 0xffffc000, 0x02b6e000)
+                              = (37642240, -16384, 45539328)
+    slot (+0x1f)              = 6
+    model index (+0x1a)       = 140
+
+slot 6 model table            = 0x05d77270
+model table[140]              = 0x05d83078
+model packet header            = flags 0x48, counts 8 / 4 / 4
+0x004d14d0 argument pair       = (0x05d83078, 0x00000800)
+```
+
+The offline parser reports the corresponding `SKWARE.PSX` object/model pair:
+
+```text
+object #140:
+    position_fixed = (37642240, -16384, 45539328)
+    position       = (9190, -4, 11118)
+    model_index    = 140
+
+model #140:
+    offset         = 0xe188
+    size           = 236
+    flags          = 8
+    counts         = 8 / 4 / 4
+    bounds         = (231, -230, 4, -5, 290, -291)
+```
+
+The runtime pointer values are heap addresses from one run. The independent
+position, object index, model index, packet flags, and packet counts establish
+the disk-to-runtime-to-render correspondence. The `0x004d11d0` calls seen in
+the same run were from the player/special-object path; the Warehouse scene
+geometry witness is the `0x004d14d0` call above.
+
+## Dynamic evidence and limits
+
+A controlled run also stopped at `0x004610f0` with the live front-end object
+and model/part arguments:
+
+```text
+object argument = 0x05f3c280
+model/part argument = 0x05f3cc80
+object +0x1f = 2
+object +0x1a = 0
+```
+
+The object carries the expected runtime header/vtable and the routine reads
+the slot byte before consulting the per-slot model table. This is a dynamic
+confirmation of the call contract, but it is a front-end skater object, not a
+Warehouse environment object and is not used as evidence for object 17.
+
+A broader renderer probe also reached `0x004d11d0` repeatedly while the
+front-end skater-selection assets were being drawn. Those calls remain useful
+for the indexed/special path, but are not substituted for the Warehouse
+environment witness above.
+
+- `confirmed`: render-stage call to the attached environment list, runtime
+  object traversal, slot/model-table selection, model packet header/count walk,
+  the live Warehouse object-140/model-140 bridge, and the
+  `0x004d14d0` state-geometry consumer; per-view polygon arena and bucket-head
+  setup; transformed vertex records;
+  variable-size face walking; color resolution; polygon allocation, texture
+  pointer/UV population, quad splitting, bucket linking, polygon-list
+  consumption, opcode/state dispatch, E1/E3 control packets, viewport
+  submission, dispatch-table initialization, solid/textured/Gouraud
+  triangle/quad emitters, line and rectangle emitters, general polygon path,
+  and draw synchronization/presentation.
+- `observed`: live `0x004d11d0` calls for front-end assets and the separate
+  flagged/special-object branch; exact original Direct3D enum names and the
+  full meanings of several packet flag bits.
+- `inferred`: detailed meanings of the original engine's C++ class names.

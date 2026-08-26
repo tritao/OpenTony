@@ -1,0 +1,134 @@
+version: 1
+types:
+  - name: RuntimeAnimationTable
+    size: null
+    confidence: confirmed
+    description: Runtime animation table derived from a PSX animation resource.
+    fields:
+      - offset: 0x00
+        name: animation_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x08
+        name: animation_records
+        type: array<RuntimeAnimationRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationRecord
+    size: 0x08
+    confidence: confirmed
+    description: Fixed-stride source/runtime record selected by animation index. The loader treats the two words as frame metadata and a source-stream boundary.
+    fields:
+      - offset: 0x00
+        name: frame_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x04
+        name: source_stream_end
+        type: u32
+        confidence: confirmed
+        description: Source-stream boundary/offset consumed by the animation-table compaction pass; the playback consumer uses only the low byte of the first word.
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+
+  - name: RuntimeAnimationObjectState
+    size: null
+    confidence: confirmed
+    description: Animation playback fields on an animation-capable runtime object.
+    fields:
+      - offset: 0x1f
+        name: psx_model_region_slot
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf4
+        name: current_frame
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf6
+        name: animation_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0xf8
+        name: animation_state
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x100
+        name: playback_direction
+        type: i8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x101
+        name: playback_end_frame
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x102
+        name: playback_start_frame
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x104
+        name: frame_accumulator
+        type: i16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x106
+        name: selected_frame_count
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x107
+        name: animation_finished
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x0fa
+        name: pingpong_range_start
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x0fc
+        name: pingpong_range_end
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x0fe
+        name: pingpong_time_origin
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x108
+        name: playback_rate_fixed
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md
+      - offset: 0x114
+        name: original_start_frame
+        type: i16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/animation-runtime.md

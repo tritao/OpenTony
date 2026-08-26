@@ -1,0 +1,222 @@
+version: 1
+types:
+  - name: RuntimeSkaterMovementState
+    size: null
+    confidence: observed
+    description: Evidence-backed movement fields on the gameplay skater object; raw physics-state values are fixed and semantic labels remain provisional.
+    fields:
+      - offset: 0x08
+        name: position_x_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x0c
+        name: position_y_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x10
+        name: position_z_fixed
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x4c
+        name: collision_response_vector
+        type: array<i32, 3>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x58
+        name: acceleration_vector
+        type: array<i32, 3>
+        confidence: confirmed
+        description: State-gated fixed-point acceleration words written from the player-relative source vector by the post-action helper; scale is -1, -4, or -8 in independently recovered branches.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0xbc
+        name: position_history_x
+        type: i32
+        confidence: confirmed
+        description: Physics dispatcher copies the live X position here before the next state-specific handoff.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0xc0
+        name: position_history_y
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0xc4
+        name: position_history_z
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x30b8
+        name: physics_state
+        type: u32
+        confidence: confirmed
+        description: Raw eight-way physics dispatcher state; retain the numeric value alongside provisional on-ground/in-air/rail/etc. labels.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x30c4
+        name: physics_state_result
+        type: u32
+        confidence: observed
+        description: Secondary state/result word cleared by several dispatcher paths and set to one by numeric state 2.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2ccc
+        name: action_record_bank
+        type: ptr
+        confidence: confirmed
+        description: Player-relative pointer to the 16-byte action-record bank consumed by the action/physics step.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2e78
+        name: brake_mode
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2e7c
+        name: steering_active
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x3144
+        name: movement_target_x
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x3148
+        name: movement_target_z
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2c94
+        name: movement_delta_rate_x
+        type: i32
+        confidence: observed
+        description: Rate word paired with the pending movement accumulator at +0x2ca0 in the action/position integration pass.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2c98
+        name: movement_delta_rate_y
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2c9c
+        name: movement_delta_rate_z
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2ca0
+        name: movement_delta_accumulator_x
+        type: i32
+        confidence: observed
+        description: Pending movement accumulator consumed by the shared basis/position integration pass.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2ca4
+        name: movement_delta_accumulator_y
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2ca8
+        name: movement_delta_accumulator_z
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x31a1
+        name: heading_input
+        type: i8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x31a2
+        name: heading_deadband
+        type: i8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x30f4
+        name: acceleration_source_vector
+        type: array<i32, 3>
+        confidence: observed
+        description: Three player-relative words negated/scaled by the post-action acceleration writer; final semantic name remains open.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0xf4
+        name: heading_angle_candidate
+        type: u16
+        confidence: confirmed
+        description: Heading/animation frame driven toward a target by Skater_ApproachHeadingFrame; original angle units and public enum names remain open.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2dd8
+        name: heading_transition_override
+        type: i32
+        confidence: observed
+        description: Selects the alternate heading transition branch when nonzero.
+        evidence:
+          - re/evidence/functions/physics.md
+
+  - name: RuntimeCollisionQueryRecord
+    size: null
+    confidence: observed
+    description: Collision query/result record shared by skater physics and the PSX zone collision routines. Input geometry and complete basis layout remain open.
+    fields:
+      - offset: 0x00
+        name: segment_start
+        type: array<i32,3>
+        confidence: confirmed
+        description: Fixed-point query endpoint words used to derive the query AABB.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x0c
+        name: segment_end
+        type: array<i32,3>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x40
+        name: hit_distance_or_metric
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x68
+        name: hit_object
+        type: pointer<RuntimePsxObjectRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x80
+        name: hit_face
+        type: pointer<RuntimePsxFaceRecord>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x84
+        name: hit_model_index
+        type: i32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x8c
+        name: hit_metric
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics.md

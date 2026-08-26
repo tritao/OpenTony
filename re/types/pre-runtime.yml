@@ -1,0 +1,49 @@
+version: 1
+types:
+  - name: RuntimePreManager
+    size: 0x144
+    confidence: confirmed
+    description: Fixed-capacity manager for loaded PRE container buffers and their names.
+    fields:
+      - offset: 0x04
+        name: loaded_buffers
+        type: array<pointer<void>,16>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
+      - offset: 0x44
+        name: loaded_names
+        type: array<char[16],16>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
+
+  - name: RuntimePreEntry
+    size: null
+    confidence: confirmed
+    description: Inline entry layout parsed from a loaded PRE container buffer.
+    fields:
+      - offset: 0x00
+        name: file_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
+      - offset: variable
+        name: name
+        type: cstring
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
+      - offset: aligned
+        name: payload_size
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
+      - offset: aligned
+        name: payload
+        type: bytes
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/pre-runtime.md
