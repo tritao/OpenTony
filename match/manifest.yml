@@ -3541,12 +3541,72 @@ modules:
 - id: text_004e4d0e
   section: .text
   start_va: 5131534
-  end_va: 5141472
+  end_va: 5136016
   file_offset: 937230
-  size: 9938
+  size: 4482
   status: raw
   source: match/modules/text/text_004e4d0e.asm
-  sha256: 5c79de5ceb97b239771499ce0815b3b0199a8a3bb29cbbae16d14f5cd69d1ff4
+  sha256: be8696f035e32c435ea54c3356e46e5f15203b2ae65d4910e0b39a8e77be697c
+- id: text_004e5e90
+  section: .text
+  start_va: 5136016
+  end_va: 5136052
+  file_offset: 941712
+  size: 36
+  status: raw
+  source: match/modules/text/text_004e5e90.asm
+  sha256: f0084c05bd4d0073c4f5f3edd38146f9221e3e508a04ca855c3b84e3e1aa631f
+- id: text_004e5eb4
+  section: .text
+  start_va: 5136052
+  end_va: 5136064
+  file_offset: 941748
+  size: 12
+  status: raw
+  source: match/modules/text/text_004e5eb4.asm
+  sha256: ab16a4264a14a2fd326c262e20ab7a8d0e67bc1658371fe45c446f311cdb6dbd
+- id: text_004e5ec0
+  section: .text
+  start_va: 5136064
+  end_va: 5136410
+  file_offset: 941760
+  size: 346
+  status: raw
+  source: match/modules/text/text_004e5ec0.asm
+  sha256: abf5281d61ad8257932f68dabbbb576f62f792403a4b51383e802e8e1dc5bb8e
+- id: text_004e601a
+  section: .text
+  start_va: 5136410
+  end_va: 5140592
+  file_offset: 942106
+  size: 4182
+  status: raw
+  source: match/modules/text/text_004e601a.asm
+  sha256: ab73a2a902de8671cf6fab9294dba42eaf2d484460df96d9a1e817d27f4ca04a
+- id: text_004e7070
+  section: .text
+  start_va: 5140592
+  end_va: 5140609
+  file_offset: 946288
+  size: 17
+  status: cpp
+  source: match/modules/text/text_004e7070.asm
+  cpp_source: match/cpp/FUN_004e7070.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: bb310517f6f880610adb705bba1f0c37d328de2de0ed58dd9b28709bba0f6656
+- id: text_004e7081
+  section: .text
+  start_va: 5140609
+  end_va: 5141472
+  file_offset: 946305
+  size: 863
+  status: raw
+  source: match/modules/text/text_004e7081.asm
+  sha256: adfe0bca6c72bf057208606f431e2bc1c580c9f40645a843c1043dea92b6f487
 - id: text_004e73e0
   section: .text
   start_va: 5141472
