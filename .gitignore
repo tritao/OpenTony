@@ -5,6 +5,8 @@
 # Tool installations and generated analysis
 /.tools/
 /build/
+/match/original/
+/match/generated/
 
 # Ghidra local projects, if accidentally created elsewhere
 *.gpr

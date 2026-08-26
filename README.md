@@ -134,6 +134,12 @@ tony exe identify <path> [--record]
 tony exe patch-nocd
 tony verify
 
+tony split init
+tony split extract
+tony split build
+tony split rebuild
+tony split verify
+
 tony wine init
 tony wine mount-disc
 tony wine unmount-disc

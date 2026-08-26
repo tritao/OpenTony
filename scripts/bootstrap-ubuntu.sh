@@ -34,7 +34,7 @@ sudo apt-get install -y \
   python3 python3-venv python3-pip python3-dev \
   openjdk-21-jdk \
   gdb file p7zip-full xorriso libcdio-utils fuseiso \
-  build-essential cmake ninja-build clang lld pkg-config \
+  build-essential cmake ninja-build clang lld nasm pkg-config \
   jq ripgrep xvfb \
   libgl1:i386 libegl1:i386 libgl1-mesa-dri:i386 \
   libvulkan1:i386 mesa-vulkan-drivers:i386

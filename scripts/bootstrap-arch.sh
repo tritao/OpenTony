@@ -25,7 +25,7 @@ sudo pacman -Syu --needed --noconfirm \
   jdk21-openjdk \
   gdb wine p7zip file xorriso libcdio fuseiso xorg-server-xvfb \
   lib32-libglvnd lib32-mesa lib32-vulkan-icd-loader \
-  cmake ninja clang lld pkgconf jq ripgrep
+  cmake ninja clang lld nasm pkgconf jq ripgrep
 
 echo "[2/5] OpenTony virtual environment"
 mkdir -p .tools

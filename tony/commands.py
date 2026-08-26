@@ -37,6 +37,13 @@ from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_list,
     sessions_stop,
 )
+from .split import (  # noqa: F401 - command handlers are consumed by cli.py
+    split_build,
+    split_extract,
+    split_init,
+    split_rebuild,
+    split_verify,
+)
 from .wine import (  # noqa: F401 - public command compatibility
     _recorded_exe,
     run_game,
@@ -81,6 +88,7 @@ def doctor(_args) -> int:
         ("cmake", ["cmake", "--version"]),
         ("ninja", ["ninja", "--version"]),
         ("clang", ["clang", "--version"]),
+        ("nasm", ["nasm", "-v"]),
     ):
         status, output = capture(command)
         checks.append((name, status == 0, output.splitlines()[0] if output else "not found"))

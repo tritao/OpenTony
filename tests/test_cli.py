@@ -29,6 +29,12 @@ def test_setup_media_parse():
     assert callable(args.func)
 
 
+def test_split_commands_parse():
+    for command in ("init", "extract", "build", "rebuild", "verify"):
+        args = build_parser().parse_args(["split", command])
+        assert callable(args.func)
+
+
 def test_media_tracks_parse():
     args = build_parser().parse_args(["media", "tracks"])
     assert callable(args.func)
