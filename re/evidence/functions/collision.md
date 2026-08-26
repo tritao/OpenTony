@@ -857,6 +857,14 @@ shared traveled-distance field `q+0x40` and keeps the static candidate on an
 exact tie, reflecting the executable's dynamic-before-static traversal and
 strict-nearer updates.
 
+The runtime integration keeps this linked-node boundary explicit. An opt-in
+`GameplaySessionConfig::use_recovered_collision_scene` selects
+`PsxScenePositionCollisionProbe`, and
+`GameplaySession::set_recovered_linked_collision_objects()` supplies the
+caller-resolved node records used by the aggregate static/dynamic query. It
+does not derive PC heap pointers, model-kind lookup, or matrix-tail values
+from the trigger scene registry.
+
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact
 contact point), the raw query layout, both line-basis branches, synthetic

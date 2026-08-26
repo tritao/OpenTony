@@ -5,6 +5,7 @@
 #include "../collision/psx_scene.hpp"
 
 #include <optional>
+#include <span>
 
 namespace opentony::runtime {
 
@@ -42,8 +43,10 @@ public:
     PsxScenePositionCollisionProbe(
         const collision::PsxScene& scene,
         FixedPosition start,
-        collision::CollisionFaceFilter filter = {}) noexcept
-        : scene_(scene), start_(start), filter_(filter) {}
+        collision::CollisionFaceFilter filter = {},
+        std::span<const collision::PsxLinkedCollisionObject> linked_objects = {}) noexcept
+        : scene_(scene), start_(start), filter_(filter),
+          linked_objects_(linked_objects) {}
 
     [[nodiscard]] bool operator()(const FixedPosition& candidate) const;
 
@@ -54,6 +57,7 @@ private:
     const collision::PsxScene& scene_;
     FixedPosition start_{};
     collision::CollisionFaceFilter filter_{};
+    std::span<const collision::PsxLinkedCollisionObject> linked_objects_{};
 };
 
 } // namespace opentony::runtime

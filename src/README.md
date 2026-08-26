@@ -421,4 +421,8 @@ comparison path. Set
 `PsxScenePositionCollisionProbe`, which parses the same PSX bytes and maps
 the recovered fixed-point contact, normal, parameter, and surface metadata
 into the existing physics collision hook. This is intentionally opt-in until
-frame-by-frame gameplay parity is established.
+frame-by-frame gameplay parity is established. The session's
+`set_recovered_linked_collision_objects()` API can additionally supply the
+recovered linked-node prefix for the dynamic branch; it keeps body identity,
+model index, angles, and matrix factors explicit until the PC heap loader is
+reconstructed.

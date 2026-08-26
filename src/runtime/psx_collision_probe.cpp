@@ -50,8 +50,10 @@ bool PsxScenePositionCollisionProbe::operator()(
 
 std::optional<PositionCollisionHit> PsxScenePositionCollisionProbe::query(
     const FixedPosition& candidate) const {
-    const collision::PsxCollisionResult result = scene_.query_with_metadata(
-        start_, candidate, 0, filter_);
+    const collision::PsxCollisionResult result = linked_objects_.empty()
+        ? scene_.query_with_metadata(start_, candidate, 0, filter_)
+        : scene_.query_with_linked_objects(
+              start_, candidate, linked_objects_, 0, filter_);
     if (!result.hit()) {
         return std::nullopt;
     }

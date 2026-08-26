@@ -121,6 +121,16 @@ public:
     void pulse_node(std::size_t node);
     void pulse_checksum(std::uint32_t checksum);
 
+    // Supplies caller-owned recovered linked-list records for the dynamic
+    // collision branch. The model index/body identity remain explicit because
+    // the PC heap loader and model-kind table are not reconstructed here.
+    void set_recovered_linked_collision_objects(
+        std::vector<collision::PsxLinkedCollisionObject> objects);
+    [[nodiscard]] const std::vector<collision::PsxLinkedCollisionObject>&
+    recovered_linked_collision_objects() const noexcept {
+        return recovered_linked_collision_objects_;
+    }
+
     [[nodiscard]] FixedStepAdvanceResult advance(
         std::uint32_t elapsed_ms,
         const DirectInputKeyboardState& keyboard,
@@ -172,6 +182,8 @@ private:
     GameplayFrame gameplay_;
     GameplaySessionConfig config_;
     std::optional<collision::PsxScene> collision_scene_;
+    std::vector<collision::PsxLinkedCollisionObject>
+        recovered_linked_collision_objects_;
     std::optional<assets::TricksBinArchive> tricks_archive_;
     std::optional<assets::TricksBinView> tricks_view_;
     std::vector<std::uint8_t> tricks_sequence_table_{};

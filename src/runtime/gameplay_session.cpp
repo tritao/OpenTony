@@ -80,7 +80,10 @@ GameplaySession::GameplaySession(
             filter.query_mask_mode =
                 config_.collision_query_options.include_trigger_faces;
             return PsxScenePositionCollisionProbe(
-                *collision_scene_, start, filter).query(end);
+                *collision_scene_, start, filter,
+                std::span<const collision::PsxLinkedCollisionObject>(
+                    recovered_linked_collision_objects_.data(),
+                    recovered_linked_collision_objects_.size())).query(end);
         }
         return PsxPositionCollisionProbe(
             level_.collision(),
@@ -174,6 +177,11 @@ void GameplaySession::pulse_checksum(std::uint32_t checksum) {
     const std::size_t event_start = level_.state().events().size();
     level_.pulse_checksum(checksum);
     apply_restart_events(event_start);
+}
+
+void GameplaySession::set_recovered_linked_collision_objects(
+    std::vector<collision::PsxLinkedCollisionObject> objects) {
+    recovered_linked_collision_objects_ = std::move(objects);
 }
 
 void GameplaySession::apply_restart_events(std::size_t event_start) {
