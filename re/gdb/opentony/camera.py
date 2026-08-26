@@ -91,6 +91,12 @@ def camera_record(ctx: Context, camera: int) -> dict:
         "history_vector_a": _field_words(memory, camera, 0x5B8, 3),
         "history_vector_b": _field_words(memory, camera, 0x5C4, 3),
         "mode_vector": _field_words(memory, camera, 0x610, 3),
+        "distance_q4": _field_words(memory, camera, 0x5D0),
+        "distance_step_q4": _field_words(memory, camera, 0x61C),
+        "distance_history": _field_words(memory, camera, 0x620, 6),
+        "death_target_position": _field_words(memory, camera, 0x574, 3),
+        "death_start_position": _field_words(memory, camera, 0x594, 3),
+        "point_start_position": _field_words(memory, camera, 0x564, 3),
         # Camera_FollowTarget reads the tripod's +0x310c offset and the
         # camera's +0x5b4 signed angle before constructing the target basis.
         # Keep both raw so a replay can validate that producer independently
@@ -112,6 +118,8 @@ def camera_record(ctx: Context, camera: int) -> dict:
             "mode": memory.u32(camera + 0x504),
             "update_tick": memory.u32(camera + 0x510),
             "death_camera_tick": memory.u32(camera + 0x570),
+            "point_camera_tick": memory.u32(camera + 0x55C),
+            "point_acceleration_flag": memory.u8(camera + 0x560),
             "shake_x": _short(memory, camera + 0x4F2),
             "shake_y": _short(memory, camera + 0x4F4),
             "shake_z": _short(memory, camera + 0x4F6),
@@ -121,6 +129,8 @@ def camera_record(ctx: Context, camera: int) -> dict:
             "shake_angle_raw": memory.u32(camera + 0x4FC),
             "shake_phase_raw": memory.u16(camera + 0x500),
             "follow_state_flag": memory.u8(camera + 0x418),
+            "follow_transition_active": memory.u8(camera + 0x5D4),
+            "follow_preparation_counter": memory.u32(camera + 0x60C),
             "transform_valid": memory.u8(camera + 0x4A8),
             "transform_fallback": memory.u8(camera + 0x4A9),
         }
@@ -159,10 +169,18 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_position"] = _words(memory, tripod + 0x08, 3)
         record["tripod_follow_offset"] = _words(memory, tripod + 0x310C, 3)
         record["tripod_physics_state"] = memory.u32(tripod + 0x30B8)
+        record["tripod_behavior_flag"] = memory.u32(tripod + 0x2F64)
+        record["tripod_effect_gate"] = memory.u32(tripod + 0x2DDC)
+        record["tripod_effect_transform_gate"] = memory.u32(tripod + 0x2C68)
+        record["tripod_unknown_state"] = memory.u32(tripod + 0x30C4)
     else:
         record["tripod_position"] = None
         record["tripod_follow_offset"] = None
         record["tripod_physics_state"] = None
+        record["tripod_behavior_flag"] = None
+        record["tripod_effect_gate"] = None
+        record["tripod_effect_transform_gate"] = None
+        record["tripod_unknown_state"] = None
     return record
 
 

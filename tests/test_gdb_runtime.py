@@ -280,9 +280,21 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
     inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
     inferior.data[camera + 0x5B4:camera + 0x5B6] = struct.pack("<H", 0x345)
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<I", 197)
+    inferior.data[camera + 0x61C:camera + 0x620] = struct.pack("<I", 3)
+    inferior.data[camera + 0x620:camera + 0x638] = struct.pack(
+        "<6I", 1, 2, 3, 4, 5, 6
+    )
+    inferior.data[camera + 0x5D4:camera + 0x5D5] = b"\x01"
+    inferior.data[camera + 0x60C:camera + 0x610] = struct.pack("<I", 4)
+    inferior.data[camera + 0x55C:camera + 0x560] = struct.pack("<I", 12)
+    inferior.data[camera + 0x560:camera + 0x561] = b"\x01"
     inferior.data[player + 0x310C:player + 0x3118] = struct.pack(
         "<3I", 0x400, 0xFFFFF800, 0x120
     )
+    inferior.data[player + 0x2DDC:player + 0x2DE0] = struct.pack("<I", 1)
+    inferior.data[player + 0x2F64:player + 0x2F68] = struct.pack("<I", 2)
+    inferior.data[player + 0x2C68:player + 0x2C6C] = struct.pack("<I", 3)
     inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
     context = Context(
         CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
@@ -303,7 +315,17 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert record["player_position"]["fixed16"] == [1.0, 2.0, 3.0]
     assert record["player_position"]["fixed16_candidate"] == [1.0, 2.0, 3.0]
     assert record["camera_fields"]["follow_rotation_raw"]["signed_s16"] == 0x345
+    assert record["camera_fields"]["distance_q4"]["s32"] == [197]
+    assert record["camera_fields"]["distance_step_q4"]["s32"] == [3]
+    assert record["camera_fields"]["distance_history"]["s32"] == [1, 2, 3, 4, 5, 6]
+    assert record["camera_fields"]["follow_transition_active"] == 1
+    assert record["camera_fields"]["follow_preparation_counter"] == 4
+    assert record["camera_fields"]["point_camera_tick"] == 12
+    assert record["camera_fields"]["point_acceleration_flag"] == 1
     assert record["tripod_follow_offset"]["s32"] == [0x400, -0x800, 0x120]
+    assert record["tripod_behavior_flag"] == 2
+    assert record["tripod_effect_gate"] == 1
+    assert record["tripod_effect_transform_gate"] == 3
 
 
 def test_camera_probe_samples_this_pointer_and_writes_trace_event():
