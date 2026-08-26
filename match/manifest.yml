@@ -208,12 +208,39 @@ modules:
 - id: text_004cab10
   section: .text
   start_va: 5024528
-  end_va: 5050368
+  end_va: 5024592
   file_offset: 830224
-  size: 25840
-  status: raw
+  size: 64
+  status: asm
   source: match/modules/text/text_004cab10.asm
-  sha256: 1aafe49711af0b70b1b7319aad0df3aa9745d45ab6b4ec8630ea8ec7ccf26434
+  sha256: e3e9b31305dd5cbbfba22cdca754cf3aa0d9b893eb9c0ef53f00bd41b7f17688
+- id: text_004cab50
+  section: .text
+  start_va: 5024592
+  end_va: 5024640
+  file_offset: 830288
+  size: 48
+  status: asm
+  source: match/modules/text/text_004cab50.asm
+  sha256: 5ef490ed0c0012d11785f2202e2b13f5ac937ffa46caf446e43e9b2fb802f6f2
+- id: text_004cab80
+  section: .text
+  start_va: 5024640
+  end_va: 5024688
+  file_offset: 830336
+  size: 48
+  status: asm
+  source: match/modules/text/text_004cab80.asm
+  sha256: 0eb7b6a06847dcb0d1ec1bfb73c8fc786aca9d3e9816a86e57396a0a891ca07c
+- id: text_004cabb0
+  section: .text
+  start_va: 5024688
+  end_va: 5050368
+  file_offset: 830384
+  size: 25680
+  status: raw
+  source: match/modules/text/text_004cabb0.asm
+  sha256: a9d0084d172deecab385fd6fc113d9bfe666614654730f1c1062444774c0ae36
 - id: text_004d1000
   section: .text
   start_va: 5050368

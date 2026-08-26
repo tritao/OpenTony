@@ -28,3 +28,17 @@ Four more adjacent leaf helpers use the same three-component layout:
 Their explicit module ranges extend through the padding to `0x004caa80`,
 `0x004caab0`, `0x004caae0`, and `0x004cab10`, respectively. All four assembled
 modules are byte-identical to the retail ranges.
+
+The next three routines extend the same fixed-layout vector operator family:
+
+- `0x004cab10–0x004cab47` subtracts an arithmetic-right-shifted copy of each
+  component from itself. Three byte-sized shift counts come from the stack
+  argument. Nine NOP bytes pad the module through `0x004cab50`.
+- `0x004cab50–0x004cab7e` compares all three components and returns one only
+  when every pair is equal. Two NOPs pad it through `0x004cab80`.
+- `0x004cab80–0x004cabae` is the logical inverse, returning one when any pair
+  differs. Two NOPs pad it through `0x004cabb0`.
+
+The equality routines retain the retail short conditional branches and their
+exact Boolean return-path encodings. All three complete modules match the
+retail bytes.

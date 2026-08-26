@@ -202,6 +202,24 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004cab10
+    name: Math_Vector3DecayShift
+    description: reduce each vector component by its arithmetic-shifted value
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cab50
+    name: Math_Vector3Equal
+    description: compare all three vector components for equality
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
+  - address: 0x004cab80
+    name: Math_Vector3NotEqual
+    description: compare all three vector components for inequality
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred
