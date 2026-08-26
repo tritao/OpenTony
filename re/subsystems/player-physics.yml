@@ -6,7 +6,7 @@ focus:
   start_va: 0x00496060
   end_va: 0x00496276
   module: text_00496060
-  status: hybrid
+  status: asm
 abi:
   convention: thiscall
   this_register: ECX
@@ -31,8 +31,8 @@ paths:
   collision_resolution:
     condition: player[0x3200] == 0
     effect: test proposed/current coordinate combinations and commit an accepted candidate
-    reconstructed: false
-    preserved_from_offset: 0x3b
+    accepted_result: local_query_result == 0
+    reconstructed: true
 calls:
   - {address: 0x004624d0, role: initialize collision query from candidate position, confidence: inferred}
   - {address: 0x00466090, role: execute collision query and populate result flag, confidence: inferred}
@@ -44,7 +44,7 @@ candidate_order:
   - proposed_x_current_yz
   - current_xy_proposed_z
   - current_x_proposed_y_current_z
-  - current_xy_with_selected_z_fallback
+fallback: current_xyz
 evidence:
   - re/evidence/functions/position-write-path.md
   - re/evidence/functions/physics.md
