@@ -17,9 +17,83 @@ void put32(std::vector<std::byte>& bytes, std::size_t offset, std::uint32_t valu
     put16(bytes, offset + 2, static_cast<std::uint16_t>(value >> 16U));
 }
 
+void test_mode_zero_endpoint_transition() {
+    using opentony::assets::PsxAnimationPlaybackState;
+
+    PsxAnimationPlaybackState playback;
+    playback.start(5, 8, 0, 2, -1);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.advance(0x100);
+    playback.advance(0x100);
+    assert(playback.current_frame() == 2);
+    assert(!playback.finished());
+
+    // The endpoint test runs before the next clock step. A signed -1 byte is
+    // a finish sentinel, so the extra step stays clamped at frame 2.
+    playback.advance(0x100);
+    assert(playback.current_frame() == 2);
+    assert(playback.end_frame() == 2);
+    assert(playback.alternate_frame() == -1);
+    assert(playback.direction() == 1);
+    assert(playback.finished());
+
+    // A fractional step crossing the endpoint still lands on the endpoint;
+    // it must not clamp to endpoint - 1.
+    playback.start(5, 8, 0, 2, -2);
+    playback.set_playback_rate_fixed(0x18000);
+    playback.advance(0x100);
+    assert(playback.current_frame() == 1);
+    assert(std::to_integer<std::uint8_t>(playback.raw()[0x104]) == 0x00);
+    assert(std::to_integer<std::uint8_t>(playback.raw()[0x105]) == 0x80);
+    playback.advance(0x100);
+    assert(playback.current_frame() == 2);
+    assert(!playback.finished());
+    playback.advance(0x100);
+    assert(playback.current_frame() == 2);
+    assert(playback.alternate_frame() == -2);
+    assert(playback.finished());
+
+    // Positive alternate endpoints exchange with the reached endpoint and
+    // reverse direction, preserving the inclusive endpoint frame.
+    playback.start(5, 8, 0, 2, 1);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.advance(0x100);
+    playback.advance(0x100);
+    playback.advance(0x100);
+    assert(playback.current_frame() == 1);
+    assert(playback.end_frame() == 1);
+    assert(playback.alternate_frame() == 2);
+    assert(playback.direction() == -1);
+    assert(!playback.finished());
+    playback.advance(0x100);
+    assert(playback.current_frame() == 2);
+    assert(playback.end_frame() == 2);
+    assert(playback.alternate_frame() == 1);
+    assert(playback.direction() == 1);
+
+    // Mode 2 shares the pre-step endpoint transition but intentionally has
+    // no mode-0 post-step clamp or ordinary frame advance.
+    playback.set_mode(2);
+    playback.advance(0x180);
+    assert(playback.current_frame() == 2);
+    assert(playback.end_frame() == 1);
+    assert(playback.alternate_frame() == 2);
+    assert(playback.direction() == -1);
+
+    // Only -1 means "use the last frame" for request endpoints. Other
+    // negative inputs clamp to zero after substitution.
+    playback.start(5, 8, -2, -3, -1);
+    assert(playback.current_frame() == 0);
+    assert(playback.end_frame() == 0);
+    assert(playback.direction() == 0);
+    assert(playback.finished());
+}
+
 } // namespace
 
 int main() {
+    test_mode_zero_endpoint_transition();
+
     constexpr std::size_t first_tag = 0x10;
     constexpr std::size_t first_payload = first_tag + 8;
     constexpr std::size_t first_size = 4 + 2 * 8 + 3;
@@ -92,6 +166,15 @@ int main() {
     assert(playback.animation_index() == 7);
     assert(playback.current_frame() == 1);
     assert(playback.direction() == 1);
+
+    // The retail multiply wraps to 32 bits before its arithmetic shift. This
+    // deliberately overlarge signed scale therefore produces a zero step.
+    opentony::assets::PsxAnimationPlaybackState wrap_probe;
+    wrap_probe.start_special(7, 10, 1);
+    wrap_probe.set_playback_rate_fixed(0x10000);
+    wrap_probe.advance(static_cast<std::int32_t>(0xffff0000U));
+    assert(wrap_probe.current_frame() == 0);
+
     playback.set_mode(1);
     for (int index = 0; index < 10; ++index) {
         playback.advance(0x100);
@@ -113,5 +196,19 @@ int main() {
     playback.set_pingpong_range(2, 4, 0);
     playback.advance(0x100, 2);
     assert(playback.current_frame() == 3);
+
+    // The range calculation keeps the signed IDIV remainder. A pre-origin
+    // clock is therefore one frame below the start, not one frame below the
+    // end after modulo normalization.
+    playback.advance(0x100, -2);
+    assert(playback.current_frame() == 1);
+
+    // Equal targets do not overwrite the ordinary accumulator in mode 3.
+    playback.start(4, 8, 0, 3);
+    playback.set_mode(3);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.set_pingpong_range(5, 5, 0);
+    playback.advance(0x100, 100);
+    assert(playback.current_frame() == 0);
     return 0;
 }

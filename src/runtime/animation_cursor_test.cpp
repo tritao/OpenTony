@@ -117,7 +117,17 @@ void test_fixed_point_and_modes() {
     assert(cursor.finished);
     assert(cursor.frame == 2);
 
+    (void)cursor.request(table, 0, 0, 2, -2);
+    cursor.rate = 0x18000;
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 1 && cursor.fraction == 0x8000);
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 2 && !cursor.finished);
+    (void)cursor.advance(0x100);
+    assert(cursor.frame == 2 && cursor.finished);
+
     (void)cursor.cycle(table, 0, 1);
+    cursor.rate = 0x10000;
     for (int index = 0; index < 11; ++index) {
         (void)cursor.advance(0x100);
     }
@@ -142,6 +152,17 @@ void test_fixed_point_and_modes() {
     assert(cursor.endpoint == 0 && cursor.request_start == 2);
     (void)cursor.advance(0x100);
     assert(cursor.frame == 1);
+
+    (void)cursor.request(table, 0, 0, 2, 1);
+    cursor.rate = 0x10000;
+    (void)cursor.advance(0x100);
+    (void)cursor.advance(0x100);
+    cursor.mode = static_cast<std::uint8_t>(AnimationPlaybackMode::Hold);
+    (void)cursor.advance(0x180);
+    assert(cursor.frame == 2);
+    assert(cursor.endpoint == 1);
+    assert(cursor.alternate_endpoint == 2);
+    assert(cursor.direction == -1);
 }
 
 void test_clock_ping_pong() {
@@ -173,6 +194,39 @@ void test_clock_ping_pong() {
     assert(cursor.frame == 2);
     (void)cursor.advance(0x100, 4);
     assert(cursor.frame == 1);
+
+    // UpdateFrame uses signed IDIV remainder semantics. A clock before the
+    // captured origin therefore produces a negative phase instead of a
+    // modulo-normalized phase.
+    cursor.target_frame = 2;
+    cursor.target_frame2 = 4;
+    cursor.mode3_clock = 0;
+    (void)cursor.advance(0x100, -2);
+    assert(cursor.frame == 1);
+
+    cursor.frame = 2;
+    cursor.fraction = 0;
+    const auto positive_cycle = cursor.advance(0x100, 8);
+    assert(cursor.frame == 2 && positive_cycle == 1);
+
+    cursor.target_frame = 4;
+    cursor.target_frame2 = 2;
+    cursor.frame = 4;
+    cursor.fraction = 0;
+    const auto negative_cycle = cursor.advance(0x100, 8);
+    assert(cursor.frame == 4 && negative_cycle == 0x00000004);
+
+    cursor.frame = 4;
+    const auto large_negative_cycle = cursor.advance(0x100, 0x80000);
+    assert(cursor.frame == 4 && large_negative_cycle == 0x00010004);
+
+    // A same-frame ping-pong range leaves the common 16.16 accumulator alone.
+    cursor.frame = 7;
+    cursor.fraction = 0x8000;
+    cursor.target_frame = 4;
+    cursor.target_frame2 = 4;
+    (void)cursor.advance(0x100, 100);
+    assert(cursor.frame == 7 && cursor.fraction == 0x8000);
 }
 
 void test_frame_reached() {

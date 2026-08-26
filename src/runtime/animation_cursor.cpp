@@ -288,6 +288,9 @@ std::int32_t AnimationCursor::advance(
             : -difference * 2;
         std::int32_t position = ticks % period;
         if (difference > 0) {
+            // This is x86 IDIV's signed remainder. Do not normalize a
+            // negative phase into [0, period): the retail path keeps the
+            // remainder's sign and consequently permits a pre-origin frame.
             if (difference < position) {
                 position = period - position;
             }
@@ -301,8 +304,10 @@ std::int32_t AnimationCursor::advance(
         frame = narrow_i16(
             static_cast<std::int32_t>(target_frame) - position);
         const std::int32_t quotient = ticks / period;
+        // The retail return keeps the quotient's high word and overwrites
+        // its low word with the resulting frame.
         return packed_with_low_word(
-            static_cast<std::uint32_t>(quotient) << 16U,
+            static_cast<std::uint32_t>(quotient),
             frame);
     }
 

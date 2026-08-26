@@ -1,0 +1,32 @@
+version: 1
+id: animation-mode3-clock
+subsystem: animation
+status: complete
+
+scope:
+  functions:
+    - 0x00480950
+  types:
+    - RuntimeAnimationObjectState
+  globals:
+    - AnimationClock
+
+artifacts:
+  evidence:
+    - re/evidence/functions/animation-mode3-clock.md
+    - re/evidence/functions/animation-runtime.md
+  native:
+    - src/runtime/animation_cursor.hpp
+    - src/runtime/animation_cursor.cpp
+    - src/assets/psx_animation_runtime.hpp
+    - src/assets/psx_animation_runtime.cpp
+  tests:
+    - src/runtime/animation_cursor_test.cpp
+    - src/assets/psx_animation_runtime_test.cpp
+
+open_questions: []
+
+completion:
+  - The mode-3 clock-driven range calculation and signed remainder behavior are represented in both native playback models.
+  - Equal mode-3 endpoints and negative clock phases have deterministic regression coverage.
+  - Diagnostic and invalid-rate side effects are explicitly outside this bounded valid-rate playback slice.

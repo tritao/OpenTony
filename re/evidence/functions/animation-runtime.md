@@ -190,7 +190,7 @@ object +0x0f6  current animation index
 object +0x0f8  animation mode/state
 object +0x100  playback direction
 object +0x101  playback end frame
-object +0x102  playback start/alternate frame
+object +0x102  signed playback alternate/next endpoint byte
 object +0x104  fixed-point frame accumulator
 ```
 
@@ -204,8 +204,10 @@ source pointer. It is therefore a source-stream boundary/offset field, not an
 additional frame-count byte.
 
 The update routine `0x00480950` advances the same object fields for forward,
-reverse, ping-pong, and held animation modes. `0x00480fa0` invokes the object's
-virtual update hooks after the animation-state update.
+reverse, ping-pong, and held animation modes. The bounded mode-3 clock phase,
+including signed remainder and equal-target behavior, is recorded in
+[animation-mode3-clock.md](animation-mode3-clock.md). `0x00480fa0` invokes the
+object's virtual update hooks after the animation-state update.
 
 The playback update also fixes several fields that are useful for a faithful
 object recreation. `0x00480730` initializes the selected range at `+0xf4` and
@@ -219,6 +221,35 @@ derives a ping-pong frame from `+0xfa/+0xfc` and the time origin at `+0xfe`,
 and mode `4` reverses at the endpoint while exchanging the active endpoint
 with the saved start at `+0x114`. The numeric mode values are proven; public
 names for them remain provisional.
+
+### Endpoint-transition slice result
+
+The focused mode-0/2 transition at `0x00480950` is an inclusive endpoint
+state machine. The update reads the signed `+0x102` byte before applying the
+next fixed-point step:
+
+```cpp
+if ((mode == 0 || mode == 2) &&
+    ((direction == 1 && frame >= endpoint) ||
+     (direction == -1 && frame <= endpoint))) {
+    if (static_cast<std::int8_t>(alternate_endpoint) < 1) {
+        finished = true;
+    } else {
+        swap(endpoint, alternate_endpoint);
+        direction = -direction;
+    }
+}
+```
+
+The positive alternate is therefore a next endpoint, not a blend value.
+Byte `0` and signed-negative bytes—including the wrapper's `-1`, stored as
+`0xff`—are terminal sentinels. The fixed-point step can cross the endpoint;
+the mode-0 post-step clamp stores the reached inclusive endpoint. Native
+tests cover exact-frame completion, signed-negative sentinels, positive
+endpoint exchange in both directions, a 1.5-frame crossing, and the rule that
+only `-1` substitutes the last frame during request setup. Confidence:
+confirmed from the decompiled branch/field accesses and the existing runtime
+field evidence; native behavior is deterministic but not a new retail trace.
 
 The gameplay-side consumer is `0x00469a30`. Called from the per-level gameplay
 update, it walks the active player pointers at `DAT_0056a858` and

@@ -14,6 +14,7 @@ functions:
 
   - address: 0x00480730
     name: Animation_Start
+    slice: animation-endpoint-transition
     status: modeled
     sources:
       - src/runtime/animation_cursor.hpp
@@ -38,15 +39,22 @@ functions:
 
   - address: 0x00480950
     name: Animation_Advance
-    status: modeled
+    slice: animation-mode3-clock
+    status: tested
     sources:
       - src/runtime/animation_cursor.hpp
       - src/runtime/animation_cursor.cpp
+      - src/assets/psx_animation_runtime.hpp
+      - src/assets/psx_animation_runtime.cpp
     tests:
       - src/runtime/animation_cursor_test.cpp
+      - src/assets/psx_animation_runtime_test.cpp
     evidence:
       - re/evidence/functions/animation.md
-    notes: Portable cursor core covers the 16.16 update, five numeric modes, endpoint transitions, and mode-3 clock path; level-loop clock ownership and pose callbacks remain separate.
+      - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/animation-endpoint-transition.md
+      - re/evidence/functions/animation-mode3-clock.md
+    notes: Standalone and offset-preserving native cursors cover the 16.16 update, mode-0/2 endpoint transition, and valid-rate mode-3 clock range; diagnostic side effects, zero-rate failure, mode-4 setup, level-loop clock ownership, and pose callbacks remain separate.
 
   - address: 0x0040f850
     name: Camera_Update
@@ -358,19 +366,6 @@ functions:
     evidence:
       - re/evidence/functions/animation-runtime.md
     notes: Native channel boundary covers literal interpolation, 1..13-bit signed deltas, repeat, zero-fill, and stream advancement.
-
-  - address: 0x00480950
-    name: Animation_Advance
-    slice: asset-runtime
-    status: tested
-    sources:
-      - src/assets/psx_animation_runtime.cpp
-      - src/assets/psx_animation_runtime.hpp
-    tests:
-      - src/assets/psx_animation_runtime_test.cpp
-    evidence:
-      - re/evidence/functions/animation-runtime.md
-    notes: Native playback fields and modes 0 through 4 use caller-supplied fixed-point time inputs.
 
   - address: 0x00475700
     name: Mmu_BuildSaveHeader
