@@ -1,7 +1,8 @@
 # Collision/query subsystem
 
 Status: confirmed interface and static/dynamic hit arithmetic; native PSX scene
-replay matches one live PC result; PC linked-object storage remains open
+replay matches live PC results; linked-object prefix and winning-object pointer
+are runtime-confirmed
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -312,8 +313,9 @@ the wrapper; the query does not parse a file on each call.
     each set mask bit. `0x004f4240` first performs strict lower-bound/upper-
     bound endpoint gates, then runs the short cross-product edge test using
     the query delta. These are now available as tested native helpers, which
-    closes the object-space broad-phase arithmetic while leaving only the
-    source of the linked node bytes unresolved.
+    closes the object-space broad-phase arithmetic. The source of the node
+    bytes is still loader-owned heap state, but its collision-facing prefix is
+    now runtime-confirmed below.
   - `0x00463e50` transforms the query into object/model space and calls
     `0x004f4b00` to transform all model vertices into a temporary buffer.
     Each temporary record is three signed shorts plus a 16-bit clip mask.
@@ -505,8 +507,32 @@ short basis values at `q+0x48`, and the query-record mode bytes. The two later
 phase attempts were stopped before level physics settled and are not used as
 evidence. When the linked root is non-null, the probe additionally captures at
 most 32 node prefixes (`+0x04..+0x23`) and reports null, cycle, limit, or
-unreadable termination. This makes the next runtime run capable of resolving
-the remaining heap-linked storage without an unbounded memory walk.
+unreadable termination. On a hit it also snapshots one node at `q+0x68`, the
+pointer consumed by `0x00463d50`, so the result pointer can be compared with
+the linked-node ABI without an unbounded memory walk.
+
+The `collision-node3` Hangar capture armed 20 completed wrapper calls after
+the frontend was advanced into `PLAY_GAME`. It produced 8 hits, all from mode
+1 and all for model kind 6/index 171. Every hit had the same direct result
+pointer and the node-shaped prefix decoded consistently:
+
+```text
+q+0x68 / model pointer = 0x05f2e844
+flags                  = 0x0000
+query stamp            = 1 (then incremented on later queries)
+position               = [-4100096, -6782976, 9408512]  (signed fixed32)
+angles                 = [0, 0, 0]
+model index/kind        = 171 / 6
+next                   = 0x05f2e890
+```
+
+The first hit also exposed model data at `0x05db86b4`, through the kind-6
+table at `0x05da6d18`, with 14 vertices, 6 normals, 6 faces and normal
+`[1, -3867, -1351]`. The pointer's `+0x1a/+0x1f` fields agree with the query
+result's model index/kind on all eight hits. This directly confirms that
+`q+0x68` is the linked collision object record consumed by the normal
+finalizer, not merely an unrelated model-data pointer. The runtime addresses
+are allocation-specific; the offsets and field agreement are the evidence.
 
 ## Interpretation
 
@@ -573,9 +599,10 @@ model-face traversal, candidate filtering, zone indexing, a horizontal grid
 walk, the linked-object prefix and broad-phase path, and the dynamic
 projected-face candidate/fallback path. This is a
 reference query layer rather than a complete level-file loader: the remaining
-engine-specific work is wiring the PC linked-object cache and its broad-phase
-records into these interfaces. The Q12 object-angle basis used by normal
-finalization is now covered by `build_object_rotation_basis`.
+engine-specific work is wiring the PC linked-object loader/cache and its
+level-to-heap ownership into these interfaces. The collision-facing node
+prefix and object broad-phase records are now available. The Q12 object-angle
+basis used by normal finalization is covered by `build_object_rotation_basis`.
 
 ## Open questions / falsifiers
 
@@ -589,5 +616,8 @@ finalization is now covered by `build_object_rotation_basis`.
   run that deliberately holds a jump and moves across multiple surfaces.
 - Resolve the face-record flag bits before assigning material names, and map
   the PC globals onto the original `COLRESULT_*` concepts where possible.
+- Capture the loader call that creates/populates the linked records and map its
+  model-kind table ownership; the collision query itself now has a concrete
+  runtime-backed node ABI.
 - Keep the level-zone globals and cache labels provisional until a loader-side
   experiment ties them to a specific in-memory level object.

@@ -300,3 +300,46 @@ types:
         confidence: observed
         description: nearest segment parameter in 0..0x4000 fixed scale
         evidence: [re/evidence/functions/collision.md]
+
+  - name: LinkedCollisionObjectPrefix
+    size: 0x24
+    confidence: strong
+    description: >-
+      Collision-facing prefix of the heap-linked object record traversed by
+      0x004628f0. The complete allocation may contain additional fields.
+    fields:
+      - offset: 0x04
+        name: flags
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x06
+        name: query_stamp
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x08
+        name: position
+        type: fixed32[3]
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x14
+        name: angles
+        type: int16[3]
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x1a
+        name: model_index
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x1f
+        name: model_kind
+        type: uint8
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x20
+        name: next
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]

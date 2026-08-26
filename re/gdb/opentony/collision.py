@@ -279,6 +279,13 @@ class CollisionQueryProbe:
             if model and ctx.memory.valid(model + 0x1F)
             else None,
             "model_geometry": _collision_model_geometry(model, face, model_index, ctx.memory),
+            # q+0x68 is the object/model pointer consumed by the final normal
+            # pass. Capture its node-shaped prefix directly so a hit can be
+            # compared with the linked-root walk even when it lies beyond
+            # the walk's bounded prefix.
+            "hit_object": _linked_object_snapshots(model, ctx.memory, limit=1)
+            if model
+            else None,
             "distance_raw": ctx.memory.u32(query + 0x8C),
             "hit_parameter": _signed32(ctx.memory.u32(query + 0x8C)),
             "distance_limit_raw": ctx.memory.u32(query + 0x40),

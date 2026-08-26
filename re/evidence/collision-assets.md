@@ -1,6 +1,6 @@
 # Collision asset/runtime linkage
 
-Status: strong static linkage; one runtime model/normal match
+Status: strong static linkage; runtime object/model/normal linkage confirmed
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -71,12 +71,44 @@ before local face tests. That agrees with the PSX 12-bit fixed-point geometry
 scale and explains why the short normal values are approximately 4096 in the
 runtime traces.
 
+## Runtime linked-object confirmation
+
+The `collision-node3` Hangar trace captured the pointer stored at `q+0x68`
+after the shared wrapper returned. On all 8 hits in the 20-query bounded run,
+the pointer was `0x05f2e844`; its collision-facing fields were:
+
+```text
+flags       = 0
+position    = (-4100096, -6782976, 9408512) signed fixed32
+angles      = (0, 0, 0)
+model       = index 171, kind 6
+next        = 0x05f2e890
+```
+
+The query result independently reported model index 171/kind 6. The same
+record resolved through the live kind-6 table at `0x05da6d18` to model data
+with 14 vertices, 6 normals and 6 faces, including normal 4
+`(1, -3867, -1351)`. Thus the runtime chain is now evidenced as:
+
+```text
+q+0x68 linked node
+  -> node +0x1a/+0x1f: model index 171/kind 6
+  -> kind-6 model table
+  -> model data / face cache
+  -> contact + normal result
+```
+
+The heap addresses are allocation-specific. The stable result is the field
+layout and the agreement between the node, model table, face geometry and
+query result.
+
 ## What remains separate
 
 The PSX 20×20 blockmap is a useful source-level spatial partition and a good
 loader cross-check, but it must not be equated with the live PC zone records:
 the PC query reads zone records at `0x660` bytes and candidate pointers at
 `0x198` entries per zone. The conversion from PSX objects/blockmap to those
-heap structures still needs a loader-side runtime snapshot. This document
-therefore identifies the asset source without attempting the full level
-collision serialization.
+heap structures still needs a loader-side runtime snapshot for ownership and
+creation timing. This document therefore identifies the asset source and
+collision-facing linkage without attempting the full level collision
+serialization.

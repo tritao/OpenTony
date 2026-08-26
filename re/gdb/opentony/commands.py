@@ -335,11 +335,13 @@ class TonyTHPS2Breakpoint(gdb.Command):
         _set_breakpoint(address, len(values) == 2)
 
 
-class TonySkipMovieBreakpoint(TonyBreakpoint):
-    """Return immediately from the blocking startup-movie routine."""
+MOVIE_ENTRY_POINTS = (0x004e7090, 0x004e70e0)
 
-    def __init__(self):
-        address = THPS2_ADDRESSES["movie_play"][0]
+
+class TonySkipMovieBreakpoint(TonyBreakpoint):
+    """Return immediately from one of the blocking movie entry points."""
+
+    def __init__(self, address: int):
         super().__init__(address, internal=True)
 
     def on_hit(self, ctx):
@@ -349,7 +351,7 @@ class TonySkipMovieBreakpoint(TonyBreakpoint):
         _write(f"skipped movie playback; returning to 0x{return_address:08x}")
 
 
-_movie_skip_breakpoint = None
+_movie_skip_breakpoints = []
 
 
 class TonySkipMovies(gdb.Command):
@@ -359,15 +361,19 @@ class TonySkipMovies(gdb.Command):
         super().__init__("tony-skip-movies", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        global _movie_skip_breakpoint
+        global _movie_skip_breakpoints
         if arg.strip():
             raise gdb.GdbError("usage: tony-skip-movies")
-        if _movie_skip_breakpoint is not None and _movie_skip_breakpoint.is_valid():
+        if len(_movie_skip_breakpoints) == len(MOVIE_ENTRY_POINTS) and all(
+            breakpoint.is_valid() for breakpoint in _movie_skip_breakpoints
+        ):
             _write("startup movie bypass is already enabled")
             return
-        _movie_skip_breakpoint = TonySkipMovieBreakpoint()
-        address = THPS2_ADDRESSES["movie_play"][0]
-        _write(f"startup movie bypass enabled at 0x{address:08x}")
+        _movie_skip_breakpoints = [
+            TonySkipMovieBreakpoint(address) for address in MOVIE_ENTRY_POINTS
+        ]
+        addresses = ", ".join(f"0x{address:08x}" for address in MOVIE_ENTRY_POINTS)
+        _write(f"movie bypass enabled at {addresses}")
 
 
 class TonyForceLevelBreakpoint(CountingBreakpoint):

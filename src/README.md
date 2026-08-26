@@ -14,7 +14,9 @@ identifiers are stable scene IDs/source offsets; they are not fabricated
 32-bit PC pointers. The dynamic branch's transformed-vertex preprocessing,
 projected-face gate, candidate-distance arithmetic, and signed-short
 saturation are also exposed. The remaining gap is the PC heap-linked object
-list and its broad-phase record serialization.
+list's loader ownership and complete broad-phase record serialization. The
+collision-facing linked-node prefix and broad-phase arithmetic are documented
+and tested in `re/evidence/collision_reference.hpp`.
 
 The standalone checks can be run with:
 
