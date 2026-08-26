@@ -14,6 +14,7 @@
 | GDB with Python | runtime RE | system package |
 | file / 7-Zip / xorriso / libcdio | disc-image inspection | system packages |
 | CMake / Ninja / Clang | future reconstruction | system packages |
+| Visual C++ 6.0 SP3 | matching retail compiler/linker | pinned media extracted under `.tools/vc6` and run with Wine |
 | jq / ripgrep | trace/decomp inspection | system packages |
 
 ## Pinned Ghidra
@@ -71,6 +72,19 @@ sudo apt-get install -y libgl1:i386 libegl1:i386 libgl1-mesa-dri:i386 libvulkan1
 The Ubuntu bootstrap installs these automatically. The Arch bootstrap installs the corresponding `lib32-libglvnd`, `lib32-mesa`, and `lib32-vulkan-icd-loader` packages.
 
 Runtime traces should record the exact `wine --version` because Wine is not byte-pinned by this repository.
+
+## Matching Visual C++ toolchain
+
+`tony setup vc6` downloads and verifies the English Visual Studio 6.0 Professional base ISO and Visual Studio 6.0 Service Pack 3 ISO, extracts the command-line `VC98` toolchain under `.tools/vc6`, overlays the SP3 updates, and initializes a dedicated `.tools/vc6-prefix`. It does not modify or reuse the game Wine prefixes.
+
+Provisioning verifies `CL.EXE` version `12.00.8168` and `LINK.EXE` version `6.00.8447`, then compiles a probe executable. These versions match the compiler and linker evidence recorded in the retail `THawk2.exe`. Run the step independently or verify an existing installation with:
+
+```bash
+tony setup vc6
+tony vc6 verify
+```
+
+The archived Microsoft media remains subject to its original licensing; availability from the configured archive does not grant a license.
 
 ## GDB
 

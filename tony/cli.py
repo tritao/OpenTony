@@ -20,6 +20,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=commands.setup_ghidra)
     p = setup_sub.add_parser("media", help="download and verify the recorded THPS2 disc image")
     p.set_defaults(func=commands.setup_media)
+    p = setup_sub.add_parser("vc6", help="provision the exact Visual C++ 6.0 SP3 toolchain under Wine")
+    p.set_defaults(func=commands.setup_vc6)
+
+    vc6 = sub.add_parser("vc6", help="manage the pinned Visual C++ 6.0 SP3 toolchain")
+    vc6_sub = vc6.add_subparsers(dest="vc6_command", required=True)
+    p = vc6_sub.add_parser("verify", help="verify the provisioned compiler and linker versions")
+    p.set_defaults(func=commands.vc6_verify)
 
     media = sub.add_parser("media", help="inspect original disc media")
     media_sub = media.add_subparsers(dest="media_command", required=True)

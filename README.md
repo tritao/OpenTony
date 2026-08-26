@@ -172,6 +172,7 @@ tony compare <trace-a.jsonl> <trace-b.jsonl>
 - Ghidra automation: **PyGhidra / CPython 3**, not Jython
 - Java: **JDK 21**
 - Runtime: **Wine stable 11+**, normal 64-bit prefix / new WoW64 model
+- Matching compiler: **Visual C++ 6.0 SP3** (`CL 12.00.8168`, `LINK 6.00.8447`) in an isolated Wine prefix
 - Dynamic debugger: **WineDbg GDB proxy + GDB Python API**
 - Orchestration: **Python**
 

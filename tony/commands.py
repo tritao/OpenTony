@@ -51,6 +51,7 @@ from .split import (  # noqa: F401 - command handlers are consumed by cli.py
     split_symbols,
     split_verify,
 )
+from .vc6 import setup_vc6, vc6_verify  # noqa: F401 - command handlers are consumed by cli.py
 from .wine import (  # noqa: F401 - public command compatibility
     _recorded_exe,
     run_game,

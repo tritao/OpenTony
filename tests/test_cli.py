@@ -29,6 +29,11 @@ def test_setup_media_parse():
     assert callable(args.func)
 
 
+def test_vc6_commands_parse():
+    assert callable(build_parser().parse_args(["setup", "vc6"]).func)
+    assert callable(build_parser().parse_args(["vc6", "verify"]).func)
+
+
 def test_split_commands_parse():
     commands = {
         "init": [],

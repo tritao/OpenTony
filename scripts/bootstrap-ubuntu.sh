@@ -27,7 +27,7 @@ fi
 
 sudo dpkg --add-architecture i386
 
-echo "[1/6] Base development and RE packages"
+echo "[1/7] Base development and RE packages"
 sudo apt-get update
 sudo apt-get install -y \
   ca-certificates curl wget gnupg git \
@@ -39,7 +39,7 @@ sudo apt-get install -y \
   libgl1:i386 libegl1:i386 libgl1-mesa-dri:i386 \
   libvulkan1:i386 mesa-vulkan-drivers:i386
 
-echo "[2/6] WineHQ stable"
+echo "[2/7] WineHQ stable"
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo wget -q -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
 sudo wget -q -O "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \
@@ -51,19 +51,22 @@ sudo apt-get update
 sudo apt-get install -y libjack-jackd2-0:amd64 libjack-jackd2-0:i386
 sudo apt-get install -y --install-recommends winehq-stable
 
-echo "[3/6] OpenTony virtual environment"
+echo "[3/7] OpenTony virtual environment"
 mkdir -p .tools
 python3 -m venv .tools/venv
 .tools/venv/bin/python -m pip install --upgrade pip setuptools wheel
 .tools/venv/bin/python -m pip install -e '.[dev]'
 
-echo "[4/6] Pinned Ghidra + matching PyGhidra"
+echo "[4/7] Pinned Ghidra + matching PyGhidra"
 .tools/venv/bin/tony setup ghidra
 
-echo "[5/6] Verified THPS2 disc image"
+echo "[5/7] Verified THPS2 disc image"
 .tools/venv/bin/tony setup media
 
-echo "[6/6] Health check"
+echo "[6/7] Pinned Visual C++ 6.0 SP3 toolchain"
+.tools/venv/bin/tony setup vc6
+
+echo "[7/7] Health check"
 set +e
 .tools/venv/bin/tony doctor
 status=$?

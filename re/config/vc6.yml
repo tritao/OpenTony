@@ -1,0 +1,16 @@
+version: 1
+vc6:
+  install_dir: .tools/vc6
+  prefix: .tools/vc6-prefix
+  base:
+    url: https://archive.org/download/vsp600enu/VSP600ENU1.iso
+    path: .tools/media/vc6/VSP600ENU1.iso
+    size: 619120640
+    sha256: 2634ca448163539878b7c405c11ef359bf0ddc4f05d26b9575e0b9f819f6427f
+  sp3:
+    url: https://archive.org/download/msvs6sp3/Microsoft%20Visual%20Studio%206.0%20Service%20Pack%203.iso
+    path: .tools/media/vc6/VS6SP3.iso
+    size: 681895936
+    sha256: 92122f31beb62d99eb6a0545f5af0366caaa940b46515cd393ca15fe03741814
+  compiler_version: 12.00.8168
+  linker_version: 6.00.8447
