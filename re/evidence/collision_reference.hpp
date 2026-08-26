@@ -917,7 +917,7 @@ inline constexpr bool linked_object_uses_matrix_transform(
     return (flags & kLinkedObjectMatrixTransformFlag) != 0;
 }
 
-// The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
+// The list insertion/removal primitive at 0x004801d0/0x004801f0 writes
 // the reciprocal link at +0x34.  The bytes between the collision prefix and
 // that link are not recovered, so this is a partial link view rather than a
 // claim about the complete object type or allocation size.

@@ -11,7 +11,7 @@ Addresses: `0x0049db80`, `0x00497f40`, `0x00496550`, `0x00494210`,
 `0x004628f0`, `0x004638d0`, `0x00462a20`, `0x00463d50`, `0x0048ea80`,
 `0x004f43e0`, `0x004f4940`, `0x004f4b00`, `0x004f4c50`, `0x004f4130`,
 `0x004f4240`, `0x004f5540`, `0x004e23a0`, `0x004e2070`, `0x004667e0`,
-`0x00420fa0`, `0x0043d88e`, `0x0048001d0`, `0x0048001f0`
+`0x00420fa0`, `0x0043d88e`, `0x004801d0`, `0x004801f0`
 
 ## Result
 
@@ -370,10 +370,10 @@ the wrapper; the query does not parse a file on each call.
     position words, X/Y/Z angle shorts, model index, model kind, and the
     32-bit next pointer. This is an in-memory ABI view only; it does not
     claim that heap nodes are serialized in a level file.
-  - The list primitive at `0x0048001d0` inserts a node at a caller-supplied
+  - The list primitive at `0x004801d0` inserts a node at a caller-supplied
     root: it writes `node+0x20 = old_head`, `node+0x34 = 0`, updates the root,
     and writes `old_head+0x34 = node` when a successor exists.
-    `0x0048001f0` is the reciprocal unlink path. Construction paths around
+    `0x004801f0` is the reciprocal unlink path. Construction paths around
     `0x0049f265` and `0x0049f360` call the object initializer and insert into
     `DAT_0056af40`; this establishes list ownership and a backward-link
     offset without claiming the full object allocation size.
