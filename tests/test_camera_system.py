@@ -56,6 +56,27 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 36;
                 }
 
+                // The retail producer changes mode only after the current
+                // normal-follow update has completed. It must not cause the
+                // same call to use the mode-25 offset during preparation.
+                CameraStateRaw promoted;
+                promoted.mode = 1;
+                const CameraTargetRaw promoted_target{
+                    {}, {0, -0x1000, 0}, {}, 1, 0, false};
+                const auto promoted_expected =
+                    build_follow_target_transform_q12(
+                        {}, promoted_target.follow_offset, 0);
+                update_camera(
+                    promoted, promoted_target, {}, {}, {}, {},
+                    {true, 0x65, 1});
+                if (promoted.mode != 25
+                    || promoted.current_transform.x != promoted_expected.x
+                    || promoted.current_transform.y != promoted_expected.y
+                    || promoted.current_transform.z != promoted_expected.z
+                    || promoted.current_transform.w != promoted_expected.w) {
+                    return 39;
+                }
+
                 CameraStateRaw viewport_control;
                 viewport_control.viewport_parameter_raw = 7;
                 viewport_control.viewport_parameter_delta_raw = -2;

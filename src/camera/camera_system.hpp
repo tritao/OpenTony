@@ -1116,7 +1116,8 @@ inline CameraViewportCommitRaw update_camera(
     const CameraFollowInput& follow_input,
     const Q16Vec3& look_target_offset,
     const CameraUpdateHooks& hooks = {},
-    const CameraModeInputRaw& mode_input = {}) {
+    const CameraModeInputRaw& mode_input = {},
+    const CameraMode25ProducerInputRaw& mode25_input = {}) {
     if (camera.anchor_update_flag != 0) {
         camera.mirrored_anchor = camera.anchor_target;
         if (camera.tripod_anchor_flag != 0) {
@@ -1247,6 +1248,13 @@ inline CameraViewportCommitRaw update_camera(
     // Retail updates +0x40c/+0x410 before copying the low word to the active
     // viewport at +0x0e.  Keep the timer step before the commit boundary.
     advance_viewport_parameter(camera);
+    // 0x0040ff2b..0x0040ff4b promotes the normal-follow camera to mode 25
+    // after the mode-1 preparation/smoothing work above. The next update
+    // therefore consumes the mode-25 follow offset; do not feed this result
+    // back into the current frame's mode dispatch.
+    if (camera.mode == 1 && camera_mode25_condition(mode25_input)) {
+        camera.mode = 25;
+    }
     const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
     ++camera.update_tick;
     return committed;
