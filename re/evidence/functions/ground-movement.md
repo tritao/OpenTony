@@ -428,6 +428,47 @@ The next targeted replay should use the updated collision probe for that join;
 it is the remaining runtime evidence gap, not evidence that the turn or basis
 chain is unresolved.
 
+## Ordinary B010 correction branch
+
+The selected unresolved unit for this run is the ordinary scale-1 correction
+branch in `0x0049b010`, beginning at the `0x0049b2c1` gate. Its ownership is
+limited to the transient acceleration write; it does not classify surfaces,
+query collision, or request a physics state. The recovered predicate is:
+
+```text
+producer/profile gate != 0
+physics lock and ground-motion mode gates allow the producer
+ordinary grounded state == 0
+turn correction gate is open
+response_speed_metric < ground_motion_threshold
+response_speed_metric <= 0x4e20
+basis_y < 0x1f4
+```
+
+When all predicates pass, the function writes the three signed 32-bit words
+at `+0x58/+0x5c/+0x60` as `-basis(+0x30f4)` at scale 1. The speed comparison
+is strict against `+0x2dc8`, while the literal `0x4e20` comparison is
+inclusive. The basis-Y comparison is strict. The native boundary keeps the
+profile/lock/mode values caller-owned and preserves the low word of the
+32-bit basis product before exposing the signed result.
+
+The deterministic fixtures in `src/runtime/ground_motion_test.cpp` close the
+branch edges without inventing the unresolved profile/stat owner:
+
+| fixture | result |
+| --- | --- |
+| metric `0x4e20`, threshold `0x10000` | scale-1 write occurs |
+| metric equals threshold `0x10000` | no write; strict threshold test |
+| basis Y `0x1f3` | scale-1 write occurs |
+| basis Y `0x1f4` | no write; strict slope/basis test |
+| correction gate closed | no write |
+
+The same test exercises the signed low-word write with a synthetic overflow
+input. That fixture validates the PE32 arithmetic contract only; it is not a
+claim about the retail range of the Q12 basis values. A retail frame-to-frame
+join of this write to the subsequent position candidate remains open because
+the existing B010 trace did not capture the write and commit in one record.
+
 ## Native reference core
 
 The supported arithmetic is implemented in the focused native reference core:

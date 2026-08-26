@@ -76,6 +76,20 @@ functions:
       - re/evidence/functions/position-write-path.md
     notes: Candidate ordering and fallback behavior are tested; retail trace parity and the offset-0x3200 bypass meaning remain open.
 
+  - address: 0x0049b010
+    name: Skater_UpdateAcceleration
+    slice: ground-motion-ordinary
+    status: tested
+    sources:
+      - src/runtime/ground_motion.cpp
+      - src/runtime/ground_motion.hpp
+    tests:
+      - src/runtime/ground_motion_test.cpp
+    evidence:
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: Ordinary scale-1 correction branch is modeled with inclusive metric <= 0x4e20, strict basis-Y < 0x1f4, strict metric < threshold, and low-word PE32 basis products; profile/stat and collision services remain explicit inputs.
+
   - address: 0x004624d0
     name: M3D_InitCollisionQuery
     slice: collision-query

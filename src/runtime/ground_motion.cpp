@@ -1,22 +1,21 @@
 #include "ground_motion.hpp"
 
+#include <bit>
 #include <cstdint>
-#include <limits>
 
 namespace opentony::runtime {
 namespace {
 
+[[nodiscard]] std::int32_t wrap32(std::int64_t value) noexcept {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+}
+
 [[nodiscard]] std::int32_t scaled_basis(
     std::int32_t basis,
     std::int32_t scale) noexcept {
-    const std::int64_t value = -static_cast<std::int64_t>(basis) * scale;
-    if (value > std::numeric_limits<std::int32_t>::max()) {
-        return std::numeric_limits<std::int32_t>::max();
-    }
-    if (value < std::numeric_limits<std::int32_t>::min()) {
-        return std::numeric_limits<std::int32_t>::min();
-    }
-    return static_cast<std::int32_t>(value);
+    // The retail write is a 32-bit product. Preserve its low word before
+    // exposing it through the native signed fixed-point boundary.
+    return wrap32(-static_cast<std::int64_t>(basis) * scale);
 }
 
 [[nodiscard]] GroundMotionResult write_basis_correction(

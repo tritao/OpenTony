@@ -1,6 +1,7 @@
 #include "ground_motion.hpp"
 #include "player_state.hpp"
 
+#include <bit>
 #include <cassert>
 #include <iostream>
 
@@ -54,6 +55,49 @@ int main() {
     assert(ordinary_result.branch == GroundMotionBranch::Ordinary);
     assert(ordinary_result.scale == 1);
     assert(player.motion_correction() == FixedPosition({0, 0, -0x1000}));
+
+    GroundMotionInput metric_limit = ordinary;
+    metric_limit.response_speed_metric = 0x4e20;
+    player.clear_motion_correction();
+    const auto metric_limit_result =
+        player.apply_ground_motion(metric_limit);
+    assert(metric_limit_result.applied);
+    assert(metric_limit_result.branch == GroundMotionBranch::Ordinary);
+
+    GroundMotionInput threshold_limit = ordinary;
+    threshold_limit.response_speed_metric = 0x10000;
+    threshold_limit.response_speed_threshold = 0x10000;
+    player.clear_motion_correction();
+    assert(!player.apply_ground_motion(threshold_limit).applied);
+
+    GroundMotionInput basis_limit = ordinary;
+    basis_limit.forward_basis_y = 0x1f3;
+    player.clear_motion_correction();
+    assert(player.apply_ground_motion(basis_limit).applied);
+    basis_limit.forward_basis_y = 0x1f4;
+    player.clear_motion_correction();
+    assert(!player.apply_ground_motion(basis_limit).applied);
+
+    GroundMotionInput closed_correction_gate = ordinary;
+    closed_correction_gate.correction_gate_open = false;
+    player.clear_motion_correction();
+    assert(!player.apply_ground_motion(closed_correction_gate).applied);
+
+    // FUN_0049b010 stores the low word of the 32-bit basis*scale product;
+    // it does not saturate a fixed-point component at INT32_MAX/MIN.
+    GroundMotionInput wide_basis = ordinary;
+    FixedPosition wrapped_correction{};
+    const auto wrapped_basis = opentony::runtime::apply_ground_motion(
+        wrapped_correction,
+        opentony::runtime::RetailBasis{
+            {0x40000000, 0, 0},
+            {},
+            {},
+        },
+        wide_basis);
+    assert(wrapped_basis.applied);
+    assert(wrapped_correction[0]
+        == std::bit_cast<std::int32_t>(std::uint32_t{0xc0000000U}));
 
     GroundMotionInput over_speed = ordinary;
     over_speed.response_speed_metric = 0x4e21;

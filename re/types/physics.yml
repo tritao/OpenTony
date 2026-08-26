@@ -103,6 +103,27 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/physics.md
+      - offset: 0x2dc8
+        name: ground_motion_threshold
+        type: i32
+        confidence: observed
+        description: Threshold read by the grounded acceleration producer when comparing the response speed metric; the post-dispatch writer remains a separate service boundary.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2dd4
+        name: ground_motion_lock
+        type: i32
+        confidence: observed
+        description: Lock predicate that suppresses the grounded acceleration producer.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x2df8
+        name: ground_motion_mode
+        type: i32
+        confidence: observed
+        description: Grounded motion mode read by the producer-side gate; its state-machine ownership remains outside this movement slice.
+        evidence:
+          - re/evidence/functions/physics.md
       - offset: 0x3144
         name: movement_target_x
         type: i32
@@ -177,6 +198,20 @@ types:
         type: u16
         confidence: confirmed
         description: Heading/animation frame driven toward a target by Skater_ApproachHeadingFrame; original angle units and public enum names remain open.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0xf6
+        name: animation_state
+        type: u16
+        confidence: observed
+        description: Current animation identifier read by the grounded acceleration producer for its state-specific correction branches.
+        evidence:
+          - re/evidence/functions/physics.md
+      - offset: 0x107
+        name: animation_finished
+        type: u8
+        confidence: observed
+        description: Animation completion/enable byte read by the producer's early event branch; event dispatch remains outside the movement boundary.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2dd8
