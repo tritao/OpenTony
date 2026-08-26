@@ -28,6 +28,26 @@ struct GameplaySessionConfig {
     FixedStepConfig fixed_step{};
     AirGravityConfig air_gravity{};
     bool apply_air_gravity{true};
+    // The grounded B010 correction producer is complete at its fixed-point
+    // boundary, but its profile-record source is still a caller-owned setup
+    // service. Enable it explicitly when that service is available.
+    bool apply_ground_motion{false};
+    std::optional<GroundMotionProfileRecords>
+        ground_motion_profile_records{};
+    GroundMotionProfileTable ground_motion_profile_table{};
+    // Compatibility override for callers that have only recovered the
+    // selected table value. The structured table above takes precedence in
+    // the normal path but this remains useful for isolated probes.
+    bool ground_motion_profile_table_value_nonzero{false};
+    // Enable B010's cooldown/rearm writes. Surface-response and RNG values
+    // are explicit because their collision/stat producers are not yet owned
+    // by GameplaySession.
+    bool apply_ground_motion_control{false};
+    std::int32_t ground_motion_surface_response_metric{0};
+    bool ground_motion_rearm_random_available{false};
+    std::int32_t ground_motion_rearm_random_roll{0};
+    // Explicit skater +0x107 input for B010's early animation-event write.
+    bool ground_motion_animation_event_enabled{false};
     // Optional PC TRICKS.BIN image. When set, the session exposes the
     // archive-backed action source to PlayerPhysicsFrame. The source-table
     // fallback is intentionally opt-in because the retail per-player table
@@ -38,15 +58,23 @@ struct GameplaySessionConfig {
     // table and section-5 resource database are available. The normal player
     // slot supplies the selection view at +0xcc; its mapped ID/index pairs
     // are view-relative +0x2b/+0x30 (physical slot +0xf7/+0xfc). These bytes
-    // are populated by the retail skater/resource setup path, so they remain
-    // explicit until that path is connected.
+    // are populated automatically from the selected section-0 table unless
+    // an explicit selection array is supplied below.
     bool use_tricks_retail_builder{false};
+    // Reproduce FUN_004bbf00 from the selected section-0 table when no
+    // explicit selection bytes are supplied. This fills the 0x2b direct
+    // static-combo slots and five mapped resource/index pairs from the real
+    // source-record keys.
+    bool auto_select_tricks_retail_resources{true};
     std::size_t tricks_player_index{0};
-    std::array<std::uint8_t, 4> tricks_direct_resource_ids{
-        0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> tricks_mapped_resource_ids{
+    std::array<std::uint8_t, kRetailDirectSelectionSlotCount>
+        tricks_direct_resource_ids = retail_empty_resource_ids<
+            kRetailDirectSelectionSlotCount>();
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        tricks_mapped_resource_ids{
         0xff, 0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> tricks_mapped_mapping_indices{
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        tricks_mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
     assets::PsxCollisionQueryOptions collision_query_options{};
     // Use the recovered fixed-point PsxScene query at the physics boundary.
@@ -66,6 +94,10 @@ struct GameplaySessionConfig {
     camera::CameraUpdateHooks camera_hooks{};
     camera::CameraModeInputRaw camera_mode_input{};
     camera::CameraMode25ProducerInputRaw camera_mode25_input{};
+    // Enable the recovered strict normal-Y floor split for airborne hits.
+    bool classify_retail_air_contacts{true};
+    // DAT_00533f38 selects the type-12/type-14 linked traversal policy.
+    std::uint32_t special_runtime_game_mode{};
 };
 
 // Stable end-to-end observation for parity traces. It deliberately contains
@@ -100,6 +132,9 @@ struct GameplaySessionObservation {
     std::uint32_t camera_update_tick{};
     std::uint32_t camera_mode{};
     camera::Q4Vec3 camera_rendered_position{};
+    // Raw level-script writes to the live skater object (+0x3198/+0x319c).
+    // These are copied without interpreting the retail field meanings.
+    PlayerScriptSkaterFields script_skater_fields{};
 };
 
 // Owns the level, player, recovered frame ordering, and fixed-step clock in
@@ -220,6 +255,7 @@ private:
 
     void apply_restart_events(std::size_t event_start);
     void update_camera_after_step();
+    void sync_script_skater_fields() noexcept;
 };
 
 } // namespace opentony::runtime

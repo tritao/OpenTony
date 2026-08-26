@@ -62,9 +62,9 @@ struct ActionStreamDispatchResult final {
 };
 
 // Returns the bounded cursor width recovered from FUN_004bf6c0 for the
-// command at `cursor`. This is also used while building the retail resource
+// command at `cursor`. This is also used while inspecting retail resource
 // records: FUN_004bb7e0 walks the same command stream to find opcode 0x51's
-// filter metadata before the gameplay dispatcher runs it.
+// neighboring source metadata before the gameplay dispatcher runs it.
 [[nodiscard]] std::optional<std::size_t> retail_action_command_width(
     std::span<const std::uint8_t> stream,
     std::size_t cursor) noexcept;

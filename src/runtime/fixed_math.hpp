@@ -25,6 +25,13 @@ constexpr std::int32_t kFixedOne = 0x1000;
     const FixedPosition& left,
     const FixedPosition& right);
 
+// Retail FUN_004f5f90(vector, vector) followed by FUN_004f53b0. The dot
+// helper truncates the squared fixed-point sum after the 1/4096 scale, then
+// the integer square root is taken. This is the scalar before the caller's
+// speed-metric << 6.
+[[nodiscard]] std::int32_t retail_vector_magnitude_q12(
+    const FixedPosition& vector) noexcept;
+
 // Retail FUN_004f5f90(vector, vector) followed by FUN_004f53b0 and the
 // caller's << 6. The dot helper truncates the squared fixed-point sum after
 // the 1/4096 scale, then the integer square root is taken.

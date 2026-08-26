@@ -2,6 +2,17 @@
 
 namespace opentony::camera {
 
+void CameraRuntime::reset() noexcept {
+    state_ = {};
+    state_.mode = 1;
+    state_.anchor_update_flag = 1;
+    state_.tripod_anchor_flag = 1;
+    last_commit_ = {};
+    viewport_projection_ = {};
+    configured_ = false;
+    has_commit_ = false;
+}
+
 void CameraRuntime::reset(const CameraTargetRaw& target, std::uint32_t mode) noexcept {
     state_ = CameraStateRaw{};
     state_.mode = mode;
@@ -14,6 +25,7 @@ void CameraRuntime::reset(const CameraTargetRaw& target, std::uint32_t mode) noe
     last_commit_ = CameraViewportCommitRaw{};
     viewport_projection_ = ViewportProjectionRaw{};
     configured_ = true;
+    has_commit_ = false;
 }
 
 bool CameraRuntime::prepare_viewport_projection(
@@ -29,6 +41,18 @@ bool CameraRuntime::prepare_viewport_projection(
 }
 
 CameraViewportCommitRaw CameraRuntime::update(
+    const CameraRuntimeUpdateInput& input) noexcept {
+    last_commit_ = update_camera(
+        state_, input.target, input.follow, input.look_target_offset,
+        input.hooks, input.mode, input.mode25, input.alternate_follow,
+        input.viewport_control, input.framing_control,
+        input.smoothing_producer);
+    configured_ = true;
+    has_commit_ = true;
+    return last_commit_;
+}
+
+CameraViewportCommitRaw CameraRuntime::update(
     const CameraTargetRaw& target,
     const CameraFollowInput& follow_input,
     const Q16Vec3& look_target_offset,
@@ -41,6 +65,7 @@ CameraViewportCommitRaw CameraRuntime::update(
     last_commit_ = update_camera(
         state_, target, follow_input, look_target_offset,
         hooks, mode_input, mode25_input);
+    has_commit_ = true;
     return last_commit_;
 }
 

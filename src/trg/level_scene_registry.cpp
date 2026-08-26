@@ -1,4 +1,5 @@
 #include "level_scene_registry.hpp"
+#include "pickup_runtime.hpp"
 
 #include <algorithm>
 
@@ -84,6 +85,13 @@ void LevelSceneRegistry::build(
             entity.source_nodes.push_back(source.node);
             entity.subtype = source.subtype;
             entity.spawn_family = source.spawn_family;
+            entity.factory_allocation_size = source.factory_allocation_size;
+            entity.factory_vtable = source.factory_vtable;
+            entity.factory_list = source.factory_list;
+            entity.factory_initial_activation_byte =
+                source.factory_initial_activation_byte;
+            entity.has_factory_initial_activation_byte =
+                source.has_factory_initial_activation_byte;
             entity.factory_resource = source.factory_resource;
             entity.factory_model_selector = source.factory_model_selector;
             entity.has_factory_model_selector = source.has_factory_model_selector;
@@ -121,17 +129,34 @@ void LevelSceneRegistry::resolve_factory_assets(const assets::PsxAssetCatalog& c
         entity.factory_asset_loaded = false;
         entity.factory_asset_object_count = 0;
         entity.factory_asset_model_count = 0;
-        if (entity.factory_resource.empty()) {
+        if (!entity.pickup_resource.empty()) {
+            entity.pickup_model_index = CommandPointRuntime::npos;
+            entity.pickup_model_resolved = false;
+        }
+        const std::string& resource = entity.factory_resource.empty()
+            ? entity.pickup_resource
+            : entity.factory_resource;
+        if (resource.empty()) {
             continue;
         }
-        if (const std::string* path = catalog.path_for(entity.factory_resource);
+        if (const std::string* path = catalog.path_for(resource);
             path != nullptr) {
             entity.factory_asset_path = *path;
             entity.factory_asset_available = true;
-            const assets::PsxArchive& archive = catalog.load(entity.factory_resource);
+            const assets::PsxArchive& archive = catalog.load(resource);
             entity.factory_asset_loaded = true;
             entity.factory_asset_object_count = archive.objects().size();
             entity.factory_asset_model_count = archive.models().size();
+            if (!entity.pickup_resource.empty()
+                && entity.pickup_model_checksum != 0) {
+                const std::size_t model_index = pickup_model_index(
+                    archive,
+                    entity.pickup_model_checksum);
+                if (model_index != CommandPointRuntime::npos) {
+                    entity.pickup_model_index = model_index;
+                    entity.pickup_model_resolved = true;
+                }
+            }
         }
     }
 }
@@ -185,10 +210,38 @@ void LevelSceneRegistry::copy_source_metadata(
         source.factory_requires_environment_registration;
     entity.factory_clears_object_flag_2 = source.factory_clears_object_flag_2;
     entity.factory_sets_object_flag_4 = source.factory_sets_object_flag_4;
+    entity.factory_allocation_size = source.factory_allocation_size;
+    entity.factory_vtable = source.factory_vtable;
+    entity.factory_list = source.factory_list;
+    entity.factory_initial_activation_byte = source.factory_initial_activation_byte;
+    entity.has_factory_initial_activation_byte =
+        source.has_factory_initial_activation_byte;
+    entity.pickup_resource = source.pickup_resource;
+    entity.pickup_model_checksum = source.pickup_model_checksum;
+    entity.pickup_model_index = source.pickup_model_index;
+    entity.pickup_model_resolved = source.pickup_model_resolved;
+    entity.pickup_visual_state_d1 = source.pickup_visual_state_d1;
+    entity.pickup_motion_state_d2 = source.pickup_motion_state_d2;
+    entity.pickup_motion_substate_d3 = source.pickup_motion_substate_d3;
+    entity.pickup_motion_words_14_18 = source.pickup_motion_words_14_18;
+    entity.pickup_motion_words_70_74 = source.pickup_motion_words_70_74;
+    entity.has_pickup_motion_inputs = source.has_pickup_motion_inputs;
+    entity.pickup_timer_f0 = source.pickup_timer_f0;
+    entity.pickup_phase_ea = source.pickup_phase_ea;
+    entity.pickup_phase_ec = source.pickup_phase_ec;
+    entity.pickup_global_fade_flags = source.pickup_global_fade_flags;
+    entity.has_pickup_lifecycle_inputs = source.has_pickup_lifecycle_inputs;
+    entity.pickup_glow_present = source.pickup_glow_present;
+    entity.pickup_update_calls = source.pickup_update_calls;
     entity.trigger_flags = source.trigger_flags;
     entity.trigger_state = source.trigger_state;
     entity.trigger_mode = source.trigger_mode;
     entity.has_trigger_runtime = source.has_trigger_runtime;
+    entity.trigger_bounds = source.trigger_bounds;
+    entity.special_runtime_allocation_size =
+        source.special_runtime_allocation_size;
+    entity.special_runtime_vtable = source.special_runtime_vtable;
+    entity.special_runtime_list = source.special_runtime_list;
     entity.special_runtime_owner = source.special_runtime_owner;
     entity.special_runtime_control = source.special_runtime_control;
     entity.has_special_runtime_context = source.has_special_runtime_context;

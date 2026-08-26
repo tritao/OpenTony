@@ -22,7 +22,9 @@ int main() {
     large.rescale_roll = -400;
     large.decay_roll = -500;
     const auto large_result = VelocityDamping::apply(large);
-    assert(large_result.rescaled);
+    // Retail's dot helper scales the squared Q12 vector by 1/4096 before
+    // sqrt: a 0x1000 component has magnitude 0x40 and speed metric 0x1000.
+    assert(!large_result.rescaled);
     assert(large_result.randomized_decay);
     assert(large_result.velocity[0] < 4096);
 

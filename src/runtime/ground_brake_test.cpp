@@ -15,7 +15,7 @@ int main() {
 
     const auto flat = GroundBrake::apply(GroundBrakeInput{
         FixedPosition{0x20000, 0, 0},
-        0x20000,
+        -1,
         -0x1000,
         0x100,
         0,
@@ -23,7 +23,8 @@ int main() {
         true,
     });
     assert(flat.speed_threshold == 0xa000);
-    assert(flat.speed_metric == 0x800000);
+    assert(flat.magnitude_q12 == 0x800);
+    assert(flat.speed_metric == 0x20000);
     assert(flat.decelerated);
     assert(flat.response == FixedPosition({0x1e000, 0, 0}));
     assert(!flat.requested_state7);

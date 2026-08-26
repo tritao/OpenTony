@@ -1,22 +1,15 @@
 # Skater physics dispatch and ground/in-air update
 
-Status: confirmed PSX collision-query to skater-response handoff, input-to-steering/target producer, shared position-commit path, state-gated acceleration writes, response damping, brake-state integration, and raw special-state handlers; face-flag predicates are exact while their public surface names remain partial
+Status: inferred
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x00489930`, `0x00489a10`, `0x00492ed0`, `0x00492f20`, `0x00493370`, `0x00496060`, `0x0049b010`, `0x0049bad0`, `0x0049db80`, `0x00497f40`, `0x0049e97d`, `0x0049f0e5`, `0x004ca9f0`, `0x004cabf0`, `0x004624d0`, `0x00466090`, `0x0048ea80`
-
-The bounded state-machine record is maintained in
-[`physics-states.md`](physics-states.md). This note retains the earlier
-ground/in-air and position-commit analysis; the newer record is authoritative
-for the reproducible `0 → 1 → 0` transition and the action-state timing.
+Addresses: `0x0049db80`, `0x00497f40`
 
 ## Observation
 
 - `0x0049db80` dispatches on the object field at `param_1 + 0x30b8`, with cases that call `0x00496550`, `0x00497f40`, `0x00494210`, `0x00499710`, and `0x004993f0`.
 - The dispatcher decompilation separates the state paths: state `0` calls `0x0049dad0`, `0x00496550`, `0x00495cc0`, and `0x0049d9c0`; state `2` calls `0x00496550`; states `3` and `6` enter `0x00497f40`; state `4` calls `0x00494210`; state `5` calls `0x00499710`; and state `8` calls `0x004995d0`. This makes `0x00496550` a ground/collision routine, not the input-to-steering producer.
-- After the case-0 helper sequence, the dispatcher has a separate grounded leave-ground predicate: raw state must still be `0`, `player+0x3110 > 1000`, and either `player+0x3130 > 0x5000` or the signed frame age from `+0x2d98` must be less than `(DAT_0056865c * 6) >> 8`. It requests raw state `1` at `0x0049ddcf` with reason `0x2ba1`, then clamps negative `player+0x50` at `0x0049ddd9`. The native `try_ground_to_air()` method models this supplied-input boundary separately from the KICK/ollie request.
-- An independent frontend trace adds an exact non-ollie collision chain: `0 → 2` at `0x004972da` / reason `0x1ac9`, `2 → 4` at `0x004913dd` / reason `0x0b1c`, `4 → 1` at `0x004905ab` / reason `0x0715`, and `1 → 0` at `0x004991fe` / reason `0x1fd6`. The dispatcher handlers for the middle states are `0x00496550`, `0x00494210`, and `0x00497f40`; all requests commit through writer `0x004902bf`. The native model preserves these raw request boundaries without implementing the state-4 rail/collision geometry body.
 - The same dispatcher reads/writes state fields around `param_1 + 0x30c4`, clears or updates velocity-related fields, and resets position from the object offsets `+0xbc`, `+0xc0`, and `+0xc4` in one state.
-- `0x00497f40` references `physics.cpp` diagnostics `P_O_I in DoPhysicsInAir` and `mOldPos wrong at start of DoInAirPhysics`. Runtime entries independently confirm it is reached for raw state `1`; the dispatcher also routes distinct raw state `3` to the same callee. It reads the skater object position at `+8`, `+0xc`, and `+0x10`, performs collision/ground calculations, and writes updated movement state.
+- `0x00497f40` references `physics.cpp` diagnostics `P_O_I in DoPhysicsInAir` and `mOldPos wrong at start of DoInAirPhysics`. It reads the skater object position at `+8`, `+0xc`, and `+0x10`, performs collision/ground calculations, and writes updated movement state.
 - The source symbol dump contains the matching concepts `DoInAirPhysics`, `DoOnGroundPhysics`, `DoOnRailPhysics`, and `EPhysicsState`, but those names are treated as cross-build hypotheses until runtime mapping confirms them.
 - A one-shot Warehouse write watch on the first `+0xbc` word fired at debugger PC `0x0049ea81` (`Skater_PhysicsDispatcher+0xf01`) for player `0x05f39530`. The preceding store at `0x0049ea7f` writes the first word of the `+0xbc` vector.
 - Static disassembly around that store copies the three words at `player + 0x08`, `+0x0c`, and `+0x10` into `player + 0xbc`, `+0xc0`, and `+0xc4`. This is the first concrete movement-state handoff: the `+0xbc` vector is a previous-position/state-history candidate, not yet confirmed as velocity.
@@ -26,23 +19,14 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
 - Static callers of `0x00496060` include the in-air candidate `0x00497f40` at `0x00498cf5`, `0x0049905c`, and `0x0049917b`, the dispatcher path at `0x0049f0e5`, and additional state routines at `0x00496550` and `0x00499710`. The common call shape loads three scalar arguments and invokes the routine with the player object in `ecx`.
 - Static disassembly resolves the grounded dispatcher handoff. At `0x0049ea68`, `ebx` is set to `player + 0x08`. The sequence at `0x0049f0be`–`0x0049f0e5` gates on the global at `0x0056a86c`, `player + 0x2e90`, and physics state `8`; loads the updated `player + 0x08`, `+0x0c`, and `+0x10` words into `eax`, `ecx`, and `edx`; copies the history words at `player + 0xbc`, `+0xc0`, and `+0xc4` back into the live position; then pushes `edx`, `ecx`, and `eax` before calling `0x00496060` with `ecx=player`. The callee writes its three entry arguments back to `player + 0x08`, `+0x0c`, and `+0x10`, confirming the handoff order as X, Y, Z.
 - The decompilation of `0x00496550` shows the ground/collision path deriving short collision deltas from `0x004cabf0`, passing them to `0x0049bad0`, applying surface-normal checks, and damping the three words at `player + 0x4c`, `+0x50`, and `+0x54`. It is a collision-response/state-resolution routine; no confirmed Left/Right action-state read occurs in this path.
-- The ground path's asset-facing query boundary is explicit. It builds a six-word fixed-point segment/AABB candidate, initializes it with `0x004624d0`, submits it through `0x00466090` (a direct wrapper over the PSX zone broadphase), and then calls `0x0048ea80` to read selected-face flags before applying the result. The query initializer derives the segment length at `+0x44`, computes the query AABB at `+0x18..+0x2c`, and clears the hit object at `+0x68`, hit face at `+0x80`, model index at `+0x84`, and hit-distance/output words at `+0x40` and `+0x8c`. `0x00462a20` then fills the selected object, contact point `+0x6c/+0x70/+0x74`, face pointer, model index, and best-hit metrics when a PSX face intersects. The post-zone surface commit publishes three signed 16-bit basis components at `+0x78/+0x7a/+0x7c`; the complete query/result ABI is recorded in [collision.md](collision.md).
-- `0x0048ea80` independently reads the selected runtime face record: it extracts bit `0x40` from face `+0x0c`, two high-bit booleans from that word, a four-bit field from bits `25..28`, and bit `0x80` from the face's packed word at `+0x00`. These exact predicates are typed in [collision.md](collision.md) and [physics.yml](../../types/physics.yml); only their public gameplay names remain unassigned. This proves the PSX face result crosses from the static blockmap consumer into physics-state branching.
-- The grounded consumer at `0x00496550` copies the four-bit face field extracted by `0x0048ea80` into skater `+0x30b0` immediately after the second collision query. It then branches on the raw extracted bits: the two inverted high-bit tests, the `0x40` face flag, and the packed-word `0x80` flag select the ordinary ground path versus specialized surface handling. The executable therefore exposes a concrete face-flags-to-skater field contract even though the public names of the surface types remain unproven.
-- `0x0049bad0` then consumes a short collision vector and updates both the response vector at `+0x4c/+0x50/+0x54` and the player-relative source/basis fields at `+0x30f4` onward. It rebuilds the three orientation/basis triplets at `+0x2e58..+0x2e68` through the shared fixed-point basis helper. The exact surface response enum remains open, but the asset-query → selected-face flags → skater response sequence is confirmed.
-- The first proven action-dependent movement producer is `0x00493370`, reached from the main skater frame by the call at `0x0049e97d` (return address `0x0049e982`). Static disassembly shows it reading the player-relative action bank pointer at `+0x2ccc`, directional records at `+0x80`/`+0x90`, and heading input at `+0x31a1`/`+0x31a2`; it writes movement targets at `+0x3144`/`+0x3148`, steering state at `+0x2e7c`, and brake state at `+0x2e78`.
-- The immediate post-action path in the main frame clears `player +0x58/+0x5c/+0x60` at `0x0049e99e`, then calls `0x0049b010` at `0x0049e9a1`. Static disassembly of `0x0049b010` reads the action bank, brake/steering fields, physics state, and a player-relative source vector at `+0x30f4/+0x30f8/+0x30fc`; its normal-state branches write the three acceleration words at `+0x58/+0x5c/+0x60`. This is the first statically proven post-action acceleration writer, although the source vector's final gameplay meaning remains open.
-- The acceleration write policy is now exact. For animation/frame states `+0xf6 == 2` or `3`, frames `+0xf4` in `(10, 16)`, and non-state-2 physics, `0x0049b010` writes `-source_vector * 4`, or `-source_vector * 8` when the action-bank flag at `+0x10` is set, subject to the response-speed threshold. For `+0xf6 == 0` or `5..7`, it writes `-source_vector` under the normal distance/vertical-speed gate; for `+0xf6 == 0x5e` and frames `16..19`, it writes `-source_vector * 8`. The same scale branches appear in both sides of the helper's steering/action gate. These are stable fixed-point recreation rules even though the public names of the source vector and state values remain open.
-- `0x00493370` calls `0x00492f20` after updating the movement targets. `0x00492f20` reads the Z target at `+0x3148`, heading deadband at `+0x31a2`, action-bank state, and mode fields, then interpolates a u16 player field at `+0xf4` through `0x00492ed0`. The helper's exact interpolation is now recovered: it moves toward the target by 5 units when the remaining difference exceeds 12, by 3 units when it exceeds 3, and by 1 unit otherwise, preserving the sign.
-- The controlled trace `build/debug/sessions/movement-step2/movement.trace.ndjson` records `0x00493370` once per frame for the live Warehouse player. Around the isolated Left hold, frame 620 has action mask `0x8000` and the Left record at `0x0056b078` becomes active; on frame 621 the target pair becomes `-0x7800/-0x7800` and `steering_active=1`. It ramps by `0x7800` per frame to `-0x2d000`, then after release decays `-0x2d000 -> -0x21c00 -> -0x19500`, with steering inactive. This is the first direct runtime edge from an input action record to steering/target state.
-- The same trace records velocity from `player +0x4c/+0x50/+0x54` and acceleration from `player +0x58/+0x5c/+0x60` at the action step. The function also contains static stores to the acceleration words in its brake/response branch, so these are movement-state snapshots rather than a claim that every acceleration update is owned by one branch.
 - The collision query chain is now constrained by static decompilation. `0x004624d0` prepares a fixed-point segment query and endpoint bounds; `0x00466090` wraps the blockmap walker at `0x004660b0`; `0x004638d0` expands blockmap object lists into face bounds; and `0x00462a20` tests candidate triangle/quad faces. A hit is written to the query at offsets `+0x68` (object/hit marker), `+0x6c/+0x70/+0x74` (fixed-point hit position), `+0x80` (face pointer), `+0x84` (object index), `+0x8c` (nearest travel value), and `+0x40` (scaled travel value), while the source face normal is published through the collision globals. `0x00463d50` then copies the normal/orientation result into the query result fields. The native `PsxCollisionWorld`/`PsxPositionCollisionProbe` implements the portable geometry side of this boundary; exact face filters and skater response remain open.
+- Retail startup at `0x00466109` derives the global face masks consumed by `0x00462a20`: `DAT_00567a60` is built from `DAT_00567c84`, `DAT_00567c7c`, and `DAT_00567c78` using `0x400000` assignment/toggle and `0x200000` toggle operations; `DAT_00567a68` is built from `0xffffffff`, `DAT_00567c74`, and `DAT_00567c80` using `0xffefffff` assignment and `0x20000` toggle. `make_retail_collision_query_options` mirrors this bit construction with offset-named inputs. Trigger-face inclusion remains a separate per-query object-byte decision.
 - `0x00489930` is the action-record updater called by `0x00489a10`. Each record is 16 bytes: byte `+0` is active, byte `+1` records that activation has occurred, words at `+4` and `+8` count active and inactive updates, and the word at `+0xc` counts total updates. `0x00489a10` maps movement bits `0x8000/0x2000/0x1000/0x4000` to left/right/up/down and enables a digital action from the signed analog axis at thresholds `<= -0x29` or `>= 0x29` when its bit is absent. Native `InputState` now preserves this effective-action behavior, while `PlayerState` provides the raw position/history/state handoff consumed by later physics handlers.
 - The same `0x00489a10` loop writes the normalized controller bytes into the first player's input record at `0x0056b140..0x0056b143` (the `+0x148..+0x14b` fields relative to `0x0056aff8`), after `0x00489990` maps the raw device range. `0x0046d6e0` copies the first two bytes of that record to skater `+0x31a2/+0x31a1`, with the observed two-player sign inversion on the lean byte. The native fixed-step/session shell now has a direct action-plus-axis path so this transfer is not lost when the frontend uses a gamepad or a replay fixture; no acceleration is synthesized at this boundary.
 - `0x00490610` is an exact reusable response primitive: it forms a Q12 dot product between the response vector and a collision delta, then subtracts `delta * dot` componentwise. The first stage of `0x0049bad0` uses the same Q12 helpers when the dot is negative, then adds `delta * 0xcd`; its later orientation rewrite is now ported as a separate caller-selected stage. Native `fixed_math.*`, `collision_response.*`, and `PlayerState::apply_collision_response()` cover the response arithmetic, while `PlayerState::apply_collision_orientation()` preserves the recovered orientation/basis sequence without claiming a universal caller policy.
 - `0x00493370` consumes the grounded controller records at `player+0x2ccc+0x80/+0x90` and updates the signed turn accumulator at `+0x3144`; Left takes priority if both records are active, and the result is mirrored to `+0x3148`. The ordinary state-0/7 base is `0x3c`, the profile-1 base is `0x78` (other nonzero profiles select `0xb4`), the increment is frame-scaled by `DAT_0056865c`, and the ordinary state-0/7 limit is `+/-0x2d000`. A high-speed surface/board branch can double the step and use `+/-0x5a000`; the separate state-1/2 branch uses `+/-0xa0000`. Native `ground_turn.*` and `PlayerState::update_ground_turn()` model the bounded input-to-turn handoff and the optional signed `+31a1` lean target, then feed the recovered Q12 yaw/basis path.
 - The no-record branch of `0x00493370` is also confirmed for the ordinary profile: `+3144` decays by its arithmetic `>>2`, with a small remainder quantized to zero; the alternate/surface path uses `>>1`. Native `GroundTurn::update()` preserves this release behavior and accepts the recovered signed lean field (`+31a1`) as an explicit configuration input; board/surface predicates remain outside the default boundary.
-- The angle-table path is `0x0049b500` -> `0x004e80e0` -> `0x004e7de0`/`0x004e3130` -> `0x0049c7d0`. `0x0049b500` masks the turn angle to `0xfff`, stores it as a signed short, rotates the existing nine-short matrix at `+0x2e58..+0x2e68`, then `0x0049c7d0` copies matrix columns to `+0x30f4..+0x3114`: `[2,5,8]`, `[0,3,6]`, and `[1,4,7]`. The yaw transform is `[cos,0,-sin; 0,0x1000,0; sin,0,cos]`; `0x004e3130` multiplies signed products and uses `sar 12`. Retail converts the signed angle with float constants `0x39800000` (`1/4096`) and `0x40c90fdb` (`2*pi`) and truncates the Q12 sine/cosine through `0x005004f4`. Native `fixed_matrix.*` and `PlayerState` preserve these signs, shifts, signed-angle behavior, and offset-oriented basis copy.
+- The angle-table path is `0x0049b500` -> `0x004e80e0` -> `0x004e7de0`/`0x004e3130` -> `0x0049c7d0`. `0x0049b500` masks the turn angle to `0xfff`, stores it as a signed short, rotates the existing nine-short matrix at `+0x2e58..+0x2e68`, then `0x0049c7d0` copies matrix columns to `+0x30f4..+0x3114`: `[2,5,8]`, `[0,3,6]`, and `[1,4,7]`. The yaw transform is `[cos,0,-sin; 0,0x1000,0; sin,0,cos]`; `0x004e3130` multiplies signed products and uses `sar 12`. The later `0x004e85a0` matrix-vector transform uses x87 scaling and truncation toward zero, which is distinct from the matrix-matrix shift. Retail converts the signed angle with float constants `0x39800000` (`1/4096`) and `0x40c90fdb` (`2*pi`) and truncates the Q12 sine/cosine through `0x005004f4`. Native `fixed_matrix.*` and `PlayerState` preserve these signs, shifts, signed-angle behavior, and offset-oriented basis copy.
 - The grounded basis consumer is the tail of `0x00496550`: it computes `dot(+4c,+3100)`, reconstructs that basis component with Q12 multiplies, and subtracts it from the temporary correction vector at `+0x58/+0x5c/+0x60`. A separate branch computes `dot(+4c,+30f4)`, scales its reconstructed component by the observed factor `8`, and subtracts it when the surface/ownership condition permits. The outer `0x0049e680` frame later applies the temporary correction back to `+4c/+50/+54` through `DAT_0056865c` and an arithmetic `sar 8`. Native `PlayerState::prepare_ground_basis_correction()` and `integrate_motion_correction()` implement these confirmed operations while leaving the branch predicate data-driven.
 - Both `0x00496550` and `Skater_DoPhysicsInAir` begin their state-specific collision work with the same helper chain: multiply `+58/+5c/+60` by `DAT_00568804`, arithmetic-shift by eight, divide by two, multiply `+4c/+50/+54` by `DAT_0056865c`, arithmetic-shift by eight, add the two vectors, and add the result to live position. Static initialization computes `DAT_00568804 = DAT_0056865c * DAT_0056865c >> 8`, making this `position += velocity*dt + correction*dt^2/2` in the retail fixed-point representation. Native `PlayerState::integrate_position()` now preserves that shared ground/air position producer.
 - `0x00493370` contains a second, earlier position-writing path for a queued three-component impulse at `player + 0x2ca0/+0x2ca4/+0x2ca8`. It drains those values using the per-axis rate words at `+0x2c94/+0x2c98/+0x2c9c` and the frame scale, transforms the drained vector through the current orientation, and adds the result directly to live `+0x08/+0x0c/+0x10` before ground collision. The producer is now identified as opcode `0x2b` in `0x004be450`, the action-stream interpreter called from `0x00492ea0` after the queued drain. That case reads signed 16-bit `axis`, `amount`, and `rate` values through `0x004be3c0`, writes `amount` to `+0x2ca0 + axis*4` and `rate` to `+0x2c94 + axis*4`, and when `rate == 0` clears the matching pending and accumulated words at `+0x2ca0` and `+0x2cac`. The native `action_commands.*` and `queued_motion.*` implement this verified producer and scalar drain. Native `q12_transform_vector()` now models the row-major `0x004e85a0` multiply, and `PlayerState::apply_queued_motion()` commits the transformed delta by default; the frame callback is retained for observers or additional effects.
@@ -115,6 +99,13 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
   with reason `0x2c56`. `GroundBrake` and the optional
   `PlayerPhysicsFrameHooks::ground_brake_input` expose this proven behavior
   while keeping material eligibility and raw normal/stat fields injected.
+- The shared retail speed metric is now fixed exactly at its scalar boundary:
+  `0x004f5f90` computes the vector dot product, multiplies by the data constant
+  at `0x00519908` (`1/4096`), `0x004f53b0` takes the integer square root, and
+  callers multiply the result by `0x40`. Native
+  `retail_vector_magnitude_q12()` is the common implementation used by
+  `GroundBrake` and `VelocityDamping`; raw Euclidean square roots are no
+  longer used for those threshold/decay decisions.
 - Retail `0x00490680` copies a response vector, applies the `0x00490610`
   normal projection, computes the original and projected magnitudes, and
   rescales the projected vector by `(original_magnitude >> 2) /
@@ -127,14 +118,16 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
   a negative dot, subtracts that projected component and adds the literal
   Q12 bias `0xcd` along the same delta. Native `PlayerState::apply_collision_response()`
   implements that arithmetic. `PlayerPhysicsFrame` can invoke it through
-  `collision_response_bias_q12` for a caller-selected stage/hit; it remains
-  opt-in because retail ground, in-air, and special-state callers do not all
-  use the same post-hit policy. Its later orientation rewrite is also available
+  `collision_response_bias_q12` for a caller-selected stage/hit. It is enabled
+  by default in `GameplaySession` for ordinary movement, while caller-specific
+  frames can still disable or replace it because retail ground, in-air, and
+  special-state callers do not all use the same post-hit policy. Its later
+  orientation rewrite is also available
   as a separate caller-selected stage: it aligns the current basis to the
   inward hit delta, applies the recovered yaw-angle branch, then rebuilds the
   normalized air basis. The exact yaw supplied by each retail caller remains
   open.
-- `PlayerPhysicsFrame::step()` is the executable native boundary for the confirmed portion of `0x0049e680`: it captures the previous position, drains queued motion, applies the bounded `+3144/+3148` turn handoff only for grounded states `0` and `7`, updates the state/frame animation boundary, clears the temporary correction at the retail post-turn/pre-B010 point, runs the ground-motion hook, dispatches the state path, applies the shared position integrator at ground-collision/in-air stage entry, sends the desired point through the recovered `0x00496060` axis fallback, and applies the outer correction-to-velocity Q8 handoff after dispatch. The collision probe and branch-specific producers remain injectable because exact face filters, gravity/stat tables, and special-state responses are not yet proven. `physics_frame_test` covers a blocked integrated move and a ground correction producer end to end.
+- `PlayerPhysicsFrame::step()` is the executable native boundary for the confirmed portion of `0x0049e680`: it captures the previous position, drains queued motion, applies the bounded `+3144/+3148` turn handoff only for grounded states `0` and `7`, updates the state/frame animation boundary, clears the temporary correction at the retail post-turn/pre-B010 point, runs the ground-motion hook, dispatches the state path, applies the shared position integrator at ground-collision/in-air stage entry, sends the desired point through the recovered `0x00496060` axis fallback, applies the ordinary state-0 `0x0049b500` response-rotation phase after the candidate add, and applies the outer correction-to-velocity Q8 handoff after dispatch. `GameplaySessionConfig::apply_ground_motion` now installs the recovered producer in the real level/session path while keeping the profile-table value explicit. The collision probe and branch-specific producers remain injectable because exact face filters, gravity/stat tables, and special-state responses are not yet proven. `physics_frame_test` and the real Warehouse `gameplay_session_test` cover the ground correction producer end to end.
 - The hit-aware frame path now accepts a start/end collision query, reuses it for every `0x00496060` axis-fallback candidate, preserves the first hit's face/material/normal metadata, and applies the confirmed `0x00490610` normal-component removal to `+4c/+50/+54` before invoking an optional state-specific collision callback. `PsxPositionCollisionProbe::query()` widens PSX signed-short Q12 normals into the runtime fixed-point vector without coupling `PlayerState` to the asset parser. The inward `0x0049bad0` bias and orientation stages remain opt-in/branch-specific; the independent `0x00497df0` air-basis handoff is now implemented.
 - The native hit record also carries the retail-style `0..0x4000` segment parameter (the `q+0x8c` field in the recovered collision path). The PSX adapter computes contact coordinates with signed fixed-point truncation from that parameter, rather than host floating-point rounding.
 - The retail face-cache builder at `0x004638d0` stores each model vertex as `vertex * 0x1000 + object_position`; the native PSX collision world now uses this same scale. The packed source face word at face `+0x0c` is also preserved through the hit record for the later `0x0048ea80`/face-mask policy.
@@ -143,6 +136,13 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
   bit `24`, `(face_word >> 25) & 0xf`, and `face_flags & 0x80`. Native
   `PsxCollisionMaskView` and `PositionCollisionHit` carry those predicates so
   later state handlers can reproduce the observed branches directly.
+- In the airborne handler, the first ground-vs-non-ground contact split uses a
+  strict signed-normal comparison: the collision normal Y short must be
+  greater than `0xccd` (Q12). Native
+  `accepts_retail_ground_contact()` preserves this predicate independently of
+  face/material filtering, and `GameplaySession` installs it as the default
+  airborne contact classifier; the hook remains replaceable for rails and
+  other caller-specific transitions.
 - The candidate-face gate in `0x00462a20` is now executable as an explicit
   `PsxCollisionQueryOptions` policy: `(word & DAT_00567a60) == 0`,
   `(word | DAT_00567a68) == 0xffffffff`, the raw `0x10000/0x30000` class
@@ -150,6 +150,12 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
   `+0x22` is set. The native world/probe/session carry this policy without
   inventing values for the unresolved global masks or silently changing the
   compatibility default.
+- `GameplaySessionConfig` now uses the ordinary retail startup policy by
+  default: all five recovered startup inputs are false, which produces reject
+  mask `0x200000`, accept mask `0xffffffff`, and enables the oriented
+  plane-crossing test. Callers performing a special raycast or trigger query
+  can still replace the options explicitly; the broad compatibility behavior
+  remains available in `PsxCollisionQueryOptions` itself.
 - The oriented quantized plane crossing in the same routine is also exposed
   separately: the endpoint plane value must be nonnegative, the start value
   must be below `1`, and the `0x800`/`-0x7ff` tolerance branch is preserved.
@@ -170,13 +176,21 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
 - The complete normal-frame order is now bounded more tightly. `0x0049e680` copies the transient `+0x4c/+0x50/+0x54` vector, runs `0x00493370` (grounded turn/stance), clears `+0x58/+0x5c/+0x60`, then runs `0x0049b010`, `0x0049a280`, `0x00492ea0`, and `0x0049df00` before entering `Skater_PhysicsDispatcher` and its state handler. For ordinary ground state `0`, that handler is `0x0049dad0 -> 0x00496550 -> 0x00495cc0 -> 0x0049d9c0`. The shared `0x0049f0e5` handoff occurs after this state work and only collision-checks/commits the already-produced candidate through `0x00496060`.
 - In `0x00496550`, the first vector chain combines temporary correction (`+0x58/+0x5c/+0x60`) and the transient response vector (`+0x4c/+0x50/+0x54`) using the fixed-step scales, then derives a ground/collision displacement and tests it through `0x004624d0 -> 0x00466090`. The later `0x00496060` calls add short surface deltas to that candidate. This explains why the corrected Left/Right traces alter the X/Z commit arguments without making `+0x4c` a stable steering field.
 - The other candidate producers are state-specific or exceptional: `0x0049df00` damps/zeros the response vector for slope/brake/stop modes, `0x0049f4c0` writes platform bounce responses, `0x0049d8a0` damps replay/demo response state, and `0x00490730` can replace position during recovery/restart collision tests. `0x00469910` initializes the response words from the initial basis and then clears them. These remain separate from the normal `0x0049b010` correction path.
-- `0x0049b010` is the ordinary grounded temporary-correction producer. After `0x00493370` has updated the facing basis, it computes the response speed metric (`magnitude(+0x4c) * 0x40`) and, under the profile/animation/speed gates, writes `-basis(+0x30f4) * {1,4,8}` to `+0x58/+0x5c/+0x60`. The outer `0x0049e680` frame later integrates that correction into `+0x4c/+0x50/+0x54`; this is the action-to-facing-to-acceleration path, not a direct position write. Native `ground_motion.*` reproduces these raw correction branches, and `ActionProfileState` now supplies the verified `+0x2ccc` profile slots to its frame hook. The animation writer is now represented by `ground_animation.*`: `FUN_00492ed0`'s exact 4/2/1 easing and `FUN_00492f20`'s state/frame targets are connected at the frame boundary. The wide-turn response-normalized write is also modeled; retail then clears the temporary correction vector before B010, so it is deliberately transient in the native frame result. Animation asset/event dispatch, local-profile selection, and B010's cooldown rearm side effects remain explicit.
+- `0x0049b010` is the ordinary grounded temporary-correction producer. After `0x00493370` has updated the facing basis, it computes the response speed metric (`magnitude(+0x4c) * 0x40`) and, under the profile/animation/speed gates, writes `-basis(+0x30f4) * {1,4,8}` to `+0x58/+0x5c/+0x60`. The ordinary scale-1 branch is specifically guarded by `metric <= 0x4e20` and `basis_y < 0x1f4`; the animation branches use the threshold at `+0x2dc8` and remain reachable after the `+0x2f2c` cooldown path. The outer `0x0049e680` frame later integrates that correction into `+0x4c/+0x50/+0x54`; this is the action-to-facing-to-acceleration path, not a direct position write. Native `ground_motion.*` reproduces these raw correction branches, and `ActionProfileState` now supplies the verified `+0x2ccc` profile slots to its frame hook. The animation writer is now represented by `ground_animation.*`: `FUN_00492ed0`'s exact 4/2/1 easing and `FUN_00492f20`'s state/frame targets are connected at the frame boundary. The wide-turn response-normalized write is also modeled; retail then clears the temporary correction vector before B010, so it is deliberately transient in the native frame result. Animation asset/event dispatch and B010's cooldown rearm side effects remain explicit.
+- The B010 local/profile gate is now separated from the directional action-table result. The skater's `+0x2cc4` profile index selects `DAT_0056a3d8[]`; the profile/config update path around `0x00487c30` reads the objects at `+0x244` and `+0x248`, takes each object's `+0x10` field, compares it exactly with `1`, and writes the resulting booleans to `DAT_0055fc2c[index]` and `DAT_0055fc34[index]` (writer PCs `0x00487d27` and `0x00487d45`). `0x00413c10` then copies those eight source entries into the runtime arrays at `DAT_0056a3d8[]` and `DAT_0056a3e0[]`; `0x00413db7` is the corresponding reverse synchronization path. Native `GroundMotionInput::profile_table_value_nonzero` is the explicit representation of the selected value. `ActionProfileState::selected_action` remains the independent `0x00492120`/`DAT_005369c8` animation-action reducer and is not substituted for the B010 table.
+- The native representation now retains the source lookup itself as `GroundMotionProfileTable`: eight materialized values, a player/profile index, and the mode-7 selector XOR observed at `0x0049b035`/`0x0049b040`. `GroundMotionProfileRecords` preserves both source arrays and ports the proven first-array conversion (`field_at_+0x10 == 1 ? 1 : 0`) before selection. An index outside the eight-entry materialized view is treated as inactive rather than read unchecked. `GameplaySessionConfig` can therefore provide the recovered record set directly; the older boolean/table fields remain explicit compatibility overrides for isolated probes.
+- The owner boundary is now narrower but is not yet an asset parser. The profile object setup around `0x00487490` allocates four `0x54`-byte records and two `0x104`-byte records, stores them at the skater object's `+0x24c/+0x250/+0x254/+0x258` and `+0x244/+0x248` pointer fields, and exposes their gameplay value at record `+0x10`. The update path at `0x00488160` mutates selected record `+0x10` values through the profile-mode service; the reset/selection path at `0x004882e1` calls `0x00413f30`, then copies the source arrays back into those records at `0x004882f8..0x00488380`. This proves the native object ownership and reset flow, but the upstream profile/stat asset or save-data reader that supplies the initial values remains unresolved.
+- A clean Warehouse probe observed player index `0`, mode `1`, local table value `1`, and controller slot `+0x10 == 0` at B010 entry. That confirms the ordinary Warehouse path is enabled by the local table alone; it is a useful fixture value for `GameplaySessionConfig`, but not a universal default for every profile/mode.
+- The complete Warehouse trace `build/debug/sessions/ground-motion-final4/ground.trace.ndjson` adds a population check: startup writes source-table values `1` for profile indices `0` and `1` through `0x00413f39/0x00413f40`, and the runtime copy at `0x00413c49` observes value `1` in the primary table at frame `0` and again at frames `123`, `2528`, and `4249` from caller `0x0048294c`. Static context identifies the startup writer as `0x004e4690`, the DirectInput initializer that logs `InitDirectInput()` before calling `0x00413f30`; it is therefore an input-system default, not a recovered Warehouse TRG/profile asset load. That run observed no later `0x00487d27`/`0x00487d45` source rewrites. Keep the value as a shipped fixture only; the upstream profile/stat/save-data reader remains an open boundary.
 - The surrounding threshold writer is also isolated. After the state dispatch, `0x0049e680` updates `+0x2dc8`: with `+0x2dd8==0`, it samples `FUN_0048f3a0(3)`, computes `(roll+0xaa)*0x2d000/0x118`, and decrements the old threshold by one only when that target is lower; with `+0x2dd8!=0`, it replaces the threshold with `(roll+0xdc)*0x2d000/0x118`. Native `GroundMotionThreshold` and `PlayerState::ground_motion_threshold()` preserve this stateful boundary, while the RNG roll and special-state predicate remain hooks. Native `PlayerState::ground_motion_speed_metric()` mirrors the retail dot/sqrt/`*0x40` sequence used by B010.
+- B010's pre-correction control writes are now represented in the same native result. With the first branch's gate open and `+0x2f2c` clear, the ordinary rearm test compares the saved surface metric against `-0x4cc`, checks the half-threshold path, and either writes cooldown `0x14` or samples `(roll+0xaa)*0x2d000/0x118`, sets `+0x30a8=1`, stores `+0x108=0x14000`, and emits reason `0x2570`. The late strong-profile path uses the separate `(roll+0xdc)` target and reason `0x25e5`. In animation states 2/3, frames 11..15 consume the pending marker with reason `0x22` before the correction write. Native `GroundMotionResult` and `PlayerState` retain these cooldown/threshold/marker values; the surface metric and resolved RNG remain explicit inputs.
+- B010 also has an earlier animation-event branch before the profile gate: when skater `+0x107` is nonzero, animation states `3` and `0x5e` dispatch reason `0x2537` with parameter `0`, while state `1` dispatches reason `0x2531` with parameter `3` and writes `+0x108 = 0x14000`. Native `GroundMotionInput::animation_event_enabled` and `GroundMotionResult` retain this exact event boundary; the event dispatcher itself remains an application service.
+- The skater constructor at `0x0046c98c` initializes `+0x2dc8` to `0x2e9b6` before the first frame. Native `PlayerState` now carries that same initial threshold; the later random/stat update remains an optional frame service rather than being replaced with a host-time default.
 - The non-animation state portion of `FUN_0049df00` is now executable in `ground_physics.*`. It preserves the distinction between the dispatcher field `+0x30c4` and the brake-mode field `+0x2df8`, computes the recovered slope threshold and response deceleration, emits state-7 stop reason `0x2c56`, state-7 reset reasons `0x2c0f`/`0x2c21`, and ports the `0/1/3/4/5/6` mode transitions plus cooldown value `2`. Surface/profile eligibility, animation readiness, and the outer lock aggregate remain explicit inputs.
-- The remaining B010 correction gates are written by the preceding `0x00493370`/`skater-action-3370.c` turn producer. It clears `+0x2e7c` at the start of its turn handoff, sets it when the turn accumulator is actively moved, and sets `+0x2e78` when the lean/profile branch selects the wide turn limit and applies the response-normalized correction. Native `GroundTurnResult` and `PlayerState` now carry those two verified flags, and the frame derives the wide `+/-0x5a000` limit from the retained profile/lean inputs. The normalized side effect and cooldown countdown are modeled; the remaining unresolved pieces are the local-profile table and B010 cooldown rearm conditions.
+- The remaining B010 correction gates are written by the preceding `0x00493370`/`skater-action-3370.c` turn producer. It clears `+0x2e7c` at the start of its turn handoff, sets it when the turn accumulator is actively moved, and sets `+0x2e78` when the lean/profile branch selects the wide turn limit and applies the response-normalized correction. Native `GroundTurnResult` and `PlayerState` now carry those two verified flags, and the frame derives the wide `+/-0x5a000` limit from the retained profile/lean inputs. The normalized side effect, cooldown countdown, profile-record conversion, profile-table lookup, and B010 rearm writes are modeled; the remaining unresolved pieces are the real owner/population path for the `+0x244/+0x248` profile objects and the surface/RNG services that supply their values.
 - `0x0048f5f0` is not the ordinary motion writer despite setting `+0x2d90 = 0xf`. Its callers are reset/recovery and ground-contact failure paths; the function also clears/refreshes animation and action state. `+0x2d90` is therefore a transient contact/turn latch, not a safe generic acceleration field.
 - Consequently, the remaining faithful C++ work is to connect the recovered `0x0049b010` producer to the real profile/animation/stat writer, run action-stream commands from the loaded action records rather than test buffers, and validate the candidate against corrected grounded traces. The queued-motion and `0x0f` response writers remain separate verified action-stream paths; neither is promoted to generic keyboard acceleration. Native `PlayerPhysicsFrame` now exposes both seams in the retail order, including the post-turn temporary-correction reset.
-- `0x0049b500` contains a dormant/caller-selected response-rotation branch when its third argument is nonzero, but every recovered retail caller currently passes zero, including the in-air callsite and ordinary grounded `0x00496360`. It is therefore not part of the confirmed first-playable path and is not exposed as native behavior yet; the proven function remains the orientation/basis writer, not a source of speed.
+- `0x0049b500` has a caller-selected response-rotation phase after its orientation/basis write. The ordinary grounded `0x00496360` path supplies `param_3 == 1`, while the recovered state-specific/in-air paths can supply zero. The nonzero phase transposes the saved pre-frame matrix at `+0x2e38`, applies `R_y(angle - param_4)`, transforms `+0x4c/+0x50/+0x54`, and restores its integer speed metric through the `0x004cac30` multiply and `0x004cac90` divide helpers. Native `q12_rotate_ground_velocity()` and `PlayerState::apply_ground_turn_velocity_phase()` now run this confirmed state-0 handoff after the candidate position add; the remaining acceleration/stat writer is still separate.
 - The in-air decompilation closes an important ambiguity: `Skater_DoPhysicsInAir` uses the same `+0x4c/+0x50/+0x54` response plus `+0x58/+0x5c/+0x60` correction chain for position integration at `0x004cac30`/`0x004cacd0`/`0x004cabb0`. The `+0x310c/+0x3110/+0x3114` air-motion vector is updated by `0x00497df0` and consumed by the upright/orientation helper `0x0049c330`; it is not a second direct position velocity. Native should therefore keep air displacement on the response path while completing the missing air-control/orientation and launch-response branches.
 - Native `GameplayFrameResult` now records `trigger_event_count_before/after` and copies the `LevelTriggerState` event delta generated by the level tick. This is the stable per-fixed-frame join between a retail script effect and the native object/timer/gap mutation; the full level event log remains authoritative.
 - The load-time restart path now has a second confirmed player-side effect beyond
@@ -191,383 +205,20 @@ for the reproducible `0 → 1 → 0` transition and the action-state timing.
 
 ## Interpretation
 
-`0x0049db80` is the confirmed raw physics-state dispatcher and `0x00497f40`
-is the confirmed shared in-air handler for raw states 1, 3, and 6. The frame
-wrapper, response damping, brake-state machine, rail/contact handlers, and
-special-basis transition are also bounded at their raw field and call
-boundaries. The object layout and original public enum/surface names remain
-unconfirmed.
+`0x0049db80` is conservatively named `Skater_PhysicsDispatcher`; `0x00497f40` is a strong candidate for the in-air physics routine. The object layout and exact state enum remain unconfirmed.
 The dynamic position watches and static cross-references identify `0x00496060` as a shared position commit path. The strongest state-specific caller is the in-air routine at `0x00497f40`; `0x0049f0e5` is the dispatcher handoff that supplies the prior-position/current-position vectors. `0x004ca9f0` is best treated as a reusable `Vector3_Add` helper rather than the owner of the player state.
-The live probe ties both directional action edges to the shared handoff, and the corrected static callsite analysis identifies the actual X/Y/Z argument order. The `+0x4c` field is now excluded as the direct steering vector by both its platform/collision producers and the runtime variation. `0x00493370` is the first confirmed input-dependent producer before the state-specific position handoff; remaining work is the public naming of state/surface values and unproven response branches.
-
-## Main-frame ordering and response integration
-
-`0x0049e680` is the per-frame owner for the action/physics handoff. The
-decompiled call order is stable and should be retained in a recreation:
-
-```text
-action/target update       0x00493370
-clear acceleration         player +0x58/+0x5c/+0x60
-write action acceleration  0x0049b010
-animation/state effects    0x0049a280
-trick input/script update  0x00492ea0
-brake-state update         0x0049df00
-copy current state/history player +0x30c0, +0x2e38..+0x2e54, +0xbc..+0xc4
-raw physics dispatch       0x0049db80
-ground sweep/position work 0x004624d0/0x00466090 and 0x00496060
-acceleration integration   0x004cac30/0x004cacd0/0x004ca9f0
-response damping           0x0049d480
-```
-
-Before dispatch, the frame copies the live position into the history vector
-at `+0xbc/+0xc0/+0xc4` and preserves the previous history in `+0x2e00`,
-`+0x2e04`, and `+0x2e08`. It also copies the current eight-word orientation
-block at `+0x2e58..+0x2e74` into the previous-orientation block beginning at
-`+0x2e38`. After the state-specific path, grounded state `0` or reset state
-`7` may submit a segment from the current position to the offset represented
-by `+0x310c/+0x3110/+0x3114`; a hit rebuilds the basis and passes the collision
-vector through `0x0049bad0`. This is the complete frame-level asset query to
-movement response ordering, without assigning the raw state values new enum
-names.
-
-`0x0049d480` runs after the acceleration vector has been integrated into the
-position step. It operates on the three-word response vector at
-`+0x4c/+0x50/+0x54`, computes its fixed-point magnitude, and first applies a
-high-speed rescale when the magnitude exceeds a threshold derived from
-`0x2d000` and the frame-speed helper at `0x0048f3a0(3)`. A second threshold
-applies a component-wise reduction using coefficient `100` and the frame
-delta. When the per-player mode table selects the ordinary branch, values
-below `0x10000` receive an additional signed `/32` reduction, values below
-`0x2000` receive `/4` damping, and components whose absolute value falls
-below `0x10` are snapped to zero. These are response-vector rules; they do
-not redefine the action-produced acceleration at `+0x58`.
-
-`0x0049df00` is the raw brake-mode state machine. It is inactive while a trick,
-special transition, or non-ground/non-reset physics state is active, and it
-resets its mode field at `+0x2df8` when those gates are hit. In the ordinary
-path, the current response magnitude is compared with a target derived from
-`+0x312a`, the mode changes between raw values `0`, `1`, `3`, `4`, `5`, and
-`6`, and the helper writes `+0x2f2c = 2` as the common frame gate. The mode-0
-branch selects the short brake animation request when the response is below
-the target and the longer transition when it is above; modes `1` and `5`
-advance after the animation flag at `+0x107` is set. The executable's own
-diagnostic calls identify this as “Brake mode”; the numeric modes and public
-animation names remain operational labels.
-
-The airborne basis helper at `0x00497df0` updates the vertical component at
-`+0x3110` by `-500` per call until it reaches the fixed floor branch, where it
-sets `+0x3110 = -0x1000` and clears the lateral components at `+0x310c` and
-`+0x3114`. It then recomputes the paired basis/source vectors at
-`+0x30f4..+0x30fc` and `+0x3100..+0x3108` through the shared fixed-point
-rotation helper. This establishes the airborne gravity/basis update without
-claiming that `+0x3110` is a world-space velocity field.
-
-`0x00490610` is the shared fixed-point normal-component removal helper. It
-computes the Q12 dot product of the destination vector and supplied short
-vector, reconstructs the projected component, and subtracts it from the
-destination vector. Ground, air, and collision paths call it before applying
-surface/contact response, making it the reusable normal projection primitive.
-
-## Special state handlers
-
-The remaining dispatcher cases have bounded asset-facing behavior even though
-their public gameplay names are not all proven.
-
-`0x00494210` is the rail-state handler. It timestamps the rail pass at
-`+0x2edc`, clears acceleration, resolves the current rail segment ID at
-`+0x2ea0` through `0x004aa220`, and decodes the segment endpoints through the
-shared relocated TRG node table at `0x004c8650`. It derives the dominant rail
-axis and a direction-relative response from the segment delta, writes the
-result into `+0x4c/+0x50/+0x54`, and updates rail motion through
-`0x0049b500`. Its ledge/wall checks submit additional fixed-point sweeps
-through `0x004624d0`/`0x00466090`; a hit on either side emits the embedded
-“Hit something above/below the ledge” diagnostics, rebuilds the orientation,
-and returns through the rail-leave/reset helper. The `mCurrentRailSegment`
-assertion and direct TRG endpoint reads make this the proven rail asset
-consumer, not merely a state-number guess.
-
-`0x00499710` is the state-5 swept-contact handler. It advances the trick point
-timer by calling `0x0048f720(10)`, integrates the current response/acceleration
-vectors, and—when the collision gate is enabled—submits a sweep from the
-previous position toward the predicted position. The result is passed through
-`0x0048ea80`; an accepted face commits the contact through `0x00496060`,
-applies the `+0x310c/+0x3110/+0x3114` offset, updates the face-derived basis,
-and removes the face-normal component with `0x00490610`. A second sweep
-checks the nearby offset side and can call `0x0049bad0` before returning. With
-no accepted face the handler clears the active trick/collision gates and
-requests the state-specific reset transition. The raw state, face flags, and
-exact offset writes are stable; the public “wallride” label remains
-provisional.
-
-`0x004993f0` is the setup handler reached before the shared in-air routine for
-raw state `6`. It emits the positional `FOOTPLANT` sound, sets the transition
-gate at `+0x2ddc`, seeds the response vector from the current frame basis, and
-adds five times the lateral basis components to `+0x4c` and `+0x54`. It then
-builds a randomized vertical response in `+0x50` from the current frame and
-the raw timing word at `+0x2de8`. The dispatcher immediately falls through to
-`0x00497f40`, so this is a transition initializer rather than an independent
-position consumer.
-
-`0x004995d0` is the raw state-8 special-basis update. It writes `+0x2ec0 = 5`,
-raises the source-basis Y component at `+0x30f8` by 300 while it is above
-`0xda7`, recomputes the paired vectors at `+0x30f4..+0x3114` through the
-fixed-point rotation helper, and returns without submitting a general ground
-sweep. This preserves the exact state-8 handoff while leaving the original
-special-move name unassigned.
-
-## Cross-build physics-state label check
-
-The PC import does not contain a directly named `EPhysicsState`, but the
-bundled PSX symbol data lists the original declaration order in
-`SKATE2.TAG` (`physics.h` lines 20–28): `PHYSICS_ON_GROUND`,
-`PHYSICS_IN_AIR`, `PHYSICS_ON_INVISIBLE`, `PHYSICS_IN_AIR_STICK_TO`,
-`PHYSICS_ON_RAIL`, `PHYSICS_IN_WALLRIDE`, `PHYSICS_IN_FOOTPLANT`,
-`PHYSICS_STOPPED`, and `PHYSICS_IN_HANDPLANT`. The PC dispatcher has the same
-numeric case order and matching handler families: ground, in-air, transient
-ground/collision, shared in-air, rail, wallride/contact, footplant setup plus
-in-air fallthrough, stopped/reset, and handplant/special basis.
-
-This is a cross-build semantic corroboration, not a replacement for the raw
-PC field at `player +0x30b8`. The recreation should preserve the numeric value
-and use the public labels only as an adapter-layer enum; the face flag meanings
-and some state-specific response predicates remain PC-side open questions.
-
-## Dispatcher state contract
-
-The second switch in `0x0049db80` provides a stable runtime contract for the
-numeric physics state at `player +0x30b8`:
-
-| state | direct handler sequence | observed role |
-| ---: | --- | --- |
-| 0 | `0x0049dad0`, `0x00496550`, `0x00495cc0`, `0x0049d9c0` | ground/collision path |
-| 1 | `0x00497f40` | in-air path |
-| 2 | `0x00496550` | ground/collision variant; writes `+0x30c4 = 1` |
-| 3 | `0x00497f40` | in-air path with timeout check |
-| 4 | `0x00494210` | separate rail/special path |
-| 5 | `0x00499710` | separate special path |
-| 6 | `0x004993f0`, then `0x00497f40` | transition into in-air handling |
-| 7 | ground helpers, then copies `+0xbc/+0xc0/+0xc4` into position | reset/history ground path |
-| 8 | `0x004995d0` | separate special path |
-
-The state number is therefore not a free-form animation or collision flag:
-it selects the state-specific position/response producer. The dispatcher also
-uses `player +0x30c4` as a secondary state/result word, clearing it for states
-0, 4, 5, and 8 and setting it to one for state 2.
-
-The input-dependent producer `0x00493370` keeps the two movement-target words
-`+0x3144` and `+0x3148` bounded and finally copies the X target into the Z
-target before calling `0x00492f20`. With no directional action it decays the
-X target by one quarter per update (one half while braking), and moves the Z
-target toward zero in steps of at least `0x400`. Directional action changes
-the target by a frame-scaled step and clamps it to the observed ±`0x2d000`
-normal range or ±`0x5a000` braking range. This is a concrete recreation rule
-for the steering-target integrator; it does not yet assign world-facing axes
-or a public “turn speed” name.
-
-The following heading/animation transition rules are also fixed by
-`0x00492f20`, although the numeric states remain operational labels. With the
-ordinary mode bit clear, a nonzero target and no `+0x2dd8` override map the
-target magnitude to a maximum heading frame of `0x16` (22); positive and
-negative targets select animation states 6 and 7 respectively, resetting
-`+0xf4` when entering a new direction and approaching the frame target through
-`0x00492ed0`. With the mode bit set, the sign-to-state selection is reversed.
-When `+0x2dd8` is present, the transition uses maxima 12 and 15 and promotes
-states 6/7 to states 9/10 at the corresponding sign; completion at frame 12 or
-15 reaches `0x00496280`. A zero target emits the state-specific reset/idle
-callbacks for states 6/7 or 9/10. These rules are enough to reproduce the
-target-to-heading state machine without naming the original animation enums.
-
-## Runtime physics-state contract
-
-The raw state at `player +0x30b8` is a stable eight-way dispatcher contract.
-The following semantic labels are provisional recreation names, corroborated by
-the matching handler order and bounded Warehouse transitions; native code should
-retain the raw numeric value:
-
-| Raw value | Operational label | Handler/behavior |
-| ---: | --- | --- |
-| `0` | on ground | Ground/collision helper sequence and normal position commits |
-| `1` | in air | `0x00497f40`; airborne position updates until accepted contact |
-| `2` | collision transient | `0x00496550`, with `+0x30c4 = 1` during the response |
-| `3` | in air / stick-to variant | Shared `0x00497f40` path with separate timeout recovery |
-| `4` | on rail | `0x00494210` rail/special handler |
-| `5` | wallride | `0x00499710` special handler |
-| `6` | footplant transition | setup through `0x004993f0`, then shared in-air handler |
-| `7` | stopped/reset | restores the live position from `+0xbc/+0xc0/+0xc4` |
-| `8` | handplant | `0x004995d0` special handler |
-
-The direct air-to-ground transition is also fixed. In the accepted-contact
-branch of `0x00497f40`, the game commits the contact position through
-`0x00496060`, records the contact-side state, and calls the state-request helper
-at `0x004991fe` with requested state `0` and reason `0x1fd6`; the actual raw
-state store is `0x004902bf`. Raw state `3` uses the same in-air handler but
-defers the ordinary state-0 request during its launch-grace frame window.
-
-## Cross-build physics-state labels
-
-The PC import does not contain a directly named `EPhysicsState`, but the
-bundled PSX symbol data provides the original declaration order in
-`build/assets/all-pkr/files/data/SKATE2.TAG` (`physics.h` lines 20–28):
-`PHYSICS_ON_GROUND`, `PHYSICS_IN_AIR`, `PHYSICS_ON_INVISIBLE`,
-`PHYSICS_IN_AIR_STICK_TO`, `PHYSICS_ON_RAIL`, `PHYSICS_IN_WALLRIDE`,
-`PHYSICS_IN_FOOTPLANT`, `PHYSICS_STOPPED`, and `PHYSICS_IN_HANDPLANT`.
-
-The PC dispatcher has the corresponding cases in the same order. Its case 0
-uses the grounded helper sequence; cases 1 and 3 use `0x00497f40`; case 2
-uses the collision/transient ground helper and sets `+0x30c4`; case 4 uses a
-dedicated rail-path handler; case 5 uses a wallride-path handler; case 6 uses
-the footplant pre-air setup `0x004993f0` before falling through to the common
-air handler; case 7 restores position history through the stopped-path
-sequence; and case 8 uses the handplant-path handler. The source symbol
-function order in `EDITEDMAP.TXT` independently lists the matching PSX
-handlers (`DoOnRailPhysics`, `DoOnGroundPhysics`, `DoInAirPhysics`,
-`DoFootPlantPhysics`, `DoHandPlantPhysics`, and `DoWallRidePhysics`).
-
-This is strong cross-build corroboration for provisional semantic labels, not
-direct PC symbol evidence. Runtime raw values, transition writers, and
-dispatcher handlers remain authoritative. The native `classify_physics_state()`
-and `DispatchResult::semantic_state` keep these labels separate from the raw
-integer and from the generic `DispatchKind::CollisionTransient`/state-path
-categories.
-
-## Movement action handoff
-
-Static decompilation identifies `FUN_00493370` as the per-frame action/velocity
-step called from the main physics frame at `0x0049e982`, before prephysics and
-the `0x0049db80` dispatcher. It consumes the action-record bank through the
-player's `+0x2ccc` pointer. In grounded raw states `0` and `7`, the routine
-reads the Left record at `+0x80` and Right at `+0x90`, updates the player
-movement-target candidates at `+0x3144` and `+0x3148`, and then calls the
-heading/steering helper `0x00492f20`. Its non-ground path also consults the
-spin records at `+0x40` and `+0x60`. This establishes the consumer boundary;
-it does not establish the final steering coordinate system or acceleration
-formula.
-
-The bounded runtime trace
-`build/debug/sessions/movement-step2/movement.trace.ndjson` confirms the
-boundary in Warehouse. The probe at `0x00493370` recorded 1,200 current-player
-calls with the full 12-record action bank. A delayed action injection at
-`0x00489a15` supplied Left (`0x8000`) for 60 updates:
-
-| Frame | Action record / state | Handoff fields |
-| ---: | --- | --- |
-| 619 | mask `0`, Left byte `+0=0`, raw physics state `0` | targets `+0x3144/+0x3148 = 0` |
-| 620 | mask `0x8000`; Left record at `0x0056b078` becomes held with edge latch | state remains `0`; targets still `0` |
-| 621–625 | Left held; `+0x04` counts `2..6` | `+0x2e7c=1`, `+0x2e78=0`; both targets move to `-30720,-61440,...,-153600` |
-| 626–679 | Left held; counter reaches `60` | both targets saturate at `-184320`; heading input/deadband bytes remain `0` |
-| 680 | live mask returns to `0`; Left held byte clears | steering remains active for the release/update boundary, then decays in later calls |
-
-The runtime caller is consistently `0x0049e982`, and the dispatcher remains on
-case `0` throughout this controlled window. The trace therefore confirms
-action-record → `0x00493370` → movement-target handoff without conflating it
-with the later grounded position commit at `0x0049f0e5`.
-
-The target arithmetic is now recovered from the same function. With the
-runtime fixed-point delta `dt = DAT_0056865c`, the normal ground profile uses
-`step = (0x3c * 0x100 * dt) >> 8`; profile `+0x29b7 == 1` uses `0x78`, and
-other nonzero profiles use `0xb4`. Raw states `0` and `7` use target limit
-`0x2d000`. If `heading_deadband >= 0x1f` or Down is held, the brake path doubles
-the step, raises the limit to `0x5a000`, and damps velocity into acceleration
-using the integer speed length. Otherwise Left subtracts the step and Right
-adds it, with saturation. With no digital direction, the target decays by a
-quarter (or half in brake mode); analog heading input converges toward
-`limit * heading_input / 128`. The final store copies `+0x3144` to `+0x3148`
-before the call to `0x00492f20`.
-
-The native `apply_ground_action_step()` implements this target/brake portion,
-including the observed Warehouse `dt=0x200` Left sequence (`-0x7800` per
-update, saturating at `-0x2d000`). The helper's animation/lean side effects,
-the orientation-dependent acceleration preparation in `0x0049b010`, and
-collision response remain explicit boundaries rather than being inferred from
-the target trace alone.
-
-## Fixed-point basis and acceleration contracts
-
-The retail vector arithmetic used by the later ground and postphysics stages
-is now resolved at the helper level. `0x004f5f90` computes
-
-```text
-truncate_toward_zero((a.x*b.x + a.y*b.y + a.z*b.z) / 4096)
-```
-
-and `0x004f5fc0` computes the same truncate-toward-zero Q12 conversion for a
-scalar/vector component. Both use the x87 conversion helper at `0x005004f4`;
-the constant at `0x00519908` is `1/4096`. `0x004f53b0` is an x87 square root
-followed by the same integer conversion, so the grounded brake and
-postphysics speed metrics use the Q12 dot result before taking the length.
-
-`0x0049c7d0` is a basis-field copy, not a general-purpose normalization:
-
-```text
-+0x30f4/+0x30f8/+0x30fc <- object +0x2e5c/+0x2e62/+0x2e68
-+0x3100/+0x3104/+0x3108 <- object +0x2e58/+0x2e5e/+0x2e64
-+0x310c/+0x3110/+0x3114 <- object +0x2e5a/+0x2e60/+0x2e66
-```
-
-The tail of `0x00496550` is now also arithmetic-complete when its collision
-inputs are supplied. In raw state `0` with `+0x2f64 == 0`, it projects velocity
-off the `+0x3100` basis using `0x004f5f90`/`0x004f5fc0`, then computes the
-velocity dot `+0x30f4` basis. It subtracts the resulting vector scaled by
-coefficient `8` when the indexed collision flag is enabled and `+0x2d94 == 0`;
-contact identities `5`/`6` add coefficient `0x78`, identity `3` adds `0xb4`,
-and `+0x2dd4 != 0` adds its `+0x2dfc` coefficient. Every term is multiplied by
-`DAT_0056865c` and converted with `>> 8`.
-
-The packed-normal path is also resolved statically. `0x00490610` receives the
-velocity pointer followed by two packed words and sign-extends
-`(word0.low16, word0.high16, word1.low16)` as the Q12 normal. It subtracts
-`dot(v,n) * n` using the same `0x004f5f90`/`0x004f5fc0` helpers without first
-normalizing the supplied components. `0x00490680` copies the velocity,
-applies that plane projection, then rescales each projected component by
-`((original_length * 0x40) >> 8) / ((projected_length * 0x40) >> 8)` using
-integer component multiply/divide. The native `decode_surface_normal()`,
-`project_vector_off_surface()`, and
-`project_velocity_preserving_speed()` helpers model this contract; collision
-selection remains caller-supplied, while the selected-result publication
-handoff is modeled below.
-
-In the surrounding `0x00496550` collision-result branch, the already selected
-normal is reused twice: `0x00490610` projects the state-2 vector
-`+0x2da8..+0x2db0` or fallback `(0,0x1964,0)` into the acceleration handoff,
-then `0x00490680` applies the same plane projection/speed restoration to
-velocity. The projected vector is published at `+0x3118..+0x3120` except for
-raw state `2`; the raw packed words are stored at `+0x3128/+0x312c` in both
-cases. This is the boundary represented by native
-`apply_ground_collision_handoff()`.
-
-The frame-start gravity scalar at `+0x2dac` is likewise recovered from
-`0x0049e680`: base `(+0x29f4 * 13000) / 100`, raw state `2` transient scaling
-`((500-random) * base * 20) / 10000`, then sequential `150%`, `50%`, and
-`50%/200%` global modifiers. The native helper accepts those global flags and
-the raw-state-2 random draw explicitly.
-
-Finally, `0x0049d480` is a deterministic postphysics velocity stage once its
-shared RNG draws are supplied. It computes `speed = sqrt(dot(v,v))*0x40`,
-compares against a cap `((rand(3)+500)*0x2d000)/0x118`, independently rescales
-the three components if capped, recomputes speed, then applies component drag
-when the threshold `((rand(3)+0x186)*0x2d000)/0x118` is exceeded. The drag is
-`v -= (truncate_toward_zero(100*v/4096) * dt) >> 8`. When the indexed player/global flag
-is zero, it additionally applies the `<0x10000` / `<0x2000` low-speed damping
-and zeroes components below `0x10`. The native
-`apply_velocity_damping()` helper takes the five draws and that final gate as
-inputs; it does not invent the shared retail random stream.
+The live probe ties both directional action edges to the shared handoff, and the corrected static callsite analysis identifies the actual X/Y/Z argument order. The `+0x4c` field is now excluded as the direct steering vector by both its platform/collision producers and the runtime variation. The next target is the input-to-skater handoff that prepares the `0x0049f0e5` candidate arguments, while keeping the grounded state constant; the native `GameplaySession::observation()` and per-frame trigger-event delta are the comparison boundary for that work.
+The immediate method audit now shows that `0x0046d6e0` is only an analog/lean-field transfer, not that producer. Native `InputState` therefore retains the raw horizontal/vertical controller axes in both the current snapshot and four-frame history, but no acceleration or profile-field mapping is synthesized until the first retail writer is traced.
 
 ## Open questions / falsifiers
 
 - Use the stable callsites at `0x00498cf5`, `0x0049905c`, and `0x0049917b` as software-breakpoint targets when the WineDbg proxy refuses to stop at the shared callee entry.
 - Trace the values feeding `0x0049917b` across a longer Left hold and compare them with the action-state record at `0x0056b078`.
-- Inspect the argument setup immediately before `0x0049f0e5` when validating
-  the target/acceleration result against a same-state replay.
-- Compare a delayed Right injection against the Left handoff using the same
-  `0x00493370` probe; retain the raw target values before assigning axes or
-  signs.
-- Follow the animation/heading side effects through `0x00492f20`, then recover
-  the orientation-dependent acceleration preparation at `0x0049b010`.
-- Use a runtime rail/wallride/plant capture to independently confirm the
-  cross-build semantic labels; the current controlled traces only directly
-  observe grounded, airborne, and collision-transient raw values.
 - Inspect the input-state writer around `0x00489966`/`0x0048996a` and the argument setup immediately before `0x0049f0e5` while replaying the two ground phases.
-- Correlate the target/steering writes at `0x00493370` with the later `0x0049f0e5` arguments across stable grounded Left/Right phases.
-- Repeat the corrected same-state ground comparison with the skater's facing direction if an axis-level world-space mapping is required; the input producer and raw dispatcher callers are already identified.
-- Capture rail, wallride/contact, footplant, and handplant transitions if their runtime frequency or face-bit predicates are needed; their raw handler mapping is fixed statically.
+- `0x00489a10 -> 0x00489930` is now a closed input-profile materialization boundary: the sixteen raw slots and `+0x148/+0x149` analog thresholds are reproduced by native `ActionProfileState`. Trace those materialized profile/controller values into the gameplay/skater update and identify the first writer of persistent horizontal velocity/response before `0x0049f0e5`; the action-record counters themselves are not that writer.
+- At the start of `0x00496550`, watch the candidate vector and the words read by the `0x004cac30`/`0x004cacd0`/`0x004cabb0` chain; compare them with the player-relative words changed between `0x0046d6e0` and the dispatcher. The useful hit is the first persistent motion source, not the later `0x00496060` commit.
+- Trace writes to `player + 0x2ccc + 0x80/+0x90` and `+0x148/+0x149` from the action/profile update before `0x0046d6e0`; these are more promising than `0x0046d6e0` itself.
+- Decompile/trace the argument setup at each grounded `0x0049f0e5` call after the profile writer is known; compare it against facing basis `+0x30f4/+0x3100` before assigning the horizontal X/Z change to steering.
+- Run a fresh same-state ground comparison only after that producer is identified; use the corrected X/Z arguments and the skater's facing direction to validate the mapping.
+- Confirm which dispatcher case corresponds to stationary ground, rolling, airborne, and rail states.
 - Do not assign final names to the object vectors until repeated runtime observations support them.

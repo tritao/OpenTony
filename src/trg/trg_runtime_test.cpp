@@ -280,6 +280,41 @@ void test_conditional_skip_consumes_music_and_sound_operands() {
     assert(recorder.diagnostics.empty());
 }
 
+void test_conditional_skip_consumes_a7_pair() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0094);
+    u16(stream, 0); // pulse count deliberately does not match the pair
+    u16(stream, 0x00a7);
+    u16(stream, 0x0123);
+    u16(stream, 0x0045);
+    u16(stream, 0x00ae);
+    u16(stream, 0x0067);
+    u16(stream, 0x0089);
+    u16(stream, 0x00c8);
+    u16(stream, 0x00ab);
+    u16(stream, 0x00cd);
+    u16(stream, 0x00ca);
+    u16(stream, 0x00ef);
+    u16(stream, 0x0012);
+    u16(stream, 0x0095);
+    u16(stream, 0x00a6);
+    u16(stream, 9);
+    u16(stream, 0xffff);
+
+    const std::array<std::uint16_t, 0> links{};
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node(links, 0, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+    const std::vector<std::pair<std::uint16_t, std::uint16_t>> expected_globals{
+        {0x00a6, 9}};
+    assert(recorder.global_words == expected_globals);
+    assert(recorder.diagnostics.empty());
+}
+
 void test_restart_selection_and_checksum_lookup() {
     std::vector<std::byte> autoexec;
     u16(autoexec, 4);
@@ -544,6 +579,7 @@ int main() {
     test_c9_alignment_and_gap_dispatch();
     test_initial_pulses_and_timer();
     test_conditional_skip_consumes_music_and_sound_operands();
+    test_conditional_skip_consumes_a7_pair();
     test_restart_selection_and_checksum_lookup();
     test_two_player_restart_selection_command();
     test_kill_bruce_applies_linked_restart();

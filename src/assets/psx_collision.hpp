@@ -39,6 +39,25 @@ struct PsxCollisionQueryOptions {
     bool include_trigger_faces{false};
 };
 
+// Inputs used by the retail startup code around FUN_004660b0 when it builds
+// DAT_00567a60/DAT_00567a68. The offsets are deliberately retained because
+// their gameplay meanings are not proven yet.
+struct RetailCollisionFilterInputs {
+    bool dat_00567c84{};
+    bool dat_00567c7c{};
+    bool dat_00567c78{};
+    bool dat_00567c74{};
+    bool dat_00567c80{};
+};
+
+// Builds the exact face-word portion of the retail query policy. Trigger-face
+// inclusion is not folded into this helper: retail decides it from a separate
+// per-query object field, represented by PsxCollisionQueryOptions' caller-owned
+// `include_trigger_faces` flag.
+[[nodiscard]] PsxCollisionQueryOptions make_retail_collision_query_options(
+    RetailCollisionFilterInputs inputs,
+    bool apply_retail_plane_test = false) noexcept;
+
 [[nodiscard]] bool accepts_retail_collision_face(
     std::uint32_t raw_collision_word,
     const PsxCollisionQueryOptions& options) noexcept;

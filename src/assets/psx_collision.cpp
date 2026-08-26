@@ -115,6 +115,39 @@ constexpr double kEpsilon = 1.0e-9;
 
 } // namespace
 
+PsxCollisionQueryOptions make_retail_collision_query_options(
+    RetailCollisionFilterInputs inputs,
+    bool apply_retail_plane_test) noexcept {
+    PsxCollisionQueryOptions options{};
+    options.apply_retail_face_filter = true;
+    options.apply_retail_plane_test = apply_retail_plane_test;
+
+    // FUN_004660b0 initializes DAT_00567a60 to zero, conditionally assigns
+    // 0x400000, toggles that bit, and toggles 0x200000 when DAT_00567c78 is
+    // clear. Preserve that order rather than assigning semantic names to the
+    // flags before their producers are recovered.
+    if (inputs.dat_00567c84) {
+        options.reject_mask = 0x00400000U;
+    }
+    if (inputs.dat_00567c7c) {
+        options.reject_mask ^= 0x00400000U;
+    }
+    if (!inputs.dat_00567c78) {
+        options.reject_mask ^= 0x00200000U;
+    }
+
+    // The retail OR-mask starts at all ones. A clear bit in this value is a
+    // required set bit in the packed source face word.
+    options.accept_mask = 0xffffffffU;
+    if (inputs.dat_00567c74) {
+        options.accept_mask = 0xffefffffU;
+    }
+    if (inputs.dat_00567c80) {
+        options.accept_mask ^= 0x00020000U;
+    }
+    return options;
+}
+
 PsxCollisionMaskView decode_collision_mask(
     std::uint32_t raw_collision_word,
     std::uint16_t face_flags) noexcept {

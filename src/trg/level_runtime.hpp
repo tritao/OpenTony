@@ -27,6 +27,9 @@ struct LevelResourceBinding {
     TriggerResourceRequest request;
     std::string asset_path;
     bool asset_available{};
+    bool asset_loaded{};
+    std::size_t asset_object_count{};
+    std::size_t asset_model_count{};
 };
 
 // End-to-end, renderer-independent level runtime. This is the integration

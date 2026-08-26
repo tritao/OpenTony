@@ -3,6 +3,7 @@
 #include "trg_runtime.hpp"
 #include "gap_table.hpp"
 #include "../assets/psx_asset.hpp"
+#include "../assets/psx_catalog.hpp"
 
 #include <array>
 #include <cstddef>
@@ -27,6 +28,37 @@ enum class TriggerSpawnFamily : std::uint8_t {
     Object192,
     SpecialVehicle,
     Pickup,
+};
+
+// The retail factory inserts these object families into different intrusive
+// lists.  Keep the ownership boundary as a semantic value; the retail list
+// head addresses are process-local and are not useful native pointers.
+enum class TriggerFactoryList : std::uint8_t {
+    None,
+    CommonObject, // FUN_00403000 and FUN_00412640 -> 0x55f6bc
+    Object192,    // FUN_0049f250 -> 0x56af40
+    Pickup,       // FUN_004a7c50 -> 0x56b830
+};
+
+enum class TriggerSpecialRuntimeList : std::uint8_t {
+    None,
+    Type10Type11, // FUN_004aa8c0 -> DAT_0056b860
+    Type12Type14, // FUN_004bd760 -> DAT_0056db90
+};
+
+enum class TriggerSpecialAnimationMode : std::uint8_t {
+    Disabled,
+    PaletteTriangle, // FUN_004bdd00 when DAT_0056db8c != 0
+    CompactTriangle, // FUN_004bdd00's game-mode-8 branch
+};
+
+struct TriggerSpatialBounds {
+    // Coordinates are the Q12 values returned by FUN_004c8650.  The retail
+    // type-10/type-11 constructor expands these with the selected eligible
+    // alias target; larger geometry/update behavior remains separate.
+    std::array<std::int32_t, 3> minimum{};
+    std::array<std::int32_t, 3> maximum{};
+    bool valid{};
 };
 
 struct TriggerObjectState {
@@ -55,9 +87,44 @@ struct TriggerObjectState {
     bool factory_sets_object_flag_4{};
     TriggerObjectKind kind{TriggerObjectKind::Object};
     TriggerSpawnFamily spawn_family{TriggerSpawnFamily::Unknown};
+    // Factory allocation/vtable/list facts recovered at the runtime-object
+    // boundary. These are metadata for faithful recreation, not native heap
+    // layout claims.
+    std::uint32_t factory_allocation_size{};
+    std::uint32_t factory_vtable{};
+    TriggerFactoryList factory_list{TriggerFactoryList::None};
+    std::uint8_t factory_initial_activation_byte{};
+    bool has_factory_initial_activation_byte{};
     std::string factory_resource;
     std::uint32_t factory_model_selector{};
     bool has_factory_model_selector{};
+    // Type-5 pickup constructor selection. These fields correspond to the
+    // retail resource region and model-name lookup, not to a guessed render
+    // object or collision shape.
+    std::string pickup_resource;
+    std::uint32_t pickup_model_checksum{};
+    std::size_t pickup_model_index{CommandPointRuntime::npos};
+    bool pickup_model_resolved{};
+    // Confirmed powerup object lifecycle bytes from FUN_004a7c50 /
+    // FUN_004a8ac0. Motion remains raw because its frame/random producers are
+    // not yet owned by this service.
+    std::uint8_t pickup_visual_state_d1{};
+    std::uint8_t pickup_motion_state_d2{};
+    std::uint8_t pickup_motion_substate_d3{};
+    std::array<std::int16_t, 3> pickup_motion_words_14_18{};
+    std::array<std::int16_t, 3> pickup_motion_words_70_74{};
+    std::int32_t pickup_motion_speed_scale_q8{};
+    bool has_pickup_motion_inputs{};
+    // Explicit raw lifecycle inputs from FUN_004a7c50/FUN_004a8620. The
+    // constructor's producer for +0xf0 is not implied by a TRG subtype, so
+    // these stay opt-in until that caller is recovered.
+    std::uint16_t pickup_timer_f0{0xffff};
+    std::uint16_t pickup_phase_ea{0x0032};
+    std::uint16_t pickup_phase_ec{0x0032};
+    std::uint8_t pickup_global_fade_flags{};
+    bool has_pickup_lifecycle_inputs{};
+    bool pickup_glow_present{};
+    std::uint64_t pickup_update_calls{};
     std::uint32_t link_key{};
     // Type-10/type-11 runtime-list fields recovered from FUN_004aa8c0 and
     // FUN_004aa3c0.  The raw flag word is retained; state is the retail
@@ -66,6 +133,18 @@ struct TriggerObjectState {
     std::uint8_t trigger_state{};
     std::uint8_t trigger_mode{};
     bool has_trigger_runtime{};
+    std::vector<std::uint16_t> trigger_links;
+    std::vector<std::size_t> trigger_alias_nodes;
+    // FUN_004aa4b0 stores a 16-bit group index beside each eligible
+    // type-10/type-11 node. This is the semantic value written into the
+    // retail alias table, not a native pointer or a gameplay label.
+    std::uint16_t trigger_alias_group{};
+    bool has_trigger_alias_group{};
+    TriggerSpatialBounds trigger_bounds;
+    std::uint32_t special_runtime_allocation_size{};
+    std::uint32_t special_runtime_vtable{};
+    TriggerSpecialRuntimeList special_runtime_list{
+        TriggerSpecialRuntimeList::None};
     // Type-12/type-14 FUN_004bd760/FUN_004bdc40 record boundary. The native
     // state deliberately does not pretend to know the +0x14 asset pointer or
     // the player-owner byte yet.
@@ -74,12 +153,21 @@ struct TriggerObjectState {
     std::uint8_t special_runtime_owner{};
     std::uint32_t special_runtime_control{};
     bool has_special_runtime_context{};
+    // Raw node IDs traversed by FUN_004bdbd0 after the type-12/type-14
+    // record's live asset is resolved. The native policy layer consumes this
+    // list later; it is not folded into the link key.
+    std::vector<std::uint16_t> special_runtime_links;
     // FUN_004bdc40's verified writes to the resolved live asset. The native
     // model join still does not claim to be the retail heap pointer, so the
     // mutation is retained as a separate asset-side record.
     std::uint8_t special_asset_flags_or{};
     std::uint32_t special_asset_marker{};
     bool has_special_asset_state{};
+    // FUN_004bdd00 writes the live asset's +0x24 field. The mask is kept as
+    // an explicit input because retail derives it from the heap record's
+    // address; a native pointer must not be invented from a TRG node index.
+    std::uint32_t special_asset_palette_mask{};
+    bool has_special_asset_palette_mask{};
     std::size_t asset_model_index{CommandPointRuntime::npos};
     std::uint32_t asset_model_name{};
     std::size_t asset_scene_instance_count{};
@@ -281,11 +369,39 @@ public:
     // the stable model identity and leaves instance selection to the scene
     // layer.
     void bind_psx_models(const assets::PsxArchive& archive);
+    void resolve_pickup_assets(const assets::PsxAssetCatalog& catalog);
     void set_special_runtime_context(
         std::uint8_t owner,
         std::uint32_t control) noexcept {
         special_runtime_context_ = TriggerSpecialRuntimeContext{owner, control, true};
     }
+    void set_special_runtime_animation_mode(
+        TriggerSpecialAnimationMode mode) noexcept {
+        special_runtime_animation_mode_ = mode;
+    }
+    // FUN_004bdbd0's linked traversal is gated by DAT_00533f38 == 8. Keep
+    // the mode as an explicit level-service input instead of inferring it
+    // from a TRG node or from the animation branch.
+    void set_special_runtime_game_mode(std::uint32_t mode) noexcept {
+        special_runtime_game_mode_ = mode;
+    }
+    void set_special_alias_mode_mask(std::uint32_t mask) noexcept {
+        special_alias_mode_mask_ = mask;
+    }
+    void set_special_runtime_palette_mask(
+        std::size_t node,
+        std::uint32_t mask);
+    void set_pickup_motion_inputs(
+        std::size_t node,
+        std::array<std::int16_t, 3> words_14_18,
+        std::array<std::int16_t, 3> words_70_74,
+        std::int32_t speed_scale_q8 = 0x100);
+    void set_pickup_lifecycle_inputs(
+        std::size_t node,
+        std::uint16_t timer_f0,
+        std::uint16_t phase_ea = 0x0032,
+        std::uint16_t phase_ec = 0x0032,
+        std::uint8_t global_fade_flags = 0);
     void mark_gap_complete(std::uint32_t checksum);
     void mark_goal_complete(std::uint16_t goal, bool complete = true);
     void advance_time(std::uint32_t milliseconds);
@@ -331,6 +447,17 @@ public:
     }
     [[nodiscard]] const TriggerSpecialRuntimeContext& special_runtime_context() const noexcept {
         return special_runtime_context_;
+    }
+    [[nodiscard]] TriggerSpecialAnimationMode special_runtime_animation_mode() const noexcept {
+        return special_runtime_animation_mode_;
+    }
+    [[nodiscard]] std::uint32_t special_runtime_game_mode() const noexcept {
+        return special_runtime_game_mode_;
+    }
+    // DAT_0056e320 is the retail clock after conversion from elapsed time to
+    // 60 Hz-style ticks. This is exposed for parity traces and tests.
+    [[nodiscard]] std::uint32_t special_runtime_clock() const noexcept {
+        return static_cast<std::uint32_t>((time_ms_ * 3U) / 50U);
     }
     [[nodiscard]] const std::vector<DispatcherFieldWrite>& dispatcher_field_writes() const noexcept {
         return dispatcher_field_writes_;
@@ -390,6 +517,16 @@ public:
         std::uint16_t type,
         std::uint16_t flags,
         std::array<std::int32_t, 3> position) override;
+    void on_special_node_links(
+        std::size_t node,
+        std::span<const std::uint16_t> links) override;
+    void on_special_node_aliases_complete() override;
+    void on_special_runtime_links(
+        std::size_t node,
+        std::uint16_t type,
+        std::span<const std::uint16_t> links) override;
+    [[nodiscard]] bool should_traverse_special_runtime_links(
+        std::size_t node) const override;
     void on_linked_node(
         std::size_t node,
         std::uint16_t type,
@@ -491,6 +628,10 @@ private:
     TriggerCurrentObjectFields current_object_fields_{};
     TriggerCurrentSkaterFields current_skater_fields_{};
     TriggerSpecialRuntimeContext special_runtime_context_{};
+    TriggerSpecialAnimationMode special_runtime_animation_mode_{
+        TriggerSpecialAnimationMode::Disabled};
+    std::uint32_t special_runtime_game_mode_{};
+    std::uint32_t special_alias_mode_mask_{};
     std::size_t selected_restart_{CommandPointRuntime::npos};
     std::size_t resource_flushes_{};
     std::size_t timer_reset_requests_{};

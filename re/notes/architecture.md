@@ -10,8 +10,14 @@ PRE/PSX bytes
     -> LevelRuntime (TRG + scene + collision + resource bindings)
     -> LevelFrameScheduler/FixedStepDriver (input history, tick ordering)
     -> player state/response
-    -> render snapshot -> camera/renderer/audio observers
+-> render snapshot -> camera/renderer/audio observers
 ```
+
+`LevelRenderSnapshot` carries the confirmed object/model submission data plus
+raw pickup visual, motion, and lifecycle words. It is still an observation
+boundary: camera transforms, texture upload, visibility/fog, animation
+sampling, and final presentation remain backend policy until their retail
+callers are identified.
 
 `src/trg/` owns script decoding and stateful gameplay-facing mutations.
 `src/assets/` owns file formats and asset-derived geometry. `src/runtime/`

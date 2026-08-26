@@ -5,10 +5,13 @@
 
 int main() {
     using opentony::runtime::q12_apply_yaw;
+    using opentony::runtime::q12_apply_ground_yaw;
     using opentony::runtime::q12_cross;
     using opentony::runtime::q12_identity_matrix;
     using opentony::runtime::q12_matrix_multiply;
     using opentony::runtime::q12_normalize;
+    using opentony::runtime::q12_rotate_ground_velocity;
+    using opentony::runtime::Q12Matrix3;
     using opentony::runtime::q12_transform_vector;
     using opentony::runtime::q12_yaw_matrix;
 
@@ -54,6 +57,25 @@ int main() {
         == opentony::runtime::FixedPosition({0x1000, 0, 0}));
     assert(q12_normalize({0, 0, 0})
         == opentony::runtime::FixedPosition({0x1000, 0, 0}));
+
+    // Warehouse ground-motion-final3 captured the ordinary state-0 turn
+    // writer with this saved pre-frame matrix, angle, and response vector.
+    // FUN_0049b500's param_3 response phase must reproduce the rotated vector
+    // before the next frame consumes it.
+    Q12Matrix3 saved_ground_matrix{};
+    saved_ground_matrix.at(0, 0) = -4096;
+    saved_ground_matrix.at(0, 2) = -6;
+    saved_ground_matrix.at(1, 1) = -4096;
+    saved_ground_matrix.at(2, 0) = 6;
+    saved_ground_matrix.at(2, 2) = -4096;
+    assert(q12_apply_ground_yaw(saved_ground_matrix, -8).at(0, 2) == 44);
+    assert(q12_apply_ground_yaw(saved_ground_matrix, -8).at(2, 0) == -45);
+    const auto rotated_ground_velocity = q12_rotate_ground_velocity(
+        {282, 0, 192408},
+        saved_ground_matrix,
+        -8);
+    assert(rotated_ground_velocity
+        == opentony::runtime::FixedPosition({-2066, 0, 192364}));
 
     std::cout << "Fixed matrix tests passed\n";
 }

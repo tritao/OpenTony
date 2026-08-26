@@ -66,8 +66,28 @@ struct RetailBasis final {
     const Q12Matrix3& current,
     std::int32_t angle12) noexcept;
 
-// Matches the arithmetic core of retail FUN_004e85a0: a row-major 3x3
-// signed-short matrix multiplied by a three-component fixed-point vector.
+// Grounded FUN_0049b500 uses the saved player matrix as the left operand and
+// the Y rotation as the right operand. Keep this convention separate from
+// q12_apply_yaw(), whose older generic callers use the opposite composition.
+[[nodiscard]] Q12Matrix3 q12_ground_yaw_matrix(
+    std::int32_t angle12) noexcept;
+
+[[nodiscard]] Q12Matrix3 q12_apply_ground_yaw(
+    const Q12Matrix3& current,
+    std::int32_t angle12) noexcept;
+
+// The param_3 != 0 phase of grounded FUN_0049b500. It transforms the live
+// response vector through the saved pre-frame matrix and restores its integer
+// speed metric after the Q12 matrix chain.
+[[nodiscard]] FixedPosition q12_rotate_ground_velocity(
+    const FixedPosition& velocity,
+    const Q12Matrix3& saved_old_matrix,
+    std::int32_t angle12,
+    std::int16_t offset12 = 0) noexcept;
+
+// Matches retail FUN_004e85a0: a row-major 3x3 signed-short matrix multiplied
+// by a three-component fixed-point vector through x87, with truncation toward
+// zero after the Q12 scale.
 [[nodiscard]] FixedPosition q12_transform_vector(
     const Q12Matrix3& matrix,
     const FixedPosition& vector) noexcept;

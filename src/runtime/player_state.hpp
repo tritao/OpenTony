@@ -43,6 +43,21 @@ struct PhysicsStateRequest {
         const PhysicsStateRequest&) = default;
 };
 
+// Raw skater fields written by the level-script dispatcher. The retail
+// opcodes 0xa3/0xb1 write the skater object at +0x3198/+0x319c. Their
+// consumer-owned meanings are not established yet, so keep the offset names
+// and presence bits at this boundary instead of assigning gameplay semantics.
+struct PlayerScriptSkaterFields final {
+    bool has_3198{};
+    std::uint32_t field_3198{};
+    bool has_319c{};
+    std::uint32_t field_319c{};
+
+    friend bool operator==(
+        const PlayerScriptSkaterFields&,
+        const PlayerScriptSkaterFields&) = default;
+};
+
 // Raw, renderer-independent player boundary recovered from the retail skater
 // object. The fields intentionally retain their fixed-point representation and
 // raw physics-state values until the state-specific producers are confirmed.
@@ -105,6 +120,18 @@ public:
     [[nodiscard]] std::int32_t ground_motion_threshold() const noexcept {
         return ground_motion_threshold_;
     }
+    [[nodiscard]] bool ground_motion_event_pending() const noexcept {
+        return ground_motion_event_pending_;
+    }
+    [[nodiscard]] std::uint32_t ground_motion_event_reason() const noexcept {
+        return ground_motion_event_reason_;
+    }
+    [[nodiscard]] std::uint32_t ground_motion_event_parameter() const noexcept {
+        return ground_motion_event_parameter_;
+    }
+    [[nodiscard]] std::int32_t ground_motion_animation_speed() const noexcept {
+        return ground_motion_animation_speed_;
+    }
     [[nodiscard]] std::int32_t ground_motion_speed_metric() const noexcept {
         return retail_vector_speed_metric(collision_response_);
     }
@@ -119,6 +146,9 @@ public:
     }
     [[nodiscard]] std::uint16_t restart_auxiliary_word() const noexcept {
         return restart_auxiliary_word_;
+    }
+    [[nodiscard]] const PlayerScriptSkaterFields& script_skater_fields() const noexcept {
+        return script_skater_fields_;
     }
     [[nodiscard]] std::int32_t frame_counter() const noexcept {
         return frame_counter_;
@@ -205,6 +235,10 @@ public:
         std::uint32_t auxiliary = 0,
         std::uint16_t auxiliary_word = 0) noexcept;
     void set_physics_state(std::int32_t state) noexcept { physics_state_ = state; }
+    void set_script_skater_fields(
+        const PlayerScriptSkaterFields& fields) noexcept {
+        script_skater_fields_ = fields;
+    }
     void set_ground_update_state(std::int32_t state) noexcept {
         ground_update_state_ = state;
     }
@@ -217,6 +251,9 @@ public:
     }
     void set_ground_motion_cooldown(std::int32_t value) noexcept {
         ground_motion_cooldown_ = value < 0 ? 0 : value;
+    }
+    void set_ground_motion_event_pending(bool value) noexcept {
+        ground_motion_event_pending_ = value;
     }
     void tick_ground_motion_cooldown() noexcept {
         if (physics_state_ == 0 && ground_motion_cooldown_ > 0) {
@@ -297,6 +334,12 @@ public:
         const InputState& input,
         GroundTurnConfig config = {}) noexcept;
 
+    // Completes the ordinary state-0 phase of FUN_0049b500 after the current
+    // frame's candidate position has been integrated. The saved orientation
+    // is captured by update_ground_turn(); the response update therefore
+    // affects the following frame's displacement, not this one.
+    void apply_ground_turn_velocity_phase() noexcept;
+
     // Executes the recovered temporary-correction writes from FUN_0049b010.
     // The caller supplies the profile/animation/stat gates that are still
     // stored in the retail skater object.
@@ -316,6 +359,7 @@ public:
     // vector before dispatching the per-state physics routine.
     void begin_physics_frame() noexcept {
         previous_position_ = position_;
+        ground_turn_saved_orientation_valid_ = false;
         ++frame_counter_;
     }
 
@@ -402,10 +446,21 @@ private:
     bool ground_turn_policy_changed_{};
     std::uint16_t animation_state_{};
     std::int16_t animation_frame_{};
-    std::int32_t ground_motion_threshold_{};
+    // FUN_0046c98c initializes skater +0x2dc8 before the first frame.
+    // Later FUN_0049e680 updates it from the shared RNG/stat service.
+    std::int32_t ground_motion_threshold_{0x2e9b6};
     std::int32_t ground_motion_cooldown_{};
+    // B010 +0x30a8/+0x30ac/+0x108 state. The event dispatcher itself is
+    // still outside PlayerState; retain the last reason for replay/evidence.
+    bool ground_motion_event_pending_{};
+    std::uint32_t ground_motion_event_reason_{};
+    std::uint32_t ground_motion_event_parameter_{};
+    std::int32_t ground_motion_animation_speed_{};
     Q12Matrix3 orientation_{q12_identity_matrix()};
     RetailBasis retail_basis_{retail_basis_from_matrix(orientation_)};
+    Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};
+    std::int32_t ground_turn_angle12_{};
+    bool ground_turn_saved_orientation_valid_{};
     QueuedMotionState queued_motion_{};
     ActionCommandRuntimeState action_command_state_{};
     RetailActionHistory action_history_{};
@@ -420,6 +475,7 @@ private:
     std::uint32_t restart_auxiliary_{};
     std::uint16_t restart_auxiliary_word_{};
     std::int32_t frame_counter_{};
+    PlayerScriptSkaterFields script_skater_fields_{};
 };
 
 } // namespace opentony::runtime

@@ -159,7 +159,7 @@ namespace {
     }
 }
 
-[[nodiscard]] bool is_three_word_opcode(std::uint16_t opcode) {
+[[nodiscard]] bool is_three_u16_operand_opcode(std::uint16_t opcode) {
     switch (opcode) {
     case 0x0082:
     case 0x0087:
@@ -168,6 +168,14 @@ namespace {
     case 0x0090:
     case 0x0091:
     case 0x0092:
+        return true;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] bool is_two_u16_operand_opcode(std::uint16_t opcode) {
+    switch (opcode) {
     case 0x00a7:
     case 0x00ae:
     case 0x00c8:
@@ -805,7 +813,12 @@ void CommandCursor::skip_operands(std::uint16_t opcode, std::size_t opcode_offse
         (void)read_string();
         return;
     }
-    if (is_three_word_opcode(opcode)) {
+    if (is_two_u16_operand_opcode(opcode)) {
+        (void)read_u16();
+        (void)read_u16();
+        return;
+    }
+    if (is_three_u16_operand_opcode(opcode)) {
         (void)read_u16_triplet();
         return;
     }
@@ -867,6 +880,7 @@ void TriggerRuntime::create_command_point(std::size_t node_index, std::span<cons
 }
 
 void TriggerRuntime::build() {
+    special_runtime_pulse_guard_ = false;
     command_points_.clear();
     command_point_by_node_.assign(file_.nodes().size(), CommandPointRuntime::npos);
     bucket_heads_.fill(CommandPointRuntime::npos);
@@ -963,6 +977,23 @@ void TriggerRuntime::build() {
             break;
         }
     }
+
+    // FUN_004aa8c0 resolves type-10/type-11 aliases only after the complete
+    // node pointer table exists. Feed the raw link lists in a second pass so
+    // the native service can resolve chains without depending on node order.
+    for (const NodeView& current : file_.nodes()) {
+        if (current.type == 10 || current.type == 11) {
+            const std::vector<std::uint16_t> links = file_.links(current.index);
+            services_.on_special_node_links(current.index, links);
+        } else if (current.type == 12 || current.type == 14) {
+            // FUN_004bdbd0 consumes this source record's links after it
+            // resolves the +0x04 key. Preserve them at the same runtime
+            // boundary instead of treating the key as the whole record.
+            const std::vector<std::uint16_t> links = file_.links(current.index);
+            services_.on_special_runtime_links(current.index, current.type, links);
+        }
+    }
+    services_.on_special_node_aliases_complete();
 }
 
 std::size_t TriggerRuntime::find_autoexec(bool two_player) const {
@@ -1043,6 +1074,32 @@ void TriggerRuntime::pulse_node(std::size_t node_index) {
         || current.type == 10 || current.type == 11
         || current.type == 12 || current.type == 14) {
         services_.on_node_pulse(node_index);
+        if ((current.type != 12 && current.type != 14)
+            || special_runtime_pulse_guard_
+            || !services_.should_traverse_special_runtime_links(node_index)) {
+            return;
+        }
+
+        // FUN_004bdbd0 sets DAT_0056db88 while it sends non-special linked
+        // nodes. A direct type-12/type-14 link calls the asset activation
+        // helper instead, so it must not recursively traverse that target's
+        // own link list.
+        const bool previous_guard = special_runtime_pulse_guard_;
+        special_runtime_pulse_guard_ = true;
+        try {
+            for (const std::uint16_t target : file_.links(node_index)) {
+                const NodeView& target_node = file_.node(target);
+                if (target_node.type == 12 || target_node.type == 14) {
+                    services_.on_node_pulse(target);
+                } else {
+                    pulse_node(target);
+                }
+            }
+        } catch (...) {
+            special_runtime_pulse_guard_ = previous_guard;
+            throw;
+        }
+        special_runtime_pulse_guard_ = previous_guard;
     }
 }
 

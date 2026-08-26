@@ -1,6 +1,7 @@
 #include "level_render_snapshot.hpp"
 #include "level_runtime.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <iostream>
@@ -30,59 +31,47 @@ int main() {
     const opentony::trg::LevelRenderSnapshot snapshot =
         opentony::trg::LevelRenderSnapshot::build(
             level.scene(),
-            level.scene_runtime(),
-            &level.powerups(),
-            level.item_runtime(),
-            level.medal_runtime());
+            level.scene_asset(),
+            level.asset_catalog());
 
     assert(snapshot.entities().size() == level.scene().entities().size());
-    assert(level.item_runtime() != nullptr);
-    std::size_t rendered_pickups = 0;
-    for (const auto& entity : snapshot.entities()) {
-        if (entity.kind != opentony::trg::LevelSceneEntityKind::Pickup) {
-            continue;
-        }
-        ++rendered_pickups;
-        assert(entity.source_node != opentony::trg::CommandPointRuntime::npos);
-        if (entity.model_index == opentony::trg::CommandPointRuntime::npos) {
-            assert(entity.first_face == opentony::trg::CommandPointRuntime::npos);
-            assert(entity.face_count == 0);
-        } else {
-            assert(entity.first_face != opentony::trg::CommandPointRuntime::npos);
-            assert(entity.face_count > 0);
-        }
-    }
-    assert(rendered_pickups == level.powerups().records().size());
     std::size_t expected_faces = 0;
     for (const auto& entity : snapshot.entities()) {
-        if (entity.face_count == 0) {
-            assert(entity.first_face == opentony::trg::CommandPointRuntime::npos);
+        if (entity.psx_object_index == opentony::trg::CommandPointRuntime::npos) {
+            if (entity.kind == opentony::trg::LevelSceneEntityKind::Pickup
+                && !entity.model_resource.empty()) {
+                assert(entity.face_count > 0);
+                expected_faces += level.asset_catalog()->load(
+                    entity.model_resource).models()[entity.resource_model_index].faces.size();
+            } else {
+                assert(entity.face_count == 0);
+            }
             continue;
         }
         assert(entity.first_face != opentony::trg::CommandPointRuntime::npos);
-        expected_faces += entity.face_count;
+        expected_faces += level.scene_asset().models()[entity.model_index].faces.size();
     }
     assert(expected_faces == snapshot.faces().size());
     assert(!snapshot.faces().empty());
     assert(snapshot.faces()[0].vertex_count == 3
         || snapshot.faces()[0].vertex_count == 4);
-    std::size_t textured_faces = 0;
-    for (const auto& face : snapshot.faces()) {
-        if (!face.has_texture) {
-            assert(face.runtime_material_index
-                == opentony::trg::CommandPointRuntime::npos);
-            continue;
-        }
-        ++textured_faces;
-        assert(face.runtime_material_index
-            != opentony::trg::CommandPointRuntime::npos);
-        assert(face.material_checksum != 0);
-        if (face.object_index != opentony::trg::CommandPointRuntime::npos) {
-            assert(level.scene_runtime().materials().record(
-                face.runtime_material_index).checksum() == face.material_checksum);
-        }
-    }
-    assert(textured_faces > 0);
+
+    const auto* pickup_binding = level.scene().binding(17);
+    assert(pickup_binding != nullptr);
+    const auto* pickup_source = level.scene().entity(pickup_binding->entities.front());
+    assert(pickup_source != nullptr);
+    const auto pickup_render = std::find_if(
+        snapshot.entities().begin(),
+        snapshot.entities().end(),
+        [pickup_source](const opentony::trg::LevelRenderEntitySnapshot& entity) {
+            return entity.entity == pickup_source->entity;
+        });
+    assert(pickup_render != snapshot.entities().end());
+    assert(pickup_render->model_resource == "items");
+    assert(pickup_render->resource_model_index == 5);
+    assert(pickup_render->model_index == 5);
+    assert(pickup_render->face_count
+        == level.asset_catalog()->load("ITEMS").models()[5].faces.size());
 
     std::cout << "Level render snapshot tests passed\n";
 }

@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace opentony::camera {
@@ -54,6 +55,236 @@ struct Q12Vec4 {
 using TransformQ12 = Q12Vec4;
 using MatrixQ12 = std::array<std::int16_t, 9>;
 
+// Raw four-byte record emitted by the indexed/special 0x004d11d0 path at
+// 0x0057e888. The renderer evidence separates this path from the common model
+// transformer at 0x004d14d0; do not use these bytes as projected screen X/Y/Z.
+// The binary writes byte0/1/2 and leaves the fourth byte untouched.
+struct IndexedPacketByteRecordRaw {
+    std::uint8_t byte0{};
+    std::uint8_t byte1{};
+    std::uint8_t byte2{};
+    std::uint8_t untouched{};
+};
+
+// Compatibility name retained for the first camera probe fixtures. It is a
+// packet record, not a claim that 0x0057e888 stores ordinary vertex positions.
+using RasterVertexRecordRaw = IndexedPacketByteRecordRaw;
+
+static_assert(sizeof(RasterVertexRecordRaw) == 4);
+
+// Common model-path working record produced by 0x004d29e0 from
+// Render_SubmitPolygon 0x004d14d0. Keep the words as raw float bits so a
+// native renderer can preserve NaNs, clip flags, and auxiliary overrides
+// without a host-side reinterpretation at the camera boundary.
+struct TransformedVertexWorkingRecordRaw {
+    std::array<std::uint32_t, 7> words{};
+};
+
+static_assert(sizeof(TransformedVertexWorkingRecordRaw) == 7 * sizeof(std::uint32_t));
+
+// Model packet +0x1c supplies three signed shorts and one packed source word
+// every eight bytes. This is the input consumed by 0x004d29e0's ordinary
+// (source flags without bit 0x10) branch.
+struct PackedVertexRecordRaw {
+    std::int16_t x{};
+    std::int16_t y{};
+    std::int16_t z{};
+    std::uint16_t source_flags{};
+};
+
+static_assert(sizeof(PackedVertexRecordRaw) == 8);
+
+// Runtime scratch consumed by the common vertex transform. The executable
+// stores the linear rows and bias as f32 values at 0x0056e84c and 0x0058f318,
+// then uses the center/depth constants at 0x005808a0..0x005808a8. Keeping
+// float bits here makes the f32 load/store boundaries explicit while avoiding
+// an accidental host reinterpretation of the raw PE32 record.
+struct CommonVertexTransformRaw {
+    std::array<std::uint32_t, 9> linear_bits{};
+    std::array<std::uint32_t, 3> bias_bits{};
+    std::uint32_t center_x_bits{};
+    std::uint32_t center_y_bits{};
+    std::uint32_t depth_scale_bits{};
+};
+
+// Inputs assembled by Render_SubmitPolygon 0x004d14d0 for the ordinary
+// source-flags-without-bit-0x10 vertex path. The object basis is the signed
+// short matrix copied through 0x00563a18. The view basis is the nine signed
+// shorts at the active view record +0x74. Relative translation is already in
+// the integer world-unit domain produced by the object traversal at
+// 0x0045f530; it is not another Q12 vector.
+struct CommonVertexTransformProducerInputRaw {
+    std::array<std::int16_t, 9> object_basis_q12{};
+    std::array<std::int16_t, 9> view_basis_q12{};
+    std::array<std::int32_t, 3> relative_translation{};
+    std::uint32_t state_flags{};
+};
+
+struct CommonVertexTransformProducerResultRaw {
+    CommonVertexTransformRaw transform{};
+    // 0x004d14d0 writes these only when state bit 0x40 is set. They feed the
+    // alternate perspective/clip branch but are retained here even though
+    // project_common_vertex models the ordinary branch.
+    std::array<std::uint32_t, 3> perspective_factor_bits{};
+};
+
+struct CommonVertexViewportEdgesRaw {
+    // These are the unsigned-short view-input fields in comparison order:
+    // input[2], input[0], input[3], input[1].
+    std::uint16_t left{};
+    std::uint16_t right{};
+    std::uint16_t top{};
+    std::uint16_t bottom{};
+};
+
+struct CommonVertexProjectionResultRaw {
+    TransformedVertexWorkingRecordRaw record{};
+    // The values written to the first three working words before perspective
+    // conversion. They are useful for diagnostics and are not extra retail
+    // record fields.
+    std::array<float, 3> pre_perspective{};
+};
+
+inline float f32_from_bits(std::uint32_t bits) {
+    float value{};
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+inline std::uint32_t f32_to_bits(float value) {
+    std::uint32_t bits{};
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+inline float store_f32_x87(long double value) {
+    // The retail code performs the linear operation in x87 precision, then
+    // stores the result to a float scratch word before perspective math.
+    return static_cast<float>(value);
+}
+
+inline CommonVertexTransformProducerResultRaw build_common_vertex_transform(
+    const CommonVertexTransformProducerInputRaw& input) {
+    CommonVertexTransformProducerResultRaw result;
+    constexpr long double q12_scale = 1.0L / 4096.0L;
+
+    for (std::size_t index = 0; index < 9; ++index) {
+        result.transform.linear_bits[index] = f32_to_bits(
+            store_f32_x87(static_cast<long double>(input.object_basis_q12[index])
+                          * q12_scale));
+    }
+
+    std::array<float, 9> view_basis{};
+    for (std::size_t index = 0; index < 9; ++index) {
+        view_basis[index] = store_f32_x87(
+            static_cast<long double>(input.view_basis_q12[index]) * q12_scale);
+    }
+
+    for (std::size_t row = 0; row < 3; ++row) {
+        long double value = 0.0L;
+        for (std::size_t column = 0; column < 3; ++column) {
+            value += static_cast<long double>(view_basis[row * 3 + column])
+                * static_cast<long double>(input.relative_translation[column]);
+        }
+        result.transform.bias_bits[row] = f32_to_bits(store_f32_x87(value));
+    }
+
+    if ((input.state_flags & 0x40U) != 0) {
+        result.perspective_factor_bits = {
+            f32_to_bits(-view_basis[1]),
+            f32_to_bits(-view_basis[4]),
+            f32_to_bits(-view_basis[7]),
+        };
+    }
+    return result;
+}
+
+inline std::uint32_t common_vertex_clip_flags(
+    float projected_x,
+    float projected_y,
+    float projected_z,
+    const CommonVertexViewportEdgesRaw& viewport,
+    std::uint32_t state_flags = 0,
+    float near_limit = 10.0f,
+    float far_limit = 20512000.0f) {
+    std::uint32_t flags = 0;
+    if (projected_x < static_cast<float>(viewport.left)) {
+        flags |= 0x01;
+    }
+    if (projected_x > static_cast<float>(viewport.right)) {
+        flags |= 0x02;
+    }
+    if (projected_y < static_cast<float>(viewport.top)) {
+        flags |= 0x04;
+    }
+    if (projected_y > static_cast<float>(viewport.bottom)) {
+        flags |= 0x08;
+    }
+    if (projected_z < near_limit) {
+        flags |= 0x10;
+    }
+    // 0x0057e884 bit 0x10 suppresses the far-depth test.
+    if ((state_flags & 0x10U) == 0 && projected_z >= far_limit) {
+        flags |= 0x20;
+    }
+    return flags;
+}
+
+// Reproduces the ordinary source-flags-without-bit-0x10 branch of
+// Render_TransformVertices 0x004d29e0. The three linear results are stored as
+// f32 values first. The second stage then computes reciprocal depth from the
+// stored Z and applies the screen center to the stored X/Y. The special source
+// flag branch and its auxiliary polygon pointer remain a separate renderer
+// path.
+inline CommonVertexProjectionResultRaw project_common_vertex(
+    const PackedVertexRecordRaw& source,
+    const CommonVertexTransformRaw& transform,
+    const CommonVertexViewportEdgesRaw& viewport,
+    std::uint32_t state_flags = 0,
+    float near_limit = 10.0f,
+    float far_limit = 20512000.0f) {
+    const long double x = source.x;
+    const long double y = source.y;
+    const long double z = source.z;
+    const std::array<long double, 3> input{x, y, z};
+
+    CommonVertexProjectionResultRaw result;
+    for (std::size_t row = 0; row < 3; ++row) {
+        long double value = f32_from_bits(transform.bias_bits[row]);
+        for (std::size_t column = 0; column < 3; ++column) {
+            value += static_cast<long double>(f32_from_bits(
+                transform.linear_bits[row * 3 + column])) * input[column];
+        }
+        result.pre_perspective[row] = store_f32_x87(value);
+    }
+
+    const float reciprocal_depth = store_f32_x87(
+        static_cast<long double>(f32_from_bits(transform.depth_scale_bits))
+        / result.pre_perspective[2]);
+    const float projected_x = store_f32_x87(
+        static_cast<long double>(reciprocal_depth)
+            * result.pre_perspective[0]
+        + f32_from_bits(transform.center_x_bits));
+    const float projected_y = store_f32_x87(
+        static_cast<long double>(reciprocal_depth)
+            * result.pre_perspective[1]
+        + f32_from_bits(transform.center_y_bits));
+
+    result.record.words = {
+        f32_to_bits(projected_x),
+        f32_to_bits(projected_y),
+        f32_to_bits(result.pre_perspective[2]),
+        f32_to_bits(reciprocal_depth),
+        static_cast<std::uint32_t>(
+            static_cast<std::int32_t>(source.source_flags)),
+        common_vertex_clip_flags(
+            projected_x, projected_y, result.pre_perspective[2], viewport,
+            state_flags, near_limit, far_limit),
+        0,
+    };
+    return result;
+}
+
 // Render_SetViewProjection receives a fourteen-short view-input record. The
 // projection formulas consume fields 0..9 and mutate 5, 7, 8, and 9; fields
 // 10..13 are still part of the live handoff and must be preserved for replay
@@ -74,6 +305,28 @@ struct ProjectionBasisQ12 {
 struct ViewportProjectionRaw {
     ViewportInputRaw viewport{};
     ProjectionBasisQ12 basis{};
+};
+
+// FUN_004e87f0's render-state payload. The caller owns the first word; the
+// helper writes the header at record+0x04 and the four following shorts at
+// +0x08..+0x0e.
+struct NormalizedViewportRecordRaw {
+    std::uint32_t caller_word{};
+    std::uint32_t header{0xe3000000U};
+    std::int16_t origin_x{};
+    std::int16_t origin_y{};
+    std::int16_t extent_x{};
+    std::int16_t extent_y{};
+};
+
+struct DisplayViewportNormalizationInputRaw {
+    // DAT_029da3a0 selects the live viewport rectangle when nonzero.
+    bool active_display_rect{};
+    std::uint32_t display_width{};  // DAT_029da394
+    std::uint32_t display_height{}; // DAT_029da398
+    // DAT_005620a0 / DAT_005620b8, used when the live rectangle is disabled.
+    std::int16_t default_extent_x{};
+    std::int16_t default_extent_y{};
 };
 
 // The binary stores +0x14, +0x16, +0x18 as three 16-bit angle fields. The
@@ -568,6 +821,71 @@ inline Q12Vec3 multiply_matrix_q12(
     };
 }
 
+struct ViewPreparationRecordsRaw {
+    // Render_SetViewProjection writes fifteen signed shorts to each of these
+    // two scratch records at 0x005620c0 and 0x005620e8.  They are five
+    // independent three-word products, not a conventional 4x4 matrix.
+    std::array<std::int16_t, 15> record_005620c0{};
+    std::array<std::int16_t, 15> record_005620e8{};
+};
+
+// Value-oriented camera/render handoff for the established normal view path.
+// Render_SetViewProjection 0x0045e8e0 receives the camera transform through
+// the active view record, builds the row-ordered matrix used by its five
+// Fixed_MatrixMultiplyQ12 calls, mutates the viewport record, and prepares the
+// two fifteen-short scratch records. The backend-facing view record is the
+// literal transpose made by 0x004f53e0. Keep both matrix orderings here so a
+// native renderer cannot accidentally feed the backend record back into the
+// preparation loop.
+struct CameraRenderPreparationInputRaw {
+    TransformQ12 camera_transform{};
+    ViewportInputRaw viewport{};
+    std::uint16_t state_selector{};
+    std::uint32_t scale_x{};
+    std::uint32_t scale_y{};
+};
+
+struct CameraRenderPreparationRaw {
+    MatrixQ12 row_ordered_matrix{};
+    MatrixQ12 backend_view_matrix{};
+    ViewportProjectionRaw viewport_projection{};
+    ViewPreparationRecordsRaw prepared_records{};
+};
+
+// Exact five-iteration handoff inside 0x0045e8e0.  The retail loop starts at
+// basis word 1, advances four words per iteration, and multiplies the two
+// cyclic three-word slices by the row-ordered view matrix.  Keeping the raw
+// basis indexing here makes the object-submission contract testable without
+// assigning the scratch arrays a graphics-API meaning.
+inline ViewPreparationRecordsRaw prepare_view_records_q12(
+    const MatrixQ12& view_matrix,
+    const ProjectionBasisQ12& basis) {
+    std::array<std::int16_t, 40> flat{};
+    for (std::size_t block = 0; block < basis.blocks.size(); ++block) {
+        for (std::size_t word = 0; word < basis.blocks[block].size(); ++word) {
+            flat[block * 8 + word] = basis.blocks[block][word];
+        }
+    }
+
+    ViewPreparationRecordsRaw records{};
+    for (std::size_t iteration = 0; iteration < 5; ++iteration) {
+        const std::size_t start = 1 + iteration * 4;
+        const std::array<Raw, 3> first_vector{
+            flat[start - 1], flat[start], flat[start + 1]};
+        const std::array<Raw, 3> second_vector{
+            flat[start + 11], flat[start + 12], flat[start + 13]};
+        const Q12Vec3 first = multiply_matrix_q12(view_matrix, first_vector);
+        const Q12Vec3 second = multiply_matrix_q12(view_matrix, second_vector);
+        records.record_005620e8[iteration * 3 + 0] = low_s16_raw(first.x);
+        records.record_005620e8[iteration * 3 + 1] = low_s16_raw(first.y);
+        records.record_005620e8[iteration * 3 + 2] = low_s16_raw(first.z);
+        records.record_005620c0[iteration * 3 + 0] = low_s16_raw(second.x);
+        records.record_005620c0[iteration * 3 + 1] = low_s16_raw(second.y);
+        records.record_005620c0[iteration * 3 + 2] = low_s16_raw(second.z);
+    }
+    return records;
+}
+
 // 0x004e85a0's row-ordered integer form. The binary performs each dot product
 // through x87, multiplies by 1/4096, and converts with the shared
 // round-toward-zero helper. This intentionally differs from
@@ -672,6 +990,62 @@ inline std::int32_t arithmetic_shift_right_one(std::int32_t value) {
 
 inline std::int16_t low_s16(std::uint32_t value) {
     return static_cast<std::int16_t>(static_cast<std::uint16_t>(value));
+}
+
+// Exact display-rectangle normalization at 0x0045e93e..0x0045e9d6. The
+// original uses zero-extended DIV after sign-extending each source short;
+// the low sixteen bits are then copied into the render record. Valid game
+// rectangles are positive, but keeping the register-width behavior here
+// avoids silently turning this into a float/normalized-device-coordinate API.
+inline bool normalize_viewport_record(
+    const ViewportInputRaw& viewport,
+    const DisplayViewportNormalizationInputRaw& config,
+    NormalizedViewportRecordRaw& out) {
+    if (config.display_width == 0 || config.display_height == 0) {
+        return false;
+    }
+
+    std::uint16_t source_x = 0;
+    std::uint16_t source_y = 0;
+    std::int16_t source_extent_x = config.default_extent_x;
+    std::int16_t source_extent_y = config.default_extent_y;
+    if (config.active_display_rect) {
+        source_x = viewport.words[2];
+        source_y = viewport.words[3];
+        source_extent_x = low_s16(
+            static_cast<std::uint32_t>(viewport.words[0]) - viewport.words[2]);
+        source_extent_y = low_s16(
+            static_cast<std::uint32_t>(viewport.words[1]) - viewport.words[3]);
+    }
+
+    const auto unsigned_divide = [](std::int32_t numerator,
+                                    std::uint32_t denominator) {
+        return static_cast<std::uint32_t>(numerator) / denominator;
+    };
+    out = {};
+    out.header = 0xe3000000U;
+    out.origin_x = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(static_cast<std::int16_t>(source_x)) << 9,
+        config.display_width));
+    out.origin_y = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(static_cast<std::int16_t>(source_y)) * 0xf0,
+        config.display_height));
+    out.extent_x = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(source_extent_x) << 9,
+        config.display_width));
+    out.extent_y = low_s16(unsigned_divide(
+        static_cast<std::int32_t>(source_extent_y) * 0xf0,
+        config.display_height));
+
+    // FUN_004e87f0 replaces zero extents with one so later raster operations
+    // never receive a zero-sized rectangle.
+    if (out.extent_x == 0) {
+        out.extent_x = 1;
+    }
+    if (out.extent_y == 0) {
+        out.extent_y = 1;
+    }
+    return true;
 }
 
 inline std::uint32_t viewport_extent_token(
@@ -816,6 +1190,32 @@ inline bool build_viewport_projection(
 
     out.viewport = input;
     out.basis = basis;
+    return true;
+}
+
+// Complete the pure camera-to-render preparation portion of
+// Render_SetViewProjection 0x0045e8e0. This intentionally stops before the
+// display-rectangle packet and backend state calls: it is the stable handoff
+// needed by a native renderer, while those later records remain a separate
+// raw contract. A false result preserves the original divide-by-zero failure
+// paths from viewport setup.
+inline bool prepare_camera_render_state_q12(
+    const CameraRenderPreparationInputRaw& input,
+    CameraRenderPreparationRaw& out) {
+    ViewportProjectionRaw viewport_projection{};
+    if (!build_viewport_projection(
+            input.viewport, input.state_selector, input.scale_x,
+            input.scale_y, viewport_projection)) {
+        return false;
+    }
+
+    const MatrixQ12 row_ordered_matrix =
+        transform_to_matrix_q12(input.camera_transform);
+    out.row_ordered_matrix = row_ordered_matrix;
+    out.backend_view_matrix = transpose_matrix_q12(row_ordered_matrix);
+    out.viewport_projection = viewport_projection;
+    out.prepared_records = prepare_view_records_q12(
+        row_ordered_matrix, viewport_projection.basis);
     return true;
 }
 

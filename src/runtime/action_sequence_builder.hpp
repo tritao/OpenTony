@@ -11,6 +11,17 @@
 
 namespace opentony::runtime {
 
+inline constexpr std::size_t kRetailDirectSelectionSlotCount = 0x2b;
+inline constexpr std::size_t kRetailMappedSelectionSlotCount = 5;
+
+template <std::size_t Size>
+[[nodiscard]] constexpr std::array<std::uint8_t, Size>
+retail_empty_resource_ids() noexcept {
+    std::array<std::uint8_t, Size> result{};
+    result.fill(0xff);
+    return result;
+}
+
 // FUN_004bb4f0 turns the section-5 source table into 0x28-byte heap records.
 // The native representation keeps only the fields consumed by
 // FUN_004bcf00/0x004bcdd0. `filter_flags` is the processed +0x24 field;
@@ -30,12 +41,25 @@ struct RetailActionResourceRecord final {
 // The two mapped arrays are intentionally separate: a resource ID selects a
 // source stream while its mapping index selects DAT_00540e30.
 struct RetailActionResourceSelection final {
-    std::array<std::uint8_t, 4> direct_resource_ids{
-        0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> mapped_resource_ids{
+    // FUN_004163? stores direct resource IDs in view bytes +0..+0x2a;
+    // FUN_004bcf00 indexes these by DAT_00540cb8 static-combo ordinal.
+    // The four calls made by FUN_004bcf00 are group filters, not the storage
+    // width of this selection array.
+    std::array<std::uint8_t, kRetailDirectSelectionSlotCount>
+        direct_resource_ids = retail_empty_resource_ids<
+            kRetailDirectSelectionSlotCount>();
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        mapped_resource_ids{
         0xff, 0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> mapped_mapping_indices{
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
+
+    // Equivalent to FUN_00416230. The direct index is a static-combo
+    // ordinal, and resource IDs are the bounded source-record byte IDs.
+    [[nodiscard]] bool update_direct_resource(
+        std::int32_t direct_index,
+        std::int32_t resource_id) noexcept;
 
     // Equivalent to FUN_00416340: return the mapping byte associated with a
     // mapped resource, or no value when the resource is not installed.
@@ -117,19 +141,22 @@ struct RetailActionSequenceBuilderInput final {
     std::span<const std::uint8_t> player_input_table{};
     std::span<const RetailActionResourceRecord> resources{};
 
-    // FUN_004bcc90 reads four resource IDs from the selection view's first
-    // four bytes (the normal slot supplies this view at +0xcc). 0xff means
-    // no resource for that static group. FUN_004bcdd0 reads the five mapped
-    // resource IDs at view-relative +0x2b and stops at 0xff.
-    std::array<std::uint8_t, 4> direct_resource_ids{
-        0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> mapped_resource_ids{
+    // FUN_004bcc90 indexes the 0x2b direct bytes by static-combo ordinal
+    // (the normal slot supplies this view at +0xcc). 0xff means no resource
+    // for that combo. FUN_004bcdd0 reads the five mapped resource IDs at
+    // view-relative +0x2b and stops at 0xff.
+    std::array<std::uint8_t, kRetailDirectSelectionSlotCount>
+        direct_resource_ids = retail_empty_resource_ids<
+            kRetailDirectSelectionSlotCount>();
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        mapped_resource_ids{
         0xff, 0xff, 0xff, 0xff, 0xff};
 
     // FUN_004bcdd0 reads the associated five mapping indices at view-relative
     // +0x30. They select entries in DAT_00540e30 independently of the
     // resource IDs.
-    std::array<std::uint8_t, 5> mapped_mapping_indices{
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
 
     // Materialize the three legacy input fields as the runtime selection
@@ -141,6 +168,18 @@ struct RetailActionSequenceBuilderInput final {
             mapped_mapping_indices};
     }
 };
+
+// Port of the selection-building half of FUN_004bbf00. It walks the selected
+// section-0 input table, resolves each trailing stream key through the
+// constructor records, and writes the direct static-combo or mapped
+// DAT_00540e30 selection pair. Source IDs outside the retail byte range are
+// rejected by the same bounded selection helpers. Unknown combinations are
+// skipped as retail does when their lookup returns -1.
+[[nodiscard]] std::optional<RetailActionResourceSelection>
+build_retail_action_resource_selection(
+    std::span<const std::uint8_t> player_input_table,
+    std::span<const RetailActionResourceRecord> resources,
+    std::size_t max_input_records = 256) noexcept;
 
 struct RetailActionSequenceBuildResult final {
     std::vector<std::uint8_t> table{};
@@ -159,11 +198,12 @@ parse_retail_action_resources(
     std::span<const std::uint8_t> source_table,
     std::size_t max_records = 4096) noexcept;
 
-// Exact variant used when the loaded TRICKS image is available. It walks each
-// record's direct image-relative stream, recovering FUN_004bb7e0's provisional
-// filter value from opcode 0x51 before applying FUN_004bba50's raw-flag
-// promotions. The two-argument overload above remains useful for fixtures
-// where only the database record fields are available.
+// Image-aware API retained for callers that already have the loaded image at
+// this boundary. The constructor's classification is derived from the final
+// action and the copied raw flags; the neighboring 0x51 stream metadata is
+// not the selection filter. The image is therefore not needed for this
+// bounded record conversion. The two-argument overload above remains useful
+// for fixtures where only the database record fields are available.
 [[nodiscard]] std::optional<std::vector<RetailActionResourceRecord>>
 parse_retail_action_resources(
     std::span<const std::uint8_t> source_table,
@@ -172,10 +212,10 @@ parse_retail_action_resources(
 
 // Bounded native port of the deterministic table work in FUN_004bcf00.
 // The output is the retail [length][actions...][stream-relative][flags]
-// table, terminated by a zero length. Player/resource selection is explicit
-// in the input because the selection-view bytes (normal slot +0xcc, mapped
-// fields at physical slot +0xf7/+0xfc) are populated by the skater setup
-// outside TRICKS.BIN.
+// table, terminated by a zero length. The builder receives the already
+// populated selection view; build_retail_action_resource_selection() supplies
+// the normal section-0/source-key population pass when an application does
+// not have captured live setup bytes.
 [[nodiscard]] std::optional<RetailActionSequenceBuildResult>
 build_retail_action_sequence_table(
     const RetailActionSequenceBuilderInput& input,

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace opentony::trg {
@@ -53,8 +54,25 @@ struct LevelRenderEntitySnapshot {
     bool alive{true};
     bool killed{};
     bool visible_commanded{};
+    std::uint8_t pickup_visual_state_d1{};
+    std::uint8_t pickup_motion_state_d2{};
+    std::uint8_t pickup_motion_substate_d3{};
+    std::array<std::int16_t, 3> pickup_motion_words_14_18{};
+    std::array<std::int16_t, 3> pickup_motion_words_70_74{};
+    bool has_pickup_motion_inputs{};
+    std::uint16_t pickup_timer_f0{0xffff};
+    std::uint16_t pickup_phase_ea{0x0032};
+    std::uint16_t pickup_phase_ec{0x0032};
+    std::uint8_t pickup_global_fade_flags{};
+    bool has_pickup_lifecycle_inputs{};
+    bool pickup_glow_present{};
+    std::uint64_t pickup_update_calls{};
     std::size_t first_face{CommandPointRuntime::npos};
     std::size_t face_count{};
+    // Alternate named PSX regions (currently ITEMS/SKMEDALS pickups) use a
+    // separate model namespace from the level archive.
+    std::string model_resource;
+    std::size_t resource_model_index{CommandPointRuntime::npos};
 };
 
 // Renderer-independent copy of the confirmed game-owned object/model
@@ -65,6 +83,10 @@ public:
     static LevelRenderSnapshot build(
         const LevelSceneRegistry& scene,
         const assets::PsxArchive& archive);
+    static LevelRenderSnapshot build(
+        const LevelSceneRegistry& scene,
+        const assets::PsxArchive& archive,
+        const assets::PsxAssetCatalog* catalog);
     static LevelRenderSnapshot build(
         const LevelSceneRegistry& scene,
         const assets::PsxRuntimeEnvironment& runtime);

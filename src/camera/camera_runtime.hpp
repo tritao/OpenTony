@@ -7,6 +7,19 @@
 
 namespace opentony::camera {
 
+struct CameraRuntimeUpdateInput final {
+    CameraTargetRaw target{};
+    CameraFollowInput follow{};
+    Q16Vec3 look_target_offset{};
+    CameraUpdateHooks hooks{};
+    CameraModeInputRaw mode{};
+    CameraMode25ProducerInputRaw mode25{};
+    CameraAlternateFollowInputRaw alternate_follow{};
+    CameraViewportParameterControlRaw viewport_control{};
+    CameraFramingInputControlRaw framing_control{};
+    CameraSmoothingProducerInputRaw smoothing_producer{};
+};
+
 class CameraRuntimeError final : public std::runtime_error {
 public:
     explicit CameraRuntimeError(const char* message)
@@ -19,9 +32,13 @@ public:
 // by the renderer.
 class CameraRuntime final {
 public:
+    CameraRuntime() noexcept { reset(); }
+
+    void reset() noexcept;
     void reset(const CameraTargetRaw& target, std::uint32_t mode = 1) noexcept;
 
     [[nodiscard]] bool configured() const noexcept { return configured_; }
+    [[nodiscard]] bool has_commit() const noexcept { return has_commit_; }
     [[nodiscard]] const CameraStateRaw& state() const noexcept { return state_; }
     [[nodiscard]] CameraStateRaw& state() noexcept { return state_; }
     [[nodiscard]] const CameraViewportCommitRaw& last_commit() const noexcept {
@@ -37,6 +54,8 @@ public:
     }
 
     [[nodiscard]] CameraViewportCommitRaw update(
+        const CameraRuntimeUpdateInput& input) noexcept;
+    [[nodiscard]] CameraViewportCommitRaw update(
         const CameraTargetRaw& target,
         const CameraFollowInput& follow_input,
         const Q16Vec3& look_target_offset = {},
@@ -49,6 +68,7 @@ private:
     CameraViewportCommitRaw last_commit_{};
     ViewportProjectionRaw viewport_projection_{};
     bool configured_{};
+    bool has_commit_{};
 };
 
 } // namespace opentony::camera

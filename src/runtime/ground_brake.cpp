@@ -1,5 +1,7 @@
 #include "ground_brake.hpp"
 
+#include "fixed_math.hpp"
+
 #include <algorithm>
 #include <limits>
 
@@ -26,30 +28,6 @@ namespace {
     const std::int64_t rounded =
         (magnitude + ((std::int64_t{1} << shift) - 1)) >> shift;
     return saturating_i32(-rounded);
-}
-
-[[nodiscard]] std::int32_t magnitude_q12(
-    const FixedPosition& response) noexcept {
-    const std::int64_t squared =
-        static_cast<std::int64_t>(response[0]) * response[0]
-        + static_cast<std::int64_t>(response[1]) * response[1]
-        + static_cast<std::int64_t>(response[2]) * response[2];
-    const std::uint64_t target = squared > 0
-        ? static_cast<std::uint64_t>(squared)
-        : 0;
-    std::uint64_t low = 0;
-    std::uint64_t high = std::min<std::uint64_t>(
-        target + 1,
-        static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U);
-    while (low + 1 < high) {
-        const std::uint64_t middle = low + (high - low) / 2;
-        if (middle <= target / middle) {
-            low = middle;
-        } else {
-            high = middle;
-        }
-    }
-    return saturating_i32(static_cast<std::int64_t>(low));
 }
 
 [[nodiscard]] std::int32_t speed_metric(
@@ -82,7 +60,7 @@ GroundBrakeResult GroundBrake::apply(
     result.response = input.response;
     result.magnitude_q12 = input.magnitude_q12 >= 0
         ? input.magnitude_q12
-        : magnitude_q12(result.response);
+        : retail_vector_magnitude_q12(result.response);
     result.speed_metric = speed_metric(result.magnitude_q12);
 
     // Retail: iVar8 = (-normal_y * 0x1000) >> 12; clamp to 0x300;
