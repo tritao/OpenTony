@@ -15,3 +15,7 @@ following leaves:
 The neighboring `0x004e8cd0` and `0x004e8d10` routines have been decompiled
 and split, but remain raw because VC6 chooses a different register sequence
 for the fixed-address stores and output pointers.
+
+The same checkpoint also tracks `0x004e9130` (zero return), `0x004e9140`
+(constant one return), and `0x004e9930` (empty `void` stub), each matching
+VC6 output including its alignment suffix.
