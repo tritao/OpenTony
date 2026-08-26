@@ -34,6 +34,9 @@ It is intentionally renderer-free and provides:
 - a retail-shaped `0..0x4000` collision hit parameter and signed-truncating
   contact-point reconstruction, plus `GameplayFrame` to connect input, TRG,
   and player physics in one deterministic headless iteration.
+- an explicit retail collision face-word query policy carrying the recovered
+  reject/accept masks, face-class gates, trigger-face override, and optional
+  oriented plane-crossing test into the PSX probe and `GameplaySession`.
 - the confirmed pure platform/bounce velocity producer for retail platform
   types 1--5, with discovery and presentation side effects left to callers.
 - the retail action-record bank, exact KICK charge/release latch path, ollie
@@ -43,8 +46,21 @@ It is intentionally renderer-free and provides:
   including explicit random/mode-table seams and low-speed quantization.
 - the grounded `0x0049df00` slope-dependent brake/stop producer and raw state-7
   transition, with surface/stat eligibility supplied by the caller; and
+- the non-animation `0x0049df00` ground-mode state machine, keeping the
+  dispatcher `+0x30c4` state separate from brake mode `+0x2df8`; and
 - the confirmed in-air Up/Down basis contribution to temporary motion
   correction, with the unresolved `+0x2dac` speed/stat source injected.
+- the bounded `TRICKS.BIN` archive view, direct image-relative stream resolver,
+  shipped 596/27-record source sequence-table views, generated
+  action-sequence reader, retail 32-entry action-history matcher, and
+  PlayerState-to-command dispatcher seam. The bounded native builder now
+  reproduces the ordinary/static/mapped table passes; direct/mapped runtime
+  resource IDs remain explicit inputs, with an explicit source-table fallback
+  for runtime bring-up.
+- `GameplaySessionConfig::tricks_path` can own that archive at the application
+  boundary and expose either the generated table or source-table fallback to
+  the frame, so a session trace can exercise real action history -> sequence
+  match -> stream dispatch without manually wiring asset lifetime.
 
 The native asset boundary also includes `src/assets/psx_asset.*`: it parses
 the fixed-point PSX scene object/model tables, model-name hashes, geometry,
@@ -82,6 +98,8 @@ To exercise the native loader against an extracted retail asset:
 build/native/opentony_trg_inspect /path/to/SKWARE_T.TRG
 # Optional scene/object and Warehouse checklist binding:
 build/native/opentony_trg_inspect /path/to/SKWARE_T.TRG /path/to/SKWARE.PSX --warehouse-gaps
+# Dispatch every type-6 stream in a corpus smoke test:
+build/native/opentony_trg_inspect /path/to/SKWARE_T.TRG --dispatch-all
 
 # Native PSX structure check:
 build/native/opentony_psx_inspect /path/to/SKWARE.PSX

@@ -10,6 +10,7 @@ add_library(opentony_assets STATIC
     src/assets/psx_asset.cpp
     src/assets/psx_catalog.cpp
     src/assets/psx_collision.cpp
+    src/assets/tricks_bin.cpp
 )
 target_compile_features(opentony_assets PUBLIC cxx_std_20)
 target_include_directories(opentony_assets PUBLIC src/assets)
@@ -38,11 +39,14 @@ add_library(opentony_runtime STATIC
     src/runtime/gameplay_frame.cpp
     src/runtime/gameplay_session.cpp
     src/runtime/ground_brake.cpp
+    src/runtime/ground_physics.cpp
     src/runtime/ground_motion.cpp
     src/runtime/ground_animation.cpp
     src/runtime/ground_motion_threshold.cpp
     src/runtime/ground_turn.cpp
     src/runtime/action_profile.cpp
+    src/runtime/action_sequence.cpp
+    src/runtime/action_sequence_builder.cpp
     src/runtime/input_state.cpp
     src/runtime/input_bindings.cpp
     src/runtime/level_frame.cpp
@@ -154,6 +158,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_ground_brake_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_ground_brake_test COMMAND opentony_ground_brake_test)
 
+    add_executable(opentony_ground_physics_test
+        src/runtime/ground_physics_test.cpp
+    )
+    target_link_libraries(opentony_ground_physics_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_ground_physics_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_ground_physics_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_ground_physics_test COMMAND opentony_ground_physics_test)
+
     add_executable(opentony_position_commit_test
         src/runtime/position_commit_test.cpp
     )
@@ -177,6 +189,22 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_action_commands_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_action_commands_test COMMAND opentony_action_commands_test)
     add_test(NAME opentony_player_state_test COMMAND opentony_player_state_test)
+
+    add_executable(opentony_action_sequence_test
+        src/runtime/action_sequence_test.cpp
+    )
+    target_link_libraries(opentony_action_sequence_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_action_sequence_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_action_sequence_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_action_sequence_test COMMAND opentony_action_sequence_test)
+
+    add_executable(opentony_action_sequence_builder_test
+        src/runtime/action_sequence_builder_test.cpp
+    )
+    target_link_libraries(opentony_action_sequence_builder_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_action_sequence_builder_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_action_sequence_builder_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_action_sequence_builder_test COMMAND opentony_action_sequence_builder_test)
 
     add_executable(opentony_ollie_test
         src/runtime/ollie_test.cpp
@@ -321,6 +349,21 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_psx_collision_test PRIVATE cxx_std_20)
     target_compile_options(opentony_psx_collision_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_psx_collision_test COMMAND opentony_psx_collision_test)
+
+    add_executable(opentony_tricks_bin_inspect
+        src/assets/tricks_bin_inspect.cpp
+    )
+    target_link_libraries(opentony_tricks_bin_inspect PRIVATE opentony_assets)
+    target_compile_features(opentony_tricks_bin_inspect PRIVATE cxx_std_20)
+    target_compile_options(opentony_tricks_bin_inspect PRIVATE -Wall -Wextra -Wpedantic)
+
+    add_executable(opentony_tricks_bin_test
+        src/assets/tricks_bin_test.cpp
+    )
+    target_link_libraries(opentony_tricks_bin_test PRIVATE opentony_assets)
+    target_compile_features(opentony_tricks_bin_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_tricks_bin_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_tricks_bin_test COMMAND opentony_tricks_bin_test)
 endif()
 
 add_executable(opentony_trg_inspect
