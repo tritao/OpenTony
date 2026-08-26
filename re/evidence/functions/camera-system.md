@@ -602,6 +602,14 @@ submission routine (`+0x04`, `+0x1a`, `+0x1f`, `+0x24`, and `+0x30`). It keeps
 the object/model ownership provisional until a gameplay run captures those
 records alongside `Render_World` and the present clock.
 
+A bounded `camera-actor` attempt armed `render_present`, the camera, view, and
+actor probes, but the synthetic frontend path stalled before level entry. Its
+trace contains zero accepted camera/view/actor observations and is therefore a
+negative experiment, not evidence that the actor path is bypassed. The valid
+Warehouse camera trace remains the source for camera-state parity; a future
+actor capture should reuse the already-proven level-entry/input sequence from
+the renderer sessions.
+
 The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
 
 ## Minimal faithful C++ contract
