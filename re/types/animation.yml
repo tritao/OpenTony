@@ -313,21 +313,24 @@ types:
       - offset: 0x0fa
         name: pingpong_range_start
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x0fc
         name: pingpong_range_end
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x0fe
         name: pingpong_time_origin
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x108
         name: playback_rate_fixed
         type: i32

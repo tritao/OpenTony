@@ -204,8 +204,10 @@ source pointer. It is therefore a source-stream boundary/offset field, not an
 additional frame-count byte.
 
 The update routine `0x00480950` advances the same object fields for forward,
-reverse, ping-pong, and held animation modes. `0x00480fa0` invokes the object's
-virtual update hooks after the animation-state update.
+reverse, ping-pong, and held animation modes. The bounded mode-3 clock phase,
+including signed remainder and equal-target behavior, is recorded in
+[animation-mode3-clock.md](animation-mode3-clock.md). `0x00480fa0` invokes the
+object's virtual update hooks after the animation-state update.
 
 The playback update also fixes several fields that are useful for a faithful
 object recreation. `0x00480730` initializes the selected range at `+0xf4` and

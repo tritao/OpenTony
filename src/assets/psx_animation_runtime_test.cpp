@@ -196,5 +196,19 @@ int main() {
     playback.set_pingpong_range(2, 4, 0);
     playback.advance(0x100, 2);
     assert(playback.current_frame() == 3);
+
+    // The range calculation keeps the signed IDIV remainder. A pre-origin
+    // clock is therefore one frame below the start, not one frame below the
+    // end after modulo normalization.
+    playback.advance(0x100, -2);
+    assert(playback.current_frame() == 1);
+
+    // Equal targets do not overwrite the ordinary accumulator in mode 3.
+    playback.start(4, 8, 0, 3);
+    playback.set_mode(3);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.set_pingpong_range(5, 5, 0);
+    playback.advance(0x100, 100);
+    assert(playback.current_frame() == 0);
     return 0;
 }

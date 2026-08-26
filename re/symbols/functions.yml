@@ -2579,6 +2579,7 @@ functions:
     evidence:
       - re/evidence/functions/animation-runtime.md
       - re/evidence/functions/animation.md
+      - re/evidence/functions/animation-mode3-clock.md
   - address: 0x00480fa0
     name: Animation_InvokeUpdateHooks
     gdb_aliases: [animation_dispatch]

@@ -377,7 +377,9 @@ void PsxAnimationPlaybackState::advance(
         const std::int32_t range = static_cast<std::int32_t>(
             s16(0x0fcU)) - s16(0x0faU);
         if (range == 0) {
-            set_accumulator(static_cast<std::int32_t>(s16(0x0faU)) << 16);
+            // The retail switch falls through to the common return here. It
+            // does not force the cursor to the range start when both targets
+            // are equal; the ordinary accumulator remains authoritative.
             break;
         }
         if (playback_rate_fixed() == 0) {
@@ -391,10 +393,10 @@ void PsxAnimationPlaybackState::advance(
         }
         std::int32_t phase = (animation_clock - s16(0x0feU)) / tick;
         const std::int32_t period = positive_range * 2;
+        // Keep the signed remainder produced by x86 IDIV. In particular, a
+        // clock before the captured origin is not wrapped into a positive
+        // phase by the retail implementation.
         phase %= period;
-        if (phase < 0) {
-            phase += period;
-        }
         if (phase > positive_range) {
             phase = period - phase;
         }

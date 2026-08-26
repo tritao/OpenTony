@@ -39,7 +39,7 @@ functions:
 
   - address: 0x00480950
     name: Animation_Advance
-    slice: animation-endpoint-transition
+    slice: animation-mode3-clock
     status: tested
     sources:
       - src/runtime/animation_cursor.hpp
@@ -53,7 +53,8 @@ functions:
       - re/evidence/functions/animation.md
       - re/evidence/functions/animation-runtime.md
       - re/evidence/functions/animation-endpoint-transition.md
-    notes: Standalone and offset-preserving native cursors cover the 16.16 update and the evidence-backed mode-0/2 endpoint transition; mode-4 setup, mode-3 setup, level-loop clock ownership, and pose callbacks remain separate.
+      - re/evidence/functions/animation-mode3-clock.md
+    notes: Standalone and offset-preserving native cursors cover the 16.16 update, mode-0/2 endpoint transition, and valid-rate mode-3 clock range; diagnostic side effects, zero-rate failure, mode-4 setup, level-loop clock ownership, and pose callbacks remain separate.
 
   - address: 0x0040f850
     name: Camera_Update

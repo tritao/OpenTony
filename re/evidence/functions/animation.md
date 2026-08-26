@@ -207,6 +207,14 @@ guaranteed decode.
 
 `0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. The dispatch table at `0x00480c18` is exact: mode `0` goes to the stop/clamp path at `0x00480a53`, mode `1` wraps at the selected frame count at `0x00480be5`, mode `2` has no post-advance endpoint rule, mode `3` uses the target/clock oscillator at `0x00480ae8`, and mode `4` uses the reverse/saved-endpoint path at `0x00480a92`. Modes `2` and `3` zero the ordinary frame delta before their special handling. This is the reproducible time/frame advancement path.
 
+The valid-rate mode-3 oscillator is now isolated in
+[animation-mode3-clock.md](animation-mode3-clock.md): it uses the integer
+quotient `0x20000 / mAnimSpeed`, retains the signed `IDIV` remainder when
+forming the period phase, and leaves the common accumulator unchanged when
+the two target frames are equal. Its positive-range return is an integer cycle
+quotient; its negative-range return packs that quotient and the resulting
+frame, as emitted by the retail branch.
+
 The per-skater rate is also mutable from the physics frame. `0x0049d8a0`,
 called from `0x0049e680` after the physics dispatcher when the normal physics
 path is active, counts recent movement/impulse records and writes
