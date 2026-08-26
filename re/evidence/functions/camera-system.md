@@ -494,6 +494,33 @@ short basis; and the final `0x004a9650` composition occurs before
 also captured by the runtime camera probe so the remaining producer-side
 scale can be compared directly.
 
+The recovered native fixture now exercises three independent raw cases: the
+canonical follow basis, a long-history saturating cross product, and a
+negative history value that distinguishes x86 arithmetic `SAR` from
+truncating division. A two-update fixture also verifies that history is
+advanced and the target transform is rebuilt before the startup current-copy
+stage consumes it. These checks are intentionally based on literal basis
+records rather than only comparing a helper to itself.
+
+### Post-smoothing camera position stage
+
+`Camera_SmoothAndValidate 0x0040e090` has a separate tail after transform
+smoothing. It converts the current four-word transform at `+0x444` through
+`0x004a9910`, calls `0x004e85a0` to transform a camera-local offset, and then
+writes:
+
+```text
+camera.position = camera.anchor_target + transformed_local_offset
+camera + 0x4c..0x54 = a second transformed effect vector
+```
+
+The position write is therefore not a direct tripod copy and must remain a
+distinct native stage. The local-offset producer, collision-dependent
+branches, and second effect vector are not yet promoted into the default C++
+contract; they should enter through an explicit position/effect hook until
+their gameplay inputs are captured. This is the main remaining normal-mode
+camera gap after the follow basis recovery.
+
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
 
