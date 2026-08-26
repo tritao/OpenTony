@@ -141,6 +141,17 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                     || projection.basis.blocks[0][7] != -0x10) {
                     return 9;
                 }
+                ViewportProjectionRaw odd_projection;
+                const ViewportInputRaw odd_viewport{{641, 480, 0, 0, 0x10, 0, 0x100, 0, 0, 0}};
+                if (!build_viewport_projection(odd_viewport, 0x33, 1, 0x1000, odd_projection)) {
+                    return 22;
+                }
+                // Retail uses extent * 0x800 for the edge numerator, while
+                // the divisor uses (extent & 0x1fffff) >> 1. For odd 641,
+                // that preserves the one-half-unit difference.
+                if (odd_projection.basis.blocks[1][2] != 4102) {
+                    return 23;
+                }
                 return 0;
             }
             """

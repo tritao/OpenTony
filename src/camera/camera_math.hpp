@@ -738,28 +738,31 @@ inline bool build_viewport_projection(
     const std::uint32_t x_numerator = wrap_u32(
         static_cast<std::uint64_t>(words[7]) * scale_x);
     const std::uint32_t extent_half = (extent & 0x1fffffU) >> 1;
-    const std::uint32_t x_shifted = wrap_u32(
-        static_cast<std::uint64_t>(extent_half) << 12);
+    // The divisor uses the masked half-extent, but the edge numerator keeps
+    // the original extent token and multiplies it by 0x800. These are equal
+    // for the common even viewport widths, but differ for odd or wrapped
+    // records and must remain separate PE32 expressions.
+    const std::uint32_t edge_token_q12 = wrap_u32(
+        static_cast<std::uint64_t>(extent) << 11);
     const std::uint32_t x_divisor = normalized_basis_divisor(
-        x_shifted >> 12, x_numerator >> 12);
+        extent_half, x_numerator >> 12);
     if (x_divisor == 0) {
         return false;
     }
     const std::uint32_t x_axis = x_numerator / x_divisor;
-    const std::uint32_t x_edge = x_shifted / x_divisor;
+    const std::uint32_t x_edge = edge_token_q12 / x_divisor;
     b = {0, low_s16(x_axis), low_s16(x_edge), 0,
          0, low_s16(0U - x_axis), low_s16(x_edge), 0};
 
     const std::uint32_t y_numerator = wrap_u32(
         static_cast<std::uint64_t>(words[7]) * scale_y);
-    const std::uint32_t y_shifted = x_shifted;
     const std::uint32_t y_divisor = normalized_basis_divisor(
-        y_shifted >> 12, y_numerator >> 12);
+        extent_half, y_numerator >> 12);
     if (y_divisor == 0) {
         return false;
     }
     const std::uint32_t y_axis = y_numerator / y_divisor;
-    const std::uint32_t y_edge = y_shifted / y_divisor;
+    const std::uint32_t y_edge = edge_token_q12 / y_divisor;
     c = {low_s16(y_axis), 0, low_s16(y_edge), 0,
          low_s16(0U - y_axis), 0, low_s16(y_edge), 0};
 

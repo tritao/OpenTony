@@ -4,7 +4,7 @@ Status: camera update ownership, fixed-point camera math, shake composition, and
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime capture: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), and `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff)
 
 ## Result
 
@@ -58,6 +58,25 @@ Runtime validation from separate headless runs:
 - The Flip hit count is the displayed-frame boundary for this build. `0x004f7ce0` is only a Windows message-pump/timing sampling point and must not be used as the renderer frame clock.
 
 Confidence: confirmed as the game-owned present boundary for the recorded DirectDraw build.
+
+The present-clock relationship was also checked with the camera worktree's
+structured trace. `tony-frame-clock render_present` used `0x004d0ca4` as the
+clock, then a Warehouse run recorded 1,000 accepted `Camera_Update` hits at
+`0x0040f850`. The first clock value in that level segment had 11 startup
+camera calls; after those calls, every subsequent clock step had exactly one
+camera update. The accepted camera records were all level `12`, mode `1`, and
+`camera + 0x510` advanced from `0` through `999`. A separate 500-hit effect
+capture at `0x0040c370` covered the same level segment and retained the same
+camera/update ordering. This is stronger evidence for using the Flip boundary
+as the native frame clock than the message-pump sampler: the first 11 camera
+calls are startup work, while the settled path is one camera update per
+present-clock step.
+
+Evidence files: `build/debug/camera-present-validation2.jsonl`, with 1,000
+camera records and 500 effect-boundary records; the capture was intentionally
+bounded after the observations were collected. The first-frame multiplicity
+is therefore characterized rather than hidden: frame `4300` contains the 11
+startup camera calls, and frames `4301..5289` contain one camera record each.
 
 Possible falsifier: a different display mode or a future backend may bypass this DirectDraw surface; in that case the replacement must still be the last game-owned call immediately before the backend’s actual present operation.
 
@@ -777,6 +796,38 @@ Possible falsifier: a mode-21/22/23 or split-screen trace that reaches
 `0x004e85a0` through another caller and uses a different vector layout; those
 callers should be probed separately before making the hook inputs universal.
 
+### Live view/projection and actor handoff validation
+
+The previously static handoff is now covered by a live Warehouse capture.
+`camera-render-handoff.jsonl` recorded 3,500 accepted calls to
+`Render_SetViewProjection 0x0045e8e0`. The world-render caller at
+`0x00467d0c` contributed 2,771 of them over frame-clock values `2214..4984`;
+those records contained camera `0x05f40ac8`, view input `0x00533fa8`, and the
+active viewport record `0x0055f7c8`. The view input had the expected
+`640x480` rectangle, depth `30000`, vertical scale `3413`, and camera viewport
+word `12`. The camera angle and look-target fields were readable at this
+callsite, so this is a live camera-to-view setup observation rather than a
+menu-only hit.
+
+The same capture recorded 3,500 accepted calls to
+`Render_SubmitActor 0x0045f530`. The five world-traversal callsites
+`0x00467d52`, `0x00467d64`, `0x00467e6f`, `0x004681e8`, and `0x004681f4`
+each produced roughly 554/555 observations over frames `2214..2768`.
+Critically, the `0x00467e6f` path passed the live player pointer
+`0x05f39530` on 554 observations; its submission record had stable raw type
+and flag fields while the camera/view state continued to update. This
+promotes the player submission path from static inference to a measured
+world-render boundary. The other four pointers are scene/object candidates;
+their runtime ownership remains provisional.
+
+The capture also separates frontend and level rendering: menu callers
+`0x004a476d`/`0x0045a660` occur at earlier frame ranges, while the
+`0x00467d0c` view callsite and the five `0x00467xxx` actor callers occur in
+the level segment. The remaining uncertainty is the exact matrix
+row/column/handedness convention after `Render_SetViewProjection`; the live
+handoff confirms consumption and ordering, not a conventional FOV or clip
+matrix name.
+
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
 
@@ -952,12 +1003,12 @@ records, and the renderer later presents. It is not a claim that
 `0x004d11d0` is the final hardware draw call.
 
 `Render_SubmitActor 0x0045f530` has static callers in `Render_World
-0x00467c90` and the neighboring render-stage branches. The current successful
-runtime capture stopped at the camera/view boundary and did not separately
-count this helper; its promotion is therefore static/inferred, not a claim of
-a measured per-frame hit rate. The falsifier would be a runtime path that
-submits the active actor through another game-owned entry without passing
-through this function.
+0x00467c90` and the neighboring render-stage branches. The focused
+`camera-render-handoff` capture now separately counted this helper in the
+live level path; the five `0x00467xxx` callers above account for the measured
+world traversal. The exact object-list ownership remains provisional, and the
+falsifier would be a runtime path that submits the active actor through
+another game-owned entry without passing through this function.
 
 The targeted `tony-actor-probe` now records the stack argument entering this
 function, its raw object prefix, and the five fields visibly consumed by the
@@ -967,11 +1018,10 @@ records alongside `Render_World` and the present clock.
 
 A bounded `camera-actor` attempt armed `render_present`, the camera, view, and
 actor probes, but the synthetic frontend path stalled before level entry. Its
-trace contains zero accepted camera/view/actor observations and is therefore a
-negative experiment, not evidence that the actor path is bypassed. The valid
-Warehouse camera trace remains the source for camera-state parity; a future
-actor capture should reuse the already-proven level-entry/input sequence from
-the renderer sessions.
+trace contains zero accepted camera/view/actor observations and remains a
+negative experiment, not evidence that the actor path is bypassed. The later
+`camera-render-handoff` run reused the proven level-entry sequence and supplies
+the positive live world/object observations above.
 
 The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
 
@@ -1086,8 +1136,9 @@ The remaining engineering gates are therefore:
 3. **Scene/render handoff.** Bind runtime scene objects to asset-backed model
    instances, reproduce traversal/order and object visibility, and validate one
    actor and one static object from camera state through transformed vertices
-   to a backend draw packet. The current `Render_SubmitActor` promotion is
-   static/inferred until that object pointer is sampled live.
+   to a backend draw packet. The player `Render_SubmitActor` path is now
+   sampled live; exact object-list ownership and the downstream geometry
+   packet remain open.
 4. **Renderer fidelity.** Recover the exact matrix convention, viewport
    normalization, clipping/depth behavior, texture/palette conversion,
    material flags, transparency, draw ordering, and only then select a native
@@ -1107,12 +1158,21 @@ The remaining engineering gates are therefore:
    a confidence level, and a falsifier; screenshots alone cannot identify
    whether a mismatch came from timing, camera state, or rasterization.
 
-The next highest-value probe is a two-phase trace using `render_present` as the clock: stationary Warehouse, then controlled left/right camera movement. It should record only the camera fields above plus the viewport record and one object submission pointer. That will resolve the remaining scale/projection questions without expanding into the full DirectDraw backend.
+The next highest-value probe is now a two-phase trace using `render_present`
+as the clock: stationary Warehouse, then controlled left/right camera
+movement. The stationary phase has already validated camera-to-world
+consumption; the movement phase should isolate the remaining matrix
+row/column, scale, and projection questions without expanding into the full
+DirectDraw backend.
 
 ## Open questions and falsifiers
 
 - `0x0040f850` is recovered from a runtime vtable and raw disassembly, but Ghidra’s function table does not provide an ordinary function record for its exception-heavy prologue.
-- The raw `tony-view-probe` is implemented and unit-tested, but the two bounded headless retries in this pass did not reach level entry after synthetic frontend input; they produced no dynamic projection samples. Projection claims in this document are therefore static-only until a controlled level-entry run succeeds.
+- The raw `tony-view-probe` and `tony-actor-probe` are implemented and
+  unit-tested. `camera-render-handoff` reached level entry and produced live
+  view/object observations; projection claims are still raw fixed-point
+  records until a controlled movement/viewport experiment identifies the
+  final matrix convention and any zoom parameter.
 - `+0x40c` is a strong viewport/framing candidate; a run that changes camera zoom without changing it would falsify the current label.
 - The current Warehouse capture remained in mode `1`, so it does not identify all mode constants or cutscene behavior.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910` to establish renderer row/column and handedness.

@@ -766,7 +766,8 @@ class TonyFrameClock(gdb.Command):
             raise gdb.GdbError("usage: tony-frame-clock FUNCTION")
         frame_clock.reset()
         try:
-            breakpoint = FrameBreakpoint(values[0], internal=True)
+            breakpoint = FrameBreakpoint(
+                values[0], internal=True, writer=_trace_writer)
         except KeyError as exc:
             raise gdb.GdbError(f"unknown function {values[0]!r}; run tony-thps2") from exc
         _runtime_breakpoints.append(breakpoint)

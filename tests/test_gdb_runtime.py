@@ -55,7 +55,7 @@ from opentony.camera import (
     camera_position_transform_record,
     camera_record,
 )
-from opentony.frame import FrameClock
+from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
 from opentony.player import PlayerView
@@ -156,6 +156,34 @@ def test_counting_breakpoint_and_frame_clock_share_context_state():
     assert probe.hits == 2
     assert probe.remaining == 0
     assert probe.enabled is False
+
+
+def test_frame_breakpoint_can_record_the_present_boundary():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x400}), memory)
+    clock = FrameClock()
+
+    class Writer:
+        def __init__(self):
+            self.events = []
+
+        def event(self, record):
+            self.events.append(record)
+
+    writer = Writer()
+    breakpoint = FrameBreakpoint(
+        "camera_update", clock=clock, writer=writer, internal=True)
+    breakpoint.on_hit(context)
+
+    assert clock.value == 1
+    assert writer.events == [{
+        "type": "render_present",
+        "function": "camera_update",
+        "frame": 1,
+        "eip": "0x00000400",
+        "caller": "0x00000000",
+    }]
 
 
 def test_position_commit_probe_records_arguments_and_player_state():

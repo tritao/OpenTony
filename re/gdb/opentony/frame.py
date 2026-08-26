@@ -25,7 +25,18 @@ class FrameBreakpoint(FunctionBreakpoint):
 
     def __init__(self, function: str, **kwargs):
         self.clock = kwargs.pop("clock", frame_clock)
+        self.writer = kwargs.pop("writer", None)
         super().__init__(function, **kwargs)
 
     def on_hit(self, ctx: Context) -> None:
-        self.clock.tick()
+        frame = self.clock.tick()
+        if self.writer is not None:
+            self.writer.event(
+                {
+                    "type": "render_present",
+                    "function": self.function,
+                    "frame": frame,
+                    "eip": f"0x{ctx.eip:08x}",
+                    "caller": f"0x{ctx.caller():08x}",
+                }
+            )
