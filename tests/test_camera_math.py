@@ -19,6 +19,9 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
 
             int main() {
                 using namespace opentony::camera;
+                if (sizeof(RasterVertexRecordRaw) != 4) {
+                    return 30;
+                }
                 const auto angles = build_look_angles({0, 0, 0x10000}, {0, 0, 0});
                 if (angles.first != 0 || angles.second != 0x800 || angles.third != 0) {
                     return 1;

@@ -20,6 +20,7 @@ from .camera import (
     CameraPositionTransformProbe,
     CameraProbe,
     GeometrySubmissionProbe,
+    GeometryRasterReturnProbe,
     ViewProjectionProbe,
     ViewProjectionPerturbProbe,
 )
@@ -1018,8 +1019,13 @@ class TonyGeometrySubmissionProbe(gdb.Command):
             raise gdb.GdbError("COUNT must be positive")
         probe = GeometrySubmissionProbe(count, writer=_trace_writer)
         _runtime_breakpoints.append(probe)
+        raster_probe = GeometryRasterReturnProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(raster_probe)
         limit = "until disabled" if count is None else f"for {count} observations"
-        _write(f"geometry submission probe armed {limit} at 0x{probe.address:08x}")
+        _write(
+            f"geometry submission/raster probes armed {limit} at "
+            f"0x{probe.address:08x}/0x{raster_probe.address:08x}"
+        )
 
 
 class TonyPlayerDiff(gdb.Command):

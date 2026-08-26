@@ -54,6 +54,19 @@ struct Q12Vec4 {
 using TransformQ12 = Q12Vec4;
 using MatrixQ12 = std::array<std::int16_t, 9>;
 
+// Raw four-byte record emitted by the 0x004d11d0 raster conversion loop at
+// 0x0057e888. The binary writes channel0/1/2 and leaves the fourth byte
+// untouched in that loop. Keep the fields neutral until a stationary basis
+// object and clipping experiment establishes screen/depth semantics.
+struct RasterVertexRecordRaw {
+    std::uint8_t channel0{};
+    std::uint8_t channel1{};
+    std::uint8_t channel2{};
+    std::uint8_t untouched{};
+};
+
+static_assert(sizeof(RasterVertexRecordRaw) == 4);
+
 // Render_SetViewProjection receives a fourteen-short view-input record. The
 // projection formulas consume fields 0..9 and mutate 5, 7, 8, and 9; fields
 // 10..13 are still part of the live handoff and must be preserved for replay

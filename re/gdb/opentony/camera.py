@@ -18,6 +18,7 @@ PREPARED_VIEW_B = 0x005620E8
 VIEWPORT_POINTER = 0x005620E0
 GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
+GEOMETRY_RASTER_RETURN = 0x004D14C7
 CAMERA_COLLISION_QUERY = 0x00466090
 CAMERA_COLLISION_RESULT = 0x0040E790
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
@@ -528,6 +529,33 @@ def geometry_submission_record(ctx: Context) -> dict:
             if camera and memory.readable(camera + 0x40C, 4)
             else None
         ),
+    }
+
+
+def geometry_raster_return_record(ctx: Context) -> dict | None:
+    """Capture the fixed-point geometry routine's post-transform scratch.
+
+    The function at 0x004d11d0 converts the prepared integer geometry into
+    the raster-side byte records before returning at 0x004d14c7.  These are
+    raw records only: the camera contract should not name a screen/depth
+    convention until the per-vertex fields are correlated with clipping.
+    """
+
+    if ctx.eip != GEOMETRY_RASTER_RETURN:
+        return None
+    memory = ctx.memory
+    return {
+        "type": "geometry_raster_return",
+        "frame": ctx.frame,
+        "function": "Render_GeometryRasterTail",
+        "eip": f"0x{ctx.eip:08x}",
+        # 0x004d11d0 reads these globals as the transformed translation,
+        # prepared matrix, and fallback matrix/vertex scratch respectively.
+        "transform_scratch": _raw_block(memory, 0x006A3E48, 0x80),
+        "prepared_matrix_s16": _s16_array(memory, 0x006A3EC8, 9),
+        "geometry_matrix_s16": _s16_array(memory, GEOMETRY_SCRATCH, 12),
+        # The routine advances 4 bytes per submitted vertex at this global.
+        "raster_vertex_scratch": _raw_block(memory, 0x0057E888, 0x100),
     }
 
 
@@ -1087,6 +1115,29 @@ class GeometrySubmissionProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"geometry submission probe complete: {self.hits} observations\n")
+
+
+class GeometryRasterReturnProbe(CountingBreakpoint):
+    """Sample the post-transform raster scratch paired with geometry calls."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(GEOMETRY_RASTER_RETURN, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = geometry_raster_return_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"geometry raster probe complete: {self.hits} observations\n")
 
 
 class CameraPositionTransformProbe(CountingBreakpoint):

@@ -62,6 +62,7 @@ from opentony.camera import (
     ViewProjectionPerturbProbe,
     actor_submission_record,
     camera_position_transform_record,
+    geometry_raster_return_record,
     camera_record,
     geometry_submission_record,
 )
@@ -607,6 +608,52 @@ def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inp
     inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E705)
     ignored = camera_position_transform_record(context)
     assert ignored is None
+
+
+def test_geometry_raster_return_record_preserves_post_transform_scratch():
+    inferior = FakeInferior()
+    call_memory = Memory(inferior)
+
+    class SparseMemory:
+        def __init__(self):
+            self.data = {}
+
+        def put(self, address, data):
+            self.data.update(
+                (address + index, value) for index, value in enumerate(data)
+            )
+
+        def readable(self, address, size):
+            return all(address + index in self.data for index in range(size))
+
+        def bytes(self, address, size):
+            return bytes(self.data[address + index] for index in range(size))
+
+        def s16(self, address):
+            return struct.unpack("<h", self.bytes(address, 2))[0]
+
+        def u16(self, address):
+            return struct.unpack("<H", self.bytes(address, 2))[0]
+
+    memory = SparseMemory()
+    memory.put(0x006A3E48, bytes(range(0x80)))
+    memory.put(0x006A3EC8, struct.pack("<9h", *range(1, 10)))
+    memory.put(0x006A3E80, struct.pack("<12h", *range(-6, 6)))
+    memory.put(0x0057E888, bytes(range(0x100)))
+    context = Context(
+        CallContext(
+            call_memory,
+            registers={"esp": 0x100, "eip": 0x004D14C7},
+        ),
+        memory,
+    )
+
+    record = geometry_raster_return_record(context)
+
+    assert record["function"] == "Render_GeometryRasterTail"
+    assert record["prepared_matrix_s16"][0]["signed_s16"] == 1
+    assert record["geometry_matrix_s16"][0]["signed_s16"] == -6
+    assert record["raster_vertex_scratch"]["size"] == 0x100
 
 
 def test_actor_submission_record_keeps_object_prefix_raw():

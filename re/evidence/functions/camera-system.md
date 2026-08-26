@@ -4,7 +4,7 @@ Status: normal-mode input/player/camera/update ordering, fixed-point camera math
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), and `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), and `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture)
 
 ## Result
 
@@ -1471,6 +1471,49 @@ negative experiment, not evidence that the actor path is bypassed. The later
 the positive live world/object observations above.
 
 The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
+
+### Raster-tail boundary: `0x004d11d0` -> `0x004d14c7`
+
+The new post-transform probe samples the return tail of the game-owned
+geometry routine rather than treating its entry as a hardware draw call.
+Static disassembly shows the relevant boundary precisely:
+
+```text
+0x004d11d0
+    -> fixed-point transform and per-vertex conversion
+    -> 0x0057e888, four bytes per output record
+0x004d14c7  return-tail probe
+    -> 0x004d14d0 / backend-facing conversion path
+```
+
+The routine reads the transform scratch at `0x006a3e48`, the prepared matrix
+at `0x006a3ec8`, and the geometry scratch at `0x006a3e80`. The conversion path
+uses the raw `1/4096` constant at `0x00518910`; its three per-vertex values are
+clamped against the `1.0` constant at `0x00518d70`, multiplied by the raw
+`0.01` constant at `0x00519938`, converted with the shared x87
+round-toward-zero helper, and stored as three byte channels at offsets
+`+0`, `+1`, and `+2` of a four-byte record. The fourth byte is not written by
+this loop and was zero in every captured record. The safe native name is
+therefore `RasterVertexRecordRaw`, with channel semantics still deliberately
+unnamed.
+
+The bounded `camera-raster-live` run captured 100 active-level raster-tail
+returns on frames `2430..2435`. Each return had one same-frame geometry
+submission after deduplicating the two armed submission probes; the level
+path was Warehouse (`level 12`), player `0x05f39530`, and the stable caller
+of the geometry handoff was `0x0046192a`. The 100 records had three varying
+byte channels and an untouched fourth byte of zero. This confirms the raw
+post-transform record shape and its ordering relative to scene submission,
+but does not yet label the channels as screen X, screen Y, reciprocal depth,
+colour, or clipping flags.
+
+Promotion audit:
+
+| address | exact observed behavior | static/runtime evidence | confidence / falsifier |
+|---|---|---|---|
+| `0x004d11d0` | consumes prepared fixed-point geometry and emits four-byte raster-side records before returning | static constants/stores; 100 active-level returns paired with geometry submissions | high for boundary and raw record shape; a different caller path could use a different packet interpretation |
+| `0x004d14c7` | stable return-tail boundary after the per-vertex byte stores | breakpoint hit on all 100 active-level samples, same frame as the corresponding geometry path | high for tail placement; a compiler/backend variant could move the last game-owned conversion |
+| `0x0057e888` | four-byte-stride raster scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout | medium for semantic field labels; a stationary basis/clipping experiment is the falsifier |
 
 ## Minimal faithful C++ contract
 
