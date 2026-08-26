@@ -126,6 +126,49 @@ void check_wrapped_blockmap_bounds() {
     assert(query.hit_body == 0);
 }
 
+void check_blockmap_line_walk() {
+    auto bytes = synthetic_scene();
+    constexpr std::size_t tag_offset = 140;
+    constexpr std::size_t payload_offset = tag_offset + 8;
+    bytes.resize(payload_offset + 20 + 4 * 20 + 4, 0);
+    put_u32(bytes, tag_offset, 0x0000000a);
+    put_u32(bytes, payload_offset + 0x00, static_cast<std::uint32_t>(-8192));
+    put_u32(bytes, payload_offset + 0x04, static_cast<std::uint32_t>(-8192));
+    put_u32(bytes, payload_offset + 0x08, 8192);
+    put_u32(bytes, payload_offset + 0x0c, 8192);
+    put_u16(bytes, payload_offset + 0x10, 2);
+    put_u16(bytes, payload_offset + 0x12, 2);
+
+    std::size_t cell_offset = payload_offset + 20;
+    for (std::size_t cell = 0; cell < 4; ++cell) {
+        put_u32(bytes, cell_offset, 0);
+        put_u32(bytes, cell_offset + 4, 0);
+        const auto has_object = cell == 1;
+        put_u32(bytes, cell_offset + 8, has_object ? 1 : 0);
+        cell_offset += 12;
+        if (has_object) {
+            put_u32(bytes, cell_offset, 0);
+            cell_offset += 4;
+        }
+        put_u32(bytes, cell_offset, 0);
+        cell_offset += 4;
+    }
+    const auto payload_size = cell_offset - payload_offset;
+    put_u32(bytes, tag_offset + 4, static_cast<std::uint32_t>(payload_size));
+    bytes.resize(cell_offset + 4, 0);
+    put_u32(bytes, cell_offset, 0xffffffffu);
+
+    std::string error;
+    const auto scene = PsxScene::parse(bytes, &error);
+    assert(scene && error.empty());
+    assert(scene->blockmaps().size() == 1);
+    assert(scene->blockmaps()[0].cells.size() == 4);
+    assert(scene->blockmaps()[0].cells[1].object_indices.size() == 1);
+    const auto query = scene->query({4096, 4096, 4096},
+                                    {4096, 4096, -4096});
+    assert(query.hit_body == 1);
+}
+
 void check_synthetic_scene() {
     std::string error;
     const auto bytes = synthetic_scene();
@@ -367,6 +410,7 @@ void check_parseable_scene(const char* path) {
 int main(int argc, char** argv) {
     check_synthetic_scene();
     check_wrapped_blockmap_bounds();
+    check_blockmap_line_walk();
     if (argc == 2) {
         check_packaged_scene(argv[1]);
     } else if (argc > 2) {
