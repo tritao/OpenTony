@@ -436,6 +436,9 @@ struct CameraMode2Snapshot {
     bool anchors_equal{};
 };
 
+struct CameraSmoothingStageInputRaw;
+struct CameraSmoothingStageOutputRaw;
+
 struct CameraUpdateHooks {
     // Rebuild the anchor when the original calls the opaque vector/collision
     // chain instead of directly copying the tripod position.
@@ -456,6 +459,19 @@ struct CameraUpdateHooks {
     // while the caller owns this input boundary.
     void (*prepare_position_stage)(
         CameraStateRaw&, const CameraTargetRaw&, CameraPositionStageInput&){};
+
+    // Build the inputs consumed inside Camera_SmoothAndValidate before the
+    // orientation interpolation. The native update applies the returned
+    // base position/effect vector after the current transform is available.
+    void (*prepare_smoothing_stage)(
+        CameraStateRaw&, const CameraTargetRaw&, CameraSmoothingStageInputRaw&){};
+
+    // The special effect branch has an unresolved gameplay/collision producer.
+    // This callback observes the exact state-machine result and may commit
+    // its producer-owned transform/effect output without hiding it in the
+    // camera implementation.
+    void (*commit_smoothing_stage)(
+        CameraStateRaw&, const CameraSmoothingStageOutputRaw&){};
 
     // Global DAT_0056a8d4 in the retail update. Keep it configurable until
     // its producer is promoted from the runtime global set.
@@ -919,6 +935,26 @@ inline CameraViewportCommitRaw update_camera(
         }
     }
     camera.previous_transform = camera.current_transform;
+    CameraPositionStageInput smoothing_position_input;
+    bool have_smoothing_position = false;
+    if (hooks.prepare_smoothing_stage != nullptr) {
+        CameraSmoothingStageInputRaw smoothing_input;
+        hooks.prepare_smoothing_stage(camera, target, smoothing_input);
+        const auto smoothing_output = advance_camera_smoothing_stage(
+            smoothing_input);
+        camera.distance_history = smoothing_output.distance.history;
+        camera.distance_step_q4 = smoothing_output.distance.distance_step_q4;
+        camera.distance_q4 = smoothing_output.distance.distance_q4;
+        camera.effect_ramp_counter_a = smoothing_output.effect.counter_a;
+        camera.effect_ramp_counter_b = smoothing_output.effect.counter_b;
+        camera.effect_ramp_counter_c = smoothing_output.effect.counter_c;
+        camera.effect_ramp_counter_d = smoothing_output.effect.counter_d;
+        smoothing_position_input = smoothing_output.base_position;
+        have_smoothing_position = !smoothing_output.effect_result.special_branch;
+        if (hooks.commit_smoothing_stage != nullptr) {
+            hooks.commit_smoothing_stage(camera, smoothing_output);
+        }
+    }
     const bool startup_transform = camera.update_tick < 12;
     if (hooks.smooth_transform != nullptr) {
         hooks.smooth_transform(camera);
@@ -936,7 +972,9 @@ inline CameraViewportCommitRaw update_camera(
     if (startup_transform) {
         camera.previous_transform = camera.current_transform;
     }
-    if (hooks.prepare_position_stage != nullptr) {
+    if (have_smoothing_position) {
+        apply_position_stage(camera, smoothing_position_input);
+    } else if (hooks.prepare_position_stage != nullptr) {
         CameraPositionStageInput position_input;
         hooks.prepare_position_stage(camera, target, position_input);
         apply_position_stage(camera, position_input);

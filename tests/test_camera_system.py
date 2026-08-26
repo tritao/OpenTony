@@ -149,14 +149,27 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
             """
             #include "src/camera/camera_system.hpp"
 
-            void prepare_position(
-                opentony::camera::CameraStateRaw&,
-                const opentony::camera::CameraTargetRaw&,
-                opentony::camera::CameraPositionStageInput& input) {
+                void prepare_position(
+                    opentony::camera::CameraStateRaw&,
+                    const opentony::camera::CameraTargetRaw&,
+                    opentony::camera::CameraPositionStageInput& input) {
                 input.local_offset = {0x1000, 0x2000, 0x3000};
                 input.effect_vector = {0x4000, 0x5000, 0x6000};
-                input.valid = true;
-            }
+                    input.valid = true;
+                }
+
+                void prepare_smoothing(
+                    opentony::camera::CameraStateRaw&,
+                    const opentony::camera::CameraTargetRaw&,
+                    opentony::camera::CameraSmoothingStageInputRaw& input) {
+                    using namespace opentony::camera;
+                    input.distance.distance_q4 = 7;
+                    input.tripod_physics_state = 2;
+                    input.effect = {
+                        false, true, true, false, 2, 3,
+                        1, 0, 3, 0, 100};
+                    input.vertical_effect_q4 = -140;
+                }
 
             int main() {
                 using namespace opentony::camera;
@@ -244,15 +257,36 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                 stage_hooks.prepare_position_stage = prepare_position;
                 update_camera(positioned, {}, {}, {}, stage_hooks);
                 if (positioned.position.x != 0x12000
-                    || positioned.position.y != 0x23000
-                    || positioned.position.z != 0x31000
+                        || positioned.position.y != 0x23000
+                        || positioned.position.z != 0x31000
                     || positioned.screen_effect_offset.x != 0x5000
                     || positioned.screen_effect_offset.y != 0x6000
-                    || positioned.screen_effect_offset.z != 0x4000) {
-                    return 6;
-                }
+                        || positioned.screen_effect_offset.z != 0x4000) {
+                        return 6;
+                    }
 
-                const auto base_position = build_base_position_stage_input(
+                    CameraStateRaw staged;
+                    staged.mode = 1;
+                    staged.update_tick = 12;
+                    staged.current_transform = {0, 0, 0, 0x1000};
+                    staged.anchor_target = {0x10000, 0x20000, 0x30000};
+                    CameraUpdateHooks staged_hooks{};
+                    staged_hooks.apply_follow_transform =
+                        [](CameraStateRaw&, const CameraFollowSnapshot&) {};
+                    staged_hooks.prepare_smoothing_stage = prepare_smoothing;
+                    update_camera(staged, {}, {}, {}, staged_hooks);
+                    if (staged.distance_step_q4 != 0
+                        || staged.distance_q4 != 3
+                        || staged.position.x != 0x10000
+                        || staged.position.y != 0x1d000
+                        || staged.position.z != 0x30000
+                        || staged.screen_effect_offset.x != -140 * 0x1000
+                        || staged.screen_effect_offset.y != 0
+                        || staged.screen_effect_offset.z != 0) {
+                        return 23;
+                    }
+
+                    const auto base_position = build_base_position_stage_input(
                     {197, -140});
                 if (base_position.local_offset.x != 0
                     || base_position.local_offset.y != 0

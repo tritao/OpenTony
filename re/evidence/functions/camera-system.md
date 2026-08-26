@@ -692,6 +692,16 @@ position-stage hook now matches the recovered transform and anchor writes, but
 the code that chooses distance/effect magnitudes remains a gameplay/effect
 producer boundary.
 
+The native update ordering now exposes that boundary in the same place as the
+retail routine: `CameraUpdateHooks::prepare_smoothing_stage` runs after the
+entry current-to-previous copy and before orientation interpolation; the
+returned base local/effect vectors are applied after the current transform is
+available. A special-effect result suppresses the generic base application and
+is handed to `commit_smoothing_stage`, preserving `0x0040c370` as a producer
+boundary rather than silently applying the wrong transform. The fixture covers
+this ordering with a nonzero distance, fixed-point effect vector, and a
+steady-state interpolation tick.
+
 Confidence: high for the two tail callsites, raw input scales, output ordering,
 and position/effect destinations; medium for the semantic source of the two
 input vectors because collision and effect branches can replace them.
