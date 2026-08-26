@@ -412,6 +412,16 @@ inline MatrixQ12 transform_to_matrix_q12(const TransformQ12& transform) {
     };
 }
 
+// 0x004f53e0: the view setup copies the nine prepared shorts into the backend
+// record in transposed order before downstream render consumption.
+inline MatrixQ12 transpose_matrix_q12(const MatrixQ12& matrix) {
+    return {
+        matrix[0], matrix[3], matrix[6],
+        matrix[1], matrix[4], matrix[7],
+        matrix[2], matrix[5], matrix[8],
+    };
+}
+
 inline TransformQ12 rotation_x_q12(std::int16_t angle) {
     const Raw half = arithmetic_shift_right_one(static_cast<Raw>(angle));
     return {sin_angle_q12(half), 0, 0, cos_angle_q12(half)};

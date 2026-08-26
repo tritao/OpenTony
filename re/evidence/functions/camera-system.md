@@ -293,6 +293,7 @@ Promotion audit for these math helpers:
 | `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular conversion is `0x004ca0a0` |
 | `0x004f5f90` | x87 dot product of two three-word integer vectors, scaled by `1/4096` and truncated | called twice by `0x00410610` for follow-direction thresholds | observed; earlier “length” wording was corrected, and a non-dot use at an unexamined callsite would falsify the global semantic name |
 | `0x004c9500` | converts two 12-bit look angles and a scalar into the raw follow-direction vector | called by `0x00410610`; exact sine/cosine products are represented in the native reference | observed; the caller’s downstream scale interpretation remains raw/provisional |
+| `0x004f53e0` | transposes the nine prepared signed-short matrix words into the backend view-record order | called at the end of `0x0045e8e0` after the two fixed matrix multiplies | observed; downstream API row/column naming remains renderer-specific |
 
 ### `0x004e39a0` — Q12 matrix multiply
 
@@ -495,6 +496,11 @@ Promotion audit for these records:
 - is called by the render-preparation function `0x00468520` from `0x0046a0f0`.
 
 `Render_SetViewProjection 0x0045e8e0` stores the active viewport and camera/view record in globals, consumes short/fixed-point viewport fields, reads matrix-like blocks at view-record `+0x34` and `+0x54`, calls `0x004e39a0`, and prepares transform arrays around `DAT_005620c0`/`DAT_005620e8`. The first matrix block is read as nine signed shorts at `+0x34..+0x44`; the second is read at `+0x54..+0x64`. `0x004d14d0` later converts short fixed-point model values for the backend.
+
+The final `0x004f53e0` call is a literal 3x3 transpose from the prepared
+matrix scratch into the second view-record block. This fixes the engine’s
+internal matrix ordering even though the eventual renderer API should still
+keep handedness and clip-space naming as explicit contracts.
 
 The render setup also derives viewport center/scale shorts from the active
 viewport record and global scale values. It writes camera `+0x40c` into the

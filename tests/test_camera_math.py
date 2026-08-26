@@ -94,6 +94,10 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                     || half_turn_matrix[8] >= 0) {
                     return 13;
                 }
+                const MatrixQ12 ordered_matrix{1, 2, 3, 4, 5, 6, 7, 8, 9};
+                if (transpose_matrix_q12(ordered_matrix) != MatrixQ12{1, 4, 7, 2, 5, 8, 3, 6, 9}) {
+                    return 17;
+                }
                 ViewportProjectionRaw projection;
                 const ViewportInputRaw viewport{{640, 480, 0, 0, 0x10, 0, 0x100, 0, 0, 0}};
                 if (!build_viewport_projection(viewport, 0x33, 0x1000, 0x1000, projection)) {
