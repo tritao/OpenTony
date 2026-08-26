@@ -290,6 +290,8 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["player_unknown_state"] = None
     if tripod and memory.valid(tripod):
         record["tripod_position"] = _words(memory, tripod + 0x08, 3)
+        record["tripod_distance_sample_offset"] = _words(
+            memory, tripod + 0x4C, 3)
         record["tripod_follow_offset"] = _words(memory, tripod + 0x310C, 3)
         record["tripod_physics_state"] = memory.u32(tripod + 0x30B8)
         record["tripod_behavior_flag"] = memory.u32(tripod + 0x2F64)
@@ -298,6 +300,7 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_unknown_state"] = memory.u32(tripod + 0x30C4)
     else:
         record["tripod_position"] = None
+        record["tripod_distance_sample_offset"] = None
         record["tripod_follow_offset"] = None
         record["tripod_physics_state"] = None
         record["tripod_behavior_flag"] = None

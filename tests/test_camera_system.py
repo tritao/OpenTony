@@ -676,6 +676,25 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     return 7;
                 }
 
+                const auto distance_sample =
+                    camera_distance_sample_from_q16({0x1000, 0, 0});
+                if (distance_sample.clamped
+                    || distance_sample.quantized_length_q4 != 1
+                    || distance_sample.sample_raw != 64
+                    || distance_sample.bounded_offset.x != 0x1000) {
+                    return 52;
+                }
+                const auto bounded_distance_sample =
+                    camera_distance_sample_from_q16({0x100000, 0, 0});
+                if (!bounded_distance_sample.clamped
+                    || bounded_distance_sample.quantized_length_q4 != 256
+                    || bounded_distance_sample.sample_raw != 6400
+                    || bounded_distance_sample.bounded_offset.x != 0x64000
+                    || bounded_distance_sample.bounded_offset.y != 0
+                    || bounded_distance_sample.bounded_offset.z != 0) {
+                    return 53;
+                }
+
                 const std::array<Raw, 6> history = {
                     0x100000, 0x100000, 0x100000,
                     0x100000, 0x100000, 0x100000};

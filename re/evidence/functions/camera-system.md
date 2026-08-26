@@ -346,6 +346,7 @@ Exact static behavior:
 - Copies `+0x448..+0x454` into `+0x470..+0x47c` at entry.
 - Handles the no-tripod branch separately.
 - In the normal tripod branch, reads tripod physics state at `tripod + 0x30b8`, maintains history at `+0x620..+0x634`, applies interpolation/collision helpers, and writes final camera position to `+0x08/+0x0c/+0x10`.
+- The distance-history sample is now statically resolved through `0x004ca8f0`: it reads a separate tripod vector at `tripod + 0x4c`, shifts it to Q4 to measure length, clamps lengths above `100` to the Q16 vector `(100,0,0)`, and derives the history sample through `0x004f5f90`/`0x004f53b0`. This is distinct from the follow offset at `tripod + 0x310c`; the later collision/effect transform remains a separate injected producer.
 - Copies target/transform vectors between `+0x45c..+0x468`, `+0x448..+0x454`, and the previous block depending on `+0x510` and mode conditions.
 
 Static callers/callees: called twice from paths inside `0x0040f850` in the recovered raw disassembly; calls vector/collision helpers including `0x0040c370`, `0x0040e060`, `0x004a9bf0`, and fixed-point math helpers.
@@ -941,6 +942,12 @@ transform producer as an explicit special-branch result. The C++
 `+0x620..+0x634`, and `+0x5d8..+0x5e4` words, with stateful adapters for the
 distance and effect stages; the shared vertical-effect word remains an
 explicit reference input.
+
+The native reference also contains `camera_distance_sample_from_q16`, which
+models the resolved `tripod + 0x4c` sample producer. It preserves the retail
+Q4 length check, the `100`-unit `(100,0,0)` clamp, and the Q16 dot/square-root
+sample. The remaining `0x004e85a0` collision/effect transform is intentionally
+still a hook boundary because it depends on gameplay/world collision state.
 
 The orientation smoothing tail is now promoted as well. After its temporary
 effect branches, `0x0040e090` copies `camera +0x458` (target transform) and

@@ -111,6 +111,11 @@ struct CameraTargetRaw {
     // the transition-side producer notification.
     std::uint32_t tripod_behavior_flag{};
     std::uint32_t tripod_effect_gate{};
+    // Tripod +0x4c, consumed by Camera_SmoothAndValidate's distance-history
+    // producer. This is intentionally separate from the follow offset at
+    // +0x310c; the two vectors serve different camera stages.
+    Q16Vec3 distance_sample_offset{};
+    bool distance_sample_valid{};
 };
 
 struct CameraViewportCommitRaw {
@@ -285,6 +290,45 @@ struct CameraDistanceAdvanceResultRaw {
     bool history_refreshed{};
 };
 
+struct CameraDistanceSampleResultRaw {
+    Q16Vec3 bounded_offset{};
+    Raw quantized_length_q4{};
+    Raw sample_raw{};
+    bool clamped{};
+};
+
+// 0x004ca8f0 quantizes the supplied Q16 vector to signed Q4 words, measures
+// that quantized vector, and replaces vectors longer than 100 with the Q16
+// vector (100, 0, 0).  The following 0x004f5f90 call then computes the raw
+// sample as sqrt((x*x + y*y + z*z) / 0x1000) using the original Q16 words.
+// Keeping the two scales distinct is important: the bounded vector is later
+// shifted by 0x40 when inserted into camera +0x620.
+inline CameraDistanceSampleResultRaw camera_distance_sample_from_q16(
+    const Q16Vec3& source_offset) {
+    const Raw q4_x = sar12_world(source_offset.x);
+    const Raw q4_y = sar12_world(source_offset.y);
+    const Raw q4_z = sar12_world(source_offset.z);
+    const std::uint64_t q4_square =
+        static_cast<std::uint64_t>(static_cast<std::int64_t>(q4_x) * q4_x)
+        + static_cast<std::uint64_t>(static_cast<std::int64_t>(q4_y) * q4_y)
+        + static_cast<std::uint64_t>(static_cast<std::int64_t>(q4_z) * q4_z);
+    const Raw length = static_cast<Raw>(isqrt_u32_x87(
+        static_cast<std::uint32_t>(q4_square)));
+
+    const bool clamped = length > 100;
+    const Q16Vec3 bounded = clamped
+        ? Q16Vec3{100 << 12, 0, 0}
+        : source_offset;
+    const std::int64_t q16_square =
+        static_cast<std::int64_t>(bounded.x) * bounded.x
+        + static_cast<std::int64_t>(bounded.y) * bounded.y
+        + static_cast<std::int64_t>(bounded.z) * bounded.z;
+    const Raw dot_scaled = static_cast<Raw>(q16_square / 0x1000);
+    const Raw sample = static_cast<Raw>(isqrt_u32_x87(
+        static_cast<std::uint32_t>(dot_scaled)));
+    return {bounded, length, sample, clamped};
+}
+
 inline Raw camera_distance_smoothing_step_q4(
     const std::array<Raw, 6>& history) {
     Raw sum = 0;
@@ -346,6 +390,22 @@ inline CameraDistanceAdvanceResultRaw advance_camera_distance_for_camera(
     camera.distance_step_q4 = result.distance_step_q4;
     camera.distance_q4 = result.distance_q4;
     return result;
+}
+
+inline CameraDistanceAdvanceResultRaw
+advance_camera_distance_from_tripod_offset(
+    CameraStateRaw& camera,
+    Raw tripod_physics_state,
+    const Q16Vec3& tripod_distance_sample_offset,
+    Raw bias_q4,
+    CameraDistanceSampleResultRaw* sample_result = nullptr) {
+    const auto sample = camera_distance_sample_from_q16(
+        tripod_distance_sample_offset);
+    if (sample_result != nullptr) {
+        *sample_result = sample;
+    }
+    return advance_camera_distance_for_camera(
+        camera, tripod_physics_state, sample.sample_raw, bias_q4);
 }
 
 // Ordered value-level boundary for the normal tripod portion of
