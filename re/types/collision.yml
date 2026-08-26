@@ -43,8 +43,10 @@ types:
   - name: SColCache
     kind: fixed_layout
     size: 0x10
-    confidence: observed
-    description: One entry in the twenty-entry rotating collision model cache.
+    confidence: confirmed
+    description: >-
+      One of the 20 reusable model-cache slots scanned by 0x004638d0 at
+      DAT_00567a70 with a 0x10-byte stride.
     fields:
       - offset: 0x00
         name: item
@@ -70,8 +72,10 @@ types:
   - name: SFaceCache
     kind: fixed_layout
     size: 0x1c
-    confidence: observed
-    description: World-space face flags and AABB cached by the collision cell walker.
+    confidence: confirmed
+    description: >-
+      One of the 500 shared world-space face flags/AABB records written by
+      the collision cell walker at DAT_005643b0.
     fields:
       - offset: 0x00
         name: packed_face_word
@@ -290,6 +294,35 @@ types:
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
 
+  - name: CollisionFaceCache
+    kind: fixed_layout
+    size: 0x36b0
+    confidence: confirmed
+    description: >-
+      Shared 500-entry face-AABB working cache at DAT_005643b0. The storage
+      capacity is bounded by the 0x00463580 allocator helper and each entry
+      has the 0x1c-byte CollisionFaceAabbRecord layout.
+    fields:
+      - offset: 0x00
+        name: entries
+        type: array<SFaceCache,500>
+        confidence: confirmed
+        evidence: [re/evidence/functions/collision.md]
+
+  - name: CollisionModelCache
+    kind: fixed_layout
+    size: 0x140
+    confidence: confirmed
+    description: >-
+      Twenty-entry rotating model cache at DAT_00567a70, scanned by
+      0x004638d0 in 0x10-byte steps.
+    fields:
+      - offset: 0x00
+        name: entries
+        type: array<SColCache,20>
+        confidence: confirmed
+        evidence: [re/evidence/functions/collision.md]
+
   - name: CollisionZoneGridRecord
     kind: fixed_layout
     size: 0x20
@@ -427,8 +460,10 @@ types:
       - offset: 0x48
         name: line_basis
         type: array<array<i16,3>,3>
-        confidence: observed
-        description: short Q12 direction/orientation basis built by 0x004624d0
+        confidence: confirmed
+        description: >-
+          Nine contiguous signed 16-bit fields copied by 0x004638d0 to
+          DAT_006a3e10 through DAT_006a3e20; 0x004624d0 constructs the basis.
         evidence: [re/evidence/functions/collision.md]
       - offset: 0x68
         name: hit_body

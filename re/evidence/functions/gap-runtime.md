@@ -1,7 +1,8 @@
 # TRG gap/objective runtime path
 
-Status: confirmed executable gap-definition table and trigger-command lookup;
-score/checklist service names remain partial
+Status: confirmed executable gap-definition table, trigger-command lookup, and
+native immediate/deferred completion boundary; score/checklist service names
+remain partial
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x004544a0`, `0x004c5dc0`, `0x004c7c50`, `0x0049db80`, `0x0048f5f0`, `0x0048f690`, `0x00414c50`, `0x0056dd58`, `0x00546110`
 
@@ -94,6 +95,28 @@ from the source node at `+0x3020`; both pending definition slots are then
 cleared. The separate state-4 branch consumes `+0x3014`, clears it, and pulses
 the source node at `+0x301c`. These are independently supported state-specific
 consumers, not a claim that the two flags are named gameplay categories.
+
+## Native command/state contract
+
+The portable implementation keeps the command cursor and the gameplay state
+as separate evidence boundaries. `CommandCursor::read_gap_operands()` aligns
+the absolute `(opcode position + 5)` down to four bytes, reads the u32 checksum
+and u16 divider, and leaves the cursor at the next command. The dispatcher
+rejects a checksum that does not equal the source type-6 command-point record
+before calling the gap service; the rejected command therefore creates no gap
+state and sends no source pulse.
+
+`LevelTriggerState::on_gap()` joins the divider to the selected executable
+record. A definition with neither `0x08` nor `0x40` completes immediately,
+records `GapSeen` followed by a source-correlated `GapCompleted` event, and
+arms one pulse. Either flag sets the shared native `deferred` state without
+collapsing the two retail player-consumer branches. `mark_gap_complete()` is
+the later deferred handoff and retains the same one-shot pulse rule.
+
+The native fixtures also keep the containing node as the hard cursor boundary:
+a missing aligned checksum/divider pair raises `FormatError` and cannot reach
+the gap service. These tests cover the malformed stream and admission cases
+without assigning names to the unresolved player/checklist fields.
 
 This gives the faithful recreation a precise service boundary:
 

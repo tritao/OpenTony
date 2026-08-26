@@ -286,15 +286,31 @@ Static behavior from the raw dispatch target is:
 - join the common camera tail at `0x00410064`, which ultimately commits through
   `0x0040be70`.
 
+The native update now places the scalar producer at the same boundary: after
+the first smoothing pass and before the alternate path's second
+`Camera_FollowTarget` call. Its shared angle is carried as a replay mirror of
+`DAT_00524a94`, separate from camera `+0x5b4`; any anchor-Y adjustment is
+therefore visible to the second follow preparation in the same update. The
+native alternate handler also accepts the raw tripod short basis and applies
+the recovered `0x004e85a0` camera-callsite row order (`1,2,0`) with x87
+truncation before publishing `+0x610..+0x618` and the shifted history vector.
+This closes the static transform/ordering seam without claiming ownership of
+the linked tripod producer.
+
 Static callers/callees: caller `0x0040fed0` via the six-target jump table;
 callees `0x00410610`, `0x0040e090`, `0x004e85a0`, `0x004cad00`, and the common
 commit path. Runtime evidence: `camera-zoom-probe.jsonl` recorded intervals
 at frames `4108..4204` (97 camera observations) and `4292..4389` (98
 observations), with mode `1` before, between, and after. Confidence is high
-for dispatch and branch predicates, medium for the transformed-vector
-producer because the `+0x4a9` branch has not yet been live-sampled. A runtime
-mode-25 trace that bypasses the second follow call or uses a different local
-vector would falsify the remaining producer details.
+for dispatch and branch predicates, and high for the matrix/truncation
+operation from the reviewed helper body; the `+0x4a9` branch has not yet been
+live-sampled. A runtime mode-25 trace that bypasses the second follow call,
+uses a different local vector, or returns a different matrix-row order would
+falsify the remaining producer details. The existing probe predates
+scalar/basis capture, so it validates the mode interval and follow path, not
+live values for `+0x5ec`/`+0x5f0`, `DAT_00524a94`, or the transformed offset.
+`CameraProbe` now records those tripod producer inputs for the next retail
+capture.
 
 One mode-25 producer is visible at the gameplay boundary in
 `Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
@@ -314,13 +330,17 @@ derive mode `25` from a renamed generic `tripod_state` field.
 
 Runtime validation from `camera-zoom-probe.jsonl` recorded mode-25 intervals
 at frames `4108..4204` (97 observations) and `4292..4389` (98 observations),
-with mode `1` before, between, and after them. The camera remained attached to
-the live Warehouse player and returned to mode `1` without entering the point
-or death handlers. Confidence is high that mode `25` is a valid alternate
-follow transition and medium for the exact gameplay meaning of its producer;
-a falsifier would be a trace showing the same `0x19` store used for a
-non-camera event or a mode-25 update that bypasses the recovered follow offset
-branch.
+with mode `1` before, between, and after them. The first transition is visible
+at the camera boundary: frame `4107` is mode `1` with tripod state `1` and
+follow-Y `1812`, while frame `4108` is mode `25` with tripod state `1` and
+follow-Y `1757`. The camera remained attached to the live Warehouse player
+and returned to mode `1` without entering the point or death handlers.
+Confidence is high that mode `25` is a valid alternate-follow transition and
+medium for the exact gameplay meaning of its producer; a falsifier would be a
+trace showing the same `0x19` store used for a non-camera event or a mode-25
+update that bypasses the recovered follow-offset branch. The historical trace
+does not contain the scalar/basis fields, so it cannot validate the `+0x5ec`/
+`+0x5f0` arithmetic yet.
 
 The mode-23 and mode-24 targets do not return through the normal
 `Camera_SmoothAndValidate` tail. Both handlers jump to `0x00410357`, which

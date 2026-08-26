@@ -1,6 +1,6 @@
 #include "tricks_bin.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -34,31 +34,31 @@ int main() {
     bytes[0x1e] = 0x00;
 
     const auto view = opentony::assets::parse_tricks_bin(bytes);
-    assert(view.valid);
-    assert(view.header.action_offset_table_offset() == 0x10);
-    assert(view.action_lookup(0).value() == 0x18);
+    CHECK(view.valid);
+    CHECK(view.header.action_offset_table_offset() == 0x10);
+    CHECK(view.action_lookup(0).value() == 0x18);
     const auto stream = view.action_stream_for_lookup(0);
-    assert(stream.has_value());
-    assert(stream->front() == 0x0f);
-    assert(stream->size() == bytes.size() - 0x18);
+    CHECK(stream.has_value());
+    CHECK(stream->front() == 0x0f);
+    CHECK(stream->size() == bytes.size() - 0x18);
 
     const auto archive = opentony::assets::TricksBinArchive::parse(bytes);
-    assert(archive.bytes().size() == bytes.size());
-    assert(archive.view().action_stream_for_lookup(0)->front() == 0x0f);
-    assert(archive.view().player_sequence_table()->size() == bytes.size() - 0x40);
-    assert(archive.view().other_player_sequence_table()->size() == bytes.size() - 0x50);
-    assert(archive.view().source_sequence_table()->size() == 2);
-    assert(archive.view().alternate_sequence_table()->size() == 2);
-    assert(archive.view().special_other_resource_table()->size() == bytes.size() - 0x1c);
+    CHECK(archive.bytes().size() == bytes.size());
+    CHECK(archive.view().action_stream_for_lookup(0)->front() == 0x0f);
+    CHECK(archive.view().player_sequence_table()->size() == bytes.size() - 0x40);
+    CHECK(archive.view().other_player_sequence_table()->size() == bytes.size() - 0x50);
+    CHECK(archive.view().source_sequence_table()->size() == 2);
+    CHECK(archive.view().alternate_sequence_table()->size() == 2);
+    CHECK(archive.view().special_other_resource_table()->size() == bytes.size() - 0x1c);
 
     bytes[0] = 0xff;
-    assert(!opentony::assets::parse_tricks_bin(bytes).valid);
+    CHECK(!opentony::assets::parse_tricks_bin(bytes).valid);
     bool rejected = false;
     try {
         static_cast<void>(opentony::assets::TricksBinArchive::parse(bytes));
     } catch (const opentony::assets::TricksBinFormatError&) {
         rejected = true;
     }
-    assert(rejected);
+    CHECK(rejected);
     return 0;
 }

@@ -1,7 +1,7 @@
 #include "custom_park_asset.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -50,43 +50,43 @@ int main() {
 
     const auto park = opentony::assets::CustomParkArchive::parse(
         std::move(bytes), "park0.prk");
-    assert(park.magic() == opentony::assets::kCustomParkMagic);
-    assert(park.version() == 0);
-    assert(park.map_variant() == 1);
-    assert(park.dimensions().width == 16);
-    assert(park.dimensions().depth == 16);
-    assert(park.cells().size() == 256);
-    assert(park.cells()[0].translated_references[0] == 7);
-    assert(park.cells()[0].translated_references[1] == 0xffff);
-    assert(park.cells()[0].unpacked_cell_values[0] == 3);
-    assert(park.cells()[0].unpacked_cell_values[1] == 0);
-    assert(park.cells()[0].unpacked_cell_values[4] == 1);
-    assert(park.items().size() == 10);
+    CHECK(park.magic() == opentony::assets::kCustomParkMagic);
+    CHECK(park.version() == 0);
+    CHECK(park.map_variant() == 1);
+    CHECK(park.dimensions().width == 16);
+    CHECK(park.dimensions().depth == 16);
+    CHECK(park.cells().size() == 256);
+    CHECK(park.cells()[0].translated_references[0] == 7);
+    CHECK(park.cells()[0].translated_references[1] == 0xffff);
+    CHECK(park.cells()[0].unpacked_cell_values[0] == 3);
+    CHECK(park.cells()[0].unpacked_cell_values[1] == 0);
+    CHECK(park.cells()[0].unpacked_cell_values[4] == 1);
+    CHECK(park.items().size() == 10);
     const std::array<std::uint8_t, 2> expected_axis_0{2, 10};
     const std::array<std::uint8_t, 2> expected_axis_1{4, 4};
     const std::array<std::uint8_t, 2> expected_axis_2{14, 14};
-    assert(park.items()[0].endpoint_axis_index_0 == expected_axis_0);
-    assert(park.items()[0].endpoint_axis_index_1 == expected_axis_1);
-    assert(park.items()[0].endpoint_axis_index_2 == expected_axis_2);
-    assert(park.items()[0].item_byte == 6);
-    assert(park.items()[0].item_name == name);
-    assert(park.serialized_content_size() == 0x9b4);
-    assert(park.aligned_allocation_size() == 0xa00);
+    CHECK(park.items()[0].endpoint_axis_index_0 == expected_axis_0);
+    CHECK(park.items()[0].endpoint_axis_index_1 == expected_axis_1);
+    CHECK(park.items()[0].endpoint_axis_index_2 == expected_axis_2);
+    CHECK(park.items()[0].item_byte == 6);
+    CHECK(park.items()[0].item_name == name);
+    CHECK(park.serialized_content_size() == 0x9b4);
+    CHECK(park.aligned_allocation_size() == 0xa00);
 
     const std::filesystem::path retail_park =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data/PARK0.PRK";
     if (std::filesystem::is_regular_file(retail_park)) {
         const auto retail = opentony::assets::CustomParkArchive::load(retail_park.string());
-        assert(retail.magic() == opentony::assets::kCustomParkMagic);
-        assert(retail.version() == 0);
-        assert(retail.map_variant() == 1);
-        assert(retail.dimensions().width == 16);
-        assert(retail.dimensions().depth == 16);
-        assert(retail.cells().size() == 256);
-        assert(retail.items().size() == 10);
-        assert(retail.items()[0].item_name == name);
-        assert(retail.items()[0].item_byte == 6);
-        assert(retail.aligned_allocation_size() == 0xa00);
+        CHECK(retail.magic() == opentony::assets::kCustomParkMagic);
+        CHECK(retail.version() == 0);
+        CHECK(retail.map_variant() == 1);
+        CHECK(retail.dimensions().width == 16);
+        CHECK(retail.dimensions().depth == 16);
+        CHECK(retail.cells().size() == 256);
+        CHECK(retail.items().size() == 10);
+        CHECK(retail.items()[0].item_name == name);
+        CHECK(retail.items()[0].item_byte == 6);
+        CHECK(retail.aligned_allocation_size() == 0xa00);
     }
     return 0;
 }

@@ -1,0 +1,33 @@
+version: 1
+id: ground-motion-ordinary
+subsystem: ground-movement
+status: active
+
+scope:
+  functions:
+    - 0x0049b010
+  types:
+    - RuntimeSkaterMovementState
+  globals: []
+
+shared:
+  functions: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/ground-movement.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/runtime/ground_motion.cpp
+    - src/runtime/ground_motion.hpp
+  tests:
+    - src/runtime/ground_motion_test.cpp
+
+open_questions:
+  - Confirm the upstream owner that populates the profile-table gate; this slice keeps it caller-supplied.
+  - Correlate one retail frame with the ordinary correction write and its subsequent position candidate.
+
+completion:
+  - The ordinary correction branch predicates and accessed movement fields are evidence-backed.
+  - Inclusive/exclusive boundary fixtures cover the ordinary correction branch.
+  - Native progress records the tested semantic reconstruction without claiming collision ownership.

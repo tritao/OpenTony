@@ -1,7 +1,7 @@
 #include "replay_asset.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -53,33 +53,33 @@ int main() {
 
     const auto replay = opentony::assets::ReplayAsset::parse(
         std::move(bytes), "demo.rec");
-    assert(replay.header().num_frames == 12);
-    assert(replay.header().highlights[0].start == 1);
-    assert(replay.header().highlights[0].end == 9);
-    assert(replay.header().num_skaters == 1);
-    assert(replay.header().skater == 3);
-    assert(replay.header().level == 7);
-    assert(replay.header().game == 3);
+    CHECK(replay.header().num_frames == 12);
+    CHECK(replay.header().highlights[0].start == 1);
+    CHECK(replay.header().highlights[0].end == 9);
+    CHECK(replay.header().num_skaters == 1);
+    CHECK(replay.header().skater == 3);
+    CHECK(replay.header().level == 7);
+    CHECK(replay.header().game == 3);
     auto reader = replay.frame_reader();
     const auto frame = reader.read_frame();
-    assert(frame.fixed_channels[0] == static_cast<std::int32_t>(0xabcdeU << 12));
-    assert(frame.fixed_channels[1] == -4096);
-    assert(frame.fixed_channels[2] == 2 << 12);
-    assert(frame.narrow_channels[0] == -1);
-    assert(frame.narrow_channels[7] == 7);
-    assert(reader.bit_offset() == (0x200U * 8U + 8U * 20U + 8U * 16U));
+    CHECK(frame.fixed_channels[0] == static_cast<std::int32_t>(0xabcdeU << 12));
+    CHECK(frame.fixed_channels[1] == -4096);
+    CHECK(frame.fixed_channels[2] == 2 << 12);
+    CHECK(frame.narrow_channels[0] == -1);
+    CHECK(frame.narrow_channels[7] == 7);
+    CHECK(reader.bit_offset() == (0x200U * 8U + 8U * 20U + 8U * 16U));
 
     const std::filesystem::path retail_root =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data";
     const auto retail_path = retail_root / "DEMOA.REC";
     if (std::filesystem::is_regular_file(retail_path)) {
         const auto retail = opentony::assets::ReplayAsset::load(retail_path.string());
-        assert(retail.bytes().size() == 24064);
-        assert(retail.header().num_frames == 843);
-        assert(retail.header().num_skaters == 1);
-        assert(retail.header().skater == 12);
-        assert(retail.header().level == 1);
-        assert(retail.header().game == 3);
+        CHECK(retail.bytes().size() == 24064);
+        CHECK(retail.header().num_frames == 843);
+        CHECK(retail.header().num_skaters == 1);
+        CHECK(retail.header().skater == 12);
+        CHECK(retail.header().level == 1);
+        CHECK(retail.header().game == 3);
     }
     return 0;
 }

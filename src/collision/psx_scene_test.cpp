@@ -1,6 +1,6 @@
 #include "psx_scene.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -116,14 +116,14 @@ void check_wrapped_blockmap_bounds() {
 
     std::string error;
     const auto scene = PsxScene::parse(bytes, &error);
-    assert(scene && error.empty());
-    assert(scene->blockmaps().size() == 1);
-    assert(scene->blockmaps()[0].cells[0].object_indices.empty());
+    CHECK(scene && error.empty());
+    CHECK(scene->blockmaps().size() == 1);
+    CHECK(scene->blockmaps()[0].cells[0].object_indices.empty());
     // The wrapped one-unit span is outside this query, so the blockmap must
     // suppress the otherwise colliding synthetic face.
     const auto query = scene->query({4096, 4096, 4096},
                                     {4096, 4096, -4096});
-    assert(query.hit_body == 0);
+    CHECK(query.hit_body == 0);
 }
 
 void check_blockmap_line_walk() {
@@ -160,60 +160,105 @@ void check_blockmap_line_walk() {
 
     std::string error;
     const auto scene = PsxScene::parse(bytes, &error);
-    assert(scene && error.empty());
-    assert(scene->blockmaps().size() == 1);
-    assert(scene->blockmaps()[0].cells.size() == 4);
-    assert(scene->blockmaps()[0].cells[1].object_indices.size() == 1);
+    CHECK(scene && error.empty());
+    CHECK(scene->blockmaps().size() == 1);
+    CHECK(scene->blockmaps()[0].cells.size() == 4);
+    CHECK(scene->blockmaps()[0].cells[1].object_indices.size() == 1);
     const auto query = scene->query({4096, 4096, 4096},
                                     {4096, 4096, -4096});
-    assert(query.hit_body == 1);
+    CHECK(query.hit_body == 1);
 }
 
 void check_synthetic_scene() {
     std::string error;
     const auto bytes = synthetic_scene();
     const auto scene = PsxScene::parse(bytes, &error);
-    assert(scene && error.empty());
-    assert(scene->objects().size() == 1);
-    assert(scene->models().size() == 1);
-    assert(scene->objects()[0].collision_angles ==
+    CHECK(scene && error.empty());
+    CHECK(scene->objects().size() == 1);
+    CHECK(scene->models().size() == 1);
+    CHECK(scene->objects()[0].collision_angles ==
            (std::array<std::int16_t, 3>{0x1234, -16, -32767}));
-    assert(scene->models()[0].vertices.size() == 4);
+    CHECK(scene->models()[0].vertices.size() == 4);
     const std::array<std::int16_t, 3> expected_normal{0, 0, 4096};
-    assert(scene->models()[0].normals[0] == expected_normal);
-    assert(scene->models()[0].faces[0].normal_index == 0);
+    CHECK(scene->models()[0].normals[0] == expected_normal);
+    CHECK(scene->models()[0].faces[0].normal_index == 0);
     const auto query = scene->query({4096, 4096, 4096},
                                     {4096, 4096, -4096});
     const RawVec3 expected_position{4096, 4096, 0};
-    assert(query.hit_body == 1);
-    assert(query.hit_model_index == 0);
-    assert(query.hit_position == expected_position);
-    assert(query.hit_normal == expected_normal);
+    CHECK(query.hit_body == 1);
+    CHECK(query.hit_model_index == 0);
+    CHECK(query.hit_position == expected_position);
+    CHECK(query.hit_normal == expected_normal);
 
     const auto with_metadata = scene->query_with_metadata(
         {4096, 4096, 4096}, {4096, 4096, -4096});
-    assert(with_metadata.hit());
-    assert(with_metadata.object_index == 0);
-    assert(with_metadata.face_index == 0);
-    assert(with_metadata.base_flags == 0x10);
-    assert(with_metadata.surface_flags == 0x10);
-    assert(with_metadata.surface_word == 0x00100000u);
+    CHECK(with_metadata.hit());
+    CHECK(with_metadata.object_index == 0);
+    CHECK(with_metadata.face_index == 0);
+    CHECK(with_metadata.base_flags == 0x10);
+    CHECK(with_metadata.surface_flags == 0x10);
+    CHECK(with_metadata.surface_word == 0x00100000u);
     const auto decoded_flags = with_metadata.decoded_flags();
-    assert(decoded_flags.is_triangle);
-    assert(decoded_flags.surface_wallrideable);
-    assert(decoded_flags.inverse_bit_23);
-    assert(decoded_flags.inverse_bit_24);
+    CHECK(decoded_flags.is_triangle);
+    CHECK(decoded_flags.surface_wallrideable);
+    CHECK(decoded_flags.inverse_bit_23);
+    CHECK(decoded_flags.inverse_bit_24);
+
+    // 0x00466090 is a caller-record wrapper, not a hit predicate: it
+    // publishes the static result and returns zero for both outcomes.
+    QueryRecord wrapper_hit;
+    wrapper_hit.start = {4096, 4096, 4096};
+    wrapper_hit.end = {4096, 4096, -4096};
+    reference::prepare(wrapper_hit, 0x0042);
+    CHECK(scene->execute_query_wrapper(wrapper_hit, 0) == 0);
+    CHECK(wrapper_hit.query_stamp == 0x0042);
+    CHECK(wrapper_hit.hit_body == 1);
+    CHECK(wrapper_hit.hit_model_index == 0);
+    CHECK(wrapper_hit.hit_position == expected_position);
+
+    QueryRecord wrapper_miss;
+    wrapper_miss.start = {500000, 500000, 500000};
+    wrapper_miss.end = {500000, 500000, 499000};
+    reference::prepare(wrapper_miss, 0x0043);
+    CHECK(scene->execute_query_wrapper(wrapper_miss, 0) == 0);
+    CHECK(wrapper_miss.query_stamp == 0x0043);
+    CHECK(wrapper_miss.hit_body == 0);
+    CHECK(wrapper_miss.hit_distance == reference::kUnhit);
+    CHECK(wrapper_miss.hit_parameter == reference::kUnhit);
+
+    PsxLinkedCollisionObject wrapper_linked;
+    wrapper_linked.body_id = 0xfeed1234;
+    wrapper_linked.flags = 0x0110;
+    wrapper_linked.position = {409600, 0, 409600};
+    wrapper_linked.model_index = 0;
+    const std::array<PsxLinkedCollisionObject, 1> wrapper_linked_span{
+        wrapper_linked};
+
+    QueryRecord mode_zero;
+    mode_zero.start = {409600, 4096, 409600};
+    mode_zero.end = {409600, -4096, 409600};
+    reference::prepare(mode_zero, 0x0044);
+    CHECK(scene->execute_query_wrapper(
+               mode_zero, 0, wrapper_linked_span) == 0);
+    CHECK(mode_zero.hit_body == 0);
+
+    QueryRecord mode_one = mode_zero;
+    reference::prepare(mode_one, 0x0045);
+    CHECK(scene->execute_query_wrapper(
+               mode_one, 1, wrapper_linked_span) == 0);
+    CHECK(mode_one.query_stamp == 0x0045);
+    CHECK(mode_one.hit_body == 0xfeed1234);
 
     const auto linked_source = scene->linked_collision_object_from_source(
         0, 6, 0x12345678, 0x0110);
-    assert(linked_source.has_value());
-    assert(linked_source->body_id == 0x12345678);
-    assert(linked_source->flags == 0x0110);
-    assert(linked_source->angles ==
+    CHECK(linked_source.has_value());
+    CHECK(linked_source->body_id == 0x12345678);
+    CHECK(linked_source->flags == 0x0110);
+    CHECK(linked_source->angles ==
            (std::array<std::int16_t, 3>{0x1234, -16, -32767}));
-    assert(linked_source->model_index == 0);
-    assert(linked_source->model_kind == 6);
-    assert(!scene->linked_collision_object_from_source(
+    CHECK(linked_source->model_index == 0);
+    CHECK(linked_source->model_kind == 6);
+    CHECK(!scene->linked_collision_object_from_source(
         scene->objects().size(), 6, 1, 0));
 
     const std::array<std::int16_t, 9> identity{
@@ -232,13 +277,13 @@ void check_synthetic_scene() {
     const auto dynamic_result = scene->query_dynamic_object(
         {0, 0, 0}, {0, 0, 409600}, 0, dynamic_vertices, reverse_z,
         identity, 0);
-    assert(dynamic_result.hit());
-    assert(dynamic_result.query.hit_body == 1);
-    assert(dynamic_result.query.hit_distance == 10);
-    assert(dynamic_result.query.hit_position.at(2) == 40900);
-    assert(dynamic_result.query.hit_normal == expected_normal);
-    assert(dynamic_result.object_index == 0);
-    assert(dynamic_result.face_index == 0);
+    CHECK(dynamic_result.hit());
+    CHECK(dynamic_result.query.hit_body == 1);
+    CHECK(dynamic_result.query.hit_distance == 10);
+    CHECK(dynamic_result.query.hit_position.at(2) == 40900);
+    CHECK(dynamic_result.query.hit_normal == expected_normal);
+    CHECK(dynamic_result.object_index == 0);
+    CHECK(dynamic_result.face_index == 0);
 
     // The dynamic walker has a non-physical query-mask branch for surface
     // bit 0x20000. It records the model selector sideband when q+0x88 is
@@ -248,15 +293,15 @@ void check_synthetic_scene() {
     std::string query_mask_error;
     const auto query_mask_scene = PsxScene::parse(
         query_mask_bytes, &query_mask_error);
-    assert(query_mask_scene && query_mask_error.empty());
+    CHECK(query_mask_scene && query_mask_error.empty());
     CollisionFaceFilter query_mask_filter;
     query_mask_filter.query_mask_mode = true;
     const auto query_mask_result = query_mask_scene->query_dynamic_object(
         {0, 0, 0}, {0, 0, 409600}, 0, dynamic_vertices, reverse_z,
         identity, 0, query_mask_filter);
-    assert(!query_mask_result.hit());
-    assert(query_mask_result.query.query_mask_mode == 1);
-    assert(query_mask_result.query_mask_model_index == 0);
+    CHECK(!query_mask_result.hit());
+    CHECK(query_mask_result.query.query_mask_mode == 1);
+    CHECK(query_mask_result.query_mask_model_index == 0);
 
     PsxLinkedCollisionObject linked_object;
     linked_object.body_id = 0xfeed1234;
@@ -267,23 +312,23 @@ void check_synthetic_scene() {
         linked_object};
     const auto linked_result = scene->query_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, linked_objects, 7);
-    assert(linked_result.hit());
-    assert(linked_result.query.hit_body == 0xfeed1234);
-    assert(linked_result.query.hit_distance == 1);
-    assert(linked_result.query.hit_position.at(2) == 0);
-    assert(linked_result.query.hit_normal == expected_normal);
-    assert(linked_result.object_index == 0);
-    assert(linked_result.face_index == 0);
+    CHECK(linked_result.hit());
+    CHECK(linked_result.query.hit_body == 0xfeed1234);
+    CHECK(linked_result.query.hit_distance == 1);
+    CHECK(linked_result.query.hit_position.at(2) == 0);
+    CHECK(linked_result.query.hit_normal == expected_normal);
+    CHECK(linked_result.object_index == 0);
+    CHECK(linked_result.face_index == 0);
 
     const auto aggregate_result = scene->query_with_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, linked_objects, 7);
-    assert(aggregate_result.hit());
-    assert(aggregate_result.query.hit_body == 1);
-    assert(aggregate_result.query.hit_distance == 1);
+    CHECK(aggregate_result.hit());
+    CHECK(aggregate_result.query.hit_body == 1);
+    CHECK(aggregate_result.query.hit_distance == 1);
     const auto static_aggregate_result = scene->query_with_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, {}, 7);
-    assert(static_aggregate_result.hit());
-    assert(static_aggregate_result.query.hit_body == 1);
+    CHECK(static_aggregate_result.hit());
+    CHECK(static_aggregate_result.query.hit_body == 1);
 
     auto farther_object = linked_object;
     farther_object.body_id = 0xabcd;
@@ -292,16 +337,16 @@ void check_synthetic_scene() {
         farther_object, linked_object};
     const auto nearest_linked_result = scene->query_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, ordered_objects, 8);
-    assert(nearest_linked_result.hit());
-    assert(nearest_linked_result.query.hit_body == 0xfeed1234);
-    assert(nearest_linked_result.query.hit_distance == 1);
+    CHECK(nearest_linked_result.hit());
+    CHECK(nearest_linked_result.query.hit_body == 0xfeed1234);
+    CHECK(nearest_linked_result.query.hit_distance == 1);
 
     linked_object.flags = 0x0130;
     const std::array<PsxLinkedCollisionObject, 1> rejected_objects{
         linked_object};
     const auto rejected_result = scene->query_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, rejected_objects, 8);
-    assert(!rejected_result.hit());
+    CHECK(!rejected_result.hit());
 
     linked_object.flags = 0x0110;
     linked_object.body_id = 0xbeef;
@@ -310,45 +355,45 @@ void check_synthetic_scene() {
         linked_object};
     const auto distant_result = scene->query_linked_objects(
         {4096, 4096, 4096}, {4096, 4096, -4096}, distant_objects, 9);
-    assert(!distant_result.hit());
+    CHECK(!distant_result.hit());
 
     const auto dynamic = PsxScene::transform_dynamic_model(
         scene->models()[0], {0, 0, 0}, identity, 4096);
-    assert(dynamic.vertices.size() == 4);
-    assert(dynamic.vertices[3].x == 10);
-    assert(dynamic.vertices[3].y == 10);
-    assert(dynamic.vertices[3].z == 0);
-    assert(dynamic.vertices[3].clip_mask == 0x600);
-    assert(dynamic.clip_mask == 0);
+    CHECK(dynamic.vertices.size() == 4);
+    CHECK(dynamic.vertices[3].x == 10);
+    CHECK(dynamic.vertices[3].y == 10);
+    CHECK(dynamic.vertices[3].z == 0);
+    CHECK(dynamic.vertices[3].clip_mask == 0x600);
+    CHECK(dynamic.clip_mask == 0);
 }
 
 void check_packaged_scene(const char* path) {
     std::ifstream stream(path, std::ios::binary);
-    assert(stream);
+    CHECK(stream);
     const std::vector<char> raw_bytes{std::istreambuf_iterator<char>(stream),
                                       std::istreambuf_iterator<char>()};
     const std::vector<std::uint8_t> bytes(raw_bytes.begin(), raw_bytes.end());
     std::string error;
     const auto scene = PsxScene::parse(bytes, &error);
-    assert(scene && error.empty());
-    assert(scene->objects().size() == 470);
-    assert(scene->models().size() == 471);
-    assert(scene->blockmaps().size() == 1);
-    assert(scene->blockmaps()[0].cell_count_x == 20);
-    assert(scene->blockmaps()[0].cell_count_z == 20);
-    assert(scene->models()[171].vertices.size() == 14);
-    assert(scene->models()[171].normals.size() == 6);
-    assert(scene->models()[171].faces.size() == 6);
-    assert(scene->objects()[170].model_index == 171);
-    assert(scene->objects()[170].position ==
+    CHECK(scene && error.empty());
+    CHECK(scene->objects().size() == 470);
+    CHECK(scene->models().size() == 471);
+    CHECK(scene->blockmaps().size() == 1);
+    CHECK(scene->blockmaps()[0].cell_count_x == 20);
+    CHECK(scene->blockmaps()[0].cell_count_z == 20);
+    CHECK(scene->models()[171].vertices.size() == 14);
+    CHECK(scene->models()[171].normals.size() == 6);
+    CHECK(scene->models()[171].faces.size() == 6);
+    CHECK(scene->objects()[170].model_index == 171);
+    CHECK(scene->objects()[170].position ==
            (RawVec3{-4100096, -6782976, 9408512}));
     const std::array<std::int16_t, 3> expected_normal{1, -3867, -1351};
-    assert(scene->models()[171].normals[4] == expected_normal);
+    CHECK(scene->models()[171].normals[4] == expected_normal);
     bool found_surface_match = false;
     for (const auto& face : scene->models()[171].faces) {
         found_surface_match |= face.normal_index == 4 && face.surface_flags == 0x10;
     }
-    assert(found_surface_match);
+    CHECK(found_surface_match);
     const auto trace_query = scene->query(
         {-4100096, -8822784, 11472896},
         {-4100096, 23945216, 11472896});
@@ -365,21 +410,21 @@ void check_packaged_scene(const char* path) {
               << trace_query.hit_normal[2] << "\n";
     const RawVec3 expected_trace_contact{-4100096, -8700784, 11472896};
     const std::array<std::int16_t, 3> expected_trace_normal{1, -3867, -1351};
-    assert(trace_query.hit_model_index == 171);
-    assert(trace_query.hit_parameter == 61);
-    assert(trace_query.hit_distance == 29);
-    assert(trace_query.hit_position == expected_trace_contact);
-    assert(trace_query.hit_normal == expected_trace_normal);
+    CHECK(trace_query.hit_model_index == 171);
+    CHECK(trace_query.hit_parameter == 61);
+    CHECK(trace_query.hit_distance == 29);
+    CHECK(trace_query.hit_position == expected_trace_contact);
+    CHECK(trace_query.hit_normal == expected_trace_normal);
 
     const auto trace_with_metadata = scene->query_with_metadata(
         {-4100096, -8822784, 11472896},
         {-4100096, 23945216, 11472896});
-    assert(trace_with_metadata.hit());
-    assert(trace_with_metadata.object_index + 1 == trace_with_metadata.query.hit_body);
-    assert(trace_with_metadata.face_index < scene->models()[171].faces.size());
-    assert(trace_with_metadata.base_flags == 0x1003);
-    assert(trace_with_metadata.surface_flags == 0x10);
-    assert(trace_with_metadata.surface_word == 0x00100020u);
+    CHECK(trace_with_metadata.hit());
+    CHECK(trace_with_metadata.object_index + 1 == trace_with_metadata.query.hit_body);
+    CHECK(trace_with_metadata.face_index < scene->models()[171].faces.size());
+    CHECK(trace_with_metadata.base_flags == 0x1003);
+    CHECK(trace_with_metadata.surface_flags == 0x10);
+    CHECK(trace_with_metadata.surface_word == 0x00100020u);
 
     // Controlled replay of the live linked-object face path captured by
     // collision-dynamic-positive5. The PC node used flags 0x0110, zero
@@ -387,41 +432,41 @@ void check_packaged_scene(const char* path) {
     // its contact is reconstructed from q+0x40 rather than q+0x8c.
     const auto linked_model_171 = scene->linked_collision_object_from_source(
         170, 6, 0x05f26c84, 0x0110);
-    assert(linked_model_171.has_value());
-    assert(linked_model_171->source_object_index == 170);
-    assert(linked_model_171->position ==
+    CHECK(linked_model_171.has_value());
+    CHECK(linked_model_171->source_object_index == 170);
+    CHECK(linked_model_171->position ==
            (RawVec3{-4100096, -6782976, 9408512}));
-    assert(linked_model_171->angles == (std::array<std::int16_t, 3>{0, 0, 0}));
-    assert(linked_model_171->model_index == 171);
-    assert(linked_model_171->model_kind == 6);
+    CHECK(linked_model_171->angles == (std::array<std::int16_t, 3>{0, 0, 0}));
+    CHECK(linked_model_171->model_index == 171);
+    CHECK(linked_model_171->model_kind == 6);
     const auto dynamic_replay = scene->query_linked_objects(
         {-4100096, -8822784, 11472896},
         {-4100096, 23945216, 11472896},
         std::span<const PsxLinkedCollisionObject>(&*linked_model_171, 1), 1);
-    assert(dynamic_replay.hit());
-    assert(dynamic_replay.query.hit_body == 0x05f26c84);
-    assert(dynamic_replay.source_object_index == 170);
-    assert(dynamic_replay.query.hit_model_index == 171);
-    assert(dynamic_replay.query.hit_distance == 29);
-    assert(dynamic_replay.query.hit_position ==
+    CHECK(dynamic_replay.hit());
+    CHECK(dynamic_replay.query.hit_body == 0x05f26c84);
+    CHECK(dynamic_replay.source_object_index == 170);
+    CHECK(dynamic_replay.query.hit_model_index == 171);
+    CHECK(dynamic_replay.query.hit_distance == 29);
+    CHECK(dynamic_replay.query.hit_position ==
            (RawVec3{-4100096, -8710784, 11472896}));
     const std::array<std::int16_t, 3> expected_dynamic_normal{1, -4093, -160};
-    assert(dynamic_replay.query.hit_normal == expected_dynamic_normal);
-    assert(dynamic_replay.query.hit_parameter == 0x7fffffff);
-    assert(dynamic_replay.surface_word == 0x00100028u);
-    assert(dynamic_replay.face_index == 5);
-    assert(dynamic_replay.query.hit_face_record != 0);
+    CHECK(dynamic_replay.query.hit_normal == expected_dynamic_normal);
+    CHECK(dynamic_replay.query.hit_parameter == 0x7fffffff);
+    CHECK(dynamic_replay.surface_word == 0x00100028u);
+    CHECK(dynamic_replay.face_index == 5);
+    CHECK(dynamic_replay.query.hit_face_record != 0);
 }
 
 void check_parseable_scene(const char* path) {
     std::ifstream stream(path, std::ios::binary);
-    assert(stream);
+    CHECK(stream);
     const std::vector<char> raw_bytes{std::istreambuf_iterator<char>(stream),
                                       std::istreambuf_iterator<char>()};
     const std::vector<std::uint8_t> bytes(raw_bytes.begin(), raw_bytes.end());
     std::string error;
     const auto scene = PsxScene::parse(bytes, &error);
-    assert(scene && error.empty());
+    CHECK(scene && error.empty());
 }
 
 }  // namespace

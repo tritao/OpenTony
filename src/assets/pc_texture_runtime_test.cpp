@@ -1,7 +1,7 @@
 #include "pc_texture_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -44,51 +44,51 @@ int main() {
         opentony::assets::PsxRuntimeEnvironment::build(scene_archive);
     auto external = opentony::assets::PcTextureRuntime::build_external(
         scene_runtime, kDataRoot);
-    assert(external.material_count() == 89);
-    assert(external.resolved_count() >= 4);
-    assert(external.unresolved_count() + external.resolved_count()
+    CHECK(external.material_count() == 89);
+    CHECK(external.resolved_count() >= 4);
+    CHECK(external.unresolved_count() + external.resolved_count()
         == external.material_count());
 
     std::size_t material_index = 0;
-    assert(find_material(scene_runtime, 0x032bbb26U, material_index) != nullptr);
+    CHECK(find_material(scene_runtime, 0x032bbb26U, material_index) != nullptr);
     const auto* record = external.record_for_material(
         material_index, 0x032bbb26U);
-    assert(record != nullptr);
-    assert(record->source_kind()
+    CHECK(record != nullptr);
+    CHECK(record->source_kind()
         == opentony::assets::PcTextureSourceKind::ExternalBitmap);
-    assert(record->flags() == 0x1aU);
+    CHECK(record->flags() == 0x1aU);
     const std::array<std::uint32_t, 2> empty_dimensions{0, 0};
     const std::array<std::uint32_t, 2> expected_dimensions{128, 128};
-    assert(record->declared_dimensions() == empty_dimensions);
-    assert(record->normalized_dimensions() == expected_dimensions);
-    assert(record->source_dimensions() == expected_dimensions);
-    assert(record->ready());
-    assert(record->raw_record().size()
+    CHECK(record->declared_dimensions() == empty_dimensions);
+    CHECK(record->normalized_dimensions() == expected_dimensions);
+    CHECK(record->source_dimensions() == expected_dimensions);
+    CHECK(record->ready());
+    CHECK(record->raw_record().size()
         == opentony::assets::kPcTextureRuntimeRecordSize);
-    assert(record->source_path().find("032BBB26.BMP") != std::string::npos);
-    assert(record->image().rgb.size() == 128U * 128U * 3U);
+    CHECK(record->source_path().find("032BBB26.BMP") != std::string::npos);
+    CHECK(record->image().rgb.size() == 128U * 128U * 3U);
     const auto dimensions = external.dimensions_for_material(
         material_index, 0x032bbb26U);
-    assert(dimensions.has_value());
-    assert(*dimensions == expected_dimensions);
-    assert(external.record_for_material(material_index, 0xdeadbeefU) == nullptr);
+    CHECK(dimensions.has_value());
+    CHECK(*dimensions == expected_dimensions);
+    CHECK(external.record_for_material(material_index, 0xdeadbeefU) == nullptr);
 
     const auto inline_archive =
         opentony::assets::PsxArchive::load(inline_path.string());
     const auto inline_runtime =
         opentony::assets::PsxRuntimeEnvironment::build(inline_archive);
-    assert(!inline_archive.textures().empty());
+    CHECK(!inline_archive.textures().empty());
     const auto inline_textures =
         opentony::assets::PcTextureRuntime::build_inline(inline_runtime);
-    assert(inline_textures.resolved_count() > 0);
+    CHECK(inline_textures.resolved_count() > 0);
     const auto& inline_record = inline_textures.records().front();
-    assert(inline_record.source_kind()
+    CHECK(inline_record.source_kind()
         == opentony::assets::PcTextureSourceKind::InlinePsx);
-    assert(inline_record.flags() == 0x12U);
-    assert(inline_record.ready());
-    assert(inline_record.declared_dimensions()
+    CHECK(inline_record.flags() == 0x12U);
+    CHECK(inline_record.ready());
+    CHECK(inline_record.declared_dimensions()
         == inline_record.source_dimensions());
-    assert(inline_record.image().rgb.size()
+    CHECK(inline_record.image().rgb.size()
         == static_cast<std::size_t>(inline_record.image().width)
             * inline_record.image().height * 3U);
 
@@ -105,11 +105,11 @@ int main() {
         // Warehouse NEWTEX images outside the package. If a package variant
         // includes them, validate the same material/image bridge there too.
         if (packaged_record != nullptr) {
-            assert(packaged_record->source_kind()
+            CHECK(packaged_record->source_kind()
                 == opentony::assets::PcTextureSourceKind::ExternalBitmap);
-            assert(packaged_record->image().width == 128);
-            assert(packaged_record->image().height == 128);
-            assert(packaged_record->source_path().find("032BBB26.BMP")
+            CHECK(packaged_record->image().width == 128);
+            CHECK(packaged_record->image().height == 128);
+            CHECK(packaged_record->source_path().find("032BBB26.BMP")
                 != std::string::npos);
         }
     }

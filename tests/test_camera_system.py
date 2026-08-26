@@ -163,6 +163,35 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || alternate.history_b.z != 0x3000 * 0x1000) {
                     return 41;
                 }
+
+                // When the caller provides the tripod's raw short basis,
+                // mode 25 owns the 0x004e85a0 transform of (0,0,-0x1000).
+                // Use a non-identity basis so the helper's row order is
+                // covered instead of accepting a copied seam.
+                CameraStateRaw alternate_basis;
+                alternate_basis.mode = 25;
+                alternate_basis.transform_fallback = 1;
+                CameraAlternateFollowInputRaw alternate_basis_input{};
+                alternate_basis_input.tripod_present = true;
+                alternate_basis_input.tripod_physics_state = 1;
+                alternate_basis_input.tripod_follow_offset_y_raw = 0x65;
+                alternate_basis_input.tripod_basis_valid = true;
+                alternate_basis_input.tripod_basis_q12 = {
+                    0x1000, 0, 0,
+                    0, 0, 0x1000,
+                    0, 0x1000, 0,
+                };
+                const auto alternate_basis_result =
+                    apply_camera_mode25_alternate(
+                        alternate_basis, alternate_basis_input);
+                if (!alternate_basis_result.transformed_offset_applied
+                    || alternate_basis.mode_vector.x != -0x1000
+                    || alternate_basis.mode_vector.y != 0
+                    || alternate_basis.mode_vector.z != 0
+                    || alternate_basis.history_a.x != -0x1000
+                    || alternate_basis.history_b.x != -0x1000 * 0x1000) {
+                    return 55;
+                }
                 CameraStateRaw alternate_reset;
                 alternate_reset.mode = 25;
                 const auto alternate_reset_result =
@@ -203,6 +232,32 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || alternate_state_positive.shared_angle_raw != 0x1fe
                     || !alternate_state_positive.anchor_y_adjusted) {
                     return 44;
+                }
+
+                // Camera_Update must run the scalar producer after the first
+                // smoothing pass and before the alternate path's second
+                // follow call. This mirrors camera +0x5ec/+0x5f0 and the
+                // shared DAT_00524a94 angle without turning the latter into a
+                // camera-object field.
+                CameraStateRaw alternate_update;
+                alternate_update.mode = 25;
+                alternate_update.alternate_counter_raw = 1;
+                alternate_update.alternate_phase_a_raw = 5;
+                alternate_update.alternate_phase_b_raw = 3;
+                alternate_update.alternate_shared_angle_raw = 0x1200;
+                alternate_update.anchor_target.y = 1000;
+                const CameraTargetRaw alternate_target{
+                    {}, {0, -0x1000, 0}, {}, 1, 0, false};
+                const CameraAlternateFollowInputRaw alternate_input{
+                    true, 1, 0, 0x65, true, 0x2000, false, {}};
+                update_camera(
+                    alternate_update, alternate_target, {}, {}, {}, {}, {},
+                    alternate_input);
+                if (alternate_update.alternate_counter_raw != 2
+                    || alternate_update.alternate_integrator_raw != -6
+                    || alternate_update.alternate_shared_angle_raw != 0x1fe
+                    || alternate_update.anchor_target.y != 994) {
+                    return 54;
                 }
 
                 // The retail producer changes mode only after the current

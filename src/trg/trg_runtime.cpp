@@ -79,9 +79,6 @@ namespace {
 [[nodiscard]] bool is_one_word_opcode(std::uint16_t opcode) {
     switch (opcode) {
     case 0x0003:
-    case 0x0004:
-    case 0x0005:
-    case 0x000a:
     case 0x000b:
     case 0x000c:
     case 0x0066:
@@ -96,6 +93,17 @@ namespace {
     case 0x009e:
     case 0x00ad:
     case 0x00af:
+        return true;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] bool is_counted_node_list_opcode(std::uint16_t opcode) {
+    switch (opcode) {
+    case 0x0004:
+    case 0x0005:
+    case 0x000a:
         return true;
     default:
         return false;
@@ -702,6 +710,19 @@ std::uint32_t CommandCursor::read_u32() {
     return result;
 }
 
+std::vector<std::uint16_t> CommandCursor::read_node_index_list() {
+    const std::uint16_t count = read_u16();
+    const std::size_t byte_count = static_cast<std::size_t>(count) * 2;
+    require(byte_count, "counted node-index list");
+
+    std::vector<std::uint16_t> result;
+    result.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        result.push_back(read_u16());
+    }
+    return result;
+}
+
 std::string CommandCursor::read_string() {
     std::size_t next = position_;
     std::string result = string_at(bytes_, position_, end_, &next);
@@ -800,6 +821,10 @@ void CommandCursor::skip_operands(std::uint16_t opcode, std::size_t opcode_offse
     if (opcode == 2) {
         while (read_string() != "") {
         }
+        return;
+    }
+    if (is_counted_node_list_opcode(opcode)) {
+        (void)read_node_index_list();
         return;
     }
     if (is_one_word_opcode(opcode)) {
@@ -1198,13 +1223,13 @@ void TriggerRuntime::dispatch(
             break;
         case 0x0004:
         case 0x0005: {
-            const std::vector<std::uint16_t> linked = file_.links(source_node);
-            services_.on_suspend_activate(source_node, opcode, linked);
+            const std::vector<std::uint16_t> targets = cursor.read_node_index_list();
+            services_.on_suspend_activate(source_node, opcode, targets);
             break;
         }
         case 0x000a: {
-            const std::vector<std::uint16_t> linked = file_.links(source_node);
-            services_.on_signal(source_node, linked);
+            const std::vector<std::uint16_t> targets = cursor.read_node_index_list();
+            services_.on_signal(source_node, targets);
             break;
         }
         case 0x000b:
@@ -1465,6 +1490,11 @@ void TriggerRuntime::dispatch(
             const auto [checksum, argument] = cursor.read_gap_operands(opcode_offset);
             if (command_point != nullptr && command_point->checksum != checksum) {
                 services_.on_diagnostic("gap command checksum does not match its command point");
+                // The retail gap helper joins the command payload to the
+                // source command-point record before looking up a table
+                // definition. A mismatch is therefore a rejected join, not
+                // a gap observation with an unrelated checksum.
+                break;
             }
             services_.on_gap(source_node, checksum, argument);
             if (services_.take_gap_pulse(checksum, argument)) {

@@ -9,7 +9,9 @@ option(OPENTONY_BUILD_TESTS "Build native reconstruction tests" ON)
 add_library(opentony_assets STATIC
     src/assets/pre_catalog.cpp
     src/assets/pre_asset.cpp
+    src/assets/pre_runtime.cpp
     src/assets/pkr_asset.cpp
+    src/assets/resource_runtime.cpp
     src/assets/custom_park_asset.cpp
     src/assets/custom_park_runtime.cpp
     src/assets/replay_asset.cpp
@@ -50,6 +52,7 @@ add_library(opentony_trg STATIC
     src/trg/level_scene_registry.cpp
     src/trg/level_render_snapshot.cpp
     src/trg/render_packet_builder.cpp
+    src/trg/render_command_dispatch.cpp
     src/trg/level_runtime.cpp
 )
 target_compile_features(opentony_trg PUBLIC cxx_std_20)
@@ -104,6 +107,7 @@ target_link_libraries(opentony_runtime PUBLIC opentony_trg)
 
 if(OPENTONY_BUILD_TESTS)
     enable_testing()
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR})
     add_executable(opentony_physics_state_machine_test
         tests/physics_state_machine_test.cpp
         src/physics_state_machine.cpp
@@ -208,6 +212,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_render_packet_builder_test PRIVATE cxx_std_20)
     target_compile_options(opentony_render_packet_builder_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_render_packet_builder_test COMMAND opentony_render_packet_builder_test)
+
+    add_executable(opentony_render_command_dispatch_test
+        src/trg/render_command_dispatch_test.cpp
+    )
+    target_link_libraries(opentony_render_command_dispatch_test PRIVATE opentony_trg)
+    target_compile_features(opentony_render_command_dispatch_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_render_command_dispatch_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_render_command_dispatch_test COMMAND opentony_render_command_dispatch_test)
 
     add_executable(opentony_input_state_test
         src/runtime/input_state_test.cpp
@@ -523,6 +535,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_pkr_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_pkr_asset_test COMMAND opentony_pkr_asset_test)
 
+    add_executable(opentony_resource_runtime_test
+        src/assets/resource_runtime_test.cpp
+    )
+    target_link_libraries(opentony_resource_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_resource_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_resource_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_resource_runtime_test COMMAND opentony_resource_runtime_test)
+
     add_executable(opentony_custom_park_asset_test
         src/assets/custom_park_asset_test.cpp
     )
@@ -618,6 +638,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_pre_asset_test PRIVATE cxx_std_20)
     target_compile_options(opentony_pre_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_pre_asset_test COMMAND opentony_pre_asset_test)
+
+    add_executable(opentony_pre_runtime_test
+        src/assets/pre_runtime_test.cpp
+    )
+    target_link_libraries(opentony_pre_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_pre_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_pre_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_pre_runtime_test COMMAND opentony_pre_runtime_test)
 
     add_executable(opentony_pre_catalog_test
         src/assets/pre_catalog_test.cpp

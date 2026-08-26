@@ -1024,6 +1024,133 @@ class _CollisionDynamicTransformReturn(TonyBreakpoint):
         self.owner.finish(ctx)
 
 
+class CollisionDynamicTransformMutationProbe:
+    """Temporarily replace Q12 scale words and capture the matrix result.
+
+    This is a reversible transform calibration, not a gameplay mutation.  It
+    is restricted to records whose full-word 0x0200 flag selects the helper's
+    scale branch; the three tail words are restored before execution returns
+    to the caller.
+    """
+
+    def __init__(
+        self,
+        scale: tuple[int, int, int],
+        count: int | None = None,
+        writer=None,
+    ):
+        self.scale = scale
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionDynamicTransformMutationEntry(self)
+        self._returns = [
+            _CollisionDynamicTransformMutationReturn(self, address)
+            for address in COLLISION_DYNAMIC_TRANSFORM_RETURNS
+        ]
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return (self._entry, *self._returns)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        object_address = ctx.arg(0)
+        matrix_address = ctx.arg(1)
+        if not object_address or not matrix_address:
+            return
+        if not ctx.memory.readable(object_address + 0x28, 6):
+            return
+        flags = ctx.memory.u16(object_address + 0x04)
+        if not flags & 0x0200:
+            return
+        original_scale = tuple(
+            _signed16(ctx.memory.u16(object_address + offset))
+            for offset in (0x28, 0x2A, 0x2C)
+        )
+        matrix_before = _matrix_snapshot(matrix_address, ctx.memory)
+        if matrix_before is None:
+            return
+        for offset, value in zip((0x28, 0x2A, 0x2C), self.scale):
+            ctx.memory.write_u16(object_address + offset, value & 0xFFFF)
+        self._active = {
+            "object": object_address,
+            "matrix": matrix_address,
+            "caller": ctx.caller(),
+            "return_address": ctx.return_address(),
+            "flags": flags,
+            "original_scale_q12": list(original_scale),
+            "mutated_scale_q12": list(self.scale),
+            "matrix_before": matrix_before,
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        object_address = int(active["object"])
+        matrix_address = int(active["matrix"])
+        matrix_after = _matrix_snapshot(matrix_address, ctx.memory)
+        mutated_object = _dynamic_transform_snapshot(object_address, ctx.memory)
+        original_scale = [int(value) for value in active["original_scale_q12"]]
+        for offset, value in zip((0x28, 0x2A, 0x2C), original_scale):
+            ctx.memory.write_u16(object_address + offset, value & 0xFFFF)
+        restored_object = _dynamic_transform_snapshot(object_address, ctx.memory)
+        matrix_before = active["matrix_before"]
+        for offset, value in enumerate(matrix_before):
+            ctx.memory.write_u16(matrix_address + (offset * 2), int(value) & 0xFFFF)
+        matrix_after_restore = _matrix_snapshot(matrix_address, ctx.memory)
+        self._emit(
+            {
+                "type": "collision_dynamic_transform_mutation",
+                "function": "Collision_TransformLinkedModelMatrix",
+                "address": f"0x{COLLISION_DYNAMIC_TRANSFORM:08x}",
+                "return_pc": f"0x{ctx.eip:08x}",
+                "entry_return_address": f"0x{int(active['return_address']):08x}",
+                "caller": f"0x{int(active['caller']):08x}",
+                "object": f"0x{object_address:08x}",
+                "flags": int(active["flags"]),
+                "original_scale_q12": active["original_scale_q12"],
+                "mutated_scale_q12": active["mutated_scale_q12"],
+                "object_during_return": mutated_object,
+                "object_after_restore": restored_object,
+                "matrix": f"0x{matrix_address:08x}",
+                "matrix_before": matrix_before,
+                "matrix_after": matrix_after,
+                "matrix_after_restore": matrix_after_restore,
+            }
+        )
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                for breakpoint in self.breakpoints:
+                    breakpoint.enabled = False
+
+
+class _CollisionDynamicTransformMutationEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformMutationProbe):
+        self.owner = owner
+        super().__init__(COLLISION_DYNAMIC_TRANSFORM, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionDynamicTransformMutationReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionDynamicTransformMutationProbe, address: int):
+        self.owner = owner
+        super().__init__(address, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
 class CollisionDynamicCullProbe:
     """Capture linked-list broad-phase survivors before face testing."""
 

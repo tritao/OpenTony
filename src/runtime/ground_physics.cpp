@@ -1,6 +1,26 @@
 #include "ground_physics.hpp"
 
+#include <bit>
+
 namespace opentony::runtime {
+
+namespace {
+
+[[nodiscard]] GroundAnimationControlHandoff animation_handoff(
+    const GroundPhysicsInput& input) noexcept {
+    // Retail loads +0x114 as a 16-bit word, stores its low byte in +0x101,
+    // then loads +0x101 as a signed char before storing it in +0x114.
+    return GroundAnimationControlHandoff{
+        true,
+        0,
+        static_cast<std::int8_t>(-1),
+        static_cast<std::uint8_t>(input.original_start_frame),
+        static_cast<std::int16_t>(
+            std::bit_cast<std::int8_t>(input.playback_endpoint)),
+    };
+}
+
+} // namespace
 
 GroundPhysicsResult update_ground_physics(
     const GroundPhysicsInput& input) noexcept {
@@ -82,6 +102,7 @@ GroundPhysicsResult update_ground_physics(
             result.speed_metric <
                 static_cast<std::int32_t>(input.animation_frame) * 0x1000
                     + result.speed_threshold) {
+            result.animation_handoff = animation_handoff(input);
             set_mode(3);
             result.animation_transition = input.surface_allows_brake;
             result.action = GroundPhysicsAction::AdvanceToAnimationMode;

@@ -1,0 +1,52 @@
+version: 1
+id: fnt-pre-runtime
+subsystem: asset-runtime
+status: active
+
+scope:
+  functions:
+    - 0x004a8ee0
+    - 0x004a9000
+    - 0x004a90f0
+    - 0x004a9110
+    - 0x004a9410
+    - 0x004a9480
+    - 0x004a9330
+    - 0x0044ada0
+    - 0x0044aea0
+    - 0x00449cd0
+    - 0x0044b000
+    - 0x0044b0a0
+  types:
+    - RuntimePreManager
+    - RuntimePreEntry
+    - RuntimeFont
+    - RuntimeFontGlyphEntry
+    - RuntimeFontDiskGlyphRecord
+    - RuntimeFontGlyphImage
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/pre-runtime.md
+    - re/evidence/functions/font-runtime.md
+  native:
+    - src/assets/pre_runtime.hpp
+    - src/assets/pre_runtime.cpp
+    - src/assets/fnt_asset.hpp
+    - src/assets/fnt_asset.cpp
+  tests:
+    - src/assets/pre_runtime_test.cpp
+    - src/assets/fnt_asset_test.cpp
+
+open_questions:
+  - Recover the exact glyph-data cursor arithmetic and per-glyph texture coordinates.
+  - Determine the atlas-format argument supplied by each FNT caller.
+  - Confirm duplicate-load behavior and the platform file-I/O handle lifetime.
+
+completion:
+  - PRE container ownership, sixteen-slot initialization/load/lookup/unload, and record alignment are evidence-backed.
+  - FNT record, palette, packed-data, sentinel, and eight-slot font boundaries are evidence-backed.
+  - Direct and PRE-embedded resource loads have deterministic malformed-input and capacity tests.
+  - The parsed font reaches a text-facing view without extending ownership into the renderer or Direct3D backend.
+  - Exact matching remains byte-identical where pursued; platform I/O and glyph texture semantics remain explicit exclusions.

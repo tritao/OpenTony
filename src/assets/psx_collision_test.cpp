@@ -1,6 +1,6 @@
 #include "psx_collision.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -103,64 +103,64 @@ int main() {
         opentony::assets::PsxArchive::parse(synthetic_archive(), "collision.psx");
     const opentony::assets::PsxCollisionWorld world =
         opentony::assets::PsxCollisionWorld::build(archive);
-    assert(world.referenced_object_count() == 1);
-    assert(world.faces().size() == 1);
-    assert(world.grids().size() == 1);
-    assert(world.grids()[0].cells[0].faces.size() == 1);
+    CHECK(world.referenced_object_count() == 1);
+    CHECK(world.faces().size() == 1);
+    CHECK(world.grids().size() == 1);
+    CHECK(world.grids()[0].cells[0].faces.size() == 1);
     const std::array<std::int32_t, 3> expected_vertex{
         -0x1000000,
         0,
         -0x1000000,
     };
-    assert(world.faces()[0].vertices[0] == expected_vertex);
-    assert(world.candidate_faces({0, 0, 0}, 0).size() == 1);
+    CHECK(world.faces()[0].vertices[0] == expected_vertex);
+    CHECK(world.candidate_faces({0, 0, 0}, 0).size() == 1);
     const auto hit = world.trace_segment({0, 4096, 0}, {0, -4096, 0});
-    assert(hit.has_value());
-    assert(hit->face_index == 0);
-    assert(hit->position[1] == 0);
-    assert(hit->hit_parameter_q14 == 0x2000);
-    assert(hit->raw_collision_word == 0x12340000U);
+    CHECK(hit.has_value());
+    CHECK(hit->face_index == 0);
+    CHECK(hit->position[1] == 0);
+    CHECK(hit->hit_parameter_q14 == 0x2000);
+    CHECK(hit->raw_collision_word == 0x12340000U);
     const auto mask = hit->collision_mask();
-    assert(mask.normal_index == 0);
-    assert(mask.surface_flags == 0x1234);
-    assert(!mask.surface_bit_6);
-    assert(mask.surface_bit_7_clear);
-    assert(mask.surface_bit_8_clear);
-    assert(mask.raw_type_bits_9_12 == 9);
-    assert(!mask.face_flag_80);
+    CHECK(mask.normal_index == 0);
+    CHECK(mask.surface_flags == 0x1234);
+    CHECK(!mask.surface_bit_6);
+    CHECK(mask.surface_bit_7_clear);
+    CHECK(mask.surface_bit_8_clear);
+    CHECK(mask.raw_type_bits_9_12 == 9);
+    CHECK(!mask.face_flag_80);
     opentony::assets::PsxCollisionQueryOptions retail_filter{};
     retail_filter.apply_retail_face_filter = true;
-    assert(opentony::assets::accepts_retail_collision_face(
+    CHECK(opentony::assets::accepts_retail_collision_face(
         0x12340000U,
         retail_filter));
-    assert(!opentony::assets::accepts_retail_collision_face(
+    CHECK(!opentony::assets::accepts_retail_collision_face(
         0x00010000U,
         retail_filter));
-    assert(!opentony::assets::accepts_retail_collision_face(
+    CHECK(!opentony::assets::accepts_retail_collision_face(
         0x00020000U,
         retail_filter));
     retail_filter.include_trigger_faces = true;
-    assert(opentony::assets::accepts_retail_collision_face(
+    CHECK(opentony::assets::accepts_retail_collision_face(
         0x00020000U,
         retail_filter));
     retail_filter.reject_mask = 0x12340000U;
-    assert(!opentony::assets::accepts_retail_collision_face(
+    CHECK(!opentony::assets::accepts_retail_collision_face(
         0x12340000U,
         retail_filter));
     retail_filter.reject_mask = 0;
     retail_filter.accept_mask = 0xfffffffeU;
-    assert(!opentony::assets::accepts_retail_collision_face(
+    CHECK(!opentony::assets::accepts_retail_collision_face(
         0x12340000U,
         retail_filter));
-    assert(opentony::assets::accepts_retail_collision_face(
+    CHECK(opentony::assets::accepts_retail_collision_face(
         0x12340001U,
         retail_filter));
     const auto default_retail_masks =
         opentony::assets::make_retail_collision_query_options({});
-    assert(default_retail_masks.apply_retail_face_filter);
-    assert(!default_retail_masks.apply_retail_plane_test);
-    assert(default_retail_masks.reject_mask == 0x00200000U);
-    assert(default_retail_masks.accept_mask == 0xffffffffU);
+    CHECK(default_retail_masks.apply_retail_face_filter);
+    CHECK(!default_retail_masks.apply_retail_plane_test);
+    CHECK(default_retail_masks.reject_mask == 0x00200000U);
+    CHECK(default_retail_masks.accept_mask == 0xffffffffU);
     const auto populated_retail_masks =
         opentony::assets::make_retail_collision_query_options({
             true,
@@ -169,10 +169,10 @@ int main() {
             true,
             true,
         }, true);
-    assert(populated_retail_masks.apply_retail_plane_test);
-    assert(populated_retail_masks.reject_mask == 0);
-    assert(populated_retail_masks.accept_mask == 0xffedffffU);
-    assert(!world.trace_segment(
+    CHECK(populated_retail_masks.apply_retail_plane_test);
+    CHECK(populated_retail_masks.reject_mask == 0);
+    CHECK(populated_retail_masks.accept_mask == 0xffedffffU);
+    CHECK(!world.trace_segment(
         {0, 4096, 0},
         {0, -4096, 0},
         [] {
@@ -184,18 +184,18 @@ int main() {
     opentony::assets::PsxCollisionQueryOptions retail_geometry{};
     retail_geometry.apply_retail_face_filter = true;
     retail_geometry.apply_retail_plane_test = true;
-    assert(!world.trace_segment(
+    CHECK(!world.trace_segment(
         {0, 4096, 0},
         {0, -4096, 0},
         retail_geometry).has_value());
-    assert(world.trace_segment(
+    CHECK(world.trace_segment(
         {0, -4096, 0},
         {0, 4096, 0},
         retail_geometry).has_value());
     const auto quantized_hit = world.trace_segment({0, 4097, 0}, {0, -4095, 0});
-    assert(quantized_hit.has_value());
-    assert(quantized_hit->hit_parameter_q14 == 0x2000);
-    assert(quantized_hit->position[1] == 1);
-    assert(hit->fraction > 0.49 && hit->fraction < 0.51);
+    CHECK(quantized_hit.has_value());
+    CHECK(quantized_hit->hit_parameter_q14 == 0x2000);
+    CHECK(quantized_hit->position[1] == 1);
+    CHECK(hit->fraction > 0.49 && hit->fraction < 0.51);
     std::cout << "PSX collision tests passed\n";
 }

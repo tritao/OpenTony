@@ -1,7 +1,7 @@
 #include "powerup_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -40,17 +40,17 @@ int main() {
     const opentony::trg::TrgFile file = opentony::trg::TrgFile::parse(bytes);
     opentony::trg::PowerupRuntimeList list;
     list.build(file);
-    assert(list.records().size() == 1);
+    CHECK(list.records().size() == 1);
     const auto* record = list.record_for_node(0);
-    assert(record != nullptr);
-    assert(record->subtype() == 6);
-    assert(record->resource() == "items");
-    assert(record->model_name_checksum() == 0x2ebf22caU);
-    assert(!record->model_index().has_value());
+    CHECK(record != nullptr);
+    CHECK(record->subtype() == 6);
+    CHECK(record->resource() == "items");
+    CHECK(record->model_name_checksum() == 0x2ebf22caU);
+    CHECK(!record->model_index().has_value());
     const std::array<std::int32_t, 3> expected_position{7 << 12, 8 << 12, 9 << 12};
-    assert(record->position() == expected_position);
-    assert(record->raw_record().size() == opentony::trg::kPowerupRuntimeRecordSize);
-    assert(record->raw_record()[0xb0] == std::byte{0});
-    assert(record->raw_record()[0xb1] == std::byte{0});
+    CHECK(record->position() == expected_position);
+    CHECK(record->raw_record().size() == opentony::trg::kPowerupRuntimeRecordSize);
+    CHECK(record->raw_record()[0xb0] == std::byte{0});
+    CHECK(record->raw_record()[0xb1] == std::byte{0});
     return 0;
 }

@@ -1,0 +1,36 @@
+version: 1
+id: trg-counted-link-commands
+subsystem: scripting
+status: active
+
+scope:
+  functions:
+    - 0x004c5dc0
+    - 0x004c5c70
+    - 0x004c5b60
+    - 0x004c7c50
+  types: []
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/trg-counted-link-commands.md
+    - re/evidence/functions/scripting.md
+  native:
+    - src/trg/trg_runtime.hpp
+    - src/trg/trg_runtime.cpp
+    - src/trg/level_trigger_state_test.cpp
+  tests:
+    - src/trg/trg_runtime_test.cpp
+    - src/trg/level_trigger_state_test.cpp
+    - tests/test_assets.py
+
+open_questions:
+  - Confirm whether any retail caller supplies an empty counted list to the activation or signal helpers outside the extracted command streams.
+  - Correlate the accepted target-list node types with the remaining object-list consumers without renaming the raw state fields.
+
+completion:
+  - The four scoped retail helper boundaries and the counted payload ABI are evidence-backed.
+  - Execution and conditional skipping consume the same bounded count-and-node-list shape.
+  - Inline target lists are kept separate from serialized type-6 node links, with native event/state tests.
+  - Truncated lists are rejected without consuming bytes beyond the containing node.

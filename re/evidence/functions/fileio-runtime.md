@@ -210,6 +210,35 @@ boundary in one path.
 The decoded bytes are caller-owned, matching the game's allocation/read
 handoff rather than retaining a pointer into the package image.
 
+The common handle and load boundary is now represented by
+`src/assets/resource_runtime.*`. `ResourceBackend` owns reusable abstract
+slots with a cursor, bounded seek, partial read, exact-read failure, and
+explicit close. Its direct mode owns a file image; its package mode resolves
+one `PkrArchive` record and owns the decoded payload, so neither mode exposes
+a backend pointer to a format parser. `ResourceStream` is the native adapter
+for the observed package-stream calls: it delegates seek/read/close and
+checks `element_count * element_size` before consuming the requested span.
+
+`ResourceLoader` closes any previous active load, applies the observed
+short-name PRE lookup (`< 0x10` bytes and no path separator), and otherwise
+opens the configured direct/package backend. `load()` copies the PRE span or
+reads the backend into caller storage; `synchronize()` completes the native
+immediate adapter and releases the active handle. `load_owned()` is therefore
+the portable equivalent of the open → allocate → schedule → sync handoff:
+the returned bytes survive both backend close and PRE unload, and can be
+passed directly to `FntRuntimeFont::parse` or another format parser.
+The package-backed `LevelRuntime` constructor now uses this same loader for
+its TRG and PSX entries before constructing the trigger and scene runtime
+objects, keeping the common file boundary in front of those existing
+consumers.
+
+The regression at `src/assets/resource_runtime_test.cpp` exercises a raw
+PKR2→FNT construction, stream tail seek and element reads, PRE payload copy
+followed by container unload, direct-file fallback, handle reuse/close, and
+overflow/out-of-range failure cleanup. It intentionally does not assign the
+retail allocator's count prefix, asynchronous spool states, backend slot
+capacity, or exact path-normalization rules.
+
 ## Confidence and limits
 
 - `confirmed`: the first game-owned open, PRE short-name lookup, backend handle
@@ -224,3 +253,7 @@ handoff rather than retaining a pointer into the package image.
 - `confirmed`: marker dispatch and BIBD/WIBD/ZLIB transform entry points; the
   exact error-cleanup behavior for every asynchronous failure case remains
   open.
+- `native-tested`: direct/PKR abstract handle ownership, PRE-vs-backend load
+  selection, caller-owned synchronization output, and bounded stream reads;
+  these are portable adapters around the confirmed boundaries, not claims of
+  byte-identical allocator or spooler behavior.

@@ -1,6 +1,6 @@
 #include "pre_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -47,10 +47,10 @@ int main() {
 
     const opentony::assets::PreArchive archive =
         opentony::assets::PreArchive::parse(std::move(bytes), "synthetic.pre");
-    assert(archive.entries().size() == 2);
-    assert(archive.entry(0).name == "ONE.BIN");
-    assert(archive.payload("ONE.BIN").size() == 3);
-    assert(archive.find("DIR/TWO.BIN") != nullptr);
-    assert(std::to_integer<std::uint8_t>(archive.payload(1)[1]) == 0xb);
+    CHECK(archive.entries().size() == 2);
+    CHECK(archive.entry(0).name == "ONE.BIN");
+    CHECK(archive.payload("ONE.BIN").size() == 3);
+    CHECK(archive.find("DIR/TWO.BIN") != nullptr);
+    CHECK(std::to_integer<std::uint8_t>(archive.payload(1)[1]) == 0xb);
     std::cout << "PRE asset tests passed\n";
 }

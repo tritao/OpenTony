@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -101,6 +102,16 @@ public:
 
     static RenderPacketBuildResult build(
         const LevelRenderSnapshot& snapshot,
+        const camera::CameraStateRaw& camera,
+        const RenderProjector& projector,
+        const RenderPacketBuildOptions& options = {});
+
+    // The snapshot overload delegates here so deterministic tests can exercise
+    // the renderer-facing traversal contract without loading a retail asset.
+    // Input face order is the native adapter's submission order.
+    static RenderPacketBuildResult build(
+        std::span<const LevelRenderEntitySnapshot> entities,
+        std::span<const LevelRenderFaceSnapshot> faces,
         const camera::CameraStateRaw& camera,
         const RenderProjector& projector,
         const RenderPacketBuildOptions& options = {});

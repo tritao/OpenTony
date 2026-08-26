@@ -122,6 +122,33 @@ inside `FUN_004904d0` remain explicit external seams. It is covered by a
 focused native regression test, but no additional semantic “jump” name is
 assigned to this transition.
 
+The dispatcher fixture is now explicit at the case boundary. Static
+`Skater_PhysicsDispatcher` first runs case 0 as
+`0x0049dad0 → 0x00496550 → 0x00495cc0 → 0x0049d9c0`; only after that sequence
+does it evaluate the leave-ground predicate. The native
+`ground_leave_air_predicate()` preserves the strict comparisons
+`slope > 1000`, `recovery_progress > 0x5000`, and
+`frame - last_landing_frame < (frame_delta * 6) >> 8`. Its transition fixture
+covers slope `1000/1001`, recovery `0x5000/0x5001`, timer equality versus one
+frame inside the window, negative signed ages, and 32-bit frame wrap. The
+stateful test verifies the ordered request records: the case-0 request at
+`0x0049ddcf`, the following same-state request from `0x004904d0` at
+`0x004905ab`, and the final `+0x3204 = 0x28` marker. Collision/slope
+classification and the helper’s animation/sound consumers remain caller-owned.
+
+The frame-level orchestration now preserves that boundary. In
+`PhysicsStateMachine::step_frame()`, the optional `ground_leave_air_input`
+producer is called only after `0x0049dad0 → 0x00496550 → 0x00495cc0 →
+0x0049d9c0` have been selected by the dispatcher, and only while the raw state
+is still `0`. The producer publishes the already-resolved collision/outer-frame
+values; `try_ground_to_air()` owns evaluation and, on success, the two request
+writes, descending-Y clamp, `0x004904d0` reset, and marker store. The returned
+`DispatchResult` retains entry `raw_state=0`/`kind=Ground` and carries the
+post-handler `ground_leave_air` result, so a successful case-0 tail does not
+fall through into the common air handler in the same frame. The frame fixture
+asserts the callback order, request callsites, phase state, reset marker, and
+the strict-gate rejection path.
+
 ### Shared off-ground reset (`0x004904d0`)
 
 The helper is broader than the state-4 label. Its two arguments are the

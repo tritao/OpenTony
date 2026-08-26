@@ -197,6 +197,32 @@ static_assert(sizeof(CollisionFaceAabbRecord) == 0x1c);
 inline constexpr std::size_t kModelVertexBase = 0x1c;
 inline constexpr std::size_t kModelRecordSize = sizeof(CollisionVertexRecord);
 
+// 0x004638d0 scans 0x14 model-cache slots and writes face bounds through the
+// shared 0x1f4-record face cache. The latter bound is established by the
+// 0x00463580 allocator helper's literal 0x1f4 limit and by the adjacent
+// global addresses, not by an assumed level-file array declaration.
+inline constexpr std::size_t kCollisionModelCacheCapacity = 0x14;
+inline constexpr std::size_t kCollisionFaceCacheCapacity = 0x1f4;
+inline constexpr std::size_t kCollisionFaceCacheRecordStride =
+    sizeof(CollisionFaceAabbRecord);
+inline constexpr std::size_t kCollisionFaceCacheBytes =
+    kCollisionFaceCacheCapacity * kCollisionFaceCacheRecordStride;
+inline constexpr std::uintptr_t kCollisionFaceCacheBaseAddress = 0x005643b0;
+inline constexpr std::uintptr_t kCollisionModelCacheBaseAddress = 0x00567a70;
+
+static_assert(kCollisionFaceCacheBytes == 0x36b0);
+static_assert(kCollisionFaceCacheBaseAddress + kCollisionFaceCacheBytes ==
+              0x00567a60);
+static_assert(kCollisionModelCacheBaseAddress -
+                  (kCollisionFaceCacheBaseAddress + kCollisionFaceCacheBytes) ==
+              0x10);
+
+inline bool collision_face_cache_span_fits(std::size_t start,
+                                           std::size_t count) noexcept {
+    return start <= kCollisionFaceCacheCapacity &&
+           count <= kCollisionFaceCacheCapacity - start;
+}
+
 // 0x004660b0 uses two related strides.  A zone record is addressed as
 // base + zone_index*0x660 bytes.  The candidate-pointer table is indexed as
 // zone_index*0x198 + cell_x*0x14 + cell_z, and each element is a 32-bit
@@ -1401,6 +1427,9 @@ template <typename Visitor>
 inline void visit_model_face_aabbs(const CollisionModelView& model,
                                    const RawVec3& model_origin_raw,
                                    Visitor&& visitor) {
+    // This is the face-cache construction performed by 0x004638d0: model
+    // vertices are signed 16-bit local units, promoted with a 0x1000 scale,
+    // and the triangle path deliberately ignores vertex index +0x7.
     const auto model_header = model.header();
     if (!model_header) {
         return;

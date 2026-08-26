@@ -1,6 +1,6 @@
 #include "fixed_step_driver.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -36,18 +36,18 @@ int main() {
     keyboard[opentony::runtime::kDikLeft] = 0x80;
 
     const auto partial = driver.advance(15, keyboard, bindings);
-    assert(!partial.stepped);
-    assert(partial.steps == 0);
-    assert(driver.accumulated_ms() == 15);
+    CHECK(!partial.stepped);
+    CHECK(partial.steps == 0);
+    CHECK(driver.accumulated_ms() == 15);
 
     const auto first = driver.advance(1, keyboard, bindings);
-    assert(first.stepped);
-    assert(first.steps == 1);
-    assert(first.consumed_ms == 16);
-    assert(first.dropped_ms == 0);
-    assert(first.last.frame_index == 1);
-    assert(first.last.frame_scale_q8 == 0x80);
-    assert(first.last.input.action_mask()
+    CHECK(first.stepped);
+    CHECK(first.steps == 1);
+    CHECK(first.consumed_ms == 16);
+    CHECK(first.dropped_ms == 0);
+    CHECK(first.last.frame_index == 1);
+    CHECK(first.last.frame_scale_q8 == 0x80);
+    CHECK(first.last.input.action_mask()
         == opentony::runtime::movement_bit(
             opentony::runtime::MovementAction::Left));
 
@@ -56,22 +56,22 @@ int main() {
         0,
         static_cast<std::int8_t>(0x29),
         0);
-    assert(analog.stepped);
-    assert(analog.steps == 1);
-    assert(analog.last.input.action_mask() == 0);
-    assert(analog.last.input.horizontal_axis() == 0x29);
-    assert(analog.last.input.effective_movement_mask()
+    CHECK(analog.stepped);
+    CHECK(analog.steps == 1);
+    CHECK(analog.last.input.action_mask() == 0);
+    CHECK(analog.last.input.horizontal_axis() == 0x29);
+    CHECK(analog.last.input.effective_movement_mask()
         == opentony::runtime::movement_bit(
             opentony::runtime::MovementAction::Right));
-    assert(analog.last.input.movement(
+    CHECK(analog.last.input.movement(
         opentony::runtime::MovementAction::Right).pressed);
 
     const auto capped = driver.advance(80, keyboard, bindings);
-    assert(capped.steps == 2);
-    assert(capped.consumed_ms == 32);
-    assert(capped.dropped_ms == 48);
-    assert(capped.last.frame_index == 4);
-    assert(driver.accumulated_ms() == 0);
+    CHECK(capped.steps == 2);
+    CHECK(capped.consumed_ms == 32);
+    CHECK(capped.dropped_ms == 48);
+    CHECK(capped.last.frame_index == 4);
+    CHECK(driver.accumulated_ms() == 0);
 
     std::cout << "Fixed-step driver tests passed\n";
 }

@@ -1,7 +1,7 @@
 #include "physics_frame.hpp"
 #include "physics_replay.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 #include <vector>
 
@@ -34,34 +34,34 @@ int main() {
     };
 
     const auto frame = PlayerPhysicsFrame::step(player, input, hooks);
-    assert(frame.dispatch.handled);
-    assert(frame.position_integrated);
-    assert(frame.motion_correction_integrated);
-    assert(stages.size() == 1);
-    assert(stages.front() == PhysicsDispatchStage::InAir_97f40);
+    CHECK(frame.dispatch.handled);
+    CHECK(frame.position_integrated);
+    CHECK(frame.motion_correction_integrated);
+    CHECK(stages.size() == 1);
+    CHECK(stages.front() == PhysicsDispatchStage::InAir_97f40);
     // The desired x=10 is blocked; FUN_00496060 falls back to the old x.
-    assert(frame.position_commit.collided);
-    assert(frame.position_commit.probes == 2);
-    assert(player.position() == FixedPosition({0, 20, 30}));
-    assert(player.previous_position() == FixedPosition({0, 0, 0}));
-    assert(player.turn_accumulator() == 0);
+    CHECK(frame.position_commit.collided);
+    CHECK(frame.position_commit.probes == 2);
+    CHECK(player.position() == FixedPosition({0, 20, 30}));
+    CHECK(player.previous_position() == FixedPosition({0, 0, 0}));
+    CHECK(player.turn_accumulator() == 0);
 
     // FUN_00493370 applies the drained local delta through the live matrix
     // before the state dispatcher. A retail zero-angle restart installs the
     // negative-identity basis, so a local +X step becomes world -X.
     PlayerState queued_player({100, 200, 300});
     queued_player.apply_restart({100, 200, 300}, 0x08000000);
-    assert(queued_player.set_queued_motion_command(0, 1, 4));
+    CHECK(queued_player.set_queued_motion_command(0, 1, 4));
     const auto queued_motion = queued_player.drain_queued_motion();
     const FixedPosition queued_world_delta = queued_player.apply_queued_motion(
         queued_motion);
-    assert(queued_world_delta == FixedPosition({-1, 0, 0}));
-    assert(queued_player.position() == FixedPosition({99, 200, 300}));
-    assert(queued_player.previous_position() == FixedPosition({100, 200, 300}));
+    CHECK(queued_world_delta == FixedPosition({-1, 0, 0}));
+    CHECK(queued_player.position() == FixedPosition({99, 200, 300}));
+    CHECK(queued_player.previous_position() == FixedPosition({100, 200, 300}));
 
     PlayerState queued_frame_player;
     queued_frame_player.set_physics_state(3);
-    assert(queued_frame_player.set_queued_motion_command(1, 1, 2));
+    CHECK(queued_frame_player.set_queued_motion_command(1, 1, 2));
     InputState queued_frame_input;
     queued_frame_input.begin_frame(0);
     PlayerPhysicsFrameHooks queued_frame_hooks{};
@@ -72,9 +72,9 @@ int main() {
         queued_frame_player,
         queued_frame_input,
         queued_frame_hooks);
-    assert(queued_frame.queued_motion.moved);
-    assert(queued_frame.queued_motion_world_delta == FixedPosition({0, 1, 0}));
-    assert(queued_frame_player.position() == FixedPosition({0, 1, 0}));
+    CHECK(queued_frame.queued_motion.moved);
+    CHECK(queued_frame.queued_motion_world_delta == FixedPosition({0, 1, 0}));
+    CHECK(queued_frame_player.position() == FixedPosition({0, 1, 0}));
 
     PlayerState producer({100, 200, 300});
     producer.set_physics_state(0);
@@ -96,9 +96,9 @@ int main() {
         producer,
         neutral,
         producer_hooks);
-    assert(produced.position_integrated);
-    assert(producer.position() == FixedPosition({207, 200, 300}));
-    assert(producer.collision_response() == FixedPosition({4096, 0, 0}));
+    CHECK(produced.position_integrated);
+    CHECK(producer.position() == FixedPosition({207, 200, 300}));
+    CHECK(producer.collision_response() == FixedPosition({4096, 0, 0}));
 
     // The unresolved retail ground-motion producer belongs before the shared
     // position integrator. Keep that source injectable until its writer is
@@ -118,9 +118,9 @@ int main() {
         prephysics_source,
         left_input,
         prephysics_hooks);
-    assert(prephysics_frame.position_integrated);
-    assert(prephysics_source.previous_position() == FixedPosition({0, 0, 0}));
-    assert(prephysics_source.position() == FixedPosition({0x100, 0, 0}));
+    CHECK(prephysics_frame.position_integrated);
+    CHECK(prephysics_source.previous_position() == FixedPosition({0, 0, 0}));
+    CHECK(prephysics_source.position() == FixedPosition({0x100, 0, 0}));
 
     PlayerState profile_player;
     profile_player.set_physics_state(0);
@@ -148,19 +148,19 @@ int main() {
         const PlayerState& player,
         const InputState&,
         const opentony::runtime::ActionProfileState& profile) {
-        assert(profile.slot_at_offset(0x10));
-        assert(profile.slot_at_offset(0x80));
-        assert(!profile.slot_at_offset(0x90));
-        assert(player.animation_state() == 7);
-        assert(player.animation_frame() == 5);
+        CHECK(profile.slot_at_offset(0x10));
+        CHECK(profile.slot_at_offset(0x80));
+        CHECK(!profile.slot_at_offset(0x90));
+        CHECK(player.animation_state() == 7);
+        CHECK(player.animation_frame() == 5);
         return std::optional<opentony::runtime::GroundMotionInput>{};
     };
     const auto profile_frame = PlayerPhysicsFrame::step(
         profile_player,
         profile_input,
         profile_hooks);
-    assert(profile_frame.action_profile.slot_at_offset(0x10));
-    assert(profile_frame.action_profile.slot_at_offset(0x80));
+    CHECK(profile_frame.action_profile.slot_at_offset(0x10));
+    CHECK(profile_frame.action_profile.slot_at_offset(0x80));
 
     PlayerState stateful_ground_player;
     stateful_ground_player.set_physics_state(0);
@@ -195,12 +195,12 @@ int main() {
         stateful_ground_player,
         stateful_ground_input,
         stateful_ground_hooks);
-    assert(stateful_ground_frame.ground_physics.has_value());
-    assert(stateful_ground_frame.ground_physics->ground_update_state == 1);
-    assert(stateful_ground_player.ground_physics_mode() == 1);
-    assert(stateful_ground_player.collision_response()
+    CHECK(stateful_ground_frame.ground_physics.has_value());
+    CHECK(stateful_ground_frame.ground_physics->ground_update_state == 1);
+    CHECK(stateful_ground_player.ground_physics_mode() == 1);
+    CHECK(stateful_ground_player.collision_response()
         == FixedPosition({0x78000, 0, 0}));
-    assert(stateful_ground_player.ground_motion_cooldown() == 2);
+    CHECK(stateful_ground_player.ground_motion_cooldown() == 2);
 
     PlayerState wide_player;
     wide_player.set_physics_state(0);
@@ -227,10 +227,10 @@ int main() {
         wide_player,
         wide_input,
         wide_hooks);
-    assert(wide_frame.ground_turn.has_value());
-    assert(wide_frame.ground_turn->wide_profile);
-    assert(wide_frame.ground_turn->policy_changed);
-    assert(saw_closed_turn_gate);
+    CHECK(wide_frame.ground_turn.has_value());
+    CHECK(wide_frame.ground_turn->wide_profile);
+    CHECK(wide_frame.ground_turn->policy_changed);
+    CHECK(saw_closed_turn_gate);
 
     PlayerState normalized_player;
     normalized_player.set_physics_state(0);
@@ -247,11 +247,11 @@ int main() {
         normalized_player,
         normalized_input,
         normalized_hooks);
-    assert(normalized_frame.ground_turn.has_value());
-    assert(normalized_frame.ground_turn->response_normalized);
+    CHECK(normalized_frame.ground_turn.has_value());
+    CHECK(normalized_frame.ground_turn->response_normalized);
     // The response-normalized write is transient: retail clears +0x58/+0x5c/
     // +0x60 between FUN_00493370 and B010.
-    assert(normalized_player.motion_correction() == FixedPosition({0, 0, 0}));
+    CHECK(normalized_player.motion_correction() == FixedPosition({0, 0, 0}));
 
     PlayerState cooldown_player;
     cooldown_player.set_physics_state(0);
@@ -274,7 +274,7 @@ int main() {
         cooldown_player,
         cooldown_input,
         cooldown_hooks));
-    assert(saw_cooldown);
+    CHECK(saw_cooldown);
 
     PlayerState surface_player({0, 4096, 0});
     surface_player.set_physics_state(3);
@@ -311,11 +311,11 @@ int main() {
         surface_player,
         surface_input,
         surface_hooks);
-    assert(surface_frame.collision_hit.has_value());
-    assert(surface_frame.hit_normal_removed);
-    assert(saw_surface);
-    assert(surface_player.position() == FixedPosition({0, 4096, 0}));
-    assert(surface_player.collision_response() == FixedPosition({0, 0, 0}));
+    CHECK(surface_frame.collision_hit.has_value());
+    CHECK(surface_frame.hit_normal_removed);
+    CHECK(saw_surface);
+    CHECK(surface_player.position() == FixedPosition({0, 4096, 0}));
+    CHECK(surface_player.collision_response() == FixedPosition({0, 0, 0}));
 
     PlayerState response_player({0, 100, 0});
     response_player.set_physics_state(0);
@@ -343,9 +343,9 @@ int main() {
         response_player,
         surface_input,
         response_hooks);
-    assert(response_frame.collision_response.has_value());
-    assert(response_frame.collision_response->adjusted);
-    assert(response_player.collision_response()[1] == 0xcd);
+    CHECK(response_frame.collision_response.has_value());
+    CHECK(response_frame.collision_response->adjusted);
+    CHECK(response_player.collision_response()[1] == 0xcd);
 
     PlayerState gravity_player;
     gravity_player.set_physics_state(3);
@@ -361,8 +361,8 @@ int main() {
         gravity_player,
         surface_input,
         gravity_hooks);
-    assert(!gravity_disabled.air_gravity.has_value());
-    assert(gravity_player.air_motion() == FixedPosition({100, -1000, 300}));
+    CHECK(!gravity_disabled.air_gravity.has_value());
+    CHECK(gravity_player.air_motion() == FixedPosition({100, -1000, 300}));
 
     gravity_hooks.air_gravity_input = [](
         const PlayerState&,
@@ -375,9 +375,9 @@ int main() {
         gravity_player,
         surface_input,
         gravity_hooks);
-    assert(gravity_applied.air_gravity.has_value());
-    assert(gravity_applied.air_motion_basis.has_value());
-    assert(gravity_player.air_motion()
+    CHECK(gravity_applied.air_gravity.has_value());
+    CHECK(gravity_applied.air_motion_basis.has_value());
+    CHECK(gravity_player.air_motion()
         == opentony::runtime::q12_normalize({100, -1500, 300}));
 
     PlayerState air_input_player;
@@ -397,10 +397,10 @@ int main() {
         air_input_player,
         air_input,
         air_input_hooks);
-    assert(air_input_frame.air_direction_input.has_value());
-    assert(air_input_frame.air_direction_input->delta
+    CHECK(air_input_frame.air_direction_input.has_value());
+    CHECK(air_input_frame.air_direction_input->delta
         == FixedPosition({0, 0, 150}));
-    assert(air_input_player.motion_correction()
+    CHECK(air_input_player.motion_correction()
         == FixedPosition({0, 0, -150}));
 
     PlayerState stat_air_player;
@@ -420,8 +420,8 @@ int main() {
         stat_air_player,
         stat_air_input,
         stat_air_hooks);
-    assert(stat_air_frame.air_direction_input.has_value());
-    assert(stat_air_frame.air_direction_input->delta
+    CHECK(stat_air_frame.air_direction_input.has_value());
+    CHECK(stat_air_frame.air_direction_input->delta
         == FixedPosition({0, 0, 19500}));
 
     PlayerState replay_player({0, 0, 0});
@@ -442,13 +442,13 @@ int main() {
         replay_player,
         replay_inputs,
         replay_hooks);
-    assert(replay_a == replay_b);
-    assert(replay_a.size() == replay_inputs.size());
-    assert(replay_a[0].action_mask == 0);
-    assert(replay_a[1].effective_movement_mask
+    CHECK(replay_a == replay_b);
+    CHECK(replay_a.size() == replay_inputs.size());
+    CHECK(replay_a[0].action_mask == 0);
+    CHECK(replay_a[1].effective_movement_mask
         == movement_bit(MovementAction::Right));
-    assert(replay_a[0].position == FixedPosition({100, 0, 0}));
-    assert(replay_a[2].previous_position == replay_a[1].position);
+    CHECK(replay_a[0].position == FixedPosition({100, 0, 0}));
+    CHECK(replay_a[2].previous_position == replay_a[1].position);
 
     PlayerState ollie_player;
     ollie_player.set_physics_state(0);
@@ -464,19 +464,19 @@ int main() {
         ollie_player,
         kick_input,
         ollie_hooks);
-    assert(charge_frame.ollie.has_value());
-    assert(charge_frame.ollie->event
+    CHECK(charge_frame.ollie.has_value());
+    CHECK(charge_frame.ollie->event
         == opentony::runtime::OlliePrePhysicsEvent::Charging);
     kick_input.begin_frame(0);
     const auto launch_frame = PlayerPhysicsFrame::step(
         ollie_player,
         kick_input,
         ollie_hooks);
-    assert(launch_frame.ollie.has_value());
-    assert(launch_frame.ollie->event
+    CHECK(launch_frame.ollie.has_value());
+    CHECK(launch_frame.ollie->event
         == opentony::runtime::OlliePrePhysicsEvent::Launched);
-    assert(ollie_player.physics_state() == 3);
-    assert(ollie_player.last_state_request().reason
+    CHECK(ollie_player.physics_state() == 3);
+    CHECK(ollie_player.last_state_request().reason
         == opentony::runtime::kAlternateLaunchReason);
 
     PlayerState landing_player({0, 100, 0});
@@ -505,9 +505,9 @@ int main() {
         landing_player,
         landing_input,
         landing_hooks);
-    assert(landed.landed);
-    assert(landing_player.physics_state() == 0);
-    assert(landing_player.last_state_request().reason
+    CHECK(landed.landed);
+    CHECK(landing_player.physics_state() == 0);
+    CHECK(landing_player.last_state_request().reason
         == opentony::runtime::kLandingReason);
 
     PlayerState brake_player({0, 0, 0});
@@ -532,12 +532,12 @@ int main() {
         brake_player,
         landing_input,
         brake_hooks);
-    assert(braked.ground_brake.has_value());
-    assert(braked.ground_brake->requested_state7);
-    assert(brake_player.physics_state() == 7);
-    assert(brake_player.last_state_request().reason
+    CHECK(braked.ground_brake.has_value());
+    CHECK(braked.ground_brake->requested_state7);
+    CHECK(brake_player.physics_state() == 7);
+    CHECK(brake_player.last_state_request().reason
         == opentony::runtime::kGroundStopReason);
-    assert(braked.dispatch.state == 7);
+    CHECK(braked.dispatch.state == 7);
 
     PlayerState damping_player;
     damping_player.set_collision_response({30, -30, 20});
@@ -552,8 +552,8 @@ int main() {
         damping_player,
         landing_input,
         damping_hooks);
-    assert(damping_frame.velocity_damped);
-    assert(damping_player.collision_response()
+    CHECK(damping_frame.velocity_damped);
+    CHECK(damping_player.collision_response()
         == FixedPosition({23, -23, 0}));
 
     std::cout << "Physics frame tests passed\n";

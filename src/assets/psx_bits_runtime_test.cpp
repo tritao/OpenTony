@@ -1,7 +1,7 @@
 #include "psx_bits_runtime.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -64,14 +64,14 @@ int main() {
         opentony::assets::PsxArchive::parse(std::move(bytes), "bits.psx");
     opentony::assets::PsxBitsRuntime runtime;
     runtime.build(archive);
-    assert(runtime.groups().size() == 2);
-    assert(runtime.groups()[0].name == "Shadow");
-    assert(runtime.groups()[0].entries.size() == 1);
-    assert(runtime.groups()[0].entries[0][0] == std::byte{1});
-    assert(runtime.groups()[1].name == "SMOKE");
-    assert(runtime.groups()[1].entries.size() == 2);
-    assert(runtime.find("shadow") == &runtime.groups()[0]);
-    assert(runtime.find("SmOkE") == &runtime.groups()[1]);
-    assert(runtime.find("font") == nullptr);
+    CHECK(runtime.groups().size() == 2);
+    CHECK(runtime.groups()[0].name == "Shadow");
+    CHECK(runtime.groups()[0].entries.size() == 1);
+    CHECK(runtime.groups()[0].entries[0][0] == std::byte{1});
+    CHECK(runtime.groups()[1].name == "SMOKE");
+    CHECK(runtime.groups()[1].entries.size() == 2);
+    CHECK(runtime.find("shadow") == &runtime.groups()[0]);
+    CHECK(runtime.find("SmOkE") == &runtime.groups()[1]);
+    CHECK(runtime.find("font") == nullptr);
     return 0;
 }

@@ -1,6 +1,6 @@
 #include "rail_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -45,19 +45,19 @@ int main() {
     const opentony::trg::TrgFile file = opentony::trg::TrgFile::parse(bytes);
     opentony::trg::RailRuntimeList rails;
     rails.build(file);
-    assert(rails.records().size() == 2);
-    assert(rails.record_for_node(0) != nullptr);
-    assert(rails.record_for_node(1) != nullptr);
-    assert(rails.record_for_node(0)->trigger_word() == 0x1234);
-    assert(rails.record_for_node(0)->state() == 0);
-    assert(rails.record_for_node(2)->raw_record().size() ==
+    CHECK(rails.records().size() == 2);
+    CHECK(rails.record_for_node(0) != nullptr);
+    CHECK(rails.record_for_node(1) != nullptr);
+    CHECK(rails.record_for_node(0)->trigger_word() == 0x1234);
+    CHECK(rails.record_for_node(0)->state() == 0);
+    CHECK(rails.record_for_node(2)->raw_record().size() ==
         opentony::trg::kRailRuntimeRecordMinimumSize);
 
     rails.pulse_node(0);
-    assert(rails.record_for_node(0)->state() == 1);
+    CHECK(rails.record_for_node(0)->state() == 1);
     rails.kill_node(0);
-    assert(rails.record_for_node(0)->state() == 0);
-    assert(rails.record_for_node(1)->trigger_word() == 0x5678);
+    CHECK(rails.record_for_node(0)->state() == 0);
+    CHECK(rails.record_for_node(1)->trigger_word() == 0x5678);
 
     return 0;
 }

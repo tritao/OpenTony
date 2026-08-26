@@ -1,7 +1,7 @@
 #include "pkr_asset.hpp"
 #include "psx_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -77,7 +77,7 @@ int main() {
         &compressed_size,
         reinterpret_cast<const Bytef*>(zlib_source.data()),
         static_cast<uLong>(zlib_source.size()));
-    assert(compressed_result == Z_OK);
+    CHECK(compressed_result == Z_OK);
     compressed.resize(static_cast<std::size_t>(compressed_size));
     const std::size_t zlib_offset = append(bytes, compressed);
 
@@ -90,35 +90,35 @@ int main() {
 
     const opentony::assets::PkrArchive archive =
         opentony::assets::PkrArchive::parse(std::move(bytes), "all.pkr");
-    assert(archive.version() == 1);
-    assert(archive.directories().size() == 1);
-    assert(archive.entries().size() == 4);
-    assert(archive.find("data/RAW.BIN") != nullptr);
-    assert(archive.decode("data/RAW.BIN").size() == 3);
+    CHECK(archive.version() == 1);
+    CHECK(archive.directories().size() == 1);
+    CHECK(archive.entries().size() == 4);
+    CHECK(archive.find("data/RAW.BIN") != nullptr);
+    CHECK(archive.decode("data/RAW.BIN").size() == 3);
     const auto byte_decoded = archive.decode(1);
-    assert(byte_decoded == std::vector<std::byte>({
+    CHECK(byte_decoded == std::vector<std::byte>({
         std::byte{'a'}, std::byte{'a'}, std::byte{'a'}, std::byte{'b'}, std::byte{'b'}}));
-    assert(archive.decode(2) == std::vector<std::byte>({std::byte{'c'}, std::byte{'c'}}));
-    assert(archive.decode(3) == zlib_source);
+    CHECK(archive.decode(2) == std::vector<std::byte>({std::byte{'c'}, std::byte{'c'}}));
+    CHECK(archive.decode(3) == zlib_source);
 
     const std::filesystem::path retail_package =
         "/home/joao/dev/OpenTony/build/disc/files/SETUP/data/ALL.PKR";
     if (std::filesystem::is_regular_file(retail_package)) {
         const auto retail = opentony::assets::PkrArchive::load(retail_package.string());
-        assert(retail.version() == 1);
-        assert(retail.directories().size() == 21);
-        assert(retail.entries().size() == 3771);
+        CHECK(retail.version() == 1);
+        CHECK(retail.directories().size() == 21);
+        CHECK(retail.entries().size() == 3771);
         const auto* warehouse = retail.find("data/SKWARE.PSX");
-        assert(warehouse != nullptr);
-        assert(warehouse->marker == opentony::assets::kPkrRawMarker);
-        assert(warehouse->stored_size == 0x20034);
-        assert(warehouse->decoded_size == 0x20034);
+        CHECK(warehouse != nullptr);
+        CHECK(warehouse->marker == opentony::assets::kPkrRawMarker);
+        CHECK(warehouse->stored_size == 0x20034);
+        CHECK(warehouse->decoded_size == 0x20034);
         const auto warehouse_bytes = retail.decode("data/SKWARE.PSX");
-        assert(warehouse_bytes.size() == 0x20034);
+        CHECK(warehouse_bytes.size() == 0x20034);
         const auto scene = opentony::assets::PsxArchive::parse(
             warehouse_bytes, "ALL.PKR/data/SKWARE.PSX");
-        assert(scene.objects().size() == 252);
-        assert(scene.models().size() == 288);
+        CHECK(scene.objects().size() == 252);
+        CHECK(scene.models().size() == 288);
     }
     return 0;
 }

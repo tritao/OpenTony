@@ -70,7 +70,7 @@ public:
         std::uint8_t frame_count,
         std::int32_t start_frame = -1,
         std::int32_t end_frame = -1,
-        std::uint8_t alternate_frame = 0) noexcept;
+        std::int32_t alternate_frame = 0) noexcept;
     void start_special(
         std::uint16_t animation_index,
         std::uint8_t frame_count,
@@ -89,7 +89,7 @@ public:
     [[nodiscard]] std::uint8_t mode() const noexcept;
     [[nodiscard]] std::int8_t direction() const noexcept;
     [[nodiscard]] std::uint8_t end_frame() const noexcept;
-    [[nodiscard]] std::uint8_t alternate_frame() const noexcept;
+    [[nodiscard]] std::int8_t alternate_frame() const noexcept;
     [[nodiscard]] std::int16_t original_start_frame() const noexcept;
     [[nodiscard]] std::int32_t playback_rate_fixed() const noexcept;
     [[nodiscard]] bool finished() const noexcept;

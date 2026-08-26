@@ -85,6 +85,21 @@ table with the three observed low-byte copies, and reports the `0x14c` font,
 kept as a value-owned blank record; graphics-library texture pointers and
 atlas decoding remain backend-owned.
 
+`FntRuntimeManager` now supplies the remaining slot/lifetime boundary. It
+keeps eight value-owned fonts under the bounded, case-insensitive name table,
+supports both direct file bytes and a copy of a payload returned by
+`PreRuntimeManager::find_embedded()`, and releases the complete font on
+unload. `text_view()` exposes only the fields the downstream text consumer is
+shown to copy: the disk record count, packed atlas/format word, and the
+count-plus-sentinel entry span. This makes the temporary PRE payload safe to
+free after construction, as in the retail `Font_Load` path.
+
+The native FNT regression exercises the direct parser, PRE-embedded
+`S2TRICKS.FNT` handoff, case-insensitive lookup/unload, sentinel entry,
+malformed count rejection, and the eight-slot capacity. Exact palette upload,
+glyph texture decoding, and the Direct3D object remain presentation/backend
+seams because their executable-side semantics are not recovered here.
+
 The proven path is therefore:
 
 ```text

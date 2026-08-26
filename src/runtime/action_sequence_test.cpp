@@ -5,7 +5,7 @@
 #include "tricks_bin.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -26,12 +26,12 @@ int main() {
     using namespace opentony::runtime;
 
     RetailActionHistory history;
-    assert(history.publish(1, true, 10));
-    assert(history.publish(12, true, 10));
-    assert(!history.publish(12, true, 11));
+    CHECK(history.publish(1, true, 10));
+    CHECK(history.publish(12, true, 10));
+    CHECK(!history.publish(12, true, 11));
     const int newest = history.find_pressed(1, 0, 0, 1, false, 10);
-    assert(newest == 1);
-    assert(history.find_pressed(1, 1, 0, 1, false, 10) == 0);
+    CHECK(newest == 1);
+    CHECK(history.find_pressed(1, 1, 0, 1, false, 10) == 0);
 
     std::vector<std::uint8_t> table(16, 0);
     put_i16(table, 0, 2);
@@ -41,23 +41,23 @@ int main() {
     put_u16(table, 8, 10);
     put_i16(table, 10, 0); // terminator
     const auto parsed = read_action_sequence_record(table, 0);
-    assert(parsed.has_value());
-    assert(parsed->length == 2);
-    assert(parsed->actions[0] == 1);
-    assert(parsed->actions[1] == 12);
-    assert(parsed->stream_relative == 0x20);
-    assert(parsed->flags == 10);
-    assert(!read_action_sequence_record(table, 100).has_value());
+    CHECK(parsed.has_value());
+    CHECK(parsed->length == 2);
+    CHECK(parsed->actions[0] == 1);
+    CHECK(parsed->actions[1] == 12);
+    CHECK(parsed->stream_relative == 0x20);
+    CHECK(parsed->flags == 10);
+    CHECK(!read_action_sequence_record(table, 100).has_value());
 
     const auto match = match_action_sequence(
         table,
         history,
         ActionSequenceMatcherInput{0, 10, 0, 1});
-    assert(match.matched);
-    assert(match.stream_relative == 0x20);
-    assert(match.trigger_action == 12);
-    assert(history.record(0).action == 0);
-    assert(history.record(1).action == 0);
+    CHECK(match.matched);
+    CHECK(match.stream_relative == 0x20);
+    CHECK(match.trigger_action == 12);
+    CHECK(history.record(0).action == 0);
+    CHECK(history.record(1).action == 0);
 
     std::vector<std::uint8_t> image(0x50, 0);
     for (std::size_t index = 0; index < 8; ++index) {
@@ -73,10 +73,10 @@ int main() {
         tricks.view(),
         table,
         ActionSequenceMatcherInput{profile.selected_action, 10, 0, 1});
-    assert(execution.match.matched);
-    assert(execution.stream_resolved);
-    assert(execution.stream_started);
-    assert(execution.stream.completed);
+    CHECK(execution.match.matched);
+    CHECK(execution.stream_resolved);
+    CHECK(execution.stream_started);
+    CHECK(execution.stream.completed);
 
     // The frame can use the shipped source table explicitly when the retail
     // heap-generated per-player table has not been synthesized yet.
@@ -116,9 +116,9 @@ int main() {
         frame_player,
         frame_input,
         frame_hooks);
-    assert(frame.action_sequence.has_value());
-    assert(frame.action_sequence->match.matched);
-    assert(frame.action_sequence->stream.completed);
+    CHECK(frame.action_sequence.has_value());
+    CHECK(frame.action_sequence->match.matched);
+    CHECK(frame.action_sequence->stream.completed);
 
     // FUN_00492ea0 keeps the stream active after a 0x2c queue barrier. The
     // next fixed frame drains the queued local motion first, then resumes at
@@ -157,27 +157,27 @@ int main() {
         yielding_player,
         yielding_input,
         yielding_hooks);
-    assert(yielding_frame.action_sequence.has_value());
-    assert(yielding_frame.action_sequence->match.matched);
-    assert(yielding_frame.action_sequence->stream.yielded);
-    assert(yielding_frame.action_sequence->stream_active);
-    assert(yielding_player.action_stream_active());
+    CHECK(yielding_frame.action_sequence.has_value());
+    CHECK(yielding_frame.action_sequence->match.matched);
+    CHECK(yielding_frame.action_sequence->stream.yielded);
+    CHECK(yielding_frame.action_sequence->stream_active);
+    CHECK(yielding_player.action_stream_active());
     // The archive view is a span beginning at image offset 0x20, so the
     // native cursor is the equivalent stream-local byte offset 7.
-    assert(yielding_player.action_stream_cursor() == 7);
-    assert(yielding_player.queued_motion().pending[0] == 1);
+    CHECK(yielding_player.action_stream_cursor() == 7);
+    CHECK(yielding_player.queued_motion().pending[0] == 1);
 
     const auto resumed_frame = PlayerPhysicsFrame::step(
         yielding_player,
         yielding_input,
         yielding_hooks);
-    assert(resumed_frame.action_sequence.has_value());
-    assert(!resumed_frame.action_sequence->match.matched);
-    assert(resumed_frame.action_sequence->stream_resumed);
-    assert(resumed_frame.action_sequence->stream.completed);
-    assert(!resumed_frame.action_sequence->stream_active);
-    assert(!yielding_player.action_stream_active());
-    assert(yielding_player.queued_motion().pending[0] == 0);
-    assert(resumed_frame.queued_motion.local_delta[0] == 1);
+    CHECK(resumed_frame.action_sequence.has_value());
+    CHECK(!resumed_frame.action_sequence->match.matched);
+    CHECK(resumed_frame.action_sequence->stream_resumed);
+    CHECK(resumed_frame.action_sequence->stream.completed);
+    CHECK(!resumed_frame.action_sequence->stream_active);
+    CHECK(!yielding_player.action_stream_active());
+    CHECK(yielding_player.queued_motion().pending[0] == 0);
+    CHECK(resumed_frame.queued_motion.local_delta[0] == 1);
     return 0;
 }

@@ -1,6 +1,6 @@
 #include "player_resource_spool.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -35,43 +35,43 @@ int main() {
         1,
         0x10800,
         0);
-    assert(psh == 0);
-    assert(psx == 1);
-    assert(spool.queued_count() == 2);
-    assert(spool.name(0) == "HAWK2");
-    assert(spool.kind(0)
+    CHECK(psh == 0);
+    CHECK(psx == 1);
+    CHECK(spool.queued_count() == 2);
+    CHECK(spool.name(0) == "HAWK2");
+    CHECK(spool.kind(0)
         == opentony::runtime::PlayerSpoolResourceKind::PshRegion);
-    assert(spool.heap_selector(0) == 1);
-    assert(spool.request_flags(0) == 0xff);
-    assert(spool.request_size_staging(0) == 0x10800);
-    assert(!spool.processed(0));
+    CHECK(spool.heap_selector(0) == 1);
+    CHECK(spool.request_flags(0) == 0xff);
+    CHECK(spool.request_size_staging(0) == 0x10800);
+    CHECK(!spool.processed(0));
 
-    assert(spool.start_next());
-    assert(spool.state() == 1);
-    assert(spool.load_current(asset_root()) == 0);
-    assert(spool.processed(0));
-    assert(spool.loaded(0) != nullptr);
-    assert(spool.loaded(0)->psh.has_value());
-    assert(spool.loaded(0)->psh->parts().size() == 19);
+    CHECK(spool.start_next());
+    CHECK(spool.state() == 1);
+    CHECK(spool.load_current(asset_root()) == 0);
+    CHECK(spool.processed(0));
+    CHECK(spool.loaded(0) != nullptr);
+    CHECK(spool.loaded(0)->psh.has_value());
+    CHECK(spool.loaded(0)->psh->parts().size() == 19);
     spool.complete_current();
-    assert(spool.consume_index() == 1);
-    assert(spool.state() == 2);
+    CHECK(spool.consume_index() == 1);
+    CHECK(spool.state() == 2);
 
-    assert(spool.start_next());
-    assert(spool.load_current(asset_root()) == 1);
-    assert(spool.loaded(1) != nullptr);
-    assert(spool.loaded(1)->psx.has_value());
-    assert(spool.loaded(1)->psx->objects().size() == 19);
+    CHECK(spool.start_next());
+    CHECK(spool.load_current(asset_root()) == 1);
+    CHECK(spool.loaded(1) != nullptr);
+    CHECK(spool.loaded(1)->psx.has_value());
+    CHECK(spool.loaded(1)->psx->objects().size() == 19);
     spool.complete_current();
-    assert(spool.consume_index() == 2);
-    assert(spool.state() == 0);
-    assert(!spool.start_next());
+    CHECK(spool.consume_index() == 2);
+    CHECK(spool.state() == 0);
+    CHECK(!spool.start_next());
 
     spool.reset();
-    assert(spool.queued_count() == 0);
-    assert(spool.consume_index() == 0);
-    assert(spool.state() == 0);
-    assert(spool.loaded(0) == nullptr);
+    CHECK(spool.queued_count() == 0);
+    CHECK(spool.consume_index() == 0);
+    CHECK(spool.state() == 0);
+    CHECK(spool.loaded(0) == nullptr);
 
     const std::filesystem::path package_path =
         "/home/joao/dev/OpenTony/build/disc/files/SETUP/data/ALL.PKR";
@@ -79,21 +79,21 @@ int main() {
         const auto package = opentony::assets::PkrArchive::load(
             package_path.string());
         opentony::runtime::PlayerResourceSpool packaged;
-        assert(packaged.enqueue(
+        CHECK(packaged.enqueue(
             "HAWK2",
             opentony::runtime::PlayerSpoolResourceKind::PshRegion) == 0);
-        assert(packaged.enqueue(
+        CHECK(packaged.enqueue(
             "HAWK2",
             opentony::runtime::PlayerSpoolResourceKind::DirectPsx) == 1);
-        assert(packaged.start_next());
-        assert(packaged.load_current(package) == 0);
-        assert(packaged.loaded(0) != nullptr);
-        assert(packaged.loaded(0)->psh->parts().size() == 19);
+        CHECK(packaged.start_next());
+        CHECK(packaged.load_current(package) == 0);
+        CHECK(packaged.loaded(0) != nullptr);
+        CHECK(packaged.loaded(0)->psh->parts().size() == 19);
         packaged.complete_current();
-        assert(packaged.start_next());
-        assert(packaged.load_current(package) == 1);
-        assert(packaged.loaded(1) != nullptr);
-        assert(packaged.loaded(1)->psx->objects().size() == 19);
+        CHECK(packaged.start_next());
+        CHECK(packaged.load_current(package) == 1);
+        CHECK(packaged.loaded(1) != nullptr);
+        CHECK(packaged.loaded(1)->psx->objects().size() == 19);
     }
 
     std::cout << "Player resource spool tests passed\n";

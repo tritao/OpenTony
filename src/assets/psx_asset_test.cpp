@@ -1,6 +1,6 @@
 #include "psx_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -56,13 +56,13 @@ int main() {
 
     const opentony::assets::PsxArchive archive =
         opentony::assets::PsxArchive::parse(std::move(bytes), "synthetic.psx");
-    assert(archive.version() == 4);
-    assert(archive.objects().size() == 1);
-    assert(archive.objects()[0].position[0] == 0x1000);
-    assert(archive.objects()[0].model_index == 0);
-    assert(archive.models().size() == 1);
-    assert(archive.models()[0].size == 28);
-    assert(archive.model_names().size() == 1);
-    assert(archive.model_names()[0] == 0xdecafbadU);
+    CHECK(archive.version() == 4);
+    CHECK(archive.objects().size() == 1);
+    CHECK(archive.objects()[0].position[0] == 0x1000);
+    CHECK(archive.objects()[0].model_index == 0);
+    CHECK(archive.models().size() == 1);
+    CHECK(archive.models()[0].size == 28);
+    CHECK(archive.model_names().size() == 1);
+    CHECK(archive.model_names()[0] == 0xdecafbadU);
     return 0;
 }

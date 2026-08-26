@@ -1,7 +1,7 @@
 #include "psx_animation.hpp"
 
 #include <array>
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -70,14 +70,14 @@ opentony::assets::PsxArchive synthetic_archive() {
 void test_synthetic_packet() {
     const auto table = opentony::assets::PsxAnimationTable::parse(
         synthetic_archive());
-    assert(table.animation_count() == 1);
-    assert(table.part_count() == 1);
-    assert(table.record(0).relative_data_offset == 12);
-    assert(table.record(0).frame_count() == 5);
-    assert(table.record(0).flags() == 0);
-    assert(table.stream(0).size() == 5);
-    assert(std::to_integer<std::uint8_t>(table.stream(0).back()) == 0xaa);
-    assert(table.hierarchy_words().size() == 1);
+    CHECK(table.animation_count() == 1);
+    CHECK(table.part_count() == 1);
+    CHECK(table.record(0).relative_data_offset == 12);
+    CHECK(table.record(0).frame_count() == 5);
+    CHECK(table.record(0).flags() == 0);
+    CHECK(table.stream(0).size() == 5);
+    CHECK(std::to_integer<std::uint8_t>(table.stream(0).back()) == 0xaa);
+    CHECK(table.hierarchy_words().size() == 1);
 }
 
 void test_retail_packet_when_available() {
@@ -88,21 +88,21 @@ void test_retail_packet_when_available() {
         return;
     }
     const auto table = opentony::assets::PsxAnimationTable::load(path.string());
-    assert(table.animation_count() == 218);
-    assert(table.part_count() == 19);
-    assert(table.payload_size() == 0x8f1b0);
-    assert(table.record(0).relative_data_offset == 0x6d4);
-    assert(table.record(0).frame_count() == 12);
-    assert(table.record(1).frame_count() == 10);
-    assert(table.record(6).frame_count() == 23);
-    assert(table.record(10).frame_count() == 28);
-    assert(table.record(217).frame_count() == 7);
-    assert(table.hierarchy_words().size() == 20);
+    CHECK(table.animation_count() == 218);
+    CHECK(table.part_count() == 19);
+    CHECK(table.payload_size() == 0x8f1b0);
+    CHECK(table.record(0).relative_data_offset == 0x6d4);
+    CHECK(table.record(0).frame_count() == 12);
+    CHECK(table.record(1).frame_count() == 10);
+    CHECK(table.record(6).frame_count() == 23);
+    CHECK(table.record(10).frame_count() == 28);
+    CHECK(table.record(217).frame_count() == 7);
+    CHECK(table.hierarchy_words().size() == 20);
     for (std::uint16_t id = 0; id < table.animation_count(); ++id) {
-        assert(table.record(id).frame_count() >= 5);
-        assert(table.record(id).frame_count() <= 97);
-        assert(table.record(id).flags() == 0);
-        assert(!table.stream(id).empty());
+        CHECK(table.record(id).frame_count() >= 5);
+        CHECK(table.record(id).frame_count() <= 97);
+        CHECK(table.record(id).flags() == 0);
+        CHECK(!table.stream(id).empty());
     }
 }
 

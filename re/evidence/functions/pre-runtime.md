@@ -141,6 +141,22 @@ PANEL.PRE
   -> panel renderer
 ```
 
+## Native boundary
+
+`src/assets/pre_runtime.*` now carries the proven ownership boundary into a
+value-owned `PreRuntimeManager`. It retains the sixteen-slot/0x144-byte
+manager shape, preserves case-sensitive container names for diagnostics, and
+releases a complete `PreArchive` on the matching case-insensitive unload.
+`find_embedded()` scans slots and entries in retail order and returns a span
+into the retained archive, so the view is valid until its owning PRE slot is
+unloaded. The direct `load_file()` and post-file-I/O `load()` forms keep the
+platform allocator and asynchronous handle outside the native model.
+
+The manager is covered by synthetic alignment, case-folding, missing-entry,
+name-bound, slot-capacity, and unload tests. The checked-in PRE parser remains
+the bounded implementation of the `0x004a9480` record walk; no additional
+payload format is inferred here.
+
 ## Confidence and limits
 
 - `confirmed`: manager allocation size, 16-slot/16-name layout, file-open and

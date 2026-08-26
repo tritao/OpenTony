@@ -1,6 +1,6 @@
 #include "psx_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 
@@ -14,7 +14,7 @@ int main() {
 
     const opentony::assets::PsxArchive archive =
         opentony::assets::PsxArchive::load(path.string());
-    assert(!archive.textures().empty());
+    CHECK(!archive.textures().empty());
     const auto& source = archive.textures().front();
     const auto decoded = archive.decode_texture(0);
     const std::uint32_t alignment = source.color_count == 16U
@@ -24,11 +24,11 @@ int main() {
         (static_cast<std::uint32_t>(source.width) + alignment) & ~alignment;
     const std::uint32_t expected_height =
         (static_cast<std::uint32_t>(source.height) + alignment) & ~alignment;
-    assert(decoded.width == expected_width);
-    assert(decoded.height == expected_height);
-    assert(decoded.rgb.size()
+    CHECK(decoded.width == expected_width);
+    CHECK(decoded.height == expected_height);
+    CHECK(decoded.rgb.size()
         == static_cast<std::size_t>(decoded.width) * decoded.height * 3U);
-    assert(!decoded.rgb.empty());
+    CHECK(!decoded.rgb.empty());
 
     std::cout << "PSX texture tests passed\n";
 }

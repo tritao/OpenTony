@@ -243,6 +243,38 @@ the wrapper; the query does not parse a file on each call.
   bounds. These names are address-level labels only; the complete level
   collision file format was not attempted here.
 
+### Current static target: `0x004638d0` (`M3D_CollisionCell`)
+
+The exact disassembly boundary is `0x004638d0..0x00463d46`; the nine NOPs at
+`0x00463d47..0x00463d4f` are padding before `0x00463d50`. The cdecl routine
+takes a null-terminated cell-head array and an `SLineInfo*`. It returns early
+for a null list or zero query length, copies all nine signed shorts at
+`q+0x48..0x58` to the contiguous basis globals at `DAT_006a3e10`, and calls
+the linked-object prefilter before walking each object chain.
+
+For each un-stamped object, the routine first searches 20 model-cache slots at
+`DAT_00567a70` with a `0x10` stride. On a miss it selects model data using the
+object's `+0x1f` region slot and `+0x1a` model index, computes one
+world-space `SFaceCache` record per model face, and then calls
+`0x00462a20`. The face builder reads signed 16-bit model vertices, applies
+the fixed `0x1000` scale with 32-bit wrapping, includes three vertices for a
+quad and two after the first for a triangle, and advances by
+`face_word >> 18` four-byte units.
+
+The cache capacity is now bounded rather than provisional: helper
+`0x00463580` uses the literal `0x1f4` (500) for face-cache allocation and
+cursor checks. With the confirmed `0x1c` record stride, the storage occupies
+`0x36b0` bytes at `DAT_005643b0`; its end is `0x00567a60`, immediately before
+the model-cache base at `0x00567a70`. The native reference test asserts these
+capacities, span limits, basis offset, and all six synthetic face-AABB bounds.
+
+Behavioral-test status: tested in `re/evidence/collision_reference_test.cpp`
+through the recovered model-face/AABB primitive and cache-layout assertions;
+the full PC heap loader remains outside the native layer. Matching status:
+`raw` in `match/manifest.yml` via the encompassing `text_004628e6` bootstrap
+module, which preserves the original bytes. No byte-level split is attempted
+until `match/original` is available.
+
 ### Candidate testing and result finalization
 
 - `0x004638d0` is a candidate-list/model-face traversal routine. Its embedded
@@ -507,7 +539,11 @@ the wrapper; the query does not parse a file on each call.
     `query_basis * object_rotation * scale`. The ordinary Hangar objects
     sampled so far all carry identity Q12 scale, but the native linked-object
     API accepts non-identity factors directly. The final normal path remains the unscaled
-    `object_rotation * model_normal` transform.
+    `object_rotation * model_normal` transform. A controlled runtime calibration
+    of the scale branch, including signed boundary factors and restoration
+    checks, is recorded in
+    [`collision-transform-mutation.md`](collision-transform-mutation.md); a
+    naturally non-identity linked collision object remains an open target.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
@@ -947,6 +983,14 @@ engine-specific work is wiring the PC linked-object loader/cache and its
 level-to-heap ownership into these interfaces. The collision-facing node
 prefix and object broad-phase records are now available. The Q12 object-angle
 basis used by normal finalization is covered by `build_object_rotation_basis`.
+
+The native `PsxScene::execute_query_wrapper` models the exact outer contract
+of `0x00466090`: it accepts a caller-prepared `QueryRecord`, publishes hit or
+no-hit state into that record, gates the optional linked-object pass on the
+mode argument, and returns zero in every case. Its synthetic scene test covers
+both a hit and a no-hit record, including the unchanged query stamp and the
+initialized `0x7fffffff` sentinels. The wrapper is therefore native-tested;
+complete retail zone/global ownership remains a separate boundary.
 
 ## Open questions / falsifiers
 

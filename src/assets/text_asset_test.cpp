@@ -1,6 +1,6 @@
 #include "text_asset.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -24,9 +24,9 @@ int main() {
     }
     const auto labels_asset = opentony::assets::ParkLabelTable::parse(
         std::move(label_bytes), "cdparks.txt");
-    assert(labels_asset.labels().size() == 50);
-    assert(labels_asset.labels()[0].text == "Label 0");
-    assert(labels_asset.labels()[49].index == 49);
+    CHECK(labels_asset.labels().size() == 50);
+    CHECK(labels_asset.labels()[0].text == "Label 0");
+    CHECK(labels_asset.labels()[49].index == 49);
 
     const std::string presentation =
         "@M2,0\r\n"
@@ -42,37 +42,37 @@ int main() {
     }
     const auto text_asset = opentony::assets::PresentationTextAsset::parse(
         std::move(presentation_bytes), "credits.txt");
-    assert(text_asset.records().size() == 4);
-    assert(text_asset.records()[0].kind ==
+    CHECK(text_asset.records().size() == 4);
+    CHECK(text_asset.records()[0].kind ==
         opentony::assets::PresentationTextRecordKind::marker);
-    assert(text_asset.records()[0].marker_a == 2);
-    assert(text_asset.records()[0].marker_b == 0);
-    assert(text_asset.records()[1].text == "Title");
-    assert(text_asset.records()[2].text == "Alternate");
-    assert(text_asset.records()[2].alternate_font);
-    assert(text_asset.records()[3].kind ==
+    CHECK(text_asset.records()[0].marker_a == 2);
+    CHECK(text_asset.records()[0].marker_b == 0);
+    CHECK(text_asset.records()[1].text == "Title");
+    CHECK(text_asset.records()[2].text == "Alternate");
+    CHECK(text_asset.records()[2].alternate_font);
+    CHECK(text_asset.records()[3].kind ==
         opentony::assets::PresentationTextRecordKind::bitmap);
-    assert(text_asset.records()[3].text == "image.bmp");
+    CHECK(text_asset.records()[3].text == "image.bmp");
 
     const std::filesystem::path root =
         "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data";
     const auto park_path = root / "CDPARKS.TXT";
     if (std::filesystem::is_regular_file(park_path)) {
         const auto real = opentony::assets::ParkLabelTable::load(park_path.string());
-        assert(real.labels().size() == 50);
-        assert(real.labels()[0].text == "Up. Down. Repeat.");
+        CHECK(real.labels().size() == 50);
+        CHECK(real.labels()[0].text == "Up. Down. Repeat.");
     }
     const auto credits_path = root / "CREDITS.TXT";
     if (std::filesystem::is_regular_file(credits_path)) {
         const auto real = opentony::assets::PresentationTextAsset::load(
             credits_path.string());
-        assert(real.records().size() == 716);
+        CHECK(real.records().size() == 716);
     }
     const auto music_path = root / "MUSIC.TXT";
     if (std::filesystem::is_regular_file(music_path)) {
         const auto real = opentony::assets::PresentationTextAsset::load(
             music_path.string());
-        assert(real.records().size() == 401);
+        CHECK(real.records().size() == 401);
     }
     return 0;
 }

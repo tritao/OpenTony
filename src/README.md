@@ -215,6 +215,10 @@ standalone `dispatch()` closes that post-handler check immediately.
 The grounded leave-ground helper also exposes `apply_off_ground_transition()`
 for the deterministic `0x004904d0` reset and its same-state `0x0715` request;
 animation, sound, and speed-table calls from that helper remain external.
+At the frame boundary, set `ground_leave_air_input` to publish the resolved
+slope/recovery/frame values after the case-0 handlers. `step_frame()` returns
+the entry dispatcher result together with the evaluated `ground_leave_air`
+result and does not run the common air handler again after this tail transition.
 Set `air_preparation` when the caller owns the `0x00497df0` basis/global setup;
 it runs after any case-6 setup and before the native air-action terms. The
 callback can call `prepare_in_air_orientation()` for the recovered rolling

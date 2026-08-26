@@ -1,7 +1,7 @@
 #include "input_bindings.hpp"
 #include "input_state.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <iostream>
 
 int main() {
@@ -15,13 +15,13 @@ int main() {
     const InputBindings defaults = InputBindings::movement_defaults();
     keyboard[opentony::runtime::kDikLeft] = 0x80;
     keyboard[opentony::runtime::kDikUp] = 0x80;
-    assert(defaults.action_mask(keyboard)
+    CHECK(defaults.action_mask(keyboard)
         == static_cast<std::uint16_t>(
             movement_bit(MovementAction::Left)
             | movement_bit(MovementAction::Up)));
 
     keyboard[opentony::runtime::kDikLeft] = 0;
-    assert(defaults.action_mask(keyboard)
+    CHECK(defaults.action_mask(keyboard)
         == movement_bit(MovementAction::Up));
 
     InputBindings configured;
@@ -30,9 +30,9 @@ int main() {
     keyboard = {};
     keyboard[0x1f] = 0x80;
     keyboard[0x20] = 0x01;
-    assert(configured.action_mask(keyboard) == 0x0010);
+    CHECK(configured.action_mask(keyboard) == 0x0010);
     configured.clear(0x1f);
-    assert(configured.action_mask(keyboard) == 0);
+    CHECK(configured.action_mask(keyboard) == 0);
 
     std::cout << "input binding tests passed\n";
 }

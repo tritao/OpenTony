@@ -279,16 +279,19 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md
       - offset: 0x101
         name: playback_end_frame
         type: u8
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md
       - offset: 0x102
-        name: playback_start_frame
-        type: u8
-        confidence: observed
+        name: playback_alternate_endpoint
+        type: i8
+        confidence: confirmed
+        description: Signed alternate endpoint. Values >= 1 cause the mode-0/2 endpoint transition to swap endpoints and reverse direction; zero and negative values are finish sentinels.
         evidence:
           - re/evidence/functions/animation-runtime.md
       - offset: 0x104
@@ -312,21 +315,24 @@ types:
       - offset: 0x0fa
         name: pingpong_range_start
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x0fc
         name: pingpong_range_end
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x0fe
         name: pingpong_time_origin
         type: i16
-        confidence: observed
+        confidence: confirmed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/animation-mode3-clock.md
       - offset: 0x108
         name: playback_rate_fixed
         type: i32
@@ -339,3 +345,4 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/animation-runtime.md
+          - re/evidence/functions/ground-movement.md

@@ -1,6 +1,6 @@
 #include "skater_asset_runtime.hpp"
 
-#include <cassert>
+#include "tests/test_check.hpp"
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -27,22 +27,22 @@ int main() {
     }
 
     opentony::runtime::SkaterAssetRuntime assets(animation, model, psx, 6);
-    assert(assets.region_slot() == 6);
-    assert(assets.animation_manifest().parts().size() == 19);
-    assert(assets.model_manifest().parts().size() == 19);
-    assert(assets.part_matches().size() == 19);
+    CHECK(assets.region_slot() == 6);
+    CHECK(assets.animation_manifest().parts().size() == 19);
+    CHECK(assets.model_manifest().parts().size() == 19);
+    CHECK(assets.part_matches().size() == 19);
     const auto remap = assets.match_for_animation_part(1);
-    assert(remap.has_value());
-    assert(remap->model_index == 3);
-    assert(assets.runtime().object_count() == 19);
-    assert(assets.runtime().model_count() == 19);
-    assert(&assets.model_for_part(1)
+    CHECK(remap.has_value());
+    CHECK(remap->model_index == 3);
+    CHECK(assets.runtime().object_count() == 19);
+    CHECK(assets.runtime().model_count() == 19);
+    CHECK(&assets.model_for_part(1)
         == assets.runtime().model_pointer(3));
 
     opentony::runtime::SkaterRuntimeObject skater(0, 0, 0);
     assets.bind(skater, 1);
-    assert(skater.psx_region_slot() == 6);
-    assert(skater.model_index() == 3);
+    CHECK(skater.psx_region_slot() == 6);
+    CHECK(skater.model_index() == 3);
 
     std::cout << "Skater asset runtime tests passed\n";
 }
