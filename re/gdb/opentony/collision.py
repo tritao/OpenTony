@@ -10,6 +10,7 @@ from .player import PlayerView
 
 QUERY_WRAPPER = 0x00466090
 QUERY_RETURN = 0x0046609F
+ACTION_MASK = 0x006A3F1C
 COLLISION_MODEL_TABLE = 0x0056D43C
 COLLISION_LINKED_ROOT = 0x0056AF40
 COLLISION_LINKED_ROOT_AUX = 0x0056AF44
@@ -330,6 +331,8 @@ class CollisionQueryProbe:
         caller = ctx.caller()
         self._active = {
             "query": query,
+            "frame": ctx.frame,
+            "action_mask": ctx.memory.u16(ACTION_MASK),
             "mode": ctx.arg(1),
             "caller": caller,
             "caller_name": function_name_at(caller),
@@ -360,6 +363,8 @@ class CollisionQueryProbe:
             "caller": f"0x{int(active['caller']):08x}",
             "caller_function": active["caller_name"],
             "query": f"0x{query:08x}",
+            "frame": active["frame"],
+            "action_mask": active["action_mask"],
             "mode": active["mode"],
             "player": active["player"],
             "physics_state": active["physics_state"],

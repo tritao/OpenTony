@@ -371,6 +371,63 @@ As a sign/order check, the first Left sample records `turn_accum = -0x7800`. Wit
 
 The trace footer says `complete: false` because the debugger was stopped after collection, but all 17 controlled position records are present and all are state 0 at the target callsite. The later seven state-2 records were excluded.
 
+## Fresh B010-to-commit replay
+
+The stronger replay is `build/debug/sessions/ground-motion-final3/ground.trace.ndjson`.
+It forced Warehouse, used `render_present` as the frame clock, and injected short
+post-poll action-mask windows so that the directional phases were reproducible.
+The raw keyboard-to-mask mapping is established separately in
+`re/evidence/functions/input.md`; the injections here are only the deterministic
+runtime mechanism used to hold the already identified masks.
+
+The three clean windows are all on the same grounded callsite and state:
+
+| phase | render frames | action mask | B010 records | position commits | physics records | physics state |
+|---|---:|---:|---:|---:|---:|---:|
+| idle | 1–9 | `0` | 18 | 9 | 9 | `0` |
+| Left | 10–39 | `0x8000` | 44 | 30 | 30 | `0` |
+| Right | 80–109 | `0x2000` | 30 | 30 | 30 | `0` |
+
+Every target position record is the `0x0049f0e5 -> 0x00496060` path. The
+directional input therefore changes the turn/basis state while the native
+grounded producer is still running, rather than selecting a different physics
+state or commit callsite.
+
+The producer-side profile inputs were constant in all three clean windows:
+`local_profile_lookup = {mode: 1, player_index: 0, lookup_index: 0, value: 1}`,
+`profile_gate = true`, profile slot `+0x10 = 0`, and
+`correction_before_raw = (0, 0, 0)`. Thus this replay does not attribute the
+Left/Right difference to a profile-selection transition. The profile and
+control writer probes still show correction/control stores during the same
+grounded windows, so the later producer stages remain part of the result.
+
+The orientation and commit arguments move together:
+
+| phase | turn accumulator | basis column 0 | first → last commit argument | candidate delta (X/Y/Z) |
+|---|---|---|---|---|
+| Left, frame 10 → 39 | `-35760 → -184320` | `(-0.06226, 0.55762, 0.82739) → (0.93457, 0.00928, 0.35474)` | `(419.342743, -5.960754, 660.143799) → (403.552780, -1.802307, 665.339386)` | `(-15.789963, +4.158447, +5.195587)` |
+| Right, frame 80 → 109 | `+30720 → +184320` | `(0.86792, 0, 0.49585) → (0.24268, 0, 0.96875)` | `(319.960281, -2.386719, 618.510513) → (309.478394, -1.824219, 596.463715)` | `(-10.481888, +0.562500, -22.046799)` |
+
+The absolute starting positions are sequential, not reset-identical, so these
+total deltas are not a paired magnitude comparison. They do establish the
+reproducible chain `action mask -> 0x00493370 turn accumulator -> 0x0049b500
+basis refresh -> grounded X/Z commit argument`. Per-frame samples also show
+that the result is not a direct lateral add: inherited `velocity_4c`, the
+orientation basis, later correction/projection, and collision-safe commit all
+contribute. For example, the Left frame-30 net commit delta is approximately
+`(-1.081528, +0.363831, +0.391174)` while its captured `velocity_4c` is
+`(-0.988373, +0.225769, +0.197632)` and the later correction is
+`(-0.004257, +0.030487, +0.045029)`.
+
+The same replay completed 200 shared collision queries while the player was in
+state 0: 48 hits and 152 misses, with changing surface normals. This confirms
+that active surface/collision handling is present in the grounded window, but
+the earlier records were collected before the probe gained frame and action
+mask fields, so they cannot yet be joined one-to-one to each directional commit.
+The next targeted replay should use the updated collision probe for that join;
+it is the remaining runtime evidence gap, not evidence that the turn or basis
+chain is unresolved.
+
 ## Native reference core
 
 The supported arithmetic is implemented in the focused native reference core:
