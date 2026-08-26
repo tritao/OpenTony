@@ -49,6 +49,14 @@ struct CameraStateRaw {
     std::uint8_t transform_fallback{};
     std::uint8_t anchor_update_flag{};
     std::uint8_t tripod_anchor_flag{};
+    std::int16_t shake_x{};
+    std::int16_t shake_y{};
+    std::int16_t shake_z{};
+    std::uint8_t shake_rate_x{};
+    std::uint8_t shake_rate_y{};
+    std::uint8_t shake_rate_z{};
+    std::uint32_t shake_angle_raw{};
+    std::uint16_t shake_phase_raw{};
 };
 
 struct CameraTargetRaw {
@@ -100,6 +108,10 @@ struct CameraUpdateHooks {
     // Camera_SmoothAndValidate contains gameplay-state-dependent branches. A
     // hook can replace the conservative startup/history implementation below.
     void (*smooth_transform)(CameraStateRaw&){};
+
+    // Global DAT_0056a8d4 in the retail update. Keep it configurable until
+    // its producer is promoted from the runtime global set.
+    std::int32_t shake_phase_multiplier{1};
 };
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {
@@ -238,6 +250,47 @@ inline CameraViewportCommitRaw commit_viewport_effects(
     return result;
 }
 
+inline Raw multiply_q12_truncate(Raw left, Raw right) {
+    return divide_toward_zero(multiply_s32(left, right), kQ12One);
+}
+
+inline void apply_camera_shake(
+    CameraStateRaw& camera,
+    std::int32_t phase_multiplier) {
+    const Raw phase = wrap_s32(
+        static_cast<std::int64_t>(camera.shake_phase_raw) * phase_multiplier)
+        & kAngleMask;
+    const Raw x_phase = wrap_s32(
+        static_cast<std::int64_t>(static_cast<std::uint16_t>(camera.shake_angle_raw))
+        * phase_multiplier) & kAngleMask;
+    const Raw y_phase = wrap_s32(
+        static_cast<std::int64_t>(static_cast<std::uint16_t>(camera.shake_angle_raw >> 16))
+        * phase_multiplier) & kAngleMask;
+
+    const auto z_rotation = rotation_z_q12(
+        static_cast<std::int16_t>(multiply_q12_truncate(sin_angle_q12(phase), camera.shake_z)));
+    const auto x_rotation = rotation_x_q12(
+        static_cast<std::int16_t>(multiply_q12_truncate(sin_angle_q12(x_phase), camera.shake_x)));
+    const auto y_rotation = rotation_y_q12(
+        static_cast<std::int16_t>(multiply_q12_truncate(sin_angle_q12(y_phase), camera.shake_y)));
+
+    // The call sequence at 0x004101ff/0x0041021c/0x00410237 composes the
+    // rotations in this order using 0x004a9650.
+    const auto y_current = multiply_transform_q12(camera.current_transform, y_rotation);
+    const auto x_y_current = multiply_transform_q12(y_current, x_rotation);
+    camera.current_transform = multiply_transform_q12(x_y_current, z_rotation);
+
+    const auto old_x = camera.shake_x;
+    const auto old_y = camera.shake_y;
+    const auto old_z = camera.shake_z;
+    const auto decayed_x = decay_shake_axis(old_x, camera.shake_rate_x);
+    const auto decayed_y = decay_shake_axis(old_y, camera.shake_rate_y);
+    const auto decayed_z = decay_shake_axis(old_z, camera.shake_rate_z);
+    camera.shake_x = zero_shake_on_sign_crossing(old_x, decayed_x);
+    camera.shake_y = zero_shake_on_sign_crossing(old_y, decayed_y);
+    camera.shake_z = zero_shake_on_sign_crossing(old_z, decayed_z);
+}
+
 inline void advance_viewport_parameter(CameraStateRaw& camera) {
     const auto timer_low = static_cast<std::uint16_t>(camera.viewport_timer_raw);
     if (timer_low == 0) {
@@ -287,8 +340,9 @@ inline CameraViewportCommitRaw update_camera(
         camera.current_transform = camera.target_transform;
     }
     update_camera_history(camera, snapshot.anchor_delta, follow_input.collision_distance_valid);
-    const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
+    apply_camera_shake(camera, hooks.shake_phase_multiplier);
+    const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
     advance_viewport_parameter(camera);
     ++camera.update_tick;
     return committed;

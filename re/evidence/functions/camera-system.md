@@ -1,6 +1,6 @@
 # Camera system and rendered-frame boundary
 
-Status: camera update ownership, fixed-point camera math, and the gameplay render/present ordering are established; projection semantics and non-default modes remain partial
+Status: camera update ownership, fixed-point camera math, shake composition, and the gameplay render/present ordering are established; projection semantics and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -417,11 +417,24 @@ common: decay word 0x55f9bc, decay byte 0x55f9be,
 
 The selected values are stored at `+0x4f2`, `+0x4f6`, `+0x4f8`, `+0x4fa`,
 `+0x4fc`, and `+0x500`. `Camera_Update` rotates the three signed shake axes
-with the global 12-bit phase, applies the resulting effect vectors, then
-decays each axis toward zero using its byte rate. If an axis crosses the
-pre-effect sign, the raw path clears it. The C++ reference exposes this decay
-and sign-crossing behavior, but does not yet claim the complete effect-vector
-composition order.
+with the global 12-bit phase, composes those rotations into the current
+transform, then decays each axis toward zero using its byte rate. The phase
+inputs are the camera phase at `+0x500`, the low and high 16-bit halves of the
+angle dword at `+0x4fc` and `+0x4fe`, each multiplied by global
+`DAT_0056a8d4` and masked to 12 bits. The raw composition order is:
+
+```text
+current = Z(z_phase * shake_z) * X(x_phase * shake_x)
+          * Y(y_phase * shake_y) * current
+```
+
+Each axis angle is formed by truncating `sin(phase) * axis / 4096` before it
+is passed to the half-angle rotation constructor. The transform products use
+the recovered 32-bit-wrapped Q12 operation at `0x004a9650`. If an axis
+crosses the pre-effect sign during decay, the raw path clears it. The native
+reference exposes this as `apply_camera_shake`; the global phase multiplier is
+kept as an explicit hook input until its producer is promoted from the runtime
+global set.
 
 `Camera_AngleDelta12 0x004103b0` independently confirms shortest-turn angle
 arithmetic: it masks both inputs to 12 bits, returns `(second - first)`, and
@@ -722,8 +735,10 @@ The remaining engineering gates are therefore:
    present boundary, not to message-pump frequency.
 2. **Camera completion.** Connect the recovered mode-1 follow snapshot and
    transform interpolation to the remaining gameplay-owned anchor/collision
-   producer, then add point mode, death mode, shake/effect composition, and
-   projection calibration as separate replayable stages.
+   producer, then add point mode, death mode, runtime shake parameter sets, and
+   projection calibration as separate replayable stages. The normal shake
+   composition and decay order is already encoded; its live parameter
+   producers still need validation.
 3. **Scene/render handoff.** Bind runtime scene objects to asset-backed model
    instances, reproduce traversal/order and object visibility, and validate one
    actor and one static object from camera state through transformed vertices

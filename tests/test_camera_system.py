@@ -51,6 +51,19 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || camera.mode_vector.x != 0x200) {
                     return 2;
                 }
+
+                CameraStateRaw shake;
+                shake.shake_x = 0x1000;
+                shake.shake_angle_raw = 0x00000400;
+                const auto expected_shake = rotation_x_q12(0x0fff);
+                apply_camera_shake(shake, 1);
+                if (shake.current_transform.x != expected_shake.x
+                    || shake.current_transform.y != expected_shake.y
+                    || shake.current_transform.z != expected_shake.z
+                    || shake.current_transform.w != expected_shake.w
+                    || shake.shake_x != 0x1000) {
+                    return 3;
+                }
                 return 0;
             }
             """
