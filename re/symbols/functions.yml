@@ -259,6 +259,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/collision.md
+  - address: 0x004f5540
+    name: Collision_ScaleLinkedObjectMatrix
+    description: apply linked-object Q12 scale factors to a 3x3 matrix
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/collision.md
   - address: 0x0048ea80
     name: Collision_ConsumeHitFlags
     description: consume query face metadata into collision/surface flags

@@ -53,6 +53,9 @@ int main() {
     assert(linked_object_flag_gate(0x0110));
     assert(linked_object_flag_gate(0x8110));
     assert(linked_object_flag_gate(0x0410));
+    assert(linked_object_uses_matrix_transform(0x0200));
+    assert(linked_object_uses_matrix_transform(0x0600));
+    assert(!linked_object_uses_matrix_transform(0x0400));
     assert(!linked_object_flag_gate(0x0130));
     assert(!linked_object_flag_gate(0x0430));
     assert(!linked_object_flag_gate(0x8171));
@@ -155,6 +158,11 @@ int main() {
         model, {0, 0, 0}, {100, 100, 100}, {0, 0, 0}, 0x01);
     assert(reflected_bounds.min[0] == 78);
     assert(reflected_bounds.max[0] == 112);
+    const auto scaled_bounds = build_object_bounds(
+        model, {0, 0, 0}, {100, 100, 100}, {5, 6, 7}, 0,
+        std::array<std::int16_t, 3>{0x0800, 0x1000, 0x1000});
+    assert(scaled_bounds.min[0] == -3);  // x87 conversion truncates -3.5
+    assert(scaled_bounds.max[0] == 13);
 
     const CollisionBounds broadphase_bounds{
         .min = {4, -1, -1}, .max = {6, 1, 1}};
@@ -406,6 +414,13 @@ int main() {
     assert((oriented_transform.model_origin_units == RawVec3{0, 0, 0}));
     assert((oriented_transform.transformed_translation == RawVec3{1, -3, 2}));
     assert(oriented_transform.vertex_basis == identity_q12_basis());
+    const auto scaled_transform = build_dynamic_object_transform(
+        dynamic_transform_query, dynamic_object_position, {0, 0, 0}, true,
+        std::array<std::int16_t, 3>{0x0800, 0x1000, 0x2000});
+    const std::array<std::int16_t, 9> expected_scaled_basis{
+        0x0800, 0, 0, 0, 0x1000, 0, 0, 0, 0x2000};
+    assert(scaled_transform.vertex_basis == expected_scaled_basis);
+    assert(scaled_transform.final_basis == expected_scaled_basis);
 
     QueryRecord translated_query;
     translated_query.start = {8192, 8192, 4096};

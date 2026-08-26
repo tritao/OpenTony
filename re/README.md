@@ -41,8 +41,8 @@ Collision experiments use `tony-collision-probe [COUNT]` for the shared query
 record, `tony-collision-flags-probe [COUNT]` for face metadata decoding, and
 `tony-collision-dynamic-cull-probe [COUNT]` plus
 `tony-collision-dynamic-probe [COUNT]` for the linked-object broad and face
-passes. `tony-collision-transform-probe [COUNT]` captures the opaque tail and
-temporary matrix around the `0x0400` transform branch.
+passes. `tony-collision-transform-probe [COUNT]` captures the object tail and
+temporary matrix around the `0x0200` matrix-transform branch.
 
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe

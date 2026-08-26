@@ -23,9 +23,10 @@ zone/blockmap path using the shared traveled-distance field. The
 remaining gap is the PC heap-linked object's loader ownership and
 level-to-heap serialization. The collision-facing linked-node element
 stride, prefix, tail extent, and broad-phase arithmetic are documented and
-tested in `re/evidence/collision_reference.hpp`. The full-word `0x0400`
-oriented branch is selected natively, while its object-tail matrix factors
-remain opaque pending a live capture. The evidence layer also
+tested in `re/evidence/collision_reference.hpp`. The high-byte `0x02` /
+full-word `0x0200` matrix-transform branch is selected natively, and its
+three Q12 matrix factors can be supplied explicitly; the PC loader's values
+remain pending a live capture. The evidence layer also
 models the null-terminated per-cell object-head array and the recovered
 forward/backward list-link offsets; PC loader allocation and serialization
 remain outside this boundary.

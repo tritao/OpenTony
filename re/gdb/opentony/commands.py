@@ -946,7 +946,7 @@ class TonyCollisionDynamicCullProbe(gdb.Command):
 
 
 class TonyCollisionDynamicTransformProbe(gdb.Command):
-    """tony-collision-transform-probe [COUNT] -- log the 0x0400 matrix tail."""
+    """tony-collision-transform-probe [COUNT] -- log the 0x0200 matrix tail."""
 
     DEFAULT_COUNT = 16
 

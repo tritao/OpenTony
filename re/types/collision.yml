@@ -349,8 +349,10 @@ types:
     description: >-
       Collision-facing prefix of the heap-linked object record traversed by
       0x004628f0. The cull admission test uses only the low flag byte; the
-      full-word 0x0400 bit is consumed later when selecting the alternate
-      transform path. The complete allocation may contain additional fields.
+      high-byte bit 0x02 (full-word 0x0200) is consumed later when selecting
+      the matrix-scaling transform path. Full-word 0x0400 is written by an
+      unrelated appearance setter and is not assigned collision meaning here.
+      The complete allocation may contain additional fields.
     fields:
       - offset: 0x04
         name: flags
@@ -437,6 +439,21 @@ types:
         type: pointer
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
+      - offset: 0x28
+        name: matrix_scale_x_q12
+        type: int16
+        confidence: strong
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x2a
+        name: matrix_scale_y_q12
+        type: int16
+        confidence: strong
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x2c
+        name: matrix_scale_z_q12
+        type: int16
+        confidence: strong
+        evidence: [re/evidence/functions/collision.md]
       - offset: 0x34
         name: previous
         type: pointer
@@ -449,8 +466,10 @@ types:
     description: >-
       Full element stride emitted by the level-building allocation path:
       count*0x4c+4 bytes with the element array beginning after the leading
-      count word. The collision prefix and list links are typed; tail fields
-      remain opaque because their consumers are outside this query path.
+      count word. The collision prefix and list links are typed. Words at
+      +0x28/+0x2a/+0x2c are signed Q12 matrix-scale factors consumed by
+      0x004f5540 when the high-byte 0x02 flag is set; the remaining tail
+      fields are opaque.
     fields:
       - offset: 0x04
         name: flags
