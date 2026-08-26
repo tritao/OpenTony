@@ -29,6 +29,9 @@ COMMON_VERTEX_LINEAR = 0x0056E84C
 COMMON_VERTEX_BIAS = 0x0058F318
 COMMON_VERTEX_PERSPECTIVE = 0x0057E878
 COMMON_VERTEX_PERSPECTIVE_BASE = 0x005808A0
+COMMON_VERTEX_OBJECT_BASIS = 0x00563A18
+COMMON_VERTEX_RELATIVE_TRANSLATION = 0x00563AF8
+VIEW_RECORD_GLOBAL = 0x005620E0
 CAMERA_COLLISION_QUERY = 0x00466090
 CAMERA_COLLISION_RESULT = 0x0040E790
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
@@ -146,6 +149,23 @@ def _common_vertex_transform_record(memory) -> dict:
         "source_x_scale": _optional_words(memory, 0x00549D60),
         "clip_threshold": _optional_words(memory, 0x00518484),
         "depth_threshold": _optional_words(memory, 0x0059D33C),
+    }
+
+
+def _common_vertex_producer_record(memory) -> dict:
+    """Capture the raw inputs assembled by the common model submitter."""
+
+    view_record = _optional_u32(memory, VIEW_RECORD_GLOBAL) or 0
+    return {
+        "object_basis_q12": _s16_array(memory, COMMON_VERTEX_OBJECT_BASIS, 9),
+        "view_record": f"0x{view_record:08x}" if view_record else None,
+        "view_basis_q12": _s16_array(memory, view_record + 0x74, 9)
+        if view_record and memory.readable(view_record + 0x74, 0x12)
+        else None,
+        "relative_translation_s32": [
+            _optional_s32(memory, COMMON_VERTEX_RELATIVE_TRANSLATION + index * 4)
+            for index in range(3)
+        ],
     }
 
 
@@ -688,6 +708,7 @@ def transformed_vertex_record(
             memory, input_vertices, vertex_count * 8
         ) if input_vertices and memory.readable(input_vertices, vertex_count * 8)
         else None,
+        "common_vertex_producer": _common_vertex_producer_record(memory),
         "common_vertex_transform": _common_vertex_transform_record(memory),
         "scratch": _raw_block(memory, TRANSFORMED_VERTEX_SCRATCH, scratch_size),
         "vertices": vertices,

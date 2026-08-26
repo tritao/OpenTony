@@ -107,6 +107,27 @@ struct CommonVertexTransformRaw {
     std::uint32_t depth_scale_bits{};
 };
 
+// Inputs assembled by Render_SubmitPolygon 0x004d14d0 for the ordinary
+// source-flags-without-bit-0x10 vertex path. The object basis is the signed
+// short matrix copied through 0x00563a18. The view basis is the nine signed
+// shorts at the active view record +0x74. Relative translation is already in
+// the integer world-unit domain produced by the object traversal at
+// 0x0045f530; it is not another Q12 vector.
+struct CommonVertexTransformProducerInputRaw {
+    std::array<std::int16_t, 9> object_basis_q12{};
+    std::array<std::int16_t, 9> view_basis_q12{};
+    std::array<std::int32_t, 3> relative_translation{};
+    std::uint32_t state_flags{};
+};
+
+struct CommonVertexTransformProducerResultRaw {
+    CommonVertexTransformRaw transform{};
+    // 0x004d14d0 writes these only when state bit 0x40 is set. They feed the
+    // alternate perspective/clip branch but are retained here even though
+    // project_common_vertex models the ordinary branch.
+    std::array<std::uint32_t, 3> perspective_factor_bits{};
+};
+
 struct CommonVertexViewportEdgesRaw {
     // These are the unsigned-short view-input fields in comparison order:
     // input[2], input[0], input[3], input[1].
@@ -140,6 +161,42 @@ inline float store_f32_x87(long double value) {
     // The retail code performs the linear operation in x87 precision, then
     // stores the result to a float scratch word before perspective math.
     return static_cast<float>(value);
+}
+
+inline CommonVertexTransformProducerResultRaw build_common_vertex_transform(
+    const CommonVertexTransformProducerInputRaw& input) {
+    CommonVertexTransformProducerResultRaw result;
+    constexpr long double q12_scale = 1.0L / 4096.0L;
+
+    for (std::size_t index = 0; index < 9; ++index) {
+        result.transform.linear_bits[index] = f32_to_bits(
+            store_f32_x87(static_cast<long double>(input.object_basis_q12[index])
+                          * q12_scale));
+    }
+
+    std::array<float, 9> view_basis{};
+    for (std::size_t index = 0; index < 9; ++index) {
+        view_basis[index] = store_f32_x87(
+            static_cast<long double>(input.view_basis_q12[index]) * q12_scale);
+    }
+
+    for (std::size_t row = 0; row < 3; ++row) {
+        long double value = 0.0L;
+        for (std::size_t column = 0; column < 3; ++column) {
+            value += static_cast<long double>(view_basis[row * 3 + column])
+                * static_cast<long double>(input.relative_translation[column]);
+        }
+        result.transform.bias_bits[row] = f32_to_bits(store_f32_x87(value));
+    }
+
+    if ((input.state_flags & 0x40U) != 0) {
+        result.perspective_factor_bits = {
+            f32_to_bits(-view_basis[1]),
+            f32_to_bits(-view_basis[4]),
+            f32_to_bits(-view_basis[7]),
+        };
+    }
+    return result;
 }
 
 inline std::uint32_t common_vertex_clip_flags(

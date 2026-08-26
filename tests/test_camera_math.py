@@ -25,6 +25,37 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (sizeof(TransformedVertexWorkingRecordRaw) != 28) {
                     return 31;
                 }
+                CommonVertexTransformProducerInputRaw producer_input;
+                producer_input.object_basis_q12 = {
+                    0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000,
+                };
+                producer_input.view_basis_q12 = {
+                    0x1000, 0x0200, 0, 0, 0x1000, 0x0400, 0, 0, 0x1000,
+                };
+                producer_input.relative_translation = {10, -20, 30};
+                producer_input.state_flags = 0x40;
+                const auto produced_transform = build_common_vertex_transform(
+                    producer_input);
+                if (std::fabs(
+                        f32_from_bits(produced_transform.transform.bias_bits[0])
+                        - 7.5f) > 0.0001f
+                    || std::fabs(
+                        f32_from_bits(produced_transform.transform.bias_bits[1])
+                        - (-12.5f)) > 0.0001f
+                    || std::fabs(
+                        f32_from_bits(produced_transform.transform.bias_bits[2])
+                        - 30.0f) > 0.0001f
+                    || std::fabs(
+                        f32_from_bits(produced_transform.perspective_factor_bits[0])
+                        - (-0.125f)) > 0.0001f
+                    || std::fabs(
+                        f32_from_bits(produced_transform.perspective_factor_bits[1])
+                        - (-1.0f)) > 0.0001f
+                    || std::fabs(
+                        f32_from_bits(produced_transform.perspective_factor_bits[2])
+                        - 0.0f) > 0.0001f) {
+                    return 34;
+                }
                 CommonVertexTransformRaw common_transform;
                 common_transform.linear_bits = {
                     f32_to_bits(1.0f), f32_to_bits(0.000244140625f),

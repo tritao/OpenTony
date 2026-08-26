@@ -1646,6 +1646,61 @@ model path. It does not yet prove the producer meaning of the per-call linear
 rows/biases, the special source-flag branch, or the final polygon/material
 backend behavior.
 
+### Ordinary common-vertex transform producer
+
+The producer meaning of those per-call values is now resolved statically for
+the ordinary model path. `Render_SubmitPolygon 0x004d14d0` does not consume a
+single persistent camera matrix. Before calling `Render_TransformVertices
+0x004d29e0`, its normal branch performs this composition:
+
+```text
+object_basis = s16[0x00563a18 .. 0x00563a28] / 4096
+view_basis   = s16[active_view + 0x74 .. +0x84] / 4096
+translation  = [0x00563af8, 0x00563afc, 0x00563b00]
+
+linear[row][column] = object_basis[row][column]
+bias[row] = dot(view_basis[row], translation)
+```
+
+The relative translation is already in the integer world-unit domain. The
+object traversal at `0x0045f530` produces it by shifting the object position
+words right by 12 and subtracting the active view-record position at
+`+0x04/+0x08/+0x0c`; it is not another Q12 vector. The same traversal builds
+the object basis before the submitter receives the model packet. The active
+view basis is written by `Render_SetViewProjection 0x0045e8e0` into the view
+record at `+0x74`.
+
+When submit state has bit `0x40`, `0x004d14d0` additionally writes the
+alternate perspective factors `-view_basis[1]`, `-view_basis[4]`, and
+`-view_basis[7]` to `0x0057e878..0x0057e880`. The ordinary native projection
+helper intentionally does not apply that alternate branch; the factors are
+preserved as a separate producer result until a live flagged-vertex capture
+identifies its consumer.
+
+The native `build_common_vertex_transform` helper in
+[`camera_math.hpp`](../../../src/camera/camera_math.hpp) mirrors this producer
+with raw signed-short/integer inputs and f32 stores at the same boundaries.
+It is deliberately separate from `project_common_vertex`: the former creates
+per-object transform state, while the latter consumes that state for each
+packed vertex.
+
+Promotion audit:
+
+| address | exact observed behavior | static/runtime experiment | confidence / possible falsifier |
+|---|---|---|---|
+| `0x004d14d0` | ordinary submitter copies the object basis, reads the active view basis, derives three view-space biases, optionally writes alternate perspective factors, then calls `0x004d29e0` | static PE32 disassembly; renderer call chain `0x004604f0 -> 0x00461b10 -> 0x004d14d0`; live Warehouse submitter arguments and completed transform tail | high for the producer/consumer boundary; a source-flag `0x10` or alternate state can select a different branch |
+| `0x00563a18` | nine signed shorts containing the current per-object basis in Q12 form | written/consumed in the `0x0045f530` -> `0x004d14d0` path; newly added transformed-vertex probe records the raw block | high for representation and role; a controlled basis-object capture could falsify the exact row/axis interpretation |
+| `active_view + 0x74` | nine signed shorts containing the active view basis in Q12 form | populated by `0x0045e8e0`; read by `0x004d14d0` before the validated ordinary transform call | high for representation and role; split-screen or alternate-view state may select another active record |
+| `0x00563af8..0x00563b00` | three signed integer object-relative translation words | produced by `0x0045f530` from shifted object position minus active view-record position; probe fields are implemented but no new accepted producer pairing was obtained in this run | high static, medium runtime; a live pair showing a different source or scale would falsify the producer mapping |
+| `0x0057e878..0x0057e880` | optional negated view-basis elements for the alternate perspective branch | static stores gated by submit state bit `0x40`; native result preserves the raw factors | medium until a flagged-vertex consumer is captured; an ordinary state using these factors would falsify the current branch separation |
+
+This closes the missing producer contract for the ordinary path without
+claiming that the producer is camera-only. The camera supplies the active view
+record; object traversal supplies the basis and relative position. A future
+stationary basis-object experiment should promote the axis signs and verify
+the dynamic object/view pairing, but it is not required to use the native
+camera matrix as a substitute for these per-object values.
+
 ### Native default smoothing-stage adapter
 
 The value-level implementation now promotes the camera-owned common portion of

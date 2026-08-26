@@ -68,6 +68,10 @@ flags word), allowing projection calibration against model-space input. It
 also records a rejection reason for up to eight pre-level calls when the live
 player/camera or scratch range is not readable; those diagnostics do not
 consume the requested gameplay count.
+For accepted calls it also records the raw object-basis, active-view-basis,
+and relative-translation inputs assembled by the ordinary submitter, so the
+per-object transform producer can be compared separately from the projection
+consumer.
 This is the preferred calibration probe; `tony-geometry-probe`'s raster-tail
 records belong to the separate indexed/special path.
 
