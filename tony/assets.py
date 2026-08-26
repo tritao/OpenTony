@@ -221,7 +221,7 @@ class PsxTag:
 
     @property
     def type_name(self) -> str:
-        return {0x0000000A: "blockmap", 0x73424752: "rgbs"}.get(self.tag_type, "unknown")
+        return _PSX_TAG_NAMES.get(self.tag_type, "unknown")
 
 
 @dataclass(frozen=True)
@@ -244,8 +244,10 @@ class PsxTexture:
 
     @property
     def aligned_height(self) -> int:
-        alignment = {16: 3, 256: 1, 65536: 0}[self.color_count]
-        return (self.height + alignment) & ~alignment
+        # Rows are width-aligned in the packed PSX payload. Height is emitted
+        # as stored; shipped ITEM textures such as 128x42 4bpp would be
+        # incorrectly rejected if the height were padded as well.
+        return self.height
 
     @property
     def expected_data_size(self) -> int:
@@ -562,7 +564,6 @@ class TrgArchive:
             "unknown_node_types": sorted(node_type for node_type in counts if node_type not in _TRG_NODE_NAMES),
         }
 
-
 def _trg_align_down4(offset: int) -> int:
     """Match the retail ``(pointer + bias) & ~3`` expressions."""
 
@@ -764,7 +765,16 @@ def _trg_decode_script(data: bytes, node: TrgNode) -> dict | None:
     return result
 
 
-_PSX_TAG_NAMES = {0x0000000A: "blockmap", 0x73424752: "rgbs"}
+_PSX_TAG_NAMES = {
+    0x00000006: "texture_wib",
+    0x00000007: "colour_pulse",
+    0x0000000A: "blockmap",
+    0x0000002A: "3d_animation",
+    0x0000002C: "compressed_3d_animation",
+    0x00000045: "vertex_colours",
+    0x52454948: "hierarchy",
+    0x73424752: "rgbs",
+}
 
 
 class PsxArchive:

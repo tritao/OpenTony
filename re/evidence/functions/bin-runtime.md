@@ -1,11 +1,13 @@
 # PC binary-asset runtime paths
 
-Status: confirmed for `TRICKS.BIN` section/database/bytecode and `CRETEX.BIN`; a generic relocatable
+Status: confirmed for `TRICKS.BIN` section/database/bytecode/score handoff and `CRETEX.BIN`; a generic relocatable
 module helper is observed, but the extracted module pairs remain unproven or
 belong to the legacy/console side of the asset set
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x0041db50`, `0x0041d860`, `0x0041dea0`, `0x0041ef50`,
-`0x00492a90`, `0x004bb4f0`, `0x004bb7e0`, `0x004bba50`, `0x004bc300`
+`0x0048cbc0`, `0x0048cd40`, `0x0048d710`, `0x0048e680`, `0x0048e8a0`,
+`0x0048f720`, `0x00491b80`, `0x00492a90`, `0x004bb4f0`, `0x004bb7e0`,
+`0x004bba50`, `0x004bc300`, `0x004be450`
 
 The `.BIN` extension covers several unrelated formats. Two files have a
 provable PC runtime path:
@@ -122,8 +124,10 @@ The merge logic then propagates descriptor bits `0x0800`, `0x1000`, `0x2000`,
 and `0x8000` into the runtime flags; descriptor byte bit `0x40` clears runtime
 bit `0x0800` and sets runtime bit `0x4000`. A duplicate listed record sets
 `0x8000` in both words and emits the duplicate warning. The record boundary,
-flag propagation, and disk-to-runtime name/source correspondence are proven;
-the downstream trick physics fields remain open.
+flag propagation, and disk-to-runtime name/source correspondence are proven.
+The downstream trick physics fields remain open, but the input-history,
+sequence-match, delayed-start, and cursor-initialization path is now
+independently documented below.
 
 The manager/record ownership is now concrete even though the action semantics
 are not. `TRICKS.BIN` is read once into a raw buffer; the manager retains that
@@ -285,6 +289,152 @@ take the executable's undefined-command path. This table closes the
 asset-to-bytecode-to-skater-state boundary while deliberately leaving the
 original gameplay names of the raw fields and helper calls open.
 
+### Trick point-stack handoff
+
+The score-facing edge is indirect but concrete. Script commands `0x11` and
+`0x17` call `0x0048f720`; several ground/air state paths call the same helper.
+That helper advances the active trick timer at `+0x2f54`, checks the optional
+limit at `+0x2f58`, and either requests the script/state reset through
+`0x004904d0` or forwards a frame-scaled point adjustment to `0x0048d710`.
+
+`0x0048d710` requires a nonzero trick-stack count at `+0x2858` and adds its
+signed adjustment to the first word of the current 0x28-byte stack entry at
+`+0x8f4 + count * 0x28`. It then calls `0x0048ddc0`, the panel refresh path.
+The executable's diagnostic is “Tweaking trick, but nothing on stack” when
+the count is empty, so this is a score/stack mutation rather than a generic
+motion write. The exact stack-entry fields after the point word and the
+score-table constant names remain open; the landed-total/best-score commit is
+independently recovered below.
+
+The adjacent panel display routine at `0x0048c1a0` contains the independent
+diagnostic “Points on stack, and in mLandedTotal” and reads the landed-total
+word at its `+0x2a8` object-relative position when preparing the score display.
+This proves that the point stack and landed-total paths meet in the panel
+layer, but not which landing helper performs the transfer or how combo
+multipliers are applied.
+
+### Landed score commit
+
+The landing commit is now identified at `0x0048e680`, reached by the wrapper
+at `0x0048d7a0` with the score state at `skater + 0x168`. When its stack count
+at `skater + 0x2858` is nonzero, it calls `0x0048cd40`, stores the returned
+value as the current landed-trick score at `+0x2ac`, and adds it to the
+landed-total accumulator at `+0x2a8`. It also compares the value with the
+per-skater best score at `+0x178`; a new best copies the current stack count
+to the adjacent short field at `+0x176` and snapshots three stack-name slots.
+The stack count is then cleared. This is the missing stack-to-landed-total
+edge, independently tied to the same object whose `+0x2a8` field is read by
+the panel display.
+
+`0x0048cbc0` supplies the pre-multiplier stack sum used by `0x0048cd40`. For
+each active 0x28-byte entry it combines the leading point word with a
+record-local quality/index field, a table-selected factor, and a bounded
+0..4 table entry, using the executable's fixed-point `/2` and `/100` steps.
+When the skater's level flags at `+0x3078` or `+0x307c` are set, the final sum
+is multiplied by 150% or 75%. `0x0048cd40` then applies the stack-count
+multiplier (the first 15 counts use `DAT_00536194`; later counts use the
+continuation formula through `DAT_005361cc`) and divides by two. The tables'
+original gameplay names remain open, but the score arithmetic and its input
+fields are no longer an unresolved asset boundary.
+
+After committing the stack, `0x0048e680` passes the landed-total accumulator
+and the owning skater pointer to `0x004cb5c0`, the downstream score/UI state
+consumer. If a pending gap-trick pointer exists at `skater + 0x3024`, the
+same commit path validates it through `0x00414d90` and clears both gap fields
+at `+0x3024/+0x3028`. The separate `0x0048e8a0` path computes the same
+current value with a negative sign for the rollback/cancel path and also
+clears the stack after its side effects; it is recorded as a distinct reverse
+edge rather than being conflated with the landed commit.
+
+The proven selected-script handoff is consequently:
+
+```text
+TRICKS.BIN script cursor
+  -> 0x004be450 opcode 0x11/0x17
+  -> 0x0048f720 timer/point scaling
+  -> 0x0048d710 current trick-stack point word
+  -> 0x0048ddc0 panel/message refresh
+  -> 0x0048e680 landed stack commit
+  -> skater +0x2a8 landed total / +0x178 best score
+  -> 0x004cb5c0 score/UI state consumer
+```
+
+### Input history, sequence matching, and queued script start
+
+The remaining selection boundary is now explicit. `0x00492ea0` runs the player
+trick update in this order: refresh the input-history records through
+`0x00492190`, select matching entries through `0x004925e0`, advance the
+short-lived pending queue through `0x00492400`, then execute the active stream
+through `0x004be450` when `+0x29c8` is set. This separates input recognition,
+script selection, delayed start, and bytecode execution.
+
+`0x00492120` derives the composite action-pattern index used by the history
+writer. The four action-bank bytes at `+0x80`, `+0x90`, `+0xa0`, and `+0xb0`
+contribute weights `4`, `8`, `1`, and `2` respectively. The signed analog/
+lean bytes at skater `+0x31a2` and `+0x31a1` contribute low/high threshold bits
+`1/2` and `4/8` when below `-0x28` or above `0x28`. The resulting index selects
+a value from the table at `DAT_005369c8`; the returned value is retained as a
+raw action-pattern selector rather than being given a public trick name.
+
+`0x00492190` publishes that selector as button states 1 through 8 and also
+publishes six profile/action-bank bytes as states 9, 10, 11, 12, 14, and 16.
+`0x00491c90` keeps a 32-entry history ring at skater `+0x2a14`, with an
+8-byte entry stride:
+
+```text
++0x00  u8 action/button code
++0x01  u8 pressed/state value
++0x04  u32 update timestamp or age anchor
+```
+
+The current per-button latch array begins at `+0x2b18`; a changed latch emits
+one history entry and advances the ring cursor at `+0x2b14`, wrapping after
+32 entries. This is the proven action-bank-to-history edge; the table values
+remain operational because the original action names are not all recoverable
+from this function alone.
+
+`0x00492560` searches that ring backwards from the most recent entry, stopping
+at its start sentinel. It ignores empty entries, requires the pressed byte to
+be nonzero, and rejects entries older than the supplied timestamp window. Its
+optional filter excludes action codes 5 through 8. `0x004925e0` walks the
+generated variable-length player table, resolves each entry's signed stream
+offset against `TricksBinaryBase`, compares its button sequence against this
+history, and passes a matching stream request to `0x00492290`.
+
+The delayed-start queue in `0x00492290` is another runtime object boundary.
+Ordinary requests occupy ten 0x10-byte records beginning at `+0x2b38`; the
+record stores the raw stream/request word at `+0x00`, the enqueue timestamp at
+`+0x04`, and two selection/parameter words at `+0x08/+0x0c`. The queue count
+and circular head are at `+0x2bd8` and `+0x2bdc`. A separate action-12 path
+uses `+0x29dc/+0x2be0/+0x29e4` for its pending request and expiry values.
+
+`0x00492400` consumes the ordinary queue only when no active script or blocked
+state is present. It accepts raw physics states 1, 2, and 3, rejects entries
+older than `0xb4` ticks, updates the current selection/time fields, expires
+older history entries, and calls `0x00491b80` with the queued stream pointer.
+`0x00491b80` then initializes the script cursor and state: it sets
+`+0x2c68/+0x29c8`, clears `+0x2c6c`, `+0x2f58`, `+0x2f54`, `+0x29d0`,
+`+0x29d4`, and `+0x29d8`, installs `+0x29cc`, resets `+0x29f0/+0x29f2`,
+`+0x2e2c`, and `+0x3210`, sets `+0x108 = 0x10000`, and initializes
+`+0x29c0 = 0x7b` with the static name `"Trick"` at `+0x29c4`.
+
+The complete action-side path is therefore:
+
+```text
+action-bank/profile bytes + analog thresholds
+  -> action-pattern table
+  -> 32-entry pressed/timestamp history
+  -> generated per-player key table
+  -> signed TRICKS.BIN stream offset
+  -> ten-entry delayed-start queue
+  -> 0x00491b80 cursor/state initialization
+  -> 0x004be450 bytecode and player-state writes
+```
+
+This closes the missing asset-to-player script-selection boundary. It still
+does not assign the original names of the pattern-table values, remaining
+score-table fields, or all gameplay effects produced by the selected bytecode.
+
 The on-disk witness at `TRICKS.BIN + 0x325e` begins with the same command
 grammar: `40 03 00` writes a script word, `0b` introduces the NUL-terminated
 name `Handplant`, and `0a ee 02` writes a following u16 script value. The
@@ -349,8 +499,9 @@ ALL.PKR/data/TRICKS.BIN
 ```
 
 The first seven offsets are independently confirmed from both the loader's
-signed-16 reads and the extracted file bytes. The semantic identity of every
-section and the complete record layout remain open.
+signed-16 reads and the extracted file bytes. The section roles listed above
+are proven at the consumer boundary; the semantic identity of every
+intermediate table field and the complete record layout remain open.
 
 ## CRETEX.BIN
 
@@ -534,7 +685,9 @@ not imply one common runtime format:
   `Handplant` disk-to-record values; the trick-manager consumer, including its
   `+0x04` record array, `+0x1404` count, and `+0x1408` raw resource pointer;
   the `0x104`-byte character trick configuration stride and its
-  TRICKS.BIN-to-assignment-map consumer;
+  TRICKS.BIN-to-assignment-map consumer; input-history/queued-start state,
+  script cursor execution, point-stack mutation, landed-total/best-score
+  commit, fixed-point score arithmetic, and the score/UI handoff;
   `CRETEX.BIN` parser, 0x1c-byte texture allocation/lookup, inline texture
   name at record `+0x08`, sorted texture-pointer array/count, 0x44-byte set
   commit, set ID at `+0x00`, four resolved texture pointers at `+0x30`,

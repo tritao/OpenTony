@@ -71,6 +71,13 @@ The allocation size and these offset writes are stable evidence for a
 gameplay skater object. They do not imply that the complete original C++ class
 has been recovered.
 
+The native `SkaterRuntimeObject` in `src/runtime/skater_runtime.*` mirrors this
+proven ownership boundary: it owns a raw `0x3538` skater image, a contained
+`0x674` camera image, the logical player index, the PSX region/model scalars,
+and an explicit peer-skater relationship. Host pointers are represented as
+relationships rather than written into the raw image, preserving the retail
+offsets without fabricating process-local addresses.
+
 ## Camera is a contained object, not the global player pointer
 
 For each skater, `0x004691e0` allocates `0x674` bytes and calls
@@ -106,7 +113,7 @@ region tables rather than on an unrelated front-end copy.
 The appearance helper at `0x00468e90` closes the player-side asset path after
 the skater object exists. Its ordinary branch is selected when the manager
 record is not marked custom. It loads `sk2anim.PSH` and the selected costume's
-PSH, parses their `.spart` records through `0x004b47a0`/`0x004b4940`, and merges
+PSH, parses their `<base>part_` definitions through `0x004b47a0`/`0x004b4940`, and merges
 the resulting part-name lists through `0x00480d90`. The merge compares names
 byte-for-byte, then records the matching animation/model part indices through
 `0x00480cd0`; it is a name-based correspondence, not an assumed positional
@@ -211,3 +218,14 @@ that should be added only as each consumer proves it.
   tables; the complete CRETEX set/deck table contents, underlying image/palette
   record layout, and custom object internals remain open.
 - `inferred`: the public C++ class names and the complete object layout.
+
+The native player asset bridge is implemented in
+[`skater_asset_runtime.hpp`](../../src/runtime/skater_asset_runtime.hpp) and
+`skater_asset_runtime.cpp`. It owns the selected PSX region, parses the
+animation/model PSH manifests, preserves the name-based model-to-animation
+part remap, resolves a mapped part to the PSX model table, and writes the
+proven region-slot/model fields into `SkaterRuntimeObject`. The Warehouse-era
+`SK2ANIM.PSH`/`HAWK2.PSH` witness is covered by a native test, including the
+independently observed animation part 1 -> model part 3 remap. This stops at
+the proven asset/object handoff; pose decomposition and the live player
+material/texture cache remain separate consumers.

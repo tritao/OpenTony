@@ -1,0 +1,159 @@
+version: 1
+types:
+  - name: RuntimeMmuSaveManager
+    kind: fixed_layout
+    size: null
+    confidence: confirmed
+    description: Windows save/card compatibility manager fields used by the PC executable for THPS2_*.SAV discovery and career/replay/custom-park transfers.
+    fields:
+      - offset: 0x04
+        name: file_records
+        type: array<RuntimeMmuFileRecord,16>
+        overlay_group: runtime_manager_views
+        confidence: observed
+        description: Manager-owned file/path records indexed by the scan and selection helpers; the active count is at +0xb18.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x88
+        name: file_sizes
+        type: array<i32,16>
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        description: Per-record file sizes used for 8192-byte card-block accounting.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x8b0
+        name: file_types
+        type: array<i32,16>
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        description: "Runtime file type values: 1 career, 2 replay, 3 custom park."
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x928
+        name: display_names
+        type: array<array<char,33>,16>
+        overlay_group: runtime_manager_views
+        confidence: observed
+        description: User-facing names copied from scanned save records.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb18
+        name: file_count
+        type: i32
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb1c
+        name: card_state
+        type: i32
+        overlay_group: runtime_manager_views
+        confidence: observed
+        description: Card-ready/state word checked before scan, read, and write operations.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb20
+        name: free_card_blocks
+        type: i32
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        description: Remaining 8192-byte blocks computed from the 15-block card capacity and discovered file sizes.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb28
+        name: save_buffer_count
+        type: i32
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        description: Number of caller-registered save buffers; the save path accepts at most four.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb2c
+        name: save_buffer_pointers
+        type: array<pointer<void>,4>
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0xb3c
+        name: save_buffer_sizes
+        type: array<i32,4>
+        overlay_group: runtime_manager_views
+        confidence: confirmed
+        description: Registered buffer sizes; each must be a multiple of 128 bytes.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+
+  - name: RuntimeMmuFileRecord
+    kind: fixed_layout
+    size: 0x94
+    confidence: observed
+    description: One manager file record; only its fixed stride and size/name-adjacent access are proven by the PC scan path.
+    fields:
+      - offset: 0x00
+        name: file_name_or_backend_record
+        type: array<char,128>
+        confidence: observed
+        description: Record base passed to the backend file enumerator and open/read/delete helpers; the complete backend record schema remains open.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x84
+        name: file_size_or_metadata
+        type: u32
+        confidence: observed
+        description: The scan reads the record's +0x88 word as the file size; the preceding backend-owned words are not named here.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+
+  - name: RuntimeMmuSaveHeader
+    kind: fixed_layout
+    size: 0x200
+    confidence: confirmed
+    description: First 512 bytes of a Windows THPS2 save file produced by the PC MMU compatibility layer.
+    fields:
+      - offset: 0x00
+        name: signature
+        type: array<char,2>
+        confidence: confirmed
+        description: ASCII SC signature.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x02
+        name: format_action_byte
+        type: u8
+        confidence: confirmed
+        description: Header byte equal to 0x10 plus the action type passed to the header builder.
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x03
+        name: action_type
+        type: u8
+        confidence: confirmed
+        description: "Save family selector: 1 career, 2 replay, or 3 custom park."
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x60
+        name: user_name
+        type: array<char,32>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x80
+        name: registered_block_0
+        type: array<u8,128>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x100
+        name: registered_block_1
+        type: array<u8,128>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md
+      - offset: 0x180
+        name: registered_block_2
+        type: array<u8,128>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/save-runtime.md

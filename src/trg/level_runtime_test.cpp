@@ -1,6 +1,7 @@
 #include "level_runtime.hpp"
 #include "../runtime/level_frame.hpp"
 #include "../runtime/psx_collision_probe.hpp"
+#include "../assets/pkr_asset.hpp"
 
 #include <algorithm>
 #include <array>
@@ -63,6 +64,75 @@ int main() {
     assert(runtime.triggers().command_points().size() == 109);
     assert(runtime.scene().static_entity_count() == 252);
     assert(runtime.scene().bound_trigger_count() == 95);
+    assert(runtime.scene_runtime().object_count() == 252);
+    assert(runtime.scene_runtime().model_count() == 288);
+    assert(runtime.scene_runtime().allocation_size() == 4 + 252 * 0x4c);
+    assert(runtime.scene_runtime().object_record_offset(17) == 4 + 17 * 0x4c);
+    assert(runtime.scene_runtime().object(17).model_index() == 17);
+    assert(&runtime.scene_runtime().model_for_object(17)
+        == &runtime.scene_asset().models()[17]);
+    assert(runtime.camera_points().entries().size() == 9);
+    assert(runtime.rails().records().size() == 65);
+    assert(runtime.powerups().records().size() == 12);
+    assert(runtime.traffic().records().empty());
+    assert(runtime.factory_objects().records().size() == 53);
+    const auto* warehouse_factory = runtime.factory_objects().record_for_node(2);
+    assert(warehouse_factory != nullptr);
+    assert(warehouse_factory->kind()
+        == opentony::trg::TriggerFactoryRuntimeKind::ObjectCb);
+    assert(warehouse_factory->allocation_size() == 0x1f4);
+    assert(warehouse_factory->position() == runtime.file().node_position(2));
+    const auto* warehouse_object192 = runtime.factory_objects().record_for_node(131);
+    assert(warehouse_object192 != nullptr);
+    assert(warehouse_object192->kind()
+        == opentony::trg::TriggerFactoryRuntimeKind::Object192);
+    assert(warehouse_object192->allocation_size() == 0x218);
+    const auto* warehouse_powerup = runtime.powerups().record_for_node(17);
+    assert(warehouse_powerup != nullptr);
+    assert(warehouse_powerup->subtype() == 6);
+    assert(warehouse_powerup->resource() == "items");
+    assert(warehouse_powerup->model_name_checksum() == 0x2ebf22caU);
+    assert(warehouse_powerup->model_index().has_value());
+    assert(*warehouse_powerup->model_index() == 5);
+    assert(warehouse_powerup->position() == runtime.file().node_position(17));
+    assert(warehouse_powerup->raw_record().size() == 0x100);
+    assert(runtime.scene_runtime().materials().records().size() == 89);
+    const auto* material_50 = runtime.scene_runtime().materials()
+        .material_for_texture(50);
+    const auto* material_51 = runtime.scene_runtime().materials()
+        .material_for_texture(51);
+    assert(material_50 != nullptr);
+    assert(material_51 != nullptr);
+    assert(material_50->checksum() == 0xd783cf21U);
+    assert(material_51->checksum() == 0x288ca4c4U);
+    assert(material_50->reference_count() > 0);
+    assert(material_51->reference_count() > 0);
+    assert(material_50->raw_record().size() == 0x2c);
+    assert(runtime.texture_runtime() != nullptr);
+    std::size_t warehouse_material_index =
+        opentony::trg::CommandPointRuntime::npos;
+    for (std::size_t index = 0;
+         index < runtime.scene_runtime().materials().records().size();
+         ++index) {
+        if (runtime.scene_runtime().materials().record(index).checksum()
+            == 0x032bbb26U) {
+            warehouse_material_index = index;
+            break;
+        }
+    }
+    assert(warehouse_material_index != opentony::trg::CommandPointRuntime::npos);
+    const auto* warehouse_texture = runtime.texture_runtime()
+        ->record_for_material(warehouse_material_index, 0x032bbb26U);
+    assert(warehouse_texture != nullptr);
+    assert(warehouse_texture->source_kind()
+        == opentony::assets::PcTextureSourceKind::ExternalBitmap);
+    assert(warehouse_texture->image().width == 128);
+    assert(warehouse_texture->image().height == 128);
+    assert(warehouse_texture->ready());
+    assert(runtime.bits_runtime() != nullptr);
+    assert(runtime.bits_runtime()->groups().size() == 5);
+    assert(runtime.bits_runtime()->find("shadow") != nullptr);
+    assert(runtime.bits_runtime()->find("smoke") != nullptr);
     assert(runtime.collision().grids().size() == 1);
     assert(runtime.collision().referenced_object_count() == 252);
     assert(runtime.collision().face_count() == 1345);
@@ -185,6 +255,39 @@ int main() {
                 && event.value == 1;
         });
     assert(saw_cf_visible);
+
+    const std::string package_path =
+        "/home/joao/dev/OpenTony/build/disc/files/SETUP/data/ALL.PKR";
+    if (std::filesystem::is_regular_file(package_path)) {
+        const auto package = opentony::assets::PkrArchive::load(package_path);
+        opentony::trg::LevelRuntime packaged(
+            package, "data/SKWARE_T.TRG", "data/SKWARE.PSX", asset_root);
+        packaged.initialize();
+        assert(packaged.file().nodes().size() == 313);
+        assert(packaged.scene_runtime().object_count() == 252);
+        assert(packaged.scene_runtime().model_count() == 288);
+        assert(packaged.scene().bound_trigger_count() == 95);
+
+        // The package-only constructor must retain the same item-region
+        // runtime objects even when no loose-file catalog is supplied.
+        opentony::trg::LevelRuntime packaged_only(
+            package, "data/SKWARE_T.TRG", "data/SKWARE.PSX");
+        packaged_only.initialize();
+        assert(packaged_only.item_runtime() != nullptr);
+        assert(packaged_only.item_runtime()->model_count() == 13);
+        assert(packaged_only.bits_runtime() != nullptr);
+        assert(packaged_only.bits_runtime()->groups().size() == 5);
+        assert(packaged_only.resources().size() == 2);
+        for (const auto& resource : packaged_only.resources()) {
+            assert(resource.asset_available);
+            assert(!resource.asset_path.empty());
+        }
+        const auto* packaged_powerup =
+            packaged_only.powerups().record_for_node(17);
+        assert(packaged_powerup != nullptr);
+        assert(packaged_powerup->model_index().has_value());
+        assert(*packaged_powerup->model_index() == 5);
+    }
 
     std::cout << "level runtime ok\n";
 }

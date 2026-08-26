@@ -77,6 +77,13 @@ are frame-count/stream-length values. The second words have zero high halves
 in this asset. The next post-model tag is type `0x52454948` (`REIH`), size
 `0x28`, with the hierarchy payload at `0x939bc`.
 
+The same leading table invariant holds for the smaller type-`0x2a` resources:
+the first word is `N`, the second is `4 + N * 8`, and the `N` eight-byte records
+precede the source stream. The PC animation builder at `0x004b40a0` consumes
+this shared layout without branching on the tag value. The two numeric tag
+values therefore remain an authoring/asset-selection distinction, not two
+different proven PC runtime object types.
+
 `0x004305f0` is the compressed-channel decoder called by
 `0x00430920`. The first byte selects both an interpolation/repetition count
 (high nibble) and a channel encoding (low nibble): encoding zero stores
@@ -238,6 +245,18 @@ SK2ANIM.PSX
 This is a runtime-object bridge analogous to the Warehouse object/model bridge,
 but the object is an animation-capable gameplay object and the asset-side
 identity is an animation table index rather than a scene blockmap object index.
+
+The native counterpart is split at the same seam. `PsxAnimationRuntime` retains
+the count/record/source-stream products and the raw `REIH` payload, while
+`PsxAnimationPlaybackState` owns the recovered object playback bytes at
+`+0xf4/+0xf6/+0xf8`, `+0x100..+0x108`, `+0x114`, and implements the explicit
+fixed-point update clock for modes 0 through 4. The caller supplies the retail
+time-scale and animation clock, so replay tests do not depend on a host frame
+timer. `decode_psx_animation_channel` implements the adjacent
+`0x004305f0` boundary: literal/interpolated values, 1..13-bit signed packed
+deltas, repeat, zero-fill, and the returned consumed-byte position. This is a
+runtime animation-object boundary; channel order and the pose matrix/hook
+packet semantics remain separate evidence-backed seams.
 
 ## Confidence and limits
 

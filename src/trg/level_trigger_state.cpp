@@ -31,6 +31,22 @@ namespace {
         || node_type >= 500;
 }
 
+void put_runtime_u16(
+    std::array<std::byte, 0x18>& record,
+    std::size_t offset,
+    std::uint16_t value) noexcept {
+    record[offset] = static_cast<std::byte>(value & 0xffU);
+    record[offset + 1] = static_cast<std::byte>(value >> 8U);
+}
+
+void put_runtime_u32(
+    std::array<std::byte, 0x18>& record,
+    std::size_t offset,
+    std::uint32_t value) noexcept {
+    put_runtime_u16(record, offset, static_cast<std::uint16_t>(value));
+    put_runtime_u16(record, offset + 2, static_cast<std::uint16_t>(value >> 16U));
+}
+
 } // namespace
 
 void LevelTriggerState::reset() {
@@ -186,6 +202,9 @@ void LevelTriggerState::on_script_object(
     object.script_key = key;
     object.parameters = parameters;
     object.identifier = static_cast<std::uint16_t>(script_objects_.size());
+    object.runtime_record[0x04] = std::byte{0};
+    object.runtime_record[0xc8] = static_cast<std::byte>(object.identifier & 0xffU);
+    object.runtime_record[0xc9] = static_cast<std::byte>(object.identifier >> 8U);
     script_objects_.push_back(object);
 }
 
@@ -337,6 +356,10 @@ void LevelTriggerState::on_linked_node(
     if (type == 12 || type == 14) {
         current.has_special_runtime = true;
         current.special_runtime_active = false;
+        put_runtime_u32(current.special_runtime_record, 0x04, key);
+        put_runtime_u16(current.special_runtime_record, 0x08,
+            static_cast<std::uint16_t>(node));
+        current.special_runtime_record[0x0a] = std::byte{0};
     }
 }
 
@@ -382,10 +405,13 @@ void LevelTriggerState::on_node_pulse(std::size_t node) {
             // runtime record's +0x0a active byte after resolving its +0x04
             // link key. The resolved +0x14 pointer remains a service seam.
             current->special_runtime_active = true;
+            current->special_runtime_record[0x0a] = std::byte{1};
             if (special_runtime_context_.configured) {
                 current->special_runtime_owner = special_runtime_context_.owner;
                 current->special_runtime_control = special_runtime_context_.control;
                 current->has_special_runtime_context = true;
+                current->special_runtime_record[0x0b] = static_cast<std::byte>(
+                    special_runtime_context_.owner);
             }
             // FUN_004bdc40 also ORs byte +0x05 of the resolved asset with 4
             // and writes 0x202020 to its +0x24 marker field.
@@ -496,6 +522,8 @@ void LevelTriggerState::on_object_flag_by_id(std::uint16_t identifier, bool set)
         } else {
             script->flags = static_cast<std::uint16_t>(script->flags & ~1U);
         }
+        script->runtime_record[0x04] = static_cast<std::byte>(script->flags & 0xffU);
+        script->runtime_record[0x05] = static_cast<std::byte>(script->flags >> 8U);
         record_target_event(
             TriggerEvent::Kind::ObjectFlag,
             CommandPointRuntime::npos,

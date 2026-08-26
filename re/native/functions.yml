@@ -6,8 +6,11 @@ functions:
     status: tested
     sources:
       - src/camera/camera_update.hpp
+      - src/camera/camera_runtime.cpp
+      - src/camera/camera_runtime.hpp
     tests:
       - tests/test_camera_update.py
+      - src/camera/camera_runtime_test.cpp
     evidence:
       - re/evidence/functions/camera-system.md
     notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, and normal-follow tick increment; smoothing, effects, and mode semantics remain separate exclusions.
@@ -63,3 +66,303 @@ functions:
     evidence:
       - re/evidence/functions/collision.md
     notes: Portable query boundary exists, but the retail wrapper and complete zone policy are not integrated.
+
+  - address: 0x004b2450
+    name: PSX_ParseEnvironment
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psx_runtime.cpp
+      - src/assets/psx_runtime.hpp
+    tests:
+      - src/assets/psx_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/asset-loading.md
+    notes: Native boundary preserves the count-prefixed 0x4c environment records, relocated model table, and material/animation products.
+
+  - address: 0x004647c0
+    name: PSX_FinalizeEnvironment
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psx_runtime.cpp
+    tests:
+      - src/assets/psx_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/asset-loading.md
+    notes: Material and model-pointer finalization is tested against the real Warehouse object/model counts and checksum table.
+
+  - address: 0x004d9880
+    name: D3DTex_AllocRecord
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/pc_texture_runtime.cpp
+      - src/assets/pc_texture_runtime.hpp
+    tests:
+      - src/assets/pc_texture_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+    notes: Native texture records preserve the proven 0x2c allocation, checksum, flags, dimensions, ready marker, and material/image ownership boundary without fabricating Direct3D pointers.
+
+  - address: 0x004d8df0
+    name: D3DTex_OpenImage
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/bmp_asset.cpp
+      - src/assets/pc_texture_runtime.cpp
+    tests:
+      - src/assets/pc_texture_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+    notes: Native external-image lookup follows the case-insensitive NEWTEX/NEWBMP hash filename contract for loose files and package entries, then validates the runtime's uncompressed 24-bit BMP branch.
+
+  - address: 0x004d8f10
+    name: D3DTex_UploadTexture
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/pc_texture_runtime.cpp
+      - src/assets/pc_texture_runtime.hpp
+    tests:
+      - src/assets/pc_texture_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/texture-runtime.md
+    notes: Native device-independent image products retain source RGB pixels and the stable post-upload dimensions/ready state; Direct3D resource creation remains a presentation adapter.
+
+  - address: 0x004c8130
+    name: TRG_ParseNodes
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/trg/trg_runtime.cpp
+      - src/trg/trg_runtime.hpp
+    tests:
+      - src/trg/trg_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+    notes: Native TRG node records and script payload boundaries are exercised by the parser and Warehouse scene path.
+
+  - address: 0x00412640
+    name: TRG_ConstructTrafficObject
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/trg/traffic_runtime.cpp
+      - src/trg/traffic_runtime.hpp
+    tests:
+      - src/trg/traffic_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+    notes: Native traffic records preserve the proven 0x1e8 allocation, subtype resource/sound selection, fixed-point constructor handoff, and shared named C_*.PSX region ownership for loose and PKR-backed assets.
+
+  - address: 0x004c5460
+    name: TRG_CreateObject
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/trg/trigger_factory_runtime.cpp
+      - src/trg/trigger_factory_runtime.hpp
+    tests:
+      - src/trg/trigger_factory_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+    notes: Native trigger-object records preserve the proven 0xcb/0x192 allocation sizes, common fixed-point position/parameter handoff, source-node identity, and constructor header fields without fabricating process-local pointers.
+
+  - address: 0x00411f30
+    name: TRG_RegisterCameraPoint
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/trg/camera_point_registry.cpp
+      - src/trg/camera_point_registry.hpp
+    tests:
+      - src/trg/camera_point_registry_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Type-13 source nodes are registered with the recovered 0x46 bound and source-order identity.
+
+  - address: 0x00411fc0
+    name: Camera_SelectNearestTriggerPoint
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/trg/camera_point_registry.cpp
+      - src/trg/camera_point_registry.hpp
+    tests:
+      - src/trg/camera_point_registry_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Strict retail distance limit, nearest selection, state-bit handoff, and source-index return are tested.
+
+  - address: 0x00497f40
+    name: Skater_DoPhysicsInAir
+    slice: physics
+    status: tested
+    sources:
+      - src/runtime/air_contact.cpp
+      - src/runtime/air_contact.hpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/air_contact_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate and preserves caller-owned wall/rail classification.
+
+  - address: 0x004ed9b0
+    name: Audio_LoadWavPcm
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/wav_asset.cpp
+      - src/assets/wav_asset.hpp
+    tests:
+      - src/assets/wav_asset_test.cpp
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+    notes: Native RIFF/WAVE PCM extraction preserves WAVEFORMATEX fields and four-byte-aligned sample ownership.
+
+  - address: 0x004f2960
+    name: Audio_LoadSoundBank
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/sound_runtime.cpp
+      - src/assets/sound_runtime.hpp
+    tests:
+      - src/assets/sound_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/audio-runtime.md
+    notes: Native sound-bank table preserves the 0x42 description bound, WAV naming, 0x80 runtime-slot bound, and state-bit handoff.
+
+  - address: 0x004e9730
+    name: PKR2_ResolveEntryPayload
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/pkr_asset.cpp
+      - src/assets/pkr_asset.hpp
+    tests:
+      - src/assets/pkr_asset_test.cpp
+    evidence:
+      - re/evidence/functions/fileio-runtime.md
+    notes: Raw, BIBD, WIBD, and ZLIB package payload dispatch is tested with synthetic records and real ALL.PKR/SKWARE.PSX.
+
+  - address: 0x004b4940
+    name: PlayerSpool_ParsePartsManifest
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psh_asset.cpp
+      - src/assets/psh_asset.hpp
+    tests:
+      - src/assets/psh_asset_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native PSH parser preserves trailing runtime labels, model prefixes, contiguous indices, and the SK2ANIM1 alias case.
+
+  - address: 0x00480cd0
+    name: Skater_AssignModelPartOrder
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psh_asset.cpp
+      - src/assets/psh_asset.hpp
+    tests:
+      - src/assets/psh_asset_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Name-based animation/model remapping is tested against the concrete HAWK2 leg-order permutation.
+
+  - address: 0x004305f0
+    name: Animation_DecompressStream
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psx_animation_runtime.cpp
+      - src/assets/psx_animation_runtime.hpp
+    tests:
+      - src/assets/psx_animation_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+    notes: Native channel boundary covers literal interpolation, 1..13-bit signed deltas, repeat, zero-fill, and stream advancement.
+
+  - address: 0x00480950
+    name: Animation_Advance
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/psx_animation_runtime.cpp
+      - src/assets/psx_animation_runtime.hpp
+    tests:
+      - src/assets/psx_animation_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/animation-runtime.md
+    notes: Native playback fields and modes 0 through 4 use caller-supplied fixed-point time inputs.
+
+  - address: 0x00475700
+    name: Mmu_BuildSaveHeader
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/save_asset.cpp
+      - src/assets/save_asset.hpp
+    tests:
+      - src/assets/save_asset_test.cpp
+    evidence:
+      - re/evidence/functions/save-runtime.md
+    notes: Native SC header/action/name/registered-block boundary is tested with 0x2000 card-block alignment.
+
+  - address: 0x00474d70
+    name: Mmu_ScanSaveFiles
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/save_runtime.cpp
+      - src/assets/save_runtime.hpp
+    tests:
+      - src/assets/save_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/save-runtime.md
+    notes: Native manager scan preserves valid 8192-byte save records, type/display metadata, case-insensitive queries, and free-card-block accounting.
+
+  - address: 0x00475840
+    name: Mmu_AddSaveBuffer
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/save_runtime.cpp
+      - src/assets/save_runtime.hpp
+    tests:
+      - src/assets/save_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/save-runtime.md
+    notes: Native manager preserves the four-slot 128-byte-aligned registered-buffer boundary and common payload assembly.
+
+  - address: 0x0043c050
+    name: CustomPark_ParseBuffer
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/custom_park_asset.cpp
+      - src/assets/custom_park_runtime.cpp
+    tests:
+      - src/assets/custom_park_asset_test.cpp
+      - src/assets/custom_park_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+    notes: Native PRK decode preserves current/legacy packed fields and expands the proven generation records.
+
+  - address: 0x0043d400
+    name: LevelGen_FinalizeRuntimeRegion
+    slice: asset-runtime
+    status: tested
+    sources:
+      - src/assets/custom_park_runtime.cpp
+      - src/assets/custom_park_runtime.hpp
+    tests:
+      - src/assets/custom_park_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/custom-park-runtime.md
+    notes: Native custom-park finalization seam publishes Q12 0x4c objects and paired 0x58 gap members while leaving source-model translation explicit.

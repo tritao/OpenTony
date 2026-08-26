@@ -88,6 +88,15 @@ struct TriggerObjectState {
     std::uint64_t signals{};
     std::uint64_t suspend_activate_calls{};
     std::uint64_t kills{};
+    // Type-12/type-14 nodes allocate a distinct 0x18-byte trick-object
+    // record. Process-local vtable/list pointers are left zero; the raw
+    // checksum, source index, active byte, and owner byte are synchronized
+    // at their proven offsets.
+    std::array<std::byte, 0x18> special_runtime_record{};
+
+    [[nodiscard]] std::span<const std::byte> raw_special_record() const noexcept {
+        return special_runtime_record;
+    }
 };
 
 struct TriggerScriptObjectState {
@@ -99,6 +108,15 @@ struct TriggerScriptObjectState {
     std::array<std::uint16_t, 3> parameters{};
     std::uint16_t identifier{0xffff};
     std::uint16_t flags{};
+    // Byte-preserving native image of the retail 0xcc-byte allocation. The
+    // vtable and intrusive links remain zero because they are process-local
+    // retail pointers; the proven flag and list-identifier offsets are kept
+    // synchronized with the semantic fields above.
+    std::array<std::byte, 0xcc> runtime_record{};
+
+    [[nodiscard]] std::span<const std::byte> raw_record() const noexcept {
+        return runtime_record;
+    }
 };
 
 struct TriggerRestartState {

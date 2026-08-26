@@ -11,6 +11,7 @@ from tony.assets import (
     PkrFormatError,
     PreArchive,
     PsxArchive,
+    PsxTag,
     TrgArchive,
     _filename_crc32,
     extract_hed,
@@ -292,6 +293,21 @@ def test_read_and_inspect_psx_metadata(tmp_path: Path):
     assert "map_Kd ../textures/texture_00002222_0000.ppm" in (output / "models/materials.mtl").read_text()
     assert "usemtl surface_0000" in (output / "collision.obj").read_text()
     assert json.loads((output / "manifest.json").read_text()) == manifest
+
+
+def test_psx_runtime_tag_names():
+    expected = {
+        0x00000006: "texture_wib",
+        0x00000007: "colour_pulse",
+        0x0000000A: "blockmap",
+        0x0000002A: "3d_animation",
+        0x0000002C: "compressed_3d_animation",
+        0x00000045: "vertex_colours",
+        0x52454948: "hierarchy",
+        0x73424752: "rgbs",
+    }
+    assert {tag_type: PsxTag(0, tag_type, 0).type_name for tag_type in expected} == expected
+    assert PsxTag(0, 0x12345678, 0).type_name == "unknown"
 
 
 def test_read_inspect_and_extract_hed_family(tmp_path: Path):

@@ -241,3 +241,19 @@ PRK endpoint tuple + item marker
   gap/model record -> published 0x4c object correspondence is now established;
   the remaining uncertainty is editor semantics and ordering, not the loader
   boundary.
+
+## Native recreation boundary
+
+`src/assets/custom_park_asset.*` implements the bounded `0x4e25`/`0x4e24`
+reader. It preserves packed 8-byte cells, expands the five compact references
+and packed value bytes, keeps the retail reference-translation table as an
+explicit input, and materializes the ten 0x24-byte disk items into the proven
+0x2c-byte runtime view. The current/legacy item-byte and name offsets remain
+distinct. `custom_park_runtime.*` then owns the expanded 0x10/0x2c generation
+images and the finalizer seam: caller-supplied generated placements publish
+the proven 0x4c object records at Q12 positions, and paired generated gaps
+retain the observed 0x58 member links, source-item ordinal, active byte, and
+published-object back-indices. The unresolved source-model translation table
+and platform pointer allocation remain explicit inputs. Native tests cover
+the real parser boundary plus a synthetic PRK-to-generation-to-published-
+object/gap trace.

@@ -24,6 +24,20 @@ types:
         confidence: confirmed
         evidence:
           - re/evidence/functions/physics.md
+      - offset: 0x14
+        name: restart_auxiliary
+        type: u32
+        confidence: observed
+        description: Adjacent u32 copied from the selected type-8 TRG restart record before the restart-facing helper runs.
+        evidence:
+          - re/evidence/functions/restart-runtime.md
+      - offset: 0x18
+        name: restart_auxiliary_word
+        type: u16
+        confidence: observed
+        description: Adjacent u16 copied from the selected type-8 TRG restart record; its high-word companion at +0x16 contributes to the restart yaw angle.
+        evidence:
+          - re/evidence/functions/restart-runtime.md
       - offset: 0x4c
         name: collision_response_vector
         type: array<i32,3>

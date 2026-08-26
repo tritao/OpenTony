@@ -99,6 +99,102 @@ types:
         evidence:
           - re/evidence/functions/player-runtime.md
           - re/evidence/functions/physics.md
+      - offset: 0x176
+        name: best_trick_stack_count
+        type: u16
+        confidence: observed
+        description: Count snapshot written by the landed-score commit when a new best trick score is set.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x178
+        name: best_landed_trick_score
+        type: i32
+        confidence: confirmed
+        description: Best landed-trick value compared and replaced by the score-state commit.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x16c
+        name: event_committed_score_total
+        type: i32
+        confidence: observed
+        description: Destination receiving landed-total score +0x2a8 when the level-event countdown finalizes a pending score.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: 0x2858
+        name: active_trick_stack_count
+        type: i32
+        confidence: confirmed
+        description: Active trick-stack count consumed by scoring and panel paths.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2a8
+        name: landed_total_score
+        type: i32
+        confidence: confirmed
+        description: Landed-score accumulator read by the panel and updated at stack commit.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2ac
+        name: current_landed_trick_score
+        type: i32
+        confidence: confirmed
+        description: Current score value produced when the active trick stack is committed.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2f74
+        name: active_gap_checksum_slots
+        type: array<i32,20>
+        confidence: confirmed
+        description: Twenty checksum slots scanned and cleared by the TRG 0xc9 gap-command path; the adjacent index array at +0x2fc4 selects the matching executable gap definition.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x2fc4
+        name: active_gap_definition_indices
+        type: array<i32,20>
+        confidence: confirmed
+        description: Twenty definition-table indices paired with the checksum slots at +0x2f74.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x3014
+        name: deferred_gap_definition_state4
+        type: pointer<RuntimeGapDefinition>
+        confidence: observed
+        description: Definition pointer retained for the state-4 deferred gap branch when the table flags include bit 0x08; its source command-point node is at +0x301c.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x3018
+        name: deferred_gap_definition_ground
+        type: pointer<RuntimeGapDefinition>
+        confidence: observed
+        description: Definition pointer retained for the ordinary-ground deferred gap branch when the table flags include bit 0x40; its source command-point node is at +0x3020.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x301c
+        name: deferred_gap_source_state4
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x3020
+        name: deferred_gap_source_ground
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x3024
+        name: pending_gap_trick
+        type: pointer<void>
+        confidence: observed
+        description: Pending gap-trick object consumed and cleared by the landed-score path.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x3028
+        name: pending_gap_trick_secondary
+        type: pointer<void>
+        confidence: observed
+        description: Secondary pending gap-trick pointer consumed and cleared by the landed-score path.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
 
   - name: RuntimeSkaterCameraObject
     kind: fixed_layout
@@ -116,8 +212,55 @@ types:
         name: active
         type: i32
         confidence: observed
+        description: Camera mode/state word set to 1 or 2 by the registered trigger-point selection path.
         evidence:
           - re/evidence/functions/player-runtime.md
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3ac
+        name: point_transition_flag
+        type: u8
+        confidence: observed
+        description: Camera transition direction/mode byte set by the selected trigger-point state bits.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3bc
+        name: point_transition_active
+        type: u8
+        confidence: observed
+        description: Armed by trigger-point selection before the camera transition consumes the selected point.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3c0
+        name: selected_point_x_fixed
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3c4
+        name: selected_point_y_fixed
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3c8
+        name: selected_point_z_fixed
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3dc
+        name: transition_owner_skater
+        type: pointer<RuntimeGameplaySkater>
+        confidence: observed
+        description: Back-pointer written when the camera selects a trigger point.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x3e0
+        name: transition_selected
+        type: u8
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
       - offset: 0x5b4
         name: update_accumulator
         type: i32

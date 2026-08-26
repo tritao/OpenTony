@@ -390,6 +390,32 @@ the disk-to-runtime-to-render correspondence. The `0x004d11d0` calls seen in
 the same run were from the player/special-object path; the Warehouse scene
 geometry witness is the `0x004d14d0` call above.
 
+## Native pre-backend packet boundary
+
+The native recreation now carries this proven portion of the path in
+[`render_packet_builder.hpp`](../../src/trg/render_packet_builder.hpp) and
+`render_packet_builder.cpp`. `GameplaySession::render_packets()` obtains the
+current [`LevelRenderSnapshot`](../../src/trg/level_render_snapshot.hpp) from
+the loaded TRG/PSX runtime and turns each face into a renderer packet. The
+builder applies the recovered Q12 object-position/camera transform, preserves
+the `0xb0` polygon format and the three-or-four vertex decision, carries the
+runtime material index/checksum, and performs the observed half-texel UV
+normalization when a material-dimension resolver is supplied. The projector
+callback is intentionally explicit: the remaining viewport/FOV/projection
+calibration and raster submission are not hidden behind an invented backend.
+The native integration test exercises the complete Warehouse
+file -> runtime-object -> snapshot -> polygon-packet path.
+
+The packet list also accepts the confirmed item-object consumer. A pickup
+entity is already present in the TRG scene registry; the native snapshot joins
+it by source node to the 0x100-byte powerup record, selects the region-local
+`ITEMS.PSX` or `SKMEDALS.PSX` model, and uses that region's material table and
+texture dimensions while retaining `object_index = npos` (there is no claim
+that a pickup is a static environment object). Warehouse node 17 therefore
+produces both the observed scene object-17 packets and a separate subtype-6,
+model-5 pickup packet stream. Unmapped type-5 subtypes remain present without
+invented geometry.
+
 ## Dynamic evidence and limits
 
 A controlled run also stopped at `0x004610f0` with the live front-end object

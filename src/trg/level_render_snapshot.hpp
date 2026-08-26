@@ -1,6 +1,8 @@
 #pragma once
 
 #include "level_scene_registry.hpp"
+#include "powerup_runtime.hpp"
+#include "../assets/psx_runtime.hpp"
 
 #include <array>
 #include <cstddef>
@@ -18,6 +20,11 @@ struct LevelRenderFaceSnapshot {
     std::uint16_t surface_flags{};
     std::uint32_t raw_collision_word{};
     std::uint32_t texture_index{};
+    std::size_t runtime_material_index{CommandPointRuntime::npos};
+    std::uint32_t material_checksum{};
+    std::uint32_t texture_width{};
+    std::uint32_t texture_height{};
+    bool has_texture_dimensions{};
     bool has_texture{};
     std::uint8_t vertex_count{};
     std::uint8_t uv_count{};
@@ -58,6 +65,15 @@ public:
     static LevelRenderSnapshot build(
         const LevelSceneRegistry& scene,
         const assets::PsxArchive& archive);
+    static LevelRenderSnapshot build(
+        const LevelSceneRegistry& scene,
+        const assets::PsxRuntimeEnvironment& runtime);
+    static LevelRenderSnapshot build(
+        const LevelSceneRegistry& scene,
+        const assets::PsxRuntimeEnvironment& runtime,
+        const PowerupRuntimeList* powerups,
+        const assets::PsxRuntimeEnvironment* items_runtime,
+        const assets::PsxRuntimeEnvironment* medals_runtime);
 
     [[nodiscard]] const std::vector<LevelRenderEntitySnapshot>& entities() const noexcept {
         return entities_;

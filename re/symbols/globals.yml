@@ -64,6 +64,18 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x0053a3b8
+    name: SkaterModelNameTable
+    description: Static 20-row skater/costume name table with 0x170-byte rows; the selector reads the first four 8-byte-spaced entries per row
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x0053a514
+    name: SkaterSelectionRecords
+    description: Twenty 0x170-byte skater selection records; flag bit 0x02 marks the enabled custom-skater rows used by Skater_MapEnabledIndex
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
   - address: 0x0056a898
     name: CurrentLevel
     gdb_aliases:
@@ -73,6 +85,32 @@ globals:
     evidence:
       - re/evidence/functions/game-loop.md
       - re/evidence/functions/level-load.md
+  - address: 0x0056ad00
+    name: MmuManager
+    description: active PC save/card compatibility manager used by the MMU setup and frontend state machine
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0056ad04
+    name: MmuCareerLoadBuffer
+    description: allocated 0x1e00-byte career load buffer registered with the MMU manager
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00568a68
+    name: CareerSaveImage
+    gdb_aliases:
+      - career_save_image
+    description: contiguous 0x1dc4-byte career image copied into and out of the registered 0x1e00-byte career save buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x0056ad08
+    name: MmuReplayLoadBuffer
+    description: allocated 0x280-byte replay/video load buffer registered with the MMU manager
+    confidence: observed
+    evidence:
+      - re/evidence/functions/save-runtime.md
   - address: 0x00533ab4
     name: CollisionQueryGeneration
     gdb_aliases:
@@ -177,6 +215,54 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trick-object-runtime.md
+  - address: 0x00546110
+    name: WarehouseGapDefinitionTable
+    description: 132-record general/Warehouse gap-definition table with 0x2c-byte records and a 0xffff divider terminator
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/gap-runtime.md
+  - address: 0x0056dd58
+    name: ActiveGapDefinitionTable
+    description: Runtime-selected pointer to the compiled gap-definition table used by TRG command 0xc9; Warehouse uses 0x00546110, while other level families select alternate tables
+    confidence: observed
+    evidence:
+      - re/evidence/functions/gap-runtime.md
+  - address: 0x0055fa58
+    name: CameraPointNodeIndices
+    description: bounded u16 array of registered TRG type-13 camera-point node indices, with capacity 0x46
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0055fae4
+    name: CameraPointCount
+    description: count of registered TRG type-13 camera-point node indices
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00568610
+    name: LevelEventStateWord
+    description: level-event step/state word initialized to 0x40 and cleared when the countdown finalizes a pending score
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x00568658
+    name: LevelEventLatch
+    description: one-shot level-event latch initialized by 0x00466c10
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x00568818
+    name: LevelEventSecondaryStateWord
+    description: level-event countdown initialized to 0x50, decremented by the per-frame finalizer, and reset/rearmed at event completion
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x006a3d49
+    name: LevelEventFlag
+    description: byte flag set by the first-call level-event initialization path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
   - address: 0x006a3f1c
     name: ActionMask
     gdb_aliases:
@@ -264,6 +350,18 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x0055f6b0
+    name: TriggerScriptObjectListHead
+    description: intrusive list head for the 0xcc-byte records created by trigger command 0x00ab
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x0056b860
+    name: RailRuntimeListHead
+    description: intrusive list head for type-10/type-11 rail runtime records
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x00567f80
     name: ZoneGridActive
     description: active flag for the zone-grid runtime array
@@ -301,12 +399,32 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/psx-tags-runtime.md
   - address: 0x0056d448
     name: AnimationHierarchyTablesByRegion
     description: slot-indexed compacted animation source/hierarchy table pointers
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x0056d450
+    name: PsxRgbTablesByRegion
+    description: slot-indexed RGBS colour-table pointers used by render and colour-pulse consumers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x0056d454
+    name: PsxTextureWibTablesByRegion
+    description: slot-indexed texture-WIB item-info table pointers consumed by model/face texture mutation
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x0056d458
+    name: PsxColourPulseTablesByRegion
+    description: slot-indexed colour-pulse table pointers consumed by pulse updates
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
   - address: 0x005614d8
     name: CustomParkItemRecords
     description: ten expanded 0x2c-byte PRK item records used by level generation

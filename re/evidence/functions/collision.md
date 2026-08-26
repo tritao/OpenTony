@@ -551,7 +551,7 @@ The grounded trace therefore independently agrees with the recovered
 parameter/distance relationship.
 
 The native C++ scene boundary provides an independent asset-to-query replay in
-[`src/collision/psx_scene_test.cpp`](../../src/collision/psx_scene_test.cpp).
+[`src/collision/psx_scene_test.cpp`](../../../src/collision/psx_scene_test.cpp).
 Parsing the packaged `SKHAN.PSX` scene (470 objects, 471 models, one 20×20
 blockmap) and querying the same signed endpoints as the PC `collision-face2`
 trace produces:
@@ -710,7 +710,7 @@ of that API without fabricating the unresolved zone/model format. It provides:
   object broad-phase prefilter.
 
 The asset-facing native layer at
-[`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
+[`src/collision/psx_scene.hpp`](../../../src/collision/psx_scene.hpp) adds the
 version-4 PSX model/object/blockmap decoder, a conservative blockmap broad
 phase, the static scene query, stable scene handles, raw base/surface metadata,
 and direct wrappers for the dynamic transformed-vertex preprocessing and

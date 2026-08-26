@@ -244,6 +244,187 @@ types:
           - re/evidence/functions/asset-loading.md
           - re/evidence/functions/blockmap-collision.md
 
+  - name: RuntimePsxPostModelTagHeader
+    kind: fixed_layout
+    size: 0x08
+    confidence: confirmed
+    description: Common eight-byte header for optional PSX post-model products. The parser dispatches the payload by tag_type and bounds it with payload_size.
+    fields:
+      - offset: 0x00
+        name: tag_type
+        type: u32
+        confidence: confirmed
+        description: Runtime dispatch value; recognized products include blockmap, texture-WIB, colour-pulse, animation metadata, vertex-colour/BITS, hierarchy, and RGBS.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x04
+        name: payload_size
+        type: u32
+        confidence: confirmed
+        description: Payload byte count consumed by the common parser's bounded post-model walk.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxColourPulseList
+    kind: fixed_layout
+    size: null
+    confidence: confirmed
+    description: Variable-size type-7 colour-pulse list. The consumer mutates the current interval index and elapsed interval, then writes an interpolated colour to the slot RGBS table.
+    fields:
+      - offset: 0x00
+        name: rgbs_colour_index
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x01
+        name: interval_count
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x02
+        name: current_interval
+        type: u8
+        confidence: confirmed
+        description: Current RGB interval selected by the frame-time update.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x03
+        name: elapsed_interval_units
+        type: u8
+        confidence: confirmed
+        description: Elapsed units within the current interval; the update carries excess units into subsequent intervals.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x04
+        name: intervals
+        type: sequence<RuntimePsxColourPulseInterval>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxColourPulseInterval
+    kind: fixed_layout
+    size: 0x04
+    confidence: confirmed
+    description: One RGB pulse key and its interval duration.
+    fields:
+      - offset: 0x00
+        name: red
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x01
+        name: green
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x02
+        name: blue
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x03
+        name: interval_duration
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxRgbColourTable
+    kind: fixed_layout
+    size: null
+    confidence: observed
+    description: Indexed RGBS output table addressed by colour-pulse records and render/material helpers.
+    fields:
+      - offset: 0x00
+        name: entries
+        type: sequence<RuntimePsxRgbColourEntry>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxRgbColourEntry
+    kind: fixed_layout
+    size: 0x04
+    confidence: observed
+    description: One four-byte packed colour slot written by the colour-pulse consumer.
+    fields:
+      - offset: 0x00
+        name: packed_colour
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxTextureWibList
+    kind: fixed_layout
+    size: null
+    confidence: observed
+    description: Variable-size type-6 texture-WIB item-info list used to mutate texture coordinates on a selected relocated model.
+    fields:
+      - offset: 0x00
+        name: object_extent_word
+        type: u32
+        confidence: observed
+        description: The type-6 consumer converts this word with (word - 0x0c) / 0x24 to select the runtime PSX object record.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0c
+        name: item_count
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0e
+        name: runtime_validity_flags
+        type: array<u8,2>
+        confidence: confirmed
+        description: Preflight initializes the two bytes to one and clears them when the corresponding item record contains a high-nibble value above 0x10.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x10
+        name: item_records
+        type: sequence<RuntimePsxTextureWibItem>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
+  - name: RuntimePsxTextureWibItem
+    kind: fixed_layout
+    size: 0x10
+    confidence: observed
+    description: One texture-WIB item record. The consumer reads four 4-byte source-coordinate groups and writes four resulting UV pairs into a textured PSX face.
+    fields:
+      - offset: 0x00
+        name: source_coordinate_group_0
+        type: array<u8,4>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x04
+        name: source_coordinate_group_1
+        type: array<u8,4>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x08
+        name: source_coordinate_group_2
+        type: array<u8,4>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0c
+        name: source_coordinate_group_3
+        type: array<u8,4>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+
   - name: RuntimePsxGeometryRecord
     kind: fixed_layout
     size: 0x08
@@ -453,6 +634,36 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/asset-loading.md
+      - offset: 0x0056d444
+        name: animation_tables_by_slot
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0056d448
+        name: animation_hierarchy_by_slot
+        type: pointer<void>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0056d450
+        name: rgbs_tables_by_slot
+        type: pointer<RuntimePsxRgbColourTable>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0056d454
+        name: texture_wib_tables_by_slot
+        type: pointer<RuntimePsxTextureWibList>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
+      - offset: 0x0056d458
+        name: colour_pulse_tables_by_slot
+        type: pointer<RuntimePsxColourPulseList>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
 
   - name: RuntimePsxRegionSlot
     kind: fixed_layout
@@ -518,18 +729,27 @@ types:
         evidence:
           - re/evidence/functions/psx-lifecycle.md
           - re/evidence/functions/animation-runtime.md
+      - offset: 0x28
+        name: rgbs_colour_table
+        type: pointer<RuntimePsxRgbColourTable>
+        confidence: confirmed
+        description: Slot-indexed RGBS colour-table pointer populated by the PSX tag dispatcher and consumed by render/colour-pulse code.
+        evidence:
+          - re/evidence/functions/psx-tags-runtime.md
       - offset: 0x2c
-        name: auxiliary_pointer_0
-        type: pointer<void>
-        confidence: observed
+        name: texture_wib_table
+        type: pointer<RuntimePsxTextureWibList>
+        confidence: confirmed
+        description: Slot-indexed type-6 texture-WIB item-info pointer.
         evidence:
-          - re/evidence/functions/psx-lifecycle.md
+          - re/evidence/functions/psx-tags-runtime.md
       - offset: 0x30
-        name: auxiliary_pointer_1
-        type: pointer<void>
-        confidence: observed
+        name: colour_pulse_table
+        type: pointer<RuntimePsxColourPulseList>
+        confidence: confirmed
+        description: Slot-indexed type-7 colour-pulse list pointer.
         evidence:
-          - re/evidence/functions/psx-lifecycle.md
+          - re/evidence/functions/psx-tags-runtime.md
       - offset: 0x3b
         name: texture_state_byte_0
         type: u8

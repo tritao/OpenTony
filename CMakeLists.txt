@@ -2,12 +2,30 @@ cmake_minimum_required(VERSION 3.20)
 
 project(OpenTonyNative LANGUAGES CXX)
 
+find_package(ZLIB REQUIRED)
+
 option(OPENTONY_BUILD_TESTS "Build native reconstruction tests" ON)
 
 add_library(opentony_assets STATIC
     src/assets/pre_catalog.cpp
     src/assets/pre_asset.cpp
+    src/assets/pkr_asset.cpp
+    src/assets/custom_park_asset.cpp
+    src/assets/custom_park_runtime.cpp
+    src/assets/replay_asset.cpp
+    src/assets/save_asset.cpp
+    src/assets/save_runtime.cpp
+    src/assets/bmp_asset.cpp
+    src/assets/pc_texture_runtime.cpp
+    src/assets/text_asset.cpp
+    src/assets/psh_asset.cpp
     src/assets/psx_asset.cpp
+    src/assets/psx_runtime.cpp
+    src/assets/psx_bits_runtime.cpp
+    src/assets/psx_animation_runtime.cpp
+    src/assets/sound_runtime.cpp
+    src/assets/wav_asset.cpp
+    src/assets/fnt_asset.cpp
     src/assets/psx_catalog.cpp
     src/assets/psx_collision.cpp
     src/assets/tricks_bin.cpp
@@ -15,14 +33,21 @@ add_library(opentony_assets STATIC
 target_compile_features(opentony_assets PUBLIC cxx_std_20)
 target_include_directories(opentony_assets PUBLIC src/assets)
 target_compile_options(opentony_assets PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(opentony_assets PUBLIC ZLIB::ZLIB)
 
 add_library(opentony_trg STATIC
     src/trg/trg_runtime.cpp
+    src/trg/camera_point_registry.cpp
+    src/trg/rail_runtime.cpp
+    src/trg/powerup_runtime.cpp
+    src/trg/traffic_runtime.cpp
+    src/trg/trigger_factory_runtime.cpp
     src/trg/gap_table.cpp
     src/trg/retail_gap_table.cpp
     src/trg/level_trigger_state.cpp
     src/trg/level_scene_registry.cpp
     src/trg/level_render_snapshot.cpp
+    src/trg/render_packet_builder.cpp
     src/trg/level_runtime.cpp
 )
 target_compile_features(opentony_trg PUBLIC cxx_std_20)
@@ -31,8 +56,10 @@ target_compile_options(opentony_trg PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(opentony_trg PUBLIC opentony_assets)
 
 add_library(opentony_runtime STATIC
+    src/camera/camera_runtime.cpp
     src/runtime/collision_response.cpp
     src/runtime/air_motion.cpp
+    src/runtime/air_contact.cpp
     src/runtime/fixed_matrix.cpp
     src/runtime/fixed_math.cpp
     src/runtime/fixed_step_driver.cpp
@@ -62,6 +89,9 @@ add_library(opentony_runtime STATIC
     src/runtime/action_commands.cpp
     src/runtime/velocity_damping.cpp
     src/runtime/velocity_projection.cpp
+    src/runtime/skater_runtime.cpp
+    src/runtime/skater_asset_runtime.cpp
+    src/runtime/player_resource_spool.cpp
 )
 target_compile_features(opentony_runtime PUBLIC cxx_std_20)
 target_include_directories(opentony_runtime PUBLIC src/runtime)
@@ -95,6 +125,46 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_trg_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_trg_test COMMAND opentony_trg_test)
 
+    add_executable(opentony_camera_point_registry_test
+        src/trg/camera_point_registry_test.cpp
+    )
+    target_link_libraries(opentony_camera_point_registry_test PRIVATE opentony_trg)
+    target_compile_features(opentony_camera_point_registry_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_camera_point_registry_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_camera_point_registry_test COMMAND opentony_camera_point_registry_test)
+
+    add_executable(opentony_rail_runtime_test
+        src/trg/rail_runtime_test.cpp
+    )
+    target_link_libraries(opentony_rail_runtime_test PRIVATE opentony_trg)
+    target_compile_features(opentony_rail_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_rail_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_rail_runtime_test COMMAND opentony_rail_runtime_test)
+
+    add_executable(opentony_powerup_runtime_test
+        src/trg/powerup_runtime_test.cpp
+    )
+    target_link_libraries(opentony_powerup_runtime_test PRIVATE opentony_trg)
+    target_compile_features(opentony_powerup_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_powerup_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_powerup_runtime_test COMMAND opentony_powerup_runtime_test)
+
+    add_executable(opentony_traffic_runtime_test
+        src/trg/traffic_runtime_test.cpp
+    )
+    target_link_libraries(opentony_traffic_runtime_test PRIVATE opentony_trg)
+    target_compile_features(opentony_traffic_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_traffic_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_traffic_runtime_test COMMAND opentony_traffic_runtime_test)
+
+    add_executable(opentony_trigger_factory_runtime_test
+        src/trg/trigger_factory_runtime_test.cpp
+    )
+    target_link_libraries(opentony_trigger_factory_runtime_test PRIVATE opentony_trg)
+    target_compile_features(opentony_trigger_factory_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_trigger_factory_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_trigger_factory_runtime_test COMMAND opentony_trigger_factory_runtime_test)
+
     add_executable(opentony_trg_state_test
         src/trg/level_trigger_state_test.cpp
     )
@@ -118,6 +188,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_level_render_snapshot_test PRIVATE cxx_std_20)
     target_compile_options(opentony_level_render_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_level_render_snapshot_test COMMAND opentony_level_render_snapshot_test)
+
+    add_executable(opentony_render_packet_builder_test
+        src/trg/render_packet_builder_test.cpp
+    )
+    target_link_libraries(opentony_render_packet_builder_test PRIVATE opentony_trg)
+    target_compile_features(opentony_render_packet_builder_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_render_packet_builder_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_render_packet_builder_test COMMAND opentony_render_packet_builder_test)
 
     add_executable(opentony_input_state_test
         src/runtime/input_state_test.cpp
@@ -319,6 +397,46 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_psx_collision_probe_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_psx_collision_probe_test COMMAND opentony_psx_collision_probe_test)
 
+    add_executable(opentony_skater_runtime_test
+        src/runtime/skater_runtime_test.cpp
+    )
+    target_link_libraries(opentony_skater_runtime_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_skater_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_skater_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_skater_runtime_test COMMAND opentony_skater_runtime_test)
+
+    add_executable(opentony_skater_asset_runtime_test
+        src/runtime/skater_asset_runtime_test.cpp
+    )
+    target_link_libraries(opentony_skater_asset_runtime_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_skater_asset_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_skater_asset_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_skater_asset_runtime_test COMMAND opentony_skater_asset_runtime_test)
+
+    add_executable(opentony_player_resource_spool_test
+        src/runtime/player_resource_spool_test.cpp
+    )
+    target_link_libraries(opentony_player_resource_spool_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_player_resource_spool_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_player_resource_spool_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_player_resource_spool_test COMMAND opentony_player_resource_spool_test)
+
+    add_executable(opentony_camera_runtime_test
+        src/camera/camera_runtime_test.cpp
+    )
+    target_link_libraries(opentony_camera_runtime_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_camera_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_camera_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_camera_runtime_test COMMAND opentony_camera_runtime_test)
+
+    add_executable(opentony_air_contact_test
+        src/runtime/air_contact_test.cpp
+    )
+    target_link_libraries(opentony_air_contact_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_air_contact_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_air_contact_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_air_contact_test COMMAND opentony_air_contact_test)
+
     add_executable(opentony_psx_asset_test
         src/assets/psx_asset_test.cpp
     )
@@ -326,6 +444,134 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_psx_asset_test PRIVATE cxx_std_20)
     target_compile_options(opentony_psx_asset_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_psx_asset_test COMMAND opentony_psx_asset_test)
+
+    add_executable(opentony_psx_runtime_test
+        src/assets/psx_runtime_test.cpp
+    )
+    target_link_libraries(opentony_psx_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_psx_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psx_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_psx_runtime_test COMMAND opentony_psx_runtime_test)
+
+    add_executable(opentony_psx_bits_runtime_test
+        src/assets/psx_bits_runtime_test.cpp
+    )
+    target_link_libraries(opentony_psx_bits_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_psx_bits_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psx_bits_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_psx_bits_runtime_test COMMAND opentony_psx_bits_runtime_test)
+
+    add_executable(opentony_psx_animation_runtime_test
+        src/assets/psx_animation_runtime_test.cpp
+    )
+    target_link_libraries(opentony_psx_animation_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_psx_animation_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psx_animation_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_psx_animation_runtime_test COMMAND opentony_psx_animation_runtime_test)
+
+    add_executable(opentony_sound_runtime_test
+        src/assets/sound_runtime_test.cpp
+    )
+    target_link_libraries(opentony_sound_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_sound_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_sound_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_sound_runtime_test COMMAND opentony_sound_runtime_test)
+
+    add_executable(opentony_wav_asset_test
+        src/assets/wav_asset_test.cpp
+    )
+    target_link_libraries(opentony_wav_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_wav_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_wav_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_wav_asset_test COMMAND opentony_wav_asset_test)
+
+    add_executable(opentony_pkr_asset_test
+        src/assets/pkr_asset_test.cpp
+    )
+    target_link_libraries(opentony_pkr_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_pkr_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_pkr_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_pkr_asset_test COMMAND opentony_pkr_asset_test)
+
+    add_executable(opentony_custom_park_asset_test
+        src/assets/custom_park_asset_test.cpp
+    )
+    target_link_libraries(opentony_custom_park_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_custom_park_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_custom_park_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_custom_park_asset_test COMMAND opentony_custom_park_asset_test)
+
+    add_executable(opentony_custom_park_runtime_test
+        src/assets/custom_park_runtime_test.cpp
+    )
+    target_link_libraries(opentony_custom_park_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_custom_park_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_custom_park_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_custom_park_runtime_test COMMAND opentony_custom_park_runtime_test)
+
+    add_executable(opentony_replay_asset_test
+        src/assets/replay_asset_test.cpp
+    )
+    target_link_libraries(opentony_replay_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_replay_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_replay_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_replay_asset_test COMMAND opentony_replay_asset_test)
+
+    add_executable(opentony_save_asset_test
+        src/assets/save_asset_test.cpp
+    )
+    target_link_libraries(opentony_save_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_save_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_save_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_save_asset_test COMMAND opentony_save_asset_test)
+
+    add_executable(opentony_save_runtime_test
+        src/assets/save_runtime_test.cpp
+    )
+    target_link_libraries(opentony_save_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_save_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_save_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_save_runtime_test COMMAND opentony_save_runtime_test)
+
+    add_executable(opentony_bmp_asset_test
+        src/assets/bmp_asset_test.cpp
+    )
+    target_link_libraries(opentony_bmp_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_bmp_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_bmp_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_bmp_asset_test COMMAND opentony_bmp_asset_test)
+
+    add_executable(opentony_pc_texture_runtime_test
+        src/assets/pc_texture_runtime_test.cpp
+    )
+    target_link_libraries(opentony_pc_texture_runtime_test PRIVATE opentony_assets)
+    target_compile_features(opentony_pc_texture_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_pc_texture_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_pc_texture_runtime_test COMMAND opentony_pc_texture_runtime_test)
+
+    add_executable(opentony_text_asset_test
+        src/assets/text_asset_test.cpp
+    )
+    target_link_libraries(opentony_text_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_text_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_text_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_text_asset_test COMMAND opentony_text_asset_test)
+
+    add_executable(opentony_psh_asset_test
+        src/assets/psh_asset_test.cpp
+    )
+    target_link_libraries(opentony_psh_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_psh_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_psh_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_psh_asset_test COMMAND opentony_psh_asset_test)
+
+    add_executable(opentony_fnt_asset_test
+        src/assets/fnt_asset_test.cpp
+    )
+    target_link_libraries(opentony_fnt_asset_test PRIVATE opentony_assets)
+    target_compile_features(opentony_fnt_asset_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_fnt_asset_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_fnt_asset_test COMMAND opentony_fnt_asset_test)
 
     add_executable(opentony_psx_texture_test
         src/assets/psx_texture_test.cpp

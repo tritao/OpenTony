@@ -261,3 +261,13 @@ named replay resource
   the decoded position channels.
 - `open`: the semantics of optional replay event fields after the decoded
   position/state/animation channels.
+
+## Native recreation boundary
+
+`src/assets/replay_asset.*` owns the fixed `0x38`-byte replay header and
+exposes the variable stream through an independent least-significant-bit-first
+reader. It preserves the five highlight ranges, skater selectors, level/game
+words, the `0x200` stream origin, and the proven eight signed 20-bit channels
+followed by eight signed 16-bit channels. `ReplayAsset::card_transfer()` also
+models the two-player `0x7fe00` transfer size. Synthetic bitstream coverage and
+the real `DEMOA.REC` header both pass.

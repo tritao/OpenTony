@@ -17,6 +17,7 @@ GameplaySession::GameplaySession(
       gameplay_(level_, player_),
       config_(config),
       driver_(gameplay_, config_.fixed_step),
+      camera_(),
       hooks_() {
     if (!config_.tricks_path.empty()) {
         tricks_archive_ = assets::TricksBinArchive::load(config_.tricks_path);
@@ -105,6 +106,9 @@ void GameplaySession::initialize(
                 restart.auxiliary_word);
         }
     }
+    if (config_.update_camera) {
+        camera_.reset(config_.camera_target);
+    }
     driver_.reset();
     last_frame_ = {};
 }
@@ -173,6 +177,28 @@ void GameplaySession::apply_restart_events(std::size_t event_start) {
     }
 }
 
+void GameplaySession::update_camera_after_step() {
+    if (!config_.update_camera) {
+        return;
+    }
+    if (!camera_.configured()) {
+        camera_.reset(config_.camera_target);
+    }
+    camera::CameraTargetRaw target = config_.camera_target;
+    target.position = {
+        player_.position()[0],
+        player_.position()[1],
+        player_.position()[2],
+    };
+    (void)camera_.update(
+        target,
+        config_.camera_follow_input,
+        config_.camera_look_target_offset,
+        config_.camera_hooks,
+        config_.camera_mode_input,
+        config_.camera_mode25_input);
+}
+
 FixedStepAdvanceResult GameplaySession::advance(
     std::uint32_t elapsed_ms,
     const DirectInputKeyboardState& keyboard,
@@ -189,6 +215,7 @@ FixedStepAdvanceResult GameplaySession::advance(
         observer);
     if (result.stepped) {
         last_frame_ = result.last;
+        update_camera_after_step();
     }
     return result;
 }
@@ -211,6 +238,7 @@ FixedStepAdvanceResult GameplaySession::advance(
         observer);
     if (result.stepped) {
         last_frame_ = result.last;
+        update_camera_after_step();
     }
     return result;
 }
@@ -222,7 +250,53 @@ trg::LevelRenderSnapshot GameplaySession::render_snapshot() const {
     }
     return trg::LevelRenderSnapshot::build(
         level_.scene(),
-        level_.scene_asset());
+        level_.scene_runtime(),
+        &level_.powerups(),
+        level_.item_runtime(),
+        level_.medal_runtime());
+}
+
+trg::RenderPacketBuildResult GameplaySession::render_packets(
+    const trg::RenderProjector& projector,
+    const trg::RenderPacketBuildOptions& options) const {
+    if (!initialized()) {
+        throw std::logic_error(
+            "gameplay session rendered before initialize");
+    }
+    trg::RenderPacketBuildOptions effective = options;
+    if (!effective.texture_dimensions) {
+        effective.texture_dimensions = [this](
+            std::size_t material_index,
+            std::uint32_t material_checksum)
+            -> std::optional<trg::RenderTextureDimensions> {
+            const std::array<const assets::PcTextureRuntime*, 3> texture_regions{
+                level_.texture_runtime(),
+                level_.item_texture_runtime(),
+                level_.medal_texture_runtime(),
+            };
+            for (const assets::PcTextureRuntime* textures : texture_regions) {
+                if (textures == nullptr) {
+                    continue;
+                }
+                const auto dimensions = textures->dimensions_for_material(
+                    material_index, material_checksum);
+                if (dimensions.has_value()) {
+                    return trg::RenderTextureDimensions{
+                        dimensions->at(0), dimensions->at(1)};
+                }
+            }
+            const auto dimensions =
+                level_.scene_runtime().texture_dimensions_for_material(
+                    material_index, material_checksum);
+            if (!dimensions.has_value()) {
+                return std::nullopt;
+            }
+            return trg::RenderTextureDimensions{
+                dimensions->at(0), dimensions->at(1)};
+        };
+    }
+    return trg::RenderPacketBuilder::build(
+        render_snapshot(), camera_.state(), projector, effective);
 }
 
 const GameplaySessionObservation GameplaySession::observation() const noexcept {
@@ -253,6 +327,9 @@ const GameplaySessionObservation GameplaySession::observation() const noexcept {
     result.action_stream_cursor = player_.action_stream_cursor();
     result.restart_auxiliary = player_.restart_auxiliary();
     result.restart_auxiliary_word = player_.restart_auxiliary_word();
+    result.camera_update_tick = camera_.state().update_tick;
+    result.camera_mode = camera_.state().mode;
+    result.camera_rendered_position = camera_.last_commit().rendered_position;
     return result;
 }
 

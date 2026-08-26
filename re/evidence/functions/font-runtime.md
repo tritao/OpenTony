@@ -77,6 +77,14 @@ glyph data and its entry width/height before the image object is built. This
 proves the FNT glyph -> image -> PC texture ownership edge without assigning
 the Direct3D texture implementation's internal fields.
 
+The native recreation in `src/assets/fnt_asset.*` preserves the same bounded
+handoff: it copies the 16-byte disk records and 0x20-byte palette table,
+retains the packed glyph-data tail, materializes the `record_count + 1` entry
+table with the three observed low-byte copies, and reports the `0x14c` font,
+`0x08` entry, and `0x5c` glyph-image allocation sizes. The sentinel entry is
+kept as a value-owned blank record; graphics-library texture pointers and
+atlas decoding remain backend-owned.
+
 The proven path is therefore:
 
 ```text

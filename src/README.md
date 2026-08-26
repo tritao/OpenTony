@@ -4,6 +4,21 @@ The native reconstruction currently combines a framework-free physics-state
 reference model with a renderer-free Warehouse trigger and gameplay runtime.
 Both remain independently testable before a graphics framework is selected.
 
+The level runtime also has an evidence-backed PSX finalization layer:
+`PsxRuntimeEnvironment` materializes the retail count-prefixed `0x4c` scene
+records, relocated model pointers, and shared `0x2c` checksum/material records.
+`LevelRenderSnapshot` carries the resulting material identity to a future
+renderer, while camera-point, rail, and powerup registries preserve the
+corresponding TRG runtime records without inventing process-local pointers.
+
+The native asset layer also covers the shared PKR2 package transforms, custom
+park grids/items, replay headers and bitstreams, SC/career save images, PC
+24-bit BMPs, presentation text, and PSH part manifests. Their decoded values
+remain separate from platform-owned Direct3D, audio-device, window, and UI
+objects. Animation channel decode/playback state and the recovered sound-bank
+description/slot handoff are also represented, with device pointers and pose
+matrix semantics left at explicit adapter boundaries.
+
 `physics_state_machine.hpp/.cpp` intentionally models only the recovered
 boundary:
 
@@ -294,15 +309,31 @@ instances and their fixed-point positions, with two deliberately unresolved
 non-model keys reported as diagnostics.
 `PsxArchive::decode_texture()` expands PSX 4bpp, 8bpp, and 16bpp texture
 payloads to renderer-ready RGB storage.
+`PcTextureRuntime` materializes the proven 0x2c PC texture records from
+hash-named `NEWTEX`/`NEWBMP` BMPs, package entries, or inline PSX textures;
+`GameplaySession::render_packets()` supplies those realized dimensions to the
+same renderer packet boundary.
 `LevelSceneRegistry` composes those static instances with trigger-created
 entities for the remaining factory records.
 `LevelRenderSnapshot` converts that registry plus a PSX archive into a stable
 renderer-facing list of entity state and raw model-face packets; camera,
 projection, material policy, and backend upload remain separate.
+It also joins proven TRG pickup records to the finalized `ITEMS.PSX` and
+`SKMEDALS.PSX` region runtimes, so mapped item/medal models reach the same
+renderer packet boundary while unresolved subtype mappings remain explicit.
 `LevelRuntime` now owns the level-side ordering: TRG autoexec and node
 construction, PSX/collision binding, PSX/PRE catalog resolution, frame ticking,
 command-point pulses, and restart execution. Its scene entity IDs are the
 handoff for a future renderer, collision world, and object factory.
+Its resource bindings also resolve package-only TRG requests by case-insensitive
+archive basename when no loose-file catalog is supplied.
+Its traffic registry separately preserves type-1 car allocations and joins
+each subtype to one shared named `C_*.PSX` runtime region, matching the
+retail object's region/model and positional-sound fields without claiming
+ownership of the shared archive per car.
+It also materializes the two proven non-traffic type-1 factory allocations
+(`0xcb` and `0x192`) as separate trigger-list records, so their source-node
+and fixed-point constructor fields remain distinct from PSX scene objects.
 `FixedStepDriver` provides the application-side accumulator around
 `GameplayFrame`; its interval/catch-up values are explicit configuration until
 the retail timer conversion is fully recovered.

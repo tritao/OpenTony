@@ -5,8 +5,9 @@
 #include "player_state.hpp"
 #include "psx_collision_probe.hpp"
 #include "action_sequence_builder.hpp"
+#include "../camera/camera_runtime.hpp"
 #include "../assets/tricks_bin.hpp"
-#include "../trg/level_render_snapshot.hpp"
+#include "../trg/render_packet_builder.hpp"
 #include "../trg/level_runtime.hpp"
 
 #include <array>
@@ -50,6 +51,17 @@ struct GameplaySessionConfig {
     assets::PsxCollisionQueryOptions collision_query_options{};
     bool apply_collision_response_bias{false};
     std::int32_t collision_response_bias_q12{0xcd};
+    // Camera_Update is opt-in because the remaining tripod/collision
+    // producers are caller-owned. When enabled, the session refreshes the
+    // target position from PlayerState after each fixed gameplay step while
+    // preserving the supplied raw camera inputs and hooks.
+    bool update_camera{false};
+    camera::CameraTargetRaw camera_target{};
+    camera::CameraFollowInput camera_follow_input{};
+    camera::Q16Vec3 camera_look_target_offset{};
+    camera::CameraUpdateHooks camera_hooks{};
+    camera::CameraModeInputRaw camera_mode_input{};
+    camera::CameraMode25ProducerInputRaw camera_mode25_input{};
 };
 
 // Stable end-to-end observation for parity traces. It deliberately contains
@@ -81,6 +93,9 @@ struct GameplaySessionObservation {
     std::size_t action_stream_cursor{};
     std::uint32_t restart_auxiliary{};
     std::uint16_t restart_auxiliary_word{};
+    std::uint32_t camera_update_tick{};
+    std::uint32_t camera_mode{};
+    camera::Q4Vec3 camera_rendered_position{};
 };
 
 // Owns the level, player, recovered frame ordering, and fixed-step clock in
@@ -155,12 +170,23 @@ public:
         return hooks_;
     }
     [[nodiscard]] const FixedStepDriver& clock() const noexcept { return driver_; }
+    [[nodiscard]] const camera::CameraRuntime& camera() const noexcept {
+        return camera_;
+    }
+    [[nodiscard]] camera::CameraRuntime& camera() noexcept { return camera_; }
 
     [[nodiscard]] const GameplaySessionObservation observation() const noexcept;
 
     // Copies the current level-owned scene/model data for a presentation
     // backend. The session must have completed initialize() first.
     [[nodiscard]] trg::LevelRenderSnapshot render_snapshot() const;
+
+    // Builds the native pre-backend polygon packets from the same owned
+    // level/runtime state. Projection/raster policy remains the supplied
+    // callback and therefore cannot be mistaken for a recovered backend.
+    [[nodiscard]] trg::RenderPacketBuildResult render_packets(
+        const trg::RenderProjector& projector,
+        const trg::RenderPacketBuildOptions& options = {}) const;
 
 private:
     trg::LevelRuntime level_;
@@ -171,10 +197,12 @@ private:
     std::optional<assets::TricksBinView> tricks_view_;
     std::vector<std::uint8_t> tricks_sequence_table_{};
     FixedStepDriver driver_;
+    camera::CameraRuntime camera_;
     PlayerPhysicsFrameHooks hooks_;
     GameplayFrameResult last_frame_{};
 
     void apply_restart_events(std::size_t event_start);
+    void update_camera_after_step();
 };
 
 } // namespace opentony::runtime

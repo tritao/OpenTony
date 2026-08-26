@@ -83,6 +83,32 @@ record to initialize the shadow effect. The executable therefore proves a
 BITS disk-to-runtime named-resource handoff even though the individual bit
 stream opcode meanings are not needed for the item/model path.
 
+The native counterpart is `PsxBitsRuntime`: it parses the type-`0x45` payload
+into value-owned named groups and eight-byte raw entries, and exposes the
+case-insensitive lookup used by the eventual effect service. The level
+runtime loads it from the catalog's `BITS.PSX` region when present; the
+process-local linked-list and animation/texture pointers remain deliberately
+unmaterialized.
+
+The native powerup path now crosses the presentation boundary as well. During
+`LevelRuntime::initialize`, catalog-backed `ITEMS.PSX` and `SKMEDALS.PSX`
+archives are finalized into their own `PsxRuntimeEnvironment` instances.
+`LevelRenderSnapshot` joins each existing TRG pickup entity to its
+`PowerupRuntimeRecord` by source node, copies the runtime model index and
+fixed-point position, and emits the selected model's faces/materials. The
+render packet builder consumes those faces alongside the environment faces. A
+mapped Warehouse witness is node 17, subtype 6, `ITEMS.PSX` model 5; its
+pickup entity reaches the native `0xb0` packet list without duplicating the
+scene object list.
+
+The package-only `LevelRuntime` constructor performs the same optional region
+loads by finding `ITEMS.PSX` and `SKMEDALS.PSX` in `ALL.PKR`, retaining the
+decoded archives for the runtime model-pointer tables. Subtypes without a
+proven checksum mapping remain visible as pickup entities with no fabricated
+model rather than being assigned by numeric coincidence.
+The same package-only initialization also decodes `BITS.PSX` into the named
+group runtime used by the effect lookup path.
+
 ## Trigger subtype to model lookup
 
 `0x004c8130` dispatches TRG type-5 powerup nodes through

@@ -1,8 +1,8 @@
 # Warehouse TRG node loading and runtime object path
 
-Status: confirmed trigger-file parse, object-manager dispatch, type-5 powerup-to-PSX item/medal model handoff, type-12/14 trick-object allocation/checksum handoff, all three type-1 constructor families selected by the PC executable, constructor field initialization, TRG link/command records, live disk-node to constructor/object correspondences, the type-1 script runner/field contract, traffic-object update/interaction consumers, and the common link-command cursor ABI; broader gameplay opcode semantics remain partial
+Status: confirmed trigger-file parse, object-manager dispatch, type-5 powerup-to-PSX item/medal model handoff, type-12/14 trick-object allocation/checksum handoff, type-13 camera-point registration, all three type-1 constructor families selected by the PC executable, constructor field initialization, TRG link/command records, live disk-node to constructor/object correspondences, the type-1 script runner/field contract, traffic-object update/interaction consumers, and the common link-command cursor ABI; broader gameplay opcode semantics remain partial
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x004c5130`, `0x004c8130`, `0x004c8650`, `0x004c5460`, `0x00403000`, `0x0049f250`, `0x00412640`, `0x004128a0`, `0x004128c0`, `0x00412960`, `0x00413000`, `0x004136e0`, `0x00480240`, `0x004802c0`, `0x00402bb0`, `0x00403410`, `0x004c84d0`, `0x004c5c00`, `0x004c5ac0`, `0x004c58b0`, `0x004c5b00`, `0x004c5b60`, `0x004c5c70`, `0x004c5d70`, `0x004c5dc0`, `0x004c7c50`, `0x004c8550`, `0x004c7a00`, `0x004b3270`, `0x004b32f0`, `0x00464710`, `0x004ca270`, `0x004ca2d0`
+Addresses: `0x004c5130`, `0x004c8130`, `0x004c8650`, `0x004c5460`, `0x00403000`, `0x00401060`, `0x0049f250`, `0x00412640`, `0x004128a0`, `0x004128c0`, `0x00412960`, `0x00413000`, `0x004136e0`, `0x00411f30`, `0x00411fc0`, `0x00480240`, `0x004802c0`, `0x00402bb0`, `0x00403410`, `0x004c84d0`, `0x004c5c00`, `0x004c5ac0`, `0x004c58b0`, `0x004c5b00`, `0x004c5b60`, `0x004c5c70`, `0x004c5d70`, `0x004c5dc0`, `0x004c7c50`, `0x004c8550`, `0x004c7a00`, `0x004c5420`, `0x004c5440`, `0x004a9f70`, `0x004aa3c0`, `0x004aa410`, `0x004aa420`, `0x004aa8c0`, `0x004b1de0`, `0x004b3270`, `0x004b32f0`, `0x00464710`, `0x004ca0c0`, `0x004c9620`, `0x004ca270`, `0x004ca2d0`
 
 The TRG path is a parallel runtime family to the PSX scene-object path. It
 creates gameplay/trigger objects and link records; its pointers must not be
@@ -125,8 +125,8 @@ pass has the following observed dispatch:
 | 6 command point | creates an 0x18-byte link record through `0x004c84d0` |
 | 7 restart variant | tests the same object-creation flag path as type 1; the generic parser otherwise rejects it as a seed path |
 | 8 restart | collects decoded restart positions into `DAT_0056dcb8[]`, with a maximum of 40 |
+| 13 camera point | decodes the node position and registers the node index in the bounded camera-point table at `DAT_0055fa58` |
 | 12 trick object, 14 (if present) | allocates a small record and calls `0x004bd760` |
-| 13 | calls the node-specific setup at `0x00411f30` |
 | 500 | allocates a 0x58-byte record and initializes it through `0x0045c390` |
 
 The type-12/14 allocation, model-checksum correspondence, record fields, and
@@ -157,6 +157,86 @@ class definition:
 accounting word `DAT_0056e224` advances by `0x1c` per record even though the
 allocation request is `0x18`; that accounting unit is retained as an observed
 runtime detail rather than being interpreted as a C++ size.
+
+### Camera-point registry
+
+Type-13 nodes do not enter the ordinary trigger-object lists. The first-pass
+dispatcher calls `0x00411f30`, which decodes the node through
+`0x004c8650`, checks the bounded capacity, stores the source node index as a
+u16 in `DAT_0055fa58[count]`, and increments `DAT_0055fae4`. The capacity
+assertion is `0x46` entries (70), so the runtime product is a compact index
+registry rather than a per-point heap allocation:
+
+```text
+TRG type-13 node index
+    -> 0x00411f30 / 0x004c8650 position decode
+    -> DAT_0055fa58[0..count-1] u16 node-index array
+    -> DAT_0055fae4 count, maximum 0x46
+    -> later camera-point lookup/selection
+```
+
+The position decode confirms that the node is structurally valid and reaches
+the same fixed-point coordinate helper as restart, powerup, and object nodes;
+the registration function does not retain the temporary coordinates itself.
+This is therefore a runtime camera-point index table, not evidence that type
+13 creates a camera object. The nine Warehouse type-13 nodes are the concrete
+corpus witness for this family.
+
+The registered indices have a downstream camera consumer at `0x00411fc0`,
+called from the skater pre-physics path. It builds the candidate point from the
+player position plus the current player-relative basis/offset vector, filters
+it through the shared fixed-point visibility/bounds query, and scans the
+registered node indices. For each candidate it calls `0x004c8650` again and
+chooses the closest eligible point (`distance < 0x2329`). The selected node's
+two words immediately after its decoded position control the observed camera
+mode branch: the first selects the `0x400` versus `0x800` state bit, while the
+second is retained as the camera-point variant used by the cut/interpolation
+path.
+
+The selection writes a stable camera-object handoff through the skater's
+`+0x29b0` pointer: camera `+0x504` receives mode `1` or `2`, `+0x3dc` points
+back to the skater, `+0x3e0` and `+0x3bc` are armed, and the selected point
+position is retained at `+0x3c0/+0x3c4/+0x3c8`. A cut path clears camera
+`+0x5b4`; the interpolation path updates the existing camera state instead.
+The camera point is therefore a real disk-node → registry → camera-object
+consumer path, while the point's higher-level cinematic names remain open.
+
+### Additional TRG-created runtime records
+
+The command stream has two more allocation paths that must remain separate from
+the 0x4c-byte PSX environment records and from the 0x18-byte command-point
+records.
+
+Opcode `0x00ab` is an object-creation command, not an opaque three-word legacy
+command. The dispatcher aligns the cursor for `(opcode + 5)` down to a
+four-byte boundary, reads one u32 key and three u16 values, allocates `0xcc`
+bytes, and calls `0x00401060`. The constructor installs vtable `0x0051836c`,
+links the record into the list headed by `DAT_0055f6b0`, and resolves the key
+through `0x004b1de0` into object `+0x1a`. Its list links are `+0x20` and
+`+0x34`, its flag word is `+0x04`, and its list identifier is at `+0xc8`. The
+PC constructor does not read the three trailing u16 values, so they remain raw
+command parameters. The extracted TRG corpus contains 118 instances, mostly
+in restart streams.
+
+TRG type 10/11 nodes use a separate runtime-list record. `0x004aa8c0`
+allocates and links the record through `DAT_0056b860`; the source node index is
+stored at `+0x06`, the mutable state byte is at `+0x04`, and the next-record
+link is at `+0x24`. The constructor reads the u16 immediately following the
+fixed-point position through `0x004a9f70`. A pulse reaches
+`0x004aa420` -> `0x004aa3c0(node, 1)` and writes state one; the corresponding
+kill path at `0x004aa410` writes state zero. This is a direct node -> list
+record -> pulse/kill consumer path. The corpus contributes 9,732 type-10 and
+394 type-11 nodes; the larger list/factory ownership is still intentionally
+unnamed.
+
+The type-1/type-7 factory also scans the bounded option-byte preamble with
+`0x004c5420` before decoding position. Option `4` clears constructed-object
+flag bit `0x2`; type 7 additionally sets bit `0x4`; when option `2` is absent,
+the factory performs an extra environment/baddy-list registration check. These
+are factory-input effects, not aliases for the later object `+0x04` visibility
+mask. Across the extracted corpus, all 793 type-1 nodes carry option `2` and
+642 carry option `4`; type 7 remains a statically verified branch but has no
+instance in the corpus.
 
 The node payloads explain the two call forms in `0x004c8130`:
 
@@ -754,9 +834,10 @@ consumer.
 | `0x0095` | none | close one `0x0094` conditional block |
 | `0x0096` | one `u16` | call `0x004adc60(value)` |
 | `0x0097` | one `u16` time value | reset the command timer and call `0x004c5d90(value * 1000)` |
+| `0x0098` | none | `KILLBRUCE`: apply the first linked type-8 restart node; the source-correlated `SKB1_T.TRG` node-11 → node-2 path is recorded in [restart-runtime.md](restart-runtime.md) |
 | `0x0099`, `0x009a` | one `u16` | write the operand through front-object helpers `0x0040bd00` or `0x0040bd10` |
 | `0x009b`, `0x009c`, `0x009d` | one `u16` | call `0x004adc50`, `0x004adc30`, or `0x004ada20` respectively |
-| `0x009e` | none | call `0x00466c10` |
+| `0x009e` | none | call `0x00466c10`; its exact first-call global/player initialization is recorded in [level-event-runtime.md](level-event-runtime.md) |
 | `0x009f` | NUL-terminated string, aligned | call `0x004ad5e0(string)` |
 | `0x00a0` | one `u16` | write front-object field `+0x504` |
 | `0x00a1` | one `u16` | call front-object helper `0x0040be60` |
@@ -839,3 +920,42 @@ The remaining TRG work is semantic naming for some base gameplay opcodes and
 link-command payloads. The type-5 node-17 position/index bridge, the type-6
 disk-command/runtime-link bridge, and the traffic-object consumers are already
 proven without conflating any of them with the PSX geometry index.
+
+## Native traffic asset bridge
+
+The native `TrafficRuntimeList` implements the constructor boundary without
+turning the unresolved object-manager pointers into host pointers. Each type-1
+node with subtype `0xd5..0xdc` produces one byte-preserving `0x1e8` record. The
+record copies the three constructor parameters, shifts the decoded coordinates
+into the constructor's fixed-point representation, applies the proven
+`0x6e000` Y subtraction, stores the source node at `+0xb0`, and initializes the
+constructor's proven `+0x1a`, `+0x1f`, `+0x108`, `+0x1ac`, `+0x1ae`, `+0xb4`,
+`+0x1e0`, and `+0x1e4` fields. The vtable, intrusive links, and audio handle
+remain zero because they are process-local retail pointers.
+
+The record is joined to a shared named region table rather than owning a PSX
+archive per traffic instance:
+
+```text
+TRG type-1 subtype
+  -> TrafficRuntimeRecord (0x1e8 bytes)
+  -> c_taxi/c_police/... resource selection
+  -> one shared C_*.PSX PsxRuntimeEnvironment
+  -> record +0x1f region slot / +0x1a model index
+```
+
+Loose-file catalogs and `ALL.PKR` both use the same list. Package regions keep
+their decoded archive alive beside the runtime environment; catalog regions
+reuse the catalog-owned archive. This mirrors the executable's shared-region
+ownership: the traffic destructor removes one object from the traffic list but
+does not release `C_TAXI.PSX` or `C_BULL.PSX` once per instance. The native test
+also preserves the subtype-specific sound request ID and the constructor's
+explicitly disabled police setup as metadata for the later audio adapter.
+
+Both native trigger lists expose the independently recovered activation helper
+as `activate_node(node, argument)` and `deactivate_node(node)`. Activation
+writes the supplied value at runtime `+0x64` and sets bit 0 of `+0x6a`; the
+native records leave the actual intrusive-list pointers and virtual callback
+outside the host representation. This gives the object-manager command path a
+stable source-node operation without pretending that a native vector is the
+retail linked list.

@@ -1,0 +1,152 @@
+version: 1
+types:
+  - name: RuntimeCareerSaveImage
+    kind: fixed_layout
+    size: 0x1e00
+    confidence: confirmed
+    description: Registered PC career save buffer; only the first 0x1dc4 bytes are copied into the live career image on load.
+    fields:
+      - offset: 0x00
+        name: format_magic
+        type: u32
+        confidence: confirmed
+        description: Current career format value required by the load validator.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x04
+        name: skater_records
+        type: array<RuntimeCareerSkaterRecord,20>
+        confidence: confirmed
+        description: Twenty fixed 0x104-byte records addressed by Career_GetSkaterRecord(index) for indices 0 through 19.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1870
+        name: active_skater_selectors
+        type: array<u8,2>
+        confidence: confirmed
+        description: Two player-selection bytes captured by the career save preparer and consumed during career-load application.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1872
+        name: active_costume_selectors
+        type: array<u8,2>
+        confidence: confirmed
+        description: Two costume-selection bytes captured beside the active skater selectors.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1874
+        name: secondary_selection_bytes_0
+        type: array<u8,2>
+        confidence: observed
+        description: Two selection bytes copied between the live career globals and the serialized image.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1878
+        name: secondary_selection_bytes_1
+        type: array<u8,2>
+        confidence: observed
+        description: Two additional selection/flag bytes copied beside the secondary selection values.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1880
+        name: copied_scalar_words_0
+        type: array<u32,2>
+        confidence: observed
+        description: Two 32-bit source globals copied by the career image serializer; public gameplay names remain open.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1950
+        name: copied_profile_words
+        type: array<u8,64>
+        overlay_group: profile_storage_views
+        confidence: observed
+        description: Raw 0x40-byte career/profile area copied in 16-byte source strides.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1970
+        name: local_profile_words
+        type: array<u32,4>
+        overlay_group: profile_storage_views
+        confidence: observed
+        description: Four raw words copied from the local profile source table and consumed by the grounded-motion gate after load.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+          - re/evidence/functions/ground-movement.md
+      - offset: 0x1a04
+        name: copied_scalar_words_1
+        type: array<u32,2>
+        confidence: observed
+        description: Two additional source globals copied by the career image serializer.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1a0c
+        name: bounded_text_length
+        type: u32
+        confidence: observed
+        description: Length/count word bounded to 0x0b before the adjacent text area is zero-filled.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1a10
+        name: bounded_text
+        type: array<char,11>
+        confidence: observed
+        description: Bounded text area copied by the career image serializer; its public label is not assigned.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1a20
+        name: preserved_custom_block
+        type: array<u8,512>
+        confidence: observed
+        description: 0x200-byte image block preserved across the career reset initializer.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1c20
+        name: secondary_selection_bytes
+        type: array<u8,2>
+        confidence: observed
+        description: Two secondary selection bytes copied with the player-selection records.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1c64
+        name: preserved_career_block
+        type: array<u8,352>
+        confidence: observed
+        description: 0x160-byte image block preserved across the career reset initializer.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0x1dc4
+        name: registered_tail
+        type: array<u8,60>
+        confidence: observed
+        description: Tail of the 0x1e00 registered buffer; the load finalizer copies only through image offset 0x1dc3.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+
+  - name: RuntimeCareerSkaterRecord
+    kind: fixed_layout
+    size: 0x104
+    confidence: confirmed
+    description: Fixed per-skater career/trick configuration record addressed at career_image+0x04+index*0x104.
+    fields:
+      - offset: 0x34
+        name: trick_unlock_bits
+        type: u32
+        confidence: observed
+        description: Bit mask initialized by the career record initializer and consumed/updated by TRICKS key configuration routines.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x38
+        name: raw_trick_stat_seeds
+        type: array<u8,10>
+        confidence: observed
+        description: Ten bytes copied from static skater metadata and adjusted for enabled custom rows.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md
+      - offset: 0xcc
+        name: custom_appearance_blob
+        type: array<u8,53>
+        confidence: confirmed
+        description: 0x35-byte packed appearance region copied to/from the four-slot custom-skater staging table.
+        evidence:
+          - re/evidence/functions/career-save-runtime.md

@@ -185,6 +185,31 @@ The backend package format, raw level-record path, and all three generic
 transform families are now separated. The PRE bypass remains independent of
 the package stream.
 
+## Native recreation boundary
+
+`src/assets/pkr_asset.*` now implements the bounded package backend. It retains
+the path-bearing 40-byte directory records and 48-byte file records, validates
+absolute payload bounds and duplicated size words, and implements the confirmed
+raw/BIBD/WIBD/ZLIB marker dispatch. A real `ALL.PKR` fixture validates 21
+directories, 3,771 entries, and the direct package-to-format bridge:
+
+```text
+PkrArchive::load(ALL.PKR)
+  -> decode("data/SKWARE.PSX")
+  -> PsxArchive::parse(...)
+  -> 252 objects / 288 models
+```
+
+`LevelRuntime` also exposes this as a package-backed constructor. It decodes
+the requested `data/SKWARE_T.TRG` and `data/SKWARE.PSX` entries into owned
+format images before building the same trigger, scene-object, model, and
+collision state as the extracted-file constructor. The native integration
+fixture therefore exercises both the package boundary and the runtime object
+boundary in one path.
+
+The decoded bytes are caller-owned, matching the game's allocation/read
+handoff rather than retaining a pointer into the package image.
+
 ## Confidence and limits
 
 - `confirmed`: the first game-owned open, PRE short-name lookup, backend handle
