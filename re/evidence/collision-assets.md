@@ -111,7 +111,10 @@ query result.
 
 Static loader ownership is now partly separated as well. `0x004667e0`, called
 from `0x0043e03c` and carrying `m3dzone.cpp` diagnostics, initializes the live
-zone record and fills the per-cell candidate-pointer table. The
+zone record and fills the per-cell candidate-pointer table. Its source cell
+blocks carry a count at `+0x08`, raw entries from `+0x0c`, and one trailing
+zero word; the loader rewrites the entries to kind/model-table pointers before
+the query sees them. The
 `LevelGen.cpp` path around `0x0043d88e` builds the count-prefixed `0x4c`-byte
 linked-object array. `0x00420fa0`
 populates the kind-strided model table and its collision-cache entry. The

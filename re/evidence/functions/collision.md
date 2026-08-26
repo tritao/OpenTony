@@ -159,7 +159,14 @@ the wrapper; the query does not parse a file on each call.
   `ZONE WIDTH TOO LARGE`, and `EnvIndex not zero`. It copies the active zone
   bounds/divisor/count fields into `DAT_00567f80`'s zone record, sets the zone
   presence flag, and populates the corresponding `DAT_00567fa0` candidate
-  entries. This is the strongest recovered zone/candidate-table ownership
+  entries. Its per-cell input blocks have a recoverable intermediate shape:
+  `0x004667e0` reads a count at source `+0x08`, publishes a candidate-table
+  pointer to source `+0x0c`, converts that many raw entries in place, and then
+  skips one trailing zero word before advancing to the next cell. The raw
+  entry values are resolved through the kind-strided model table rooted at
+  `DAT_0056d438`; after conversion they are the linked-object pointers later
+  consumed by `0x004638d0`. The first two words of each source block remain
+  unknown. This is the strongest recovered zone/candidate-table ownership
   boundary; it still does not expose the file serialization or allocator
   interface.
 - Model-kind table population is a separate loader stage. The routine

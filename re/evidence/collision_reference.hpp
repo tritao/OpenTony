@@ -219,8 +219,34 @@ struct CollisionCandidateHeadArrayEntry {
 static_assert(sizeof(CollisionCandidateHeadArrayEntry) == 0x04);
 
 inline constexpr std::size_t kCandidateHeadArrayEntryStride = 0x04;
+inline constexpr std::size_t kCandidateCellSourceHeaderBytes = 0x0c;
+inline constexpr std::size_t kCandidateCellSourceTerminatorBytes = 0x04;
 inline constexpr std::size_t kLinkedCollisionObjectElementStride = 0x4c;
 inline constexpr std::size_t kLinkedCollisionObjectArrayHeaderBytes = 0x04;
+
+#pragma pack(push, 1)
+struct CollisionCandidateCellSourceHeader {
+    std::uint32_t unknown_00 = 0;
+    std::uint32_t unknown_04 = 0;
+    std::uint32_t entry_count = 0;  // +0x08
+};
+#pragma pack(pop)
+
+static_assert(sizeof(CollisionCandidateCellSourceHeader) ==
+              kCandidateCellSourceHeaderBytes);
+
+inline std::optional<std::size_t> candidate_cell_source_bytes(
+    std::size_t entry_count) {
+    if (entry_count >
+        (std::numeric_limits<std::size_t>::max() -
+         kCandidateCellSourceHeaderBytes - kCandidateCellSourceTerminatorBytes) /
+            kCandidateHeadArrayEntryStride) {
+        return std::nullopt;
+    }
+    return kCandidateCellSourceHeaderBytes +
+           entry_count * kCandidateHeadArrayEntryStride +
+           kCandidateCellSourceTerminatorBytes;
+}
 
 inline std::optional<std::size_t> linked_collision_object_array_bytes(
     std::size_t element_count) {

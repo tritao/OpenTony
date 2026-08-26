@@ -51,6 +51,9 @@ int main() {
     assert(linked->model_kind == 6);
     assert(linked->next == 0x12345678);
 
+    assert(candidate_cell_source_bytes(0) == 0x10);
+    assert(candidate_cell_source_bytes(2) == 0x18);
+
     std::array<std::uint8_t, sizeof(LinkedCollisionObjectListLinksLayout)>
         linked_links_bytes{};
     const auto put_linked_links32 =
