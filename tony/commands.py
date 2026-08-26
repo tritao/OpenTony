@@ -181,9 +181,18 @@ def verify(_args) -> int:
     return 1 if failed else 0
 
 
-def ghidra_rebuild(_args) -> int:
-    ghidra_ops.rebuild()
+def ghidra_rebuild(args) -> int:
+    ghidra_ops.rebuild(args.profile)
     return 0
+
+
+def ghidra_sync(args) -> int:
+    ghidra_ops.sync(args.function, args.force)
+    return 0
+
+
+def ghidra_verify(_args) -> int:
+    return 0 if ghidra_ops.verify() else 1
 
 
 def ghidra_export_functions(args) -> int:

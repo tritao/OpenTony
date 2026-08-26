@@ -18,6 +18,17 @@ def test_ghidra_decompile_parse():
     assert callable(args.func)
 
 
+def test_ghidra_iteration_commands_parse():
+    rebuild = build_parser().parse_args(["ghidra", "rebuild", "--profile", "fast"])
+    sync = build_parser().parse_args(["ghidra", "sync", "--function", "0x00466090", "--force"])
+    verify = build_parser().parse_args(["ghidra", "verify"])
+
+    assert rebuild.profile == "fast"
+    assert sync.function == [0x00466090]
+    assert sync.force is True
+    assert callable(verify.func)
+
+
 def test_gdb_generate_parse():
     args = build_parser().parse_args(["gdb", "generate", "--output", "knowledge.py"])
     assert args.output == "knowledge.py"

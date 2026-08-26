@@ -29,6 +29,22 @@ generating recovered structures. Do not add a signature merely to improve
 decompiler output; its calling convention, order, and types need supporting
 evidence.
 
+Use the generated Ghidra project as disposable cached analysis:
+
+```bash
+tony ghidra rebuild                    # clean, complete deterministic analysis
+tony ghidra rebuild --profile fast     # clean iteration-oriented analysis
+tony ghidra sync                       # apply changed knowledge without reimporting
+tony ghidra sync --function 0x00466090 # also reanalyze the function and direct callers
+tony ghidra verify                     # check fingerprints, layouts, and bindings
+```
+
+`sync` checks executable, Ghidra-version, profile, knowledge, and importer
+fingerprints before opening the JVM. An unchanged sync is therefore a cheap
+no-op. Use `--force` only to repair or test generated state. The fast profile
+disables Decompiler Parameter ID, Function ID, and discovered non-returning
+function analysis; use the complete profile for milestone evidence.
+
 Before loading the GDB bootstrap manually, generate its dependency-free symbol
 module with `tony gdb generate`. `tony debug` performs this step automatically.
 

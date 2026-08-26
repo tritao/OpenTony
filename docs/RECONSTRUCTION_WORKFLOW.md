@@ -81,6 +81,11 @@ opaque gaps, and records omissions in `build/ghidra/recovered-types.json`.
 Never edit the generated Ghidra types as a substitute for updating the YAML and
 its evidence.
 
+During iteration, use `tony ghidra sync` instead of rebuilding the project.
+Pass `--function ADDRESS` to reanalyze that function and its direct callers
+after applying knowledge. Finish reviewed analysis changes with
+`tony ghidra verify`; reserve a complete clean rebuild for milestones.
+
 A structure-using module should not become matching `cpp` while its accessed
 offsets remain undocumented. Retail layouts do not replace native domain types.
 
