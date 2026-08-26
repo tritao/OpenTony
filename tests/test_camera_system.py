@@ -169,6 +169,56 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 32;
                 }
 
+                // The mode handlers use unsigned reciprocal-multiply
+                // weights, not the normal frame delta.  Check the exact
+                // retail values at the endpoints and a nontrivial sample.
+                if (camera_death_transform_weight_q12(1) != 136
+                    || camera_death_transform_weight_q12(10) != 1365
+                    || camera_death_transform_weight_q12(30) != 4096
+                    || camera_point_transform_weight_q12(1) != 31
+                    || camera_point_transform_weight_q12(10) != 315
+                    || camera_point_transform_weight_q12(130) != 4096) {
+                    return 33;
+                }
+
+                // Point/death dispatches bypass normal smoothing and finish
+                // at the viewport commit boundary.
+                CameraStateRaw point_dispatch;
+                point_dispatch.mode = 21;
+                CameraModeInputRaw point_mode_input{};
+                point_mode_input.point_target_valid = true;
+                point_mode_input.point_start_valid = true;
+                point_mode_input.point_start_position = point_start;
+                point_mode_input.point_target_position = point_target;
+                point_mode_input.point_transform_valid = true;
+                point_mode_input.point_transform_target = {0, 0, 0, 0x1000};
+                const auto point_dispatch_result = update_camera(
+                    point_dispatch, {}, {}, {}, {}, point_mode_input);
+                if (point_dispatch_result.rendered_position.x != 0x82
+                    || point_dispatch.point_camera_tick != 1
+                    || point_dispatch.update_tick != 1
+                    || point_dispatch.mode != 21) {
+                    return 34;
+                }
+
+                CameraStateRaw death_dispatch;
+                death_dispatch.mode = 22;
+                death_dispatch.death_target_position = death_target;
+                CameraModeInputRaw death_mode_input{};
+                death_mode_input.tripod_present = true;
+                death_mode_input.tripod_position = death_start;
+                death_mode_input.death_transform_valid = true;
+                death_mode_input.death_transform_source = {0, 0, 0, 0x1000};
+                death_mode_input.death_transform_target = {0, 0, 0, 0x1000};
+                const auto death_dispatch_result = update_camera(
+                    death_dispatch, {}, {}, {}, {}, death_mode_input);
+                if (death_dispatch_result.rendered_position.x != 46
+                    || death_dispatch.death_camera_tick != 1
+                    || death_dispatch.update_tick != 1
+                    || death_dispatch.mode != 22) {
+                    return 35;
+                }
+
                 camera.history_a = {0x200, 0, 0};
                 camera.mode_vector = {0x100, 0, 0};
                 update_camera_history(camera, {}, true);

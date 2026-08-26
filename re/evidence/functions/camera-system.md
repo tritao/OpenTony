@@ -181,6 +181,27 @@ This is useful for a faithful recreation: preserve the dispatch table and its
 invalid-mode behavior instead of collapsing every non-default state into a
 single enum branch.
 
+The mode-21 and mode-22 targets do not return through the normal
+`Camera_SmoothAndValidate` tail. Both handlers jump to `0x00410357`, which
+calls `Camera_CommitViewportEffects 0x0040be70` and then returns from
+`Camera_Update`. The native `update_camera` contract therefore exposes an
+explicit `CameraModeInputRaw` boundary for these handlers and skips normal
+history/smoothing/shake when the required mode producer inputs are present.
+
+Their transform interpolation weights are distinct from the normal
+simulation-delta smoothing weight. Static PE32 arithmetic is:
+
+```text
+death: floor(tick * 0x1000 / 0x1e)
+point: floor(tick * 0x1000 / 0x82)
+```
+
+The binary computes these using unsigned reciprocal multiplies
+`0x88888889`/`>>4` and `0xfc0fc0fd`/`>>7`, respectively. The native helpers
+`camera_death_transform_weight_q12` and
+`camera_point_transform_weight_q12` preserve those operations before feeding
+the shared Q12 quaternion interpolator at `0x004a9bf0`.
+
 ### `0x0040e090` — `Camera_SmoothAndValidate`
 
 Exact static behavior:
@@ -202,7 +223,7 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 
 | Address | Current name | Static evidence | Confidence |
 |---|---|---|---|
-| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. | inferred |
+| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. The `tony-camera-effects-probe` now records its guard globals, tripod gates, shared vertical effect, and raw effect fields. | static boundary; runtime hit count pending |
 | `0x00410c90` | `Camera_DeathMode` | Requires a tripod, latches its position at tick `+0x570 == 0`, interpolates toward the selected death position for ticks `0..30`, then writes mode `1`; also interpolates the death transform through the shared Q12 helpers. | medium; position contract is statically exact, transform producer remains partial |
 | `0x00410f70` | `Camera_PointMode` | Initializes the point-sequence state, builds a Q12 orientation sequence, interpolates position over duration `0x82` using `+0x55c`, optionally advances by six ticks after the late flag, and returns to mode `1` after the duration. | medium for the fixed-point position sequence; point-table producer remains partial |
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
@@ -227,12 +248,13 @@ else:
 
 The divide and multiply are component-wise signed PE32 operations; this is
 not a floating-point easing curve. The same routine separately builds a Q12
-transform interpolation through `0x0040e060` and `0x004a9bf0`, but its source
-transform fields and death/effect producer are not yet connected to the native
-state. Static callers are the mode-dispatch target `0x0041001b` from
-`Camera_Update 0x0040f850`; the position fixture covers ticks 0, 1, 30, 31,
-and the missing-tripod diagnostic path. No live death-mode trace has yet been
-captured, so the dynamic mode transition remains an explicit validation item.
+transform interpolation through `0x0040e060` and `0x004a9bf0`; the native
+`advance_camera_death_transform` now models that interpolation and leaves the
+source/target transform producer explicit. Static callers are the
+mode-dispatch target `0x0041001b` from `Camera_Update 0x0040f850`; the
+position/weight fixtures cover ticks 0, 1, 30, 31, and the missing-tripod
+diagnostic path. No live death-mode trace has yet been captured, so the
+dynamic mode transition and transform producer remain validation items.
 
 The point-position sub-contract is represented by
 `advance_camera_point_position`:
@@ -247,8 +269,10 @@ if point_tick > 0x82: mode = 1
 Static evidence for the duration and late increment is the instruction path at
 `0x00410f70` (`cmp tick, 0x82`, then `+1` or `+6` after the global late flag).
 Its orientation path calls `0x004a98c0`, `0x004a9820`, `0x004a9870`, two
-`0x004a9650` compositions, `0x0040e060`, and `0x004a9bf0`. The native fixture
-covers regular, accelerated, and completion ticks. The selected point-table
+`0x004a9650` compositions, `0x0040e060`, and `0x004a9bf0`. The native
+`advance_camera_point_transform` models the final interpolator while keeping
+the table-produced target transform explicit. Fixtures cover regular,
+accelerated, completion, and dispatch ordering. The selected point-table
 lookup and the initial mode-23 setup still require a runtime point/camera
 trace before they should be folded into the default update path.
 

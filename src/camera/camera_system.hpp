@@ -467,6 +467,50 @@ inline CameraPointPositionResultRaw advance_camera_point_position(
     return {camera.position, camera.point_camera_tick, false};
 }
 
+// The mode handlers use the same quaternion interpolator as the normal
+// smoothing path, but their weights are produced by unsigned PE32 reciprocal
+// multiplies rather than by the normal simulation delta. The point handler
+// uses `mul(tick << 12, 0xfc0fc0fd).edx >> 7` and the death handler uses
+// `mul(tick << 12, 0x88888889).edx >> 4`.
+inline Raw camera_mode_reciprocal_weight_q12(
+    std::uint32_t tick, std::uint32_t reciprocal, unsigned post_shift) {
+    const auto scaled_tick = static_cast<std::uint32_t>(tick << 12);
+    const auto high_word = static_cast<std::uint32_t>(
+        (static_cast<std::uint64_t>(scaled_tick) * reciprocal) >> 32);
+    return static_cast<Raw>(high_word >> post_shift);
+}
+
+inline Raw camera_death_transform_weight_q12(std::uint32_t tick) {
+    return camera_mode_reciprocal_weight_q12(tick, 0x88888889U, 4);
+}
+
+inline Raw camera_point_transform_weight_q12(std::uint32_t tick) {
+    return camera_mode_reciprocal_weight_q12(tick, 0xfc0fc0fdU, 7);
+}
+
+// 0x00410c90 and 0x00410f70 both feed 0x004a9bf0, the retail quaternion
+// interpolator. Keep the source/target objects explicit: their producers are
+// mode-owned and are not interchangeable with normal follow's target basis.
+inline TransformQ12 advance_camera_death_transform(
+    CameraStateRaw& camera,
+    const TransformQ12& source,
+    const TransformQ12& target) {
+    camera.current_transform = slerp_transform_q12(
+        source, target,
+        camera_death_transform_weight_q12(camera.death_camera_tick));
+    return camera.current_transform;
+}
+
+inline TransformQ12 advance_camera_point_transform(
+    CameraStateRaw& camera,
+    const TransformQ12& source,
+    const TransformQ12& target) {
+    camera.current_transform = slerp_transform_q12(
+        source, target,
+        camera_point_transform_weight_q12(camera.point_camera_tick));
+    return camera.current_transform;
+}
+
 // Stateful adapter for the four camera-owned effect counters at
 // +0x5d8..+0x5e4. The vertical effect value is a shared producer/global word
 // in retail, so it is passed by reference rather than mislocated in the
@@ -591,6 +635,26 @@ struct CameraUpdateHooks {
     // smoothing tail. The normal game initializes it to 0x100; callers can
     // provide a replay/runtime value without hiding the fixed-point contract.
     Raw smoothing_delta_q8{0x100};
+};
+
+// Inputs owned by the mode/level systems rather than by Camera_Update itself.
+// The retail dispatcher sends modes 21 and 22 directly to 0x0040be70 after
+// their handlers; they do not pass through the normal smoothing tail. A
+// native caller must therefore provide the selected point/death destination
+// and, when available, the mode-specific quaternion producer explicitly.
+struct CameraModeInputRaw {
+    bool tripod_present{};
+    Q16Vec3 tripod_position{};
+    bool point_target_valid{};
+    Q16Vec3 point_target_position{};
+    bool point_start_valid{};
+    Q16Vec3 point_start_position{};
+    bool point_late_acceleration_enabled{};
+    bool point_transform_valid{};
+    TransformQ12 point_transform_target{};
+    bool death_transform_valid{};
+    TransformQ12 death_transform_source{};
+    TransformQ12 death_transform_target{};
 };
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {
@@ -1000,7 +1064,8 @@ inline CameraViewportCommitRaw update_camera(
     const CameraTargetRaw& target,
     const CameraFollowInput& follow_input,
     const Q16Vec3& look_target_offset,
-    const CameraUpdateHooks& hooks = {}) {
+    const CameraUpdateHooks& hooks = {},
+    const CameraModeInputRaw& mode_input = {}) {
     if (camera.anchor_update_flag != 0) {
         camera.mirrored_anchor = camera.anchor_target;
         if (camera.tripod_anchor_flag != 0) {
@@ -1018,6 +1083,43 @@ inline CameraViewportCommitRaw update_camera(
         snapshot = prepare_follow_target(camera, target, follow_input);
     } else if (camera.mode == 2) {
         (void)prepare_mode2_target(camera, target, follow_input);
+    }
+
+    // Modes 21 and 22 jump from their mode handler directly to
+    // Camera_CommitViewportEffects 0x0040be70. Do not run normal follow's
+    // history, smoothing, shake, or position producer after them. The
+    // destination/transform producers are supplied explicitly because the
+    // point table and death-camera setup live outside Camera_Update.
+    if (camera.mode == 21 && mode_input.point_target_valid) {
+        const Q16Vec3 point_start = mode_input.point_start_valid
+            ? mode_input.point_start_position
+            : camera.point_start_position;
+        (void)advance_camera_point_position(
+            camera, mode_input.point_target_position, point_start,
+            mode_input.point_late_acceleration_enabled);
+        if (mode_input.point_transform_valid) {
+            (void)advance_camera_point_transform(
+                camera, camera.current_transform,
+                mode_input.point_transform_target);
+        }
+        const auto committed = commit_viewport_effects(
+            camera, look_target_offset, target.tripod_state);
+        ++camera.update_tick;
+        return committed;
+    }
+    if (camera.mode == 22 && mode_input.tripod_present) {
+        (void)advance_camera_death_position(
+            camera, camera.death_target_position,
+            mode_input.tripod_position, true);
+        if (mode_input.death_transform_valid) {
+            (void)advance_camera_death_transform(
+                camera, mode_input.death_transform_source,
+                mode_input.death_transform_target);
+        }
+        const auto committed = commit_viewport_effects(
+            camera, look_target_offset, target.tripod_state);
+        ++camera.update_tick;
+        return committed;
     }
 
     // Camera_FollowTarget updates its history and target transform before
