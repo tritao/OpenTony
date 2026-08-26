@@ -126,6 +126,9 @@ kind-strided model/cache slot initialization at the loader boundary.
 post-constructor cursor movement, and collision-facing object fields.
 
 Camera/render traces can additionally use `tony-camera-probe`,
+`tony-camera-timing-probe`,
+`tony-camera-point-probe`, `tony-camera-point-state-probe`, and
+`tony-camera-collision-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw
 `tony-geometry-probe [COUNT]`. For projection calibration,
 `tony-view-perturb [COUNT]` alternates view-input word 6 between its observed
@@ -136,6 +139,46 @@ projection response from camera motion. The geometry probe accepts only submissi
 The geometry probe accepts only submissions
 with a live player-owned camera, so frontend/menu geometry does not consume
 the bounded level observation count.
+
+For deterministic frontend or camera-mode setup, `tony-action-sequence MASK...`
+writes raw low-word action masks at the post-poll publish boundary
+`0x004e4650`. Use explicit masks (for example `0x8000`, `0`, `0x10`, `0`) and
+record the sequence in the trace; this drives the retail action-state
+consumers without relying on synthetic X/DirectInput keyboard events.
+`tony-frontend-play` is a separate level-entry control: it preserves the real
+frontend selection helper, then forces the returned main-menu result to
+`PLAY_GAME` at the verified caller result slot. Use it with a short trace when
+the headless frontend cannot be advanced reliably by input alone.
+
+`tony-camera-viewport-probe [COUNT] [AFTER_FRAME]` is a bounded calibration
+probe for the raw `Camera_Update` viewport/framing controls. It varies one
+control family per accepted camera update, records the pre-mutation camera and
+global values, holds them through view preparation, and restores them at the
+present boundary. Use `AFTER_FRAME` to skip startup camera calls; this probe is
+for producer identification, not a gameplay zoom feature.
+
+For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
+samples the `0x004d29e0` transform contract at its post-transform return tail
+`0x004d2d9e`, reading the seven-word records at `0x00570878`. It reports raw
+words plus the current projected-X/Y/Z and reciprocal-depth interpretation,
+bounded to 256 vertices per observed call. For accepted calls it also retains
+the raw eight-byte source-vertex block (three signed shorts plus the packed
+flags word), allowing projection calibration against model-space input. It
+also records a rejection reason for up to eight pre-level calls when the live
+player/camera or scratch range is not readable; those diagnostics do not
+consume the requested gameplay count.
+For accepted calls it also records the raw object-basis, active-view-basis,
+and relative-translation inputs assembled by the ordinary submitter, so the
+per-object transform producer can be compared separately from the projection
+consumer.
+This is the preferred calibration probe; `tony-geometry-probe`'s raster-tail
+records belong to the separate indexed/special path.
+
+For bounded camera-mode validation, `tony-camera-force-mode MODE [HOLD]`
+writes the raw camera mode at `camera + 0x504` for the requested number of
+camera updates, records the before/after mode, and restores mode `1` on the
+next accepted update. Use it only with a live level and a short trace; it is a
+probe for mode handoffs, not a gameplay-mode implementation.
 
 Debug sessions are isolated and owned by their launcher. `tony sessions list`
 marks records whose owned processes have disappeared as `stale`; they are safe

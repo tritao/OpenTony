@@ -6,6 +6,79 @@ from pathlib import Path
 import pytest
 
 
+def test_camera_frame_contract_keeps_present_explicit(tmp_path):
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("g++ is not installed")
+    source = tmp_path / "camera_frame_contract.cpp"
+    source.write_text(
+        textwrap.dedent(
+            """
+            #include "src/camera/camera_frame.hpp"
+
+            int main() {
+                using namespace opentony::camera;
+                CameraFrameStateRaw state;
+                CameraFrameInputRaw input;
+                input.timestamp_ms = 1000;
+                input.render_input.viewport.words = {
+                    0, 640, 0, 480, 0, 20512, 3410, 12,
+                    320, 240, 0, 0, 320, 480};
+                input.render_input.scale_x = 0x1000;
+                input.render_input.scale_y = 0x1000;
+                input.target.tripod_state = 2;
+                input.target.follow_offset = {0, -0x1000, 0};
+
+                auto first = advance_camera_frame(state, input);
+                if (!first.camera_updated || !first.render_prepared
+                    || first.presented
+                    || state.camera_timing.simulation_delta_q8 != 0x100) {
+                    return 1;
+                }
+                if (!present_camera_frame(state, first)
+                    || first.presented_frame_serial != 1
+                    || present_camera_frame(state, first)) {
+                    return 2;
+                }
+
+                input.timestamp_ms = 1017;
+                auto second = advance_camera_frame(state, input);
+                if (second.simulation_clock.tick_delta != 1
+                    || !present_camera_frame(state, second)
+                    || state.presented_frame_serial != 2) {
+                    return 3;
+                }
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            compiler,
+            "-std=c++20",
+            "-I",
+            str(Path(__file__).resolve().parents[1]),
+            str(source),
+            "-o",
+            str(tmp_path / "camera_frame_contract"),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        [str(tmp_path / "camera_frame_contract")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+
+
 def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
     compiler = shutil.which("g++")
     if compiler is None:
@@ -35,7 +108,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 const auto expected_follow = build_follow_target_transform_q12(
                     {}, {0, -0x1000, 0}, 0);
                 const auto committed = update_camera(
-                    camera, target, follow, {}, {});
+                    camera, target, follow, {}, {}, {}, {}, {}, {}, {true});
                 if (camera.mirrored_anchor.x != 0x10000
                     || camera.anchor_target.x != 0x20000
                     || camera.update_tick != 1
@@ -44,6 +117,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || camera.current_transform.z != expected_follow.z
                     || camera.current_transform.w != expected_follow.w
                     || camera.viewport_parameter_raw != 13
+                    || committed.viewport_parameter_low_raw != 13
                     || static_cast<unsigned>(camera.viewport_timer_raw & 0xffff) != 1
                     || committed.rendered_position.x != 16) {
                     return 1;
@@ -54,6 +128,81 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || camera_mode25_condition({true, 0x65, 0})
                     || !camera_mode25_condition({true, 0x65, 1})) {
                     return 36;
+                }
+
+                if (camera_dispatch_kind(1)
+                        != CameraDispatchKind::normal_follow
+                    || camera_dispatch_kind(2)
+                        != CameraDispatchKind::mode2
+                    || camera_dispatch_kind(22)
+                        != CameraDispatchKind::default_path
+                    || camera_dispatch_kind(23)
+                        != CameraDispatchKind::point
+                    || camera_dispatch_kind(24)
+                        != CameraDispatchKind::death
+                    || camera_dispatch_kind(25)
+                        != CameraDispatchKind::alternate_follow) {
+                    return 40;
+                }
+
+                CameraStateRaw alternate;
+                alternate.mode = 25;
+                alternate.transform_fallback = 1;
+                const auto alternate_result =
+                    apply_camera_mode25_alternate(
+                        alternate,
+                        {true, 1, 0, 0x65, false, 0,
+                         true, {0x1000, -0x2000, 0x3000}});
+                if (!alternate_result.retained_mode25
+                    || !alternate_result.transformed_offset_applied
+                    || alternate.mode != 25
+                    || alternate.mode_vector.x != 0x1000
+                    || alternate.history_a.y != -0x2000
+                    || alternate.history_b.x != 0x1000 * 0x1000
+                    || alternate.history_b.y != -0x2000 * 0x1000
+                    || alternate.history_b.z != 0x3000 * 0x1000) {
+                    return 41;
+                }
+                CameraStateRaw alternate_reset;
+                alternate_reset.mode = 25;
+                const auto alternate_reset_result =
+                    apply_camera_mode25_alternate(
+                        alternate_reset,
+                        {true, 2, 0, -1, false, 0, false, {}});
+                if (!alternate_reset_result.reset_to_normal
+                    || alternate_reset.mode != 1) {
+                    return 42;
+                }
+
+                CameraStateRaw alternate_state;
+                alternate_state.alternate_phase_a_raw = 5;
+                alternate_state.alternate_phase_b_raw = 3;
+                alternate_state.alternate_counter_raw = 0;
+                alternate_state.anchor_target.y = 1000;
+                const auto alternate_state_result =
+                    advance_camera_mode25_state(
+                        alternate_state,
+                        {true, 1, 0, 0, true, -0x2000, false, {}},
+                        0x1200);
+                if (alternate_state.alternate_counter_raw != -1
+                    || alternate_state.alternate_integrator_raw != 6
+                    || alternate_state.anchor_target.y != 1000
+                    || alternate_state_result.shared_angle_raw != 0x1fb
+                    || alternate_state_result.anchor_y_adjusted) {
+                    return 43;
+                }
+                alternate_state.alternate_counter_raw = 1;
+                const auto alternate_state_positive =
+                    advance_camera_mode25_state(
+                        alternate_state,
+                        {true, 1, 0, 0, true, 0x2000, false, {}},
+                        0x1200);
+                if (alternate_state.alternate_counter_raw != 2
+                    || alternate_state.alternate_integrator_raw != 0
+                    || alternate_state.anchor_target.y != 1000
+                    || alternate_state_positive.shared_angle_raw != 0x1fe
+                    || !alternate_state_positive.anchor_y_adjusted) {
+                    return 44;
                 }
 
                 // The retail producer changes mode only after the current
@@ -77,6 +226,25 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 39;
                 }
 
+                // The viewport control block is at the beginning of
+                // Camera_Update, before mode dispatch. Verify that an
+                // explicit restore/decrement operation is applied even on a
+                // non-default mode path.
+                CameraStateRaw mode2_viewport_control;
+                mode2_viewport_control.mode = 2;
+                mode2_viewport_control.viewport_parameter_raw = 7;
+                mode2_viewport_control.viewport_parameter_delta_raw = -2;
+                mode2_viewport_control.viewport_timer_raw = 1;
+                update_camera(
+                    mode2_viewport_control, {}, {}, {}, {}, {}, {}, {},
+                    {true, 100, true, false, false});
+                if (mode2_viewport_control.viewport_parameter_raw != 97
+                    || static_cast<unsigned>(
+                        mode2_viewport_control.viewport_timer_raw & 0xffff)
+                        != 0) {
+                    return 45;
+                }
+
                 CameraStateRaw viewport_control;
                 viewport_control.viewport_parameter_raw = 7;
                 viewport_control.viewport_parameter_delta_raw = -2;
@@ -94,6 +262,57 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     {false, 0, false, false, true});
                 if (viewport_control.viewport_parameter_raw != 0x100) {
                     return 38;
+                }
+
+                // The raw Camera_Update framing block uses a byte carry test,
+                // not a signed directional comparison: zero selects 8 and
+                // every nonzero byte selects 0x20.  It also masks Y to 12
+                // bits after the paired Y operations.
+                CameraStateRaw framing;
+                framing.follow_rotation_raw = 100;
+                framing.framing_globals_raw = {100, 0x1005, 200};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, false, {}, true, false, 0,
+                     true, false, true, false, false, true});
+                if (framing.follow_rotation_raw != 90
+                    || framing.framing_globals_raw.x != 92
+                    || framing.framing_globals_raw.y != 0xffd
+                    || framing.framing_globals_raw.z != 208) {
+                    return 49;
+                }
+                framing.framing_globals_raw = {100, 0, 200};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, false, {}, false, false, 1,
+                     false, true, false, false, false, true});
+                if (framing.framing_globals_raw.x != 132
+                    || framing.framing_globals_raw.y != 0
+                    || framing.framing_globals_raw.z != 232) {
+                    return 50;
+                }
+                framing.viewport_parameter_raw = 12;
+                framing.framing_globals_raw = {1, 2, 3};
+                apply_camera_framing_input_control(
+                    framing,
+                    {true, true, {10, 20, 30}, true, true, 1,
+                     true, true, true, true, true, true});
+                if (framing.follow_rotation_raw != 100
+                    || framing.framing_globals_raw.x != 10
+                    || framing.framing_globals_raw.y != 20
+                    || framing.framing_globals_raw.z != 30) {
+                    return 51;
+                }
+                framing.framing_globals_raw = {1, 2, 3};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, true, {10, 20, 30}, true, true, 1,
+                     true, true, true, true, true, true});
+                if (framing.follow_rotation_raw != 100
+                    || framing.framing_globals_raw.x != 1
+                    || framing.framing_globals_raw.y != 2
+                    || framing.framing_globals_raw.z != 3) {
+                    return 52;
                 }
 
                 // Mode 2 has its own handler.  This fixture chooses an
@@ -140,8 +359,78 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 16;
                 }
 
+                CameraStateRaw point_selected;
+                const CameraPointSelectionInputRaw mode2_point{
+                    true, 0x400, {0x10000, -0x2000, 0x30000}, 0x12345678, 5};
+                const auto mode2_point_result = apply_camera_point_selection(
+                    point_selected, mode2_point);
+                if (!mode2_point_result.applied
+                    || mode2_point_result.kind != CameraDispatchKind::mode2
+                    || point_selected.mode != 2
+                    || point_selected.target_valid_raw != 1
+                    || point_selected.secondary_target_link_raw != 0x12345678
+                    || point_selected.primary_tripod_link_raw != 0
+                    || point_selected.anchor_update_flag != 0
+                    || point_selected.tripod_anchor_flag != 1
+                    || point_selected.anchor_target.y != -0x2000
+                    // The selector's mode-2 branch does not copy the
+                    // action variant; that state is only written by the
+                    // 0x800/mode-1 branch.
+                    || mode2_point_result.camera_action_variant_raw != 0) {
+                    return 30;
+                }
+                CameraStateRaw normal_point;
+                const CameraPointSelectionInputRaw normal_point_input{
+                    true, 0xc00, {1, 2, 3}, 0x87654321, 4};
+                const auto normal_point_result = apply_camera_point_selection(
+                    normal_point, normal_point_input);
+                if (!normal_point_result.applied
+                    || normal_point_result.kind != CameraDispatchKind::normal_follow
+                    || normal_point.mode != 1
+                    || normal_point.primary_tripod_link_raw != 0x87654321
+                    || normal_point.anchor_update_flag != 1) {
+                    return 31;
+                }
+                CameraStateRaw action_point;
+                const CameraPointSelectionInputRaw action_point_input{
+                    true, 0x800, {1, 2, 3}, 0x12345678, 5};
+                const auto action_point_result = apply_camera_point_selection(
+                    action_point, action_point_input);
+                if (!action_point_result.viewport_word6_valid
+                    || action_point_result.viewport_word6_raw != 0xb72
+                    || !action_point_result.framing_globals_valid
+                    || action_point_result.framing_globals_raw.x != 0xc3
+                    || action_point_result.framing_globals_raw.y != 0x32
+                    || action_point_result.framing_globals_raw.z != -0x11
+                    || !action_point_result.follow_rotation_updated
+                    || action_point.follow_rotation_raw != 0x800) {
+                    return 46;
+                }
+                CameraStateRaw viewport_point;
+                const CameraPointSelectionInputRaw viewport_point_input{
+                    true, 0x6a5, {1, 2, 3}, 0x12345678, 0,
+                    false, 0};
+                const auto viewport_point_result = apply_camera_point_selection(
+                    viewport_point, viewport_point_input);
+                if (!viewport_point_result.viewport_word6_valid
+                    || viewport_point_result.viewport_word6_raw
+                        != static_cast<unsigned short>(0xb2c - 0xa5 * 10)) {
+                    return 47;
+                }
+                if (camera_point_distance_q4(
+                        {0x10000, 0x20000, 0x30000}, {}) != 59) {
+                    return 48;
+                }
+                const auto candidate = build_camera_point_candidate_q16(
+                    {0x10000, 0x20000, 0x30000}, {0x400, -0x800, 0x120});
+                if (candidate.x != 0x2b800
+                    || candidate.y != -0x17000
+                    || candidate.z != 0x37bc0) {
+                    return 32;
+                }
+
                 CameraStateRaw death;
-                death.mode = 22;
+                death.mode = 24;
                 const Q16Vec3 death_start{0x2e000, 0, 0};
                 const Q16Vec3 death_target{0x10000, 0, 0};
                 const auto death_first = advance_camera_death_position(
@@ -166,7 +455,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (death_last.completed
                     || death_last.tick != 31
                     || death.position.x != death_target.x
-                    || death.mode != 22) {
+                    || death.mode != 24) {
                     return 26;
                 }
                 const auto death_done = advance_camera_death_position(
@@ -183,7 +472,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 }
 
                 CameraStateRaw point;
-                point.mode = 21;
+                point.mode = 23;
                 const Q16Vec3 point_start{0x82000, 0, 0};
                 const Q16Vec3 point_target{0, 0, 0};
                 const auto point_first = advance_camera_point_position(
@@ -231,7 +520,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 // Point/death dispatches bypass normal smoothing and finish
                 // at the viewport commit boundary.
                 CameraStateRaw point_dispatch;
-                point_dispatch.mode = 21;
+                point_dispatch.mode = 23;
                 CameraModeInputRaw point_mode_input{};
                 point_mode_input.point_target_valid = true;
                 point_mode_input.point_start_valid = true;
@@ -244,12 +533,12 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (point_dispatch_result.rendered_position.x != 0x82
                     || point_dispatch.point_camera_tick != 1
                     || point_dispatch.update_tick != 1
-                    || point_dispatch.mode != 21) {
+                    || point_dispatch.mode != 23) {
                     return 34;
                 }
 
                 CameraStateRaw death_dispatch;
-                death_dispatch.mode = 22;
+                death_dispatch.mode = 24;
                 death_dispatch.death_target_position = death_target;
                 CameraModeInputRaw death_mode_input{};
                 death_mode_input.tripod_present = true;
@@ -262,7 +551,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 if (death_dispatch_result.rendered_position.x != 46
                     || death_dispatch.death_camera_tick != 1
                     || death_dispatch.update_tick != 1
-                    || death_dispatch.mode != 22) {
+                    || death_dispatch.mode != 24) {
                     return 35;
                 }
 
@@ -309,6 +598,99 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     run = subprocess.run([str(tmp_path / "camera_system_smoke")], capture_output=True, text=True, check=False)
+    assert run.returncode == 0, run.stderr
+
+
+def test_update_camera_uses_recovered_default_smoothing_stage(tmp_path):
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("g++ is not installed")
+    source = tmp_path / "camera_default_smoothing.cpp"
+    source.write_text(
+        textwrap.dedent(
+            """
+            #include "src/camera/camera_system.hpp"
+
+            int main() {
+                using namespace opentony::camera;
+
+                CameraStateRaw camera;
+                camera.mode = 1;
+                camera.update_tick = 12;
+                camera.current_transform = {0, 0, 0, kQ12One};
+                camera.anchor_target = {0x10000, 0x20000, 0x30000};
+                camera.distance_history = {
+                    0x100000, 0x100000, 0x100000,
+                    0x100000, 0x100000, 0x100000};
+                camera.distance_q4 = 197;
+                camera.follow_transition_active = 1;
+                camera.effect_ramp_counter_a = 1;
+                camera.effect_ramp_counter_c = 3;
+
+                CameraTargetRaw target;
+                target.tripod_state = 2;
+                target.follow_offset = {0, -0x1000, 0};
+
+                CameraUpdateHooks hooks{};
+                hooks.apply_follow_transform =
+                    [](CameraStateRaw&, const CameraFollowSnapshot&) {};
+
+                CameraSmoothingProducerInputRaw producer;
+                producer.valid = true;
+                producer.history_sample_valid = true;
+                producer.history_sample_raw = 0x2000;
+                producer.distance_bias_q4 = -3;
+                producer.tripod_effect_gate = true;
+                producer.vertical_effect_valid = true;
+                producer.vertical_effect_q16 = -140 * kQ12One;
+
+                update_camera(
+                    camera, target, {}, {}, hooks, {}, {}, {}, {}, {}, producer);
+
+                // The recovered distance recurrence gives step -45 and
+                // distance 7 for this fixture.  The common effect ramp adds
+                // 800 Q16 units to the supplied -140-world-unit effect.
+                if (camera.distance_step_q4 != -45
+                    || camera.distance_q4 != 7
+                    || camera.position.x != 0x10000
+                    // 0x004e85a0 emits matrix rows 1, 2, 0, so the local
+                    // camera-Z offset lands in the native Y output slot.
+                    || camera.position.y != 0x19000
+                    || camera.position.z != 0x30000
+                    || camera.screen_effect_offset.x != -140 * kQ12One
+                    || camera.screen_effect_offset.y != 0
+                    || camera.shared_vertical_effect_q16
+                        != -140 * kQ12One + 800) {
+                    return 1;
+                }
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            compiler,
+            "-std=c++20",
+            "-I",
+            str(Path(__file__).resolve().parents[1]),
+            str(source),
+            "-o",
+            str(tmp_path / "camera_default_smoothing"),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        [str(tmp_path / "camera_default_smoothing")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert run.returncode == 0, run.stderr
 
 
@@ -471,6 +853,25 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     return 7;
                 }
 
+                const auto distance_sample =
+                    camera_distance_sample_from_q16({0x1000, 0, 0});
+                if (distance_sample.clamped
+                    || distance_sample.quantized_length_q4 != 1
+                    || distance_sample.sample_raw != 64
+                    || distance_sample.bounded_offset.x != 0x1000) {
+                    return 52;
+                }
+                const auto bounded_distance_sample =
+                    camera_distance_sample_from_q16({0x100000, 0, 0});
+                if (!bounded_distance_sample.clamped
+                    || bounded_distance_sample.quantized_length_q4 != 256
+                    || bounded_distance_sample.sample_raw != 6400
+                    || bounded_distance_sample.bounded_offset.x != 0x64000
+                    || bounded_distance_sample.bounded_offset.y != 0
+                    || bounded_distance_sample.bounded_offset.z != 0) {
+                    return 53;
+                }
+
                 const std::array<Raw, 6> history = {
                     0x100000, 0x100000, 0x100000,
                     0x100000, 0x100000, 0x100000};
@@ -610,7 +1011,7 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || follow_state.follow_state_flag != 1
                     || follow_state.follow_transition_active != 1
                     || follow_state.follow_preparation_counter != 1
-                    || follow_state.follow_distance_counter != 0
+                    || follow_state.follow_effect_counter_raw != 0
                     || follow_state.mode_vector.x
                         != transition.direction_raw.x
                     || follow_state.mode_vector.y
@@ -660,6 +1061,50 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || seeded_state.mode_vector.y != seeded.direction_raw.y
                     || seeded_state.mode_vector.z != seeded.direction_raw.z) {
                     return 18;
+                }
+
+                // The level timer is a signed millisecond-to-60-Hz
+                // accumulator.  Public time still advances while the
+                // simulation accumulator is paused by the second guard.
+                SimulationClockStateRaw clock;
+                const auto clock_first = advance_simulation_clock_ms(
+                    clock, 1000, false, false);
+                const auto clock_second = advance_simulation_clock_ms(
+                    clock, 1017, false, false);
+                const auto clock_paused = advance_simulation_clock_ms(
+                    clock, 1051, false, true);
+                if (clock_first.advanced
+                    || clock_second.tick_delta != 1
+                    || clock.public_tick != 3
+                    || clock.simulation_time != 1
+                    || clock_paused.tick_delta != 2) {
+                    return 49;
+                }
+
+                // 0x00468b30 smooths the timing delta over three samples;
+                // its result is the next Camera_Update smoothing input.
+                CameraTimingStateRaw timing;
+                const auto timing_first = advance_camera_timing(
+                    timing, 0, false, false, false, false);
+                const auto timing_second = advance_camera_timing(
+                    timing, 3, false, false, false, false);
+                const auto timing_third = advance_camera_timing(
+                    timing, 6, false, false, false, false);
+                if (!timing_first.updated
+                    || timing_first.sample_sum != 1
+                    || timing_second.sample_sum != 3
+                    || timing_third.sample_sum != 6
+                    || timing.simulation_delta_q8 != 0x100
+                    || timing.progress_integer != 3) {
+                    return 50;
+                }
+                CameraTimingStateRaw scaled_timing;
+                const auto scaled = advance_camera_timing(
+                    scaled_timing, 6, false, true, true, false);
+                if (!scaled.quarter_rate_applied
+                    || !scaled.slow_rate_applied
+                    || scaled_timing.simulation_delta_q8 != 80) {
+                    return 51;
                 }
                 return 0;
             }

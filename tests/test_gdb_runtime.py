@@ -28,45 +28,50 @@ generated_knowledge = types.ModuleType("knowledge")
 generated_knowledge.BUILD_SHA256 = "test"
 generated_knowledge.FUNCTIONS = {
     "Skater_PhysicsDispatcher": 0x300,
-    "Skater_ActionPhysicsStep": 0x310,
     "Camera_Update": 0x350,
     "Render_SetViewProjection": 0x360,
+    "Camera_PointSelect": 0x370,
 }
-generated_knowledge.GLOBALS = {
-    "Player": 0x200,
-    "ActionMask": 0x210,
-    "InputActionStates": 0x600,
-}
+generated_knowledge.GLOBALS = {"Player": 0x200, "CurrentLevel": 0x204}
 generated_knowledge.DATA = {}
 generated_knowledge.STRINGS = {}
 generated_knowledge.FUNCTIONS_METADATA = {}
 generated_knowledge.GLOBALS_METADATA = {}
 generated_knowledge.FUNCTIONS_ALIASES = {
     "physics_dispatch": "Skater_PhysicsDispatcher",
-    "skater_action_step": "Skater_ActionPhysicsStep",
     "camera_update": "Camera_Update",
+    "camera_point_select": "Camera_PointSelect",
     "view_projection": "Render_SetViewProjection",
 }
 generated_knowledge.GLOBALS_ALIASES = {}
 sys.modules["knowledge"] = generated_knowledge
 
-from opentony import physics
 from opentony.breakpoint import Context, CountingBreakpoint
+from opentony.action import ActionMaskSequenceProbe
 from opentony.calling import CallContext
-from opentony.camera import CameraProbe, ViewProjectionProbe, camera_record
-from opentony.collision import (
-    CollisionModelKindProbe,
-    _candidate_source_snapshot,
-    _dynamic_object_snapshot,
-    _dynamic_query_snapshot,
-    _linked_object_snapshots,
-    _model_kind_object_snapshot,
-    _model_kind_table_snapshot,
-    _zone_entry_snapshot,
+from opentony.camera import (
+    camera_effect_record,
+    camera_collision_record,
+    camera_collision_result_record,
+    camera_point_select_record,
+    camera_timing_record,
+    CameraPointSelectProbe,
+    CameraPositionTransformProbe,
+    CameraProbe,
+    CameraViewportControlProbe,
+    GeometrySubmissionProbe,
+    ViewProjectionProbe,
+    ViewProjectionPerturbProbe,
+    actor_submission_record,
+    camera_position_transform_record,
+    geometry_raster_return_record,
+    camera_record,
+    geometry_submission_record,
+    transformed_vertex_record,
 )
-from opentony.frame import FrameClock
+from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
-from opentony.physics import AirCollisionQueryProbe, MovementPhysicsProbe, PhysicsProbe, PlayerDiffProbe
+from opentony.physics import PhysicsProbe, PlayerDiffProbe
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
@@ -83,6 +88,75 @@ class FakeInferior:
 
     def write_memory(self, address, data):
         self.data[address:address + len(data)] = data
+
+
+def test_camera_viewport_control_probe_restores_and_respects_byte_guards():
+    class ControlMemory:
+        def __init__(self):
+            self.values = {}
+
+        def u32(self, address):
+            return self.values.get(("u32", address), 0x12345678)
+
+        def u8(self, address):
+            return self.values.get(("u8", address), 0x7A)
+
+        def u16(self, address):
+            return self.values.get(("u16", address), 0x3456)
+
+        def write_u32(self, address, value):
+            self.values[("u32", address)] = value
+
+        def write_u8(self, address, value):
+            self.values[("u8", address)] = value
+
+        def write_u16(self, address, value):
+            self.values[("u16", address)] = value
+
+    memory = ControlMemory()
+    probe = CameraViewportControlProbe(count=1)
+    saved = probe._save(memory, 0x800)
+    probe.saved = saved
+    probe.camera_address = 0x800
+
+    mutation = probe._install(memory, 0x800, 0)
+    assert mutation["restore_axes"] == 1
+    assert memory.values[("u8", 0x0056B0E8)] == 0
+    assert ("u32", 0x0056B0E8) not in memory.values
+
+    probe.restore(memory)
+    assert memory.values[("u8", 0x0056B0E8)] == 0x7A
+    assert memory.values[("u32", 0x0056A900)] == 0x12345678
+
+
+def test_action_mask_sequence_writes_masks_in_order():
+    class WritableMemory:
+        def __init__(self):
+            self.values = []
+
+        def write_u16(self, address, value):
+            self.values.append((address, value))
+
+    class ContextStub:
+        frame = 17
+
+        def __init__(self, memory):
+            self.memory = memory
+
+    memory = WritableMemory()
+    probe = ActionMaskSequenceProbe([0x8000, 0, 0x10])
+    context = ContextStub(memory)
+
+    probe.on_hit(context)
+    probe.on_hit(context)
+    probe.on_hit(context)
+
+    assert memory.values == [
+        (0x006A3F1C, 0x8000),
+        (0x006A3F1C, 0),
+        (0x006A3F1C, 0x10),
+    ]
+    assert probe.hits == 3
 
 
 def test_typed_memory_preserves_word_views_and_float_bits():
@@ -116,236 +190,6 @@ def test_typed_memory_preserves_word_views_and_float_bits():
     assert memory.f32(0x34) == 0.25
     assert negative.x.signed == -65536
     assert negative.x.value == -1.0
-
-
-def test_ground_motion_context_reconstructs_indexed_local_profile_lookup(monkeypatch):
-    inferior = FakeInferior()
-    memory = Memory(inferior)
-    player = 0x100
-    controller = 0x3800
-    mode = 0x3400
-    selector = 0x3404
-    profile_table = 0x3600
-    monkeypatch.setitem(physics.GROUND_MOTION_PROFILE_GLOBALS, "mode", mode)
-    monkeypatch.setitem(
-        physics.GROUND_MOTION_PROFILE_GLOBALS, "player_selector", selector)
-    monkeypatch.setitem(
-        physics.GROUND_MOTION_PROFILE_GLOBALS, "profile_table", profile_table)
-
-    struct.pack_into("<I", inferior.data, generated_knowledge.GLOBALS["Player"], player)
-    struct.pack_into("<I", inferior.data, player + 0x2CCC, controller)
-    struct.pack_into("<I", inferior.data, player + 0x2CC4, 1)
-    struct.pack_into("<I", inferior.data, mode, 7)
-    struct.pack_into("<I", inferior.data, selector, 1)
-    struct.pack_into("<i", inferior.data, profile_table, 0)
-    struct.pack_into("<i", inferior.data, profile_table + 4, 1)
-
-    snapshot = physics._ground_motion_context(player, memory)
-
-    assert snapshot["local_profile_lookup"]["lookup_index"] == 0
-    assert snapshot["local_profile_lookup"]["value"] == 0
-    assert snapshot["profile_slot_0x10_active"] == 0
-    assert snapshot["profile_gate"] is False
-    assert len(snapshot["controller_profile_slots"]) == 16
-
-
-def test_collision_probe_reads_bounded_linked_object_prefix():
-    inferior = FakeInferior()
-    first = 0x500
-    second = 0x600
-    struct.pack_into(
-        "<IHH3i3hH3xBI",
-        inferior.data,
-        first,
-        0,
-        0x0025,
-        0x1234,
-        4096,
-        -8192,
-        12288,
-        0x0100,
-        -0x0100,
-        0x0200,
-        171,
-        6,
-        second,
-    )
-    struct.pack_into(
-        "<IHH3i3hH3xBI",
-        inferior.data,
-        second,
-        0,
-        0x0020,
-        0x1235,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        172,
-        6,
-        0,
-    )
-    snapshot = _linked_object_snapshots(first, Memory(inferior))
-
-    assert snapshot["termination"] == "null"
-    assert snapshot["next_unread"] is None
-    assert len(snapshot["nodes"]) == 2
-    assert snapshot["nodes"][0]["position_s32"] == [4096, -8192, 12288]
-    assert snapshot["nodes"][0]["angles_s16"] == [0x100, -0x100, 0x200]
-    assert snapshot["nodes"][0]["model_index"] == 171
-    assert snapshot["nodes"][0]["previous"] is None
-    assert snapshot["nodes"][1]["next"] is None
-
-
-def test_collision_loader_source_snapshot_reads_counted_entries_and_terminator():
-    inferior = FakeInferior()
-    source = 0x700
-    struct.pack_into("<3I", inferior.data, source, 0x10, 0x20, 2)
-    struct.pack_into("<3I", inferior.data, source + 0x0C, 0x1111, 0x2222, 0)
-
-    snapshot = _candidate_source_snapshot(source, Memory(inferior))
-
-    assert snapshot is not None
-    assert snapshot["entry_count"] == 2
-    assert snapshot["entries"] == [0x1111, 0x2222]
-    assert snapshot["terminator"] == 0
-
-
-def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
-    inferior = FakeInferior()
-    zone = 0x1000
-    struct.pack_into(
-        "<I4iI4x2h",
-        inferior.data,
-        zone,
-        1,
-        -10,
-        -20,
-        30,
-        40,
-        5,
-        20,
-        20,
-    )
-
-    snapshot = _zone_entry_snapshot(zone, Memory(inferior))
-
-    assert snapshot == {
-        "address": "0x00001000",
-        "present_word": 1,
-        "min_x": -10,
-        "min_z": -20,
-        "max_x": 30,
-        "max_z": 40,
-        "cell_divisor": 5,
-        "cell_count_x": 20,
-        "cell_count_z": 20,
-    }
-
-
-def test_model_kind_probe_pairs_selector_with_bounded_cache_slot(monkeypatch):
-    inferior = FakeInferior()
-    object_address = 0x500
-    table_base = 0x1000
-    table_index = 2
-    slot = table_base + table_index * 0x44
-    monkeypatch.setattr("opentony.collision.COLLISION_MODEL_TABLE", table_base)
-    struct.pack_into(
-        "<4I",
-        inferior.data,
-        object_address + 0x80,
-        0x11111111,
-        table_index,
-        0x33333333,
-        0x44444444,
-    )
-    struct.pack_into("<17I", inferior.data, slot, *range(17))
-    inferior.data[0x100:0x104] = struct.pack("<I", 0x420E33)
-    memory = Memory(inferior)
-    events = []
-
-    class Writer:
-        def event(self, record):
-            events.append(record)
-
-    probe = CollisionModelKindProbe(count=1, writer=Writer())
-    entry = Context(
-        CallContext(
-            memory,
-            registers={"esp": 0x100, "ecx": object_address, "eip": 0x420FA0},
-        ),
-        memory,
-    )
-    probe.begin(entry)
-    memory.write_u32(slot, 0xAABBCCDD)
-    returned = Context(
-        CallContext(
-            memory,
-            registers={"esp": 0x100, "ecx": object_address, "eax": 0x1234, "eip": 0x421038},
-        ),
-        memory,
-    )
-    probe.finish(returned)
-
-    assert _model_kind_object_snapshot(object_address, memory)["table_index"] == table_index
-    assert _model_kind_table_snapshot(table_index, memory)["words"][0] == 0xAABBCCDD
-    assert events[0]["type"] == "collision_model_kind_load"
-    assert events[0]["caller"] == "0x00420e33"
-    assert events[0]["object"]["table_index"] == table_index
-    assert events[0]["table_before"]["words"][0] == 0
-    assert events[0]["table_after"]["words"][0] == 0xAABBCCDD
-    assert probe.remaining == 0
-    assert probe._entry.enabled is False
-    assert probe._return.enabled is False
-
-
-def test_collision_dynamic_snapshots_keep_object_transform_and_query_outputs():
-    inferior = FakeInferior()
-    object_address = 0x500
-    query = 0x900
-    face = 0xA00
-    struct.pack_into(
-        "<IHH3i3hH3xBI",
-        inferior.data,
-        object_address,
-        0,
-        0x0025,
-        0x1234,
-        4096,
-        -8192,
-        12288,
-        0x0100,
-        -0x0100,
-        0x0200,
-        171,
-        6,
-        0,
-    )
-    struct.pack_into("<3I", inferior.data, query, 1, 2, 3)
-    struct.pack_into("<3I", inferior.data, query + 0x0C, 4, 5, 6)
-    struct.pack_into("<3I", inferior.data, query + 0x68, object_address, 7, 8)
-    struct.pack_into("<3I", inferior.data, query + 0x6C, 9, 10, 11)
-    struct.pack_into("<3h", inferior.data, query + 0x78, 12, -13, 14)
-    struct.pack_into("<I", inferior.data, query + 0x80, face)
-    struct.pack_into("<H2xBBH", inferior.data, query + 0x84, 171, 2, 1, 0x1234)
-    struct.pack_into("<I", inferior.data, query + 0x8C, 0xFFFFFFF0)
-    struct.pack_into("<4I", inferior.data, face, 0x1C1083, 0, 0, 0x00100020)
-
-    memory = Memory(inferior)
-    object_snapshot = _dynamic_object_snapshot(object_address, memory)
-    query_snapshot = _dynamic_query_snapshot(query, memory)
-
-    assert object_snapshot["angles_s16"] == [0x100, -0x100, 0x200]
-    assert object_snapshot["model_index"] == 171
-    assert object_snapshot["model_kind"] == 6
-    assert query_snapshot["start_raw"] == [1, 2, 3]
-    assert query_snapshot["end_raw"] == [4, 5, 6]
-    assert query_snapshot["hit_body"] == "0x00000500"
-    assert query_snapshot["contact_raw"] == [9, 10, 11]
-    assert query_snapshot["normal_s16"] == [12, -13, 14]
-    assert query_snapshot["hit_parameter"] == -16
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():
@@ -395,6 +239,34 @@ def test_counting_breakpoint_and_frame_clock_share_context_state():
     assert probe.hits == 2
     assert probe.remaining == 0
     assert probe.enabled is False
+
+
+def test_frame_breakpoint_can_record_the_present_boundary():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    context = Context(CallContext(memory, registers={"esp": 0x100, "eip": 0x400}), memory)
+    clock = FrameClock()
+
+    class Writer:
+        def __init__(self):
+            self.events = []
+
+        def event(self, record):
+            self.events.append(record)
+
+    writer = Writer()
+    breakpoint = FrameBreakpoint(
+        "camera_update", clock=clock, writer=writer, internal=True)
+    breakpoint.on_hit(context)
+
+    assert clock.value == 1
+    assert writer.events == [{
+        "type": "render_present",
+        "function": "camera_update",
+        "frame": 1,
+        "eip": "0x00000400",
+        "caller": "0x00000000",
+    }]
 
 
 def test_position_commit_probe_records_arguments_and_player_state():
@@ -453,7 +325,10 @@ def test_player_view_exposes_fixed_position_and_integer_state_fields():
 
     inferior.data[0x100:0x108] = struct.pack("<2I", 0x2222, 0x100)
     context = Context(
-        CallContext(memory, registers={"esp": 0x100, "ecx": 0x100, "eip": 0x300}), memory
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": 0x100, "eip": 0x300}),
+        memory,
     )
     events = []
 
@@ -501,99 +376,634 @@ def test_player_diff_probe_records_changed_relative_words():
     assert events[1]["changed_words"][0]["after"] == 0x12345678
 
 
-def test_movement_physics_probe_records_directional_action_handoff():
+def test_camera_record_keeps_raw_and_scale_candidates():
     inferior = FakeInferior()
-    player = 0x500
-    inferior.data[0x200:0x204] = struct.pack("<I", player)
-    inferior.data[0x210:0x212] = struct.pack("<H", 0x8000)
-    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
-    inferior.data[player + 0x4C:player + 0x58] = struct.pack("<3I", 401, 402, 403)
-    inferior.data[player + 0x58:player + 0x64] = struct.pack("<3I", 501, 502, 503)
-    inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 0, 0)
-    inferior.data[player + 0x3144:player + 0x314C] = struct.pack("<2i", 0x1200, 0x3400)
-    inferior.data[player + 0x2E7C:player + 0x2E80] = struct.pack("<i", 1)
-    inferior.data[player + 0x2E78:player + 0x2E7C] = struct.pack("<i", 0)
-    inferior.data[player + 0x31A1:player + 0x31A3] = struct.pack("<2b", -5, 3)
-    # Left action record at InputActionStates + 0x80.
-    inferior.data[0x600 + 0x80:0x600 + 0x90] = bytes.fromhex("01010000050000000000000007000000")
-    events = []
-
-    class Writer:
-        def event(self, record):
-            events.append(record)
-
-    probe = MovementPhysicsProbe(count=1, writer=Writer())
-    context = Context(
-        CallContext(memory=Memory(inferior), registers={"esp": 0x100, "ecx": player, "eip": 0x310}),
-        Memory(inferior),
-    )
-    probe.on_hit(context)
-
-    assert events[0]["type"] == "movement_physics_step"
-    assert events[0]["physics_state"] == 0
-    assert events[0]["action_mask"] == 0x8000
-    assert events[0]["action_states"]["left"]["byte0"] == 1
-    assert events[0]["velocity_raw"] == [401, 402, 403]
-    assert events[0]["acceleration_raw"] == [501, 502, 503]
-    assert events[0]["movement_target_x"] == 0x1200
-    assert events[0]["movement_target_z"] == 0x3400
-    assert events[0]["heading_input"] == -5
-    assert events[0]["heading_deadband"] == 3
-
-
-def test_air_collision_probe_preserves_raw_result_and_cast_window():
-    inferior = FakeInferior()
-    player = 0x500
-    esp = 0x1000
-    inferior.data[0x200:0x204] = struct.pack("<I", player)
-    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 101, 102, 103)
-    inferior.data[player + 0x4C:player + 0x58] = struct.pack("<3I", 401, 402, 403)
-    inferior.data[player + 0x58:player + 0x64] = struct.pack("<3I", 501, 502, 503)
-    inferior.data[player + 0x30B8:player + 0x30C8] = struct.pack("<4I", 1, 0, 2, 0)
-    inferior.data[player + 0x3118:player + 0x3124] = struct.pack("<3I", 601, 602, 603)
-    inferior.data[player + 0x3128:player + 0x3130] = struct.pack("<2I", 0x00020001, 0x00030004)
-    inferior.data[player + 0x2DB4:player + 0x2DB8] = struct.pack("<I", 7)
-    test_collision_globals = {
-        "material_flags": 0x300,
-        "material_flags_secondary": 0x304,
-        "material_flags_contact": 0x308,
-        "material_flags_transient": 0x30C,
-        "material_type": 0x310,
-    }
-    previous_collision_globals = physics.AIR_COLLISION_GLOBALS
-    physics.AIR_COLLISION_GLOBALS = test_collision_globals
-    for index, address in enumerate(test_collision_globals.values()):
-        inferior.data[address:address + 4] = struct.pack("<I", index + 10)
-    inferior.data[esp + 0xF0:esp + 0xF4] = struct.pack("<I", 0xA0)
-    inferior.data[esp + 0x100:esp + 0x104] = struct.pack("<I", 0xB0)
-    events = []
-
-    class Writer:
-        def event(self, record):
-            events.append(record)
-
     memory = Memory(inferior)
-    probe = AirCollisionQueryProbe(count=1, writer=Writer())
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
+    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", player)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[camera + 0x510:camera + 0x514] = struct.pack("<I", 7)
+    inferior.data[camera + 0x448:camera + 0x458] = struct.pack(
+        "<4I", 0x1000, 0xFFFFF000, 0x00008000, 0x00001000
+    )
+    inferior.data[camera + 0x45C:camera + 0x468] = struct.pack("<3I", 11, 22, 33)
+    inferior.data[camera + 0x468:camera + 0x46C] = struct.pack("<I", 0x1000)
+    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 0x10000, 0x20000, 0x30000)
+    inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
+    inferior.data[camera + 0x5B4:camera + 0x5B6] = struct.pack("<H", 0x345)
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<I", 197)
+    inferior.data[camera + 0x5E8:camera + 0x5EC] = struct.pack("<I", 8)
+    inferior.data[camera + 0x434:camera + 0x438] = struct.pack("<2h", -5, 3)
+    inferior.data[camera + 0x5EC:camera + 0x5F4] = struct.pack("<2i", 6, -1)
+    inferior.data[camera + 0x61C:camera + 0x620] = struct.pack("<I", 3)
+    inferior.data[camera + 0x620:camera + 0x638] = struct.pack(
+        "<6I", 1, 2, 3, 4, 5, 6
+    )
+    inferior.data[camera + 0x5D4:camera + 0x5D5] = b"\x01"
+    inferior.data[camera + 0x60C:camera + 0x610] = struct.pack("<I", 4)
+    inferior.data[camera + 0x55C:camera + 0x560] = struct.pack("<I", 12)
+    inferior.data[camera + 0x560:camera + 0x561] = b"\x01"
+    inferior.data[player + 0x310C:player + 0x3118] = struct.pack(
+        "<3I", 0x400, 0xFFFFF800, 0x120
+    )
+    inferior.data[player + 0x2DDC:player + 0x2DE0] = struct.pack("<I", 1)
+    inferior.data[player + 0x2F64:player + 0x2F68] = struct.pack("<I", 2)
+    inferior.data[player + 0x2C68:player + 0x2C6C] = struct.pack("<I", 3)
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
+        memory,
+    )
+
+    record = camera_record(context, camera)
+
+    assert record["camera"] == "0x00000800"
+    assert record["camera_vtable"] == "0x005184b8"
+    assert record["tripod"] == "0x00000600"
+    assert record["camera_fields"]["mode"] == 1
+    assert record["camera_fields"]["update_tick"] == 7
+    current = record["camera_fields"]["current_vector"]
+    assert current["raw"] == [0x1000, 0xFFFFF000, 0x8000, 0x1000]
+    assert current["q12"] == [1.0, -1.0, 8.0, 1.0]
+    assert current["q12_candidate"] == [1.0, -1.0, 8.0, 1.0]
+    assert record["player_position"]["fixed16"] == [1.0, 2.0, 3.0]
+    assert record["player_position"]["fixed16_candidate"] == [1.0, 2.0, 3.0]
+    assert record["camera_fields"]["follow_rotation_raw"]["signed_s16"] == 0x345
+    assert record["camera_fields"]["distance_q4"]["s32"] == [197]
+    assert record["camera_fields"]["distance_step_q4"]["s32"] == [3]
+    assert record["camera_fields"]["distance_history"]["s32"] == [1, 2, 3, 4, 5, 6]
+    assert record["camera_fields"]["follow_effect_counter_raw"]["s32"] == [8]
+    assert record["camera_fields"]["alternate_follow_phase_a_raw"]["signed_s16"] == -5
+    assert record["camera_fields"]["alternate_follow_phase_b_raw"]["signed_s16"] == 3
+    assert record["camera_fields"]["alternate_follow_integrator_raw"]["s32"] == [6]
+    assert record["camera_fields"]["alternate_follow_counter_raw"]["s32"] == [-1]
+    assert record["camera_fields"]["follow_transition_active"] == 1
+    assert record["camera_fields"]["follow_preparation_counter"] == 4
+    assert record["camera_fields"]["point_camera_tick"] == 12
+    assert record["camera_fields"]["point_acceleration_flag"] == 1
+    assert record["tripod_follow_offset"]["s32"] == [0x400, -0x800, 0x120]
+    assert record["tripod_behavior_flag"] == 2
+    assert record["tripod_effect_gate"] == 1
+    assert record["tripod_effect_transform_gate"] == 3
+    effect_record = camera_effect_record(context)
+    assert effect_record["function"] == "Camera_ApplyEffects"
+    assert effect_record["tripod_physics_state"] == 4
+    assert effect_record["tripod_effect_gate"] == 1
+    assert effect_record["tripod_effect_transform_gate"] == 3
+    assert effect_record["raw_fields"]["0x5d8"]["s32"] == [0]
+
+
+def test_camera_collision_record_keeps_world_query_raw_and_camera_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    camera = 0x800
+    query = 0xA00
+    inferior.data[0x100:0x10C] = struct.pack(
+        "<3I", 0x0040E77F, query, 1
+    )
+    inferior.data[camera + 0x3C0:camera + 0x3CC] = struct.pack(
+        "<3I", 0x10000, 0x20000, 0x30000
+    )
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<I", 197)
+    inferior.data[query:query + 0x30] = bytes(range(0x30))
     context = Context(
         CallContext(
             memory,
-            registers={"esp": esp, "ebp": player, "eax": 0x1234, "eip": 0x00498A7D},
+            registers={
+                "esp": 0x100,
+                "ebp": camera,
+                "eip": 0x00466090,
+            },
         ),
         memory,
     )
-    try:
-        probe.on_hit(context)
-    finally:
-        physics.AIR_COLLISION_GLOBALS = previous_collision_globals
 
-    event = events[0]
-    assert event["type"] == "air_collision_query"
-    assert event["callsite"] == "0x00498a7d"
-    assert event["collision_result_flag"] == 0x1234
-    assert event["collision_result_slot"] == 0xA0
-    assert event["collision_stack_words"]["0x0100"] == 0xB0
-    assert event["player_contact_fields_before_query"]["surface_normal_xy_raw"] == 0x00020001
-    assert event["collision_globals"]["material_type"] == 14
+    record = camera_collision_record(context)
+
+    assert record["function"] == "Camera_WorldCollisionQuery"
+    assert record["caller"] == "0x0040e77f"
+    assert record["arguments"]["query"] == "0x00000a00"
+    assert record["arguments"]["query_flag"] == 1
+    assert record["query_block"]["size"] == 0x30
+    assert record["camera_before"]["anchor_target"]["raw"] == [
+        0x10000, 0x20000, 0x30000
+    ]
+    assert record["camera_before"]["distance_q4"] == 197
+
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E790)
+    # The result breakpoint sees the caller's two pushes still on the stack;
+    # its query pointer is stack+0xf8, with the face/result word at +0x68.
+    inferior.data[0x100 + 0xF8:0x100 + 0x104] = struct.pack(
+        "<3I", 0x10000, 0, 0
+    )
+    inferior.data[0x100 + 0x104:0x100 + 0x110] = struct.pack(
+        "<3I", 0x20000, 0, 0
+    )
+    inferior.data[0x100 + 0xF8 + 0x68:0x100 + 0xF8 + 0x6C] = struct.pack(
+        "<I", 1
+    )
+    result_context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ebp": camera, "eip": 0x0040E790},
+        ),
+        memory,
+    )
+    result = camera_collision_result_record(result_context)
+    assert result["caller"] == "0x0040e78b"
+    assert result["resume_eip"] == "0x0040e790"
+    assert result["query"] == "0x000001f8"
+    assert result["query_result_field_offset"] == 0x68
+    assert result["collision_result_raw"] == 1
+    assert result["hit_face_raw"] == 1
+    assert result["candidate_segment"]["start"]["raw"] == [0x10000, 0, 0]
+    assert result["candidate_segment"]["end"]["raw"] == [0x20000, 0, 0]
+
+
+def test_camera_timing_record_preserves_rate_producer_state():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    inferior.data[0x100:0x10C] = struct.pack("<3I", 11, 22, 33)
+    # The real globals are outside this fixture's mapped range, so use a
+    # sparse memory shim that exposes only the timing addresses needed here.
+    class SparseMemory:
+        def __init__(self):
+            self.values = {
+                0x0056E31C: 120,
+                0x0056E320: 121,
+                0x0056865C: 0x100,
+                0x00568604: 118,
+                0x0056A934: 2,
+                0x0056A93C: 0x1800,
+                0x0056A940: 3,
+                0x0056A944: 1,
+                0x0056A948: 0,
+                0x00568810: 0x200,
+                0x005685F4: 2,
+                0x00561C04: 0,
+                0x0056A8E0: 0,
+                0x0056868C: 1,
+                0x00568690: 2,
+                0x00568694: 3,
+            }
+
+        def readable(self, address, size):
+            return size == 4 and address in self.values
+
+        def s32(self, address):
+            return self.values[address]
+
+        def u32(self, address):
+            return self.values[address]
+
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x468B30}),
+        SparseMemory(),
+    )
+    record = camera_timing_record(context)
+    assert record["function"] == "Camera_TimingProducer"
+    assert record["timing"]["simulation_delta_q8"] == 0x100
+    assert record["timing"]["recent_deltas"] == [1, 2, 3]
+    assert record["timing"]["ring_index"] == 2
+
+
+def test_camera_probe_samples_this_pointer_and_writes_trace_event():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
+    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", 0)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CameraProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert probe.remaining == 0
+    assert probe.enabled is False
+    assert events[0]["type"] == "camera"
+    assert events[0]["function"] == "Camera_Update"
+
+
+def test_camera_point_select_record_preserves_gameplay_producer_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
+    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
+    inferior.data[camera + 0x3C0:camera + 0x3CC] = struct.pack(
+        "<3I", 0x1000, 0x2000, 0x3000
+    )
+    inferior.data[player + 0x08:player + 0x14] = struct.pack(
+        "<3I", 0x10000, 0x20000, 0x30000
+    )
+    inferior.data[player + 0x310C:player + 0x3118] = struct.pack(
+        "<3I", 0x400, 0xFFFFF800, 0x120
+    )
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x004CD750)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "ecx": player, "eip": 0x370}),
+        memory,
+    )
+
+    record = camera_point_select_record(context)
+
+    assert record["function"] == "Camera_PointSelect"
+    assert record["caller"] == "0x004cd750"
+    assert record["player_position"]["raw"] == [0x10000, 0x20000, 0x30000]
+    assert record["player_camera_offset"]["s32"] == [0x400, -0x800, 0x120]
+    assert record["candidate_position_raw"] == [0x2b800, -0x17000, 0x37bc0]
+    assert record["camera_before"]["mode"] == 1
+    assert record["camera_before"]["anchor_target"]["raw"] == [0x1000, 0x2000, 0x3000]
+
+
+def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inputs():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    matrix = 0x500
+    vector = 0x520
+    output = 0x540
+    camera = 0x800
+    inferior.data[matrix:matrix + 0x12] = struct.pack(
+        "<9h", 1, 2, 3, 4, 5, 6, 7, 8, 9
+    )
+    inferior.data[vector:vector + 0x0C] = struct.pack("<3I", 0x1000, 0x2000, 0x3000)
+    inferior.data[output:output + 0x0C] = struct.pack("<3I", 0xAA, 0xBB, 0xCC)
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<i", 197)
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x0040ECB8, matrix, vector, output
+    )
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CameraPositionTransformProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ebp": camera, "eip": 0x4E85A0},
+        ),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert events[0]["type"] == "camera_position_transform"
+    assert events[0]["camera"] == "0x00000800"
+    assert events[0]["matrix_s16"][0]["signed_s16"] == 1
+    assert events[0]["matrix_s16"][-1]["signed_s16"] == 9
+    assert events[0]["vector_q16"]["raw"] == [0x1000, 0x2000, 0x3000]
+    assert events[0]["output_before"]["raw"] == [0xAA, 0xBB, 0xCC]
+    assert events[0]["camera_position_producer"]["distance_q4"] == 197
+
+    inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E705)
+    ignored = camera_position_transform_record(context)
+    assert ignored is None
+
+
+def test_geometry_raster_return_record_preserves_post_transform_scratch():
+    inferior = FakeInferior()
+    call_memory = Memory(inferior)
+
+    class SparseMemory:
+        def __init__(self):
+            self.data = {}
+
+        def put(self, address, data):
+            self.data.update(
+                (address + index, value) for index, value in enumerate(data)
+            )
+
+        def readable(self, address, size):
+            return all(address + index in self.data for index in range(size))
+
+        def bytes(self, address, size):
+            return bytes(self.data[address + index] for index in range(size))
+
+        def s16(self, address):
+            return struct.unpack("<h", self.bytes(address, 2))[0]
+
+        def u16(self, address):
+            return struct.unpack("<H", self.bytes(address, 2))[0]
+
+    memory = SparseMemory()
+    memory.put(0x006A3E48, bytes(range(0x80)))
+    memory.put(0x006A3EC8, struct.pack("<9h", *range(1, 10)))
+    memory.put(0x006A3E80, struct.pack("<12h", *range(-6, 6)))
+    memory.put(0x0057E888, bytes(range(0x100)))
+    context = Context(
+        CallContext(
+            call_memory,
+            registers={"esp": 0x100, "eip": 0x004D14C7},
+        ),
+        memory,
+    )
+
+    record = geometry_raster_return_record(context)
+
+    assert record["function"] == "Render_GeometryRasterTail"
+    assert record["prepared_matrix_s16"][0]["signed_s16"] == 1
+    assert record["geometry_matrix_s16"][0]["signed_s16"] == -6
+    assert record["raster_vertex_scratch"]["size"] == 0x100
+
+
+def test_transformed_vertex_record_decodes_common_projected_working_records():
+    call_inferior = FakeInferior()
+    call_memory = Memory(call_inferior)
+    call_inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x004D1800, 0x900, 2, 0x800
+    )
+
+    class SparseMemory:
+        def __init__(self):
+            self.data = {}
+
+        def put(self, address, data):
+            self.data.update(
+                (address + index, value) for index, value in enumerate(data)
+            )
+
+        def readable(self, address, size=1):
+            return all(address + index in self.data for index in range(size))
+
+        def valid(self, address):
+            return self.readable(address, 4)
+
+        def bytes(self, address, size):
+            return bytes(self.data[address + index] for index in range(size))
+
+        def u32(self, address):
+            return struct.unpack("<I", self.bytes(address, 4))[0]
+
+    memory = SparseMemory()
+    memory.put(0x200, struct.pack("<I", 0x900))
+    memory.put(0x204, struct.pack("<I", 12))
+    memory.put(0x900, bytes(4))
+    memory.put(0x800, bytes(4))
+    memory.put(0x900 + 0x29B0, struct.pack("<I", 0x800))
+    memory.put(0x900, struct.pack(
+        "<4H", 1, 2, 3, 0x10
+    ))
+    memory.put(0x900 + 8, struct.pack(
+        "<4H", 4, 5, 6, 0
+    ))
+    memory.put(0x00570878, struct.pack(
+        "<7I", 0x3F800000, 0x40000000, 0x40400000, 0x3E800000, 0x11, 0x22, 0x33
+    ))
+    memory.put(0x00570878 + 28, struct.pack(
+        "<7I", 0xBF800000, 0xC0000000, 0xC0400000, 0x3F000000, 0x44, 0x55, 0x66
+    ))
+    context = Context(
+        CallContext(
+            call_memory,
+            registers={"esp": 0x100, "eip": 0x004D2D9E},
+        ),
+        memory,
+    )
+
+    record = transformed_vertex_record(context, {
+        "input_vertices": 0x900,
+        "vertex_count_raw": 2,
+        "state": 0x800,
+    })
+
+    assert record["accepted"] is True
+    assert record["camera"] == "0x00000800"
+    assert record["arguments"]["vertex_count"] == 2
+    assert record["arguments"]["input_vertices"] == "0x00000900"
+    assert record["boundary"] == "0x004d2d9e"
+    assert record["input_vertex_stride"] == 8
+    assert record["input_vertices_raw"]["size"] == 16
+    assert record["vertices"][0]["projected_x"] == 1.0
+    assert record["vertices"][0]["reciprocal_depth"] == 0.25
+    assert record["vertices"][1]["projected_y"] == -2.0
+    assert record["vertices"][1]["clip_flags_bits"] == 0x55
+
+
+def test_actor_submission_record_keeps_object_prefix_raw():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    actor = 0x900
+    inferior.data[actor:actor + 0x40] = bytes(range(0x40))
+    inferior.data[actor + 0x04:actor + 0x06] = struct.pack("<H", 0x1234)
+    inferior.data[actor + 0x1A:actor + 0x1C] = struct.pack("<H", 0x5678)
+    inferior.data[actor + 0x24:actor + 0x28] = struct.pack("<I", 0x89ABCDEF)
+    inferior.data[actor + 0x30:actor + 0x34] = struct.pack("<I", 0x10203040)
+    inferior.data[0x100:0x108] = struct.pack("<2I", 0x1234, actor)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x350}),
+        memory,
+    )
+
+    record = actor_submission_record(context)
+
+    assert record["actor"] == "0x00000900"
+    assert record["raw_fields"]["flags_u16_at_0x04"] == 0x1234
+    assert record["raw_fields"]["material_or_index_u16_at_0x1a"] == 0x5678
+    assert record["raw_fields"]["resource_u32_at_0x24"] == 0x89ABCDEF
+    assert record["raw_fields"]["aux_u32_at_0x30"] == 0x10203040
+    assert record["actor_prefix"]["raw"][:16] == "0001020334120607"
+
+
+def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    viewport = 0xA00
+    view_input = 0xB00
+    render_state = 0xC00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[camera + 0x14:camera + 0x1A] = struct.pack("<3H", 0x123, 0xF80, 0)
+    inferior.data[camera + 0x3F0:camera + 0x3FC] = struct.pack("<3I", 1, 2, 3)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 12)
+    inferior.data[viewport:viewport + 0x70] = bytes(range(0x70))
+    inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
+    inferior.data[render_state:render_state + 0x20] = bytes(range(0x40, 0x60))
+    inferior.data[0x100:0x110] = struct.pack("<4I", 0x1234, viewport, view_input, render_state)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionProbe(count=1, writer=Writer())
+    context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "eip": 0x360},
+        ),
+        memory,
+    )
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert events[0]["type"] == "view_projection"
+    assert events[0]["viewport_block"]["raw"].startswith("00010203")
+    assert events[0]["camera_angles"]["angle_units"] == [0x123, 0xF80, 0]
+    assert events[0]["camera_look_target"]["raw"] == [1, 2, 3]
+
+
+def test_view_projection_perturb_probe_alternates_vertical_scale_input():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    view_input = 0xB00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    inferior.data[view_input:view_input + 0x20] = struct.pack(
+        "<14h", 640, 480, 0, 0, 10, 20512, 3413, 12,
+        320, 240, 0, 0, 320, 480) + bytes(4)
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x1234, 0xA00, view_input, 0xC00
+    )
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionPerturbProbe(count=2, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x360}),
+        memory,
+    )
+    baseline = memory.s16(view_input + 0x0C)
+    probe.on_hit(context)
+    assert probe.hits == 1
+    assert events[0]["type"] == "view_projection"
+    assert events[0]["mutation"]["word"] == 6
+    assert events[0]["mutation"]["level"] == 12
+    assert events[0]["mutation"]["player"] == "0x00000600"
+    assert events[0]["mutation"]["camera"] == "0x00000800"
+    assert events[0]["mutation"]["baseline"] == baseline
+    assert events[0]["mutation"]["after"] == baseline // 2
+    assert memory.s16(view_input + 0x0C) == baseline // 2
+
+    probe.on_hit(context)
+    assert probe.hits == 2
+    assert events[1]["mutation"]["mutated"] is False
+    assert events[1]["mutation"]["after"] == baseline
+    assert memory.s16(view_input + 0x0C) == baseline
+
+
+def test_view_projection_perturb_probe_can_freeze_baseline_view_input():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    view_input = 0xB00
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
+    baseline_words = [640, 480, 0, 0, 10, 20512, 3413, 12,
+                      320, 240, 0, 0, 320, 480]
+    inferior.data[view_input:view_input + 0x20] = (
+        struct.pack("<14h", *baseline_words) + bytes(4))
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x1234, 0xA00, view_input, 0xC00)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionPerturbProbe(
+        count=2, writer=Writer(), freeze_input=True)
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x360}),
+        memory,
+    )
+    probe.on_hit(context)
+    # Simulate the render path changing the other view fields before the next
+    # call. The freeze mode must restore all 14 shorts before reapplying word6.
+    memory.write(view_input, struct.pack(
+        "<14h", 640, 480, 1, 2, 11, 1234, 999, 13,
+        321, 241, 3, 4, 321, 479) + bytes(4))
+    probe.on_hit(context)
+    assert events[0]["mutation"]["input_frozen"] is True
+    assert events[1]["mutation"]["input_frozen"] is True
+    assert [memory.s16(view_input + index * 2) for index in range(14)] == (
+        baseline_words)
+
+
+def test_geometry_submission_probe_keeps_transform_and_packet_handoff_raw():
+    inferior = FakeInferior()
+    inferior.data = bytearray(0x700000)
+    memory = Memory(inferior)
+    player = 0x600
+    camera = 0x800
+    geometry = 0x900
+    viewport = 0x1000
+    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
+    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
+    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 12)
+    inferior.data[geometry:geometry + 0x40] = bytes(range(0x40))
+    inferior.data[0x005620C0:0x005620C0 + 0x1E] = struct.pack(
+        "<15h", *range(15)
+    )
+    inferior.data[0x005620E8:0x005620E8 + 0x1E] = struct.pack(
+        "<15h", *range(15, 30)
+    )
+    inferior.data[0x005620E0:0x005620E4] = struct.pack("<I", viewport)
+    inferior.data[0x006A3E80:0x006A3EE0] = bytes(range(0x60))
+    inferior.data[viewport:viewport + 0x90] = bytes(range(0x90))
+    inferior.data[0x100:0x114] = struct.pack(
+        "<5I", 0x0045F600, geometry, 7, 0, 0
+    )
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x4D11D0}),
+        memory,
+    )
+
+    record = geometry_submission_record(context)
+
+    assert record["type"] == "geometry_submission"
+    assert record["arguments"]["geometry"] == "0x00000900"
+    assert record["arguments"]["vertex_count_or_index"] == 7
+    assert record["prepared_view_a_s16"][0]["signed_s16"] == 0
+    assert record["prepared_view_b_s16"][-1]["signed_s16"] == 29
+    assert record["geometry_scratch"]["size"] == 0x60
+    assert record["camera_viewport_raw"] == 12
+
+    class Writer:
+        def event(self, _record):
+            pass
+
+    probe = GeometrySubmissionProbe(count=1, writer=Writer())
+    probe.on_hit(context)
+    assert probe.hits == 1
+    assert probe.remaining == 0
 
 
 def test_snapshot_diff_is_raw_first_with_all_word_heuristics():
@@ -729,111 +1139,3 @@ def test_watchpoint_manager_rejects_a_fifth_active_hardware_watch():
         assert "four OpenTony hardware watchpoint slots" in str(exc)
     else:
         raise AssertionError("expected the fifth hardware watchpoint to be rejected")
-
-
-def test_camera_record_keeps_raw_and_scale_candidates():
-    inferior = FakeInferior()
-    memory = Memory(inferior)
-    player = 0x600
-    camera = 0x800
-    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
-    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
-    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
-    inferior.data[camera + 0x3DC:camera + 0x3E0] = struct.pack("<I", player)
-    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
-    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
-    inferior.data[camera + 0x510:camera + 0x514] = struct.pack("<I", 7)
-    inferior.data[camera + 0x448:camera + 0x458] = struct.pack(
-        "<4I", 0x1000, 0xFFFFF000, 0x00008000, 0x00001000
-    )
-    inferior.data[camera + 0x45C:camera + 0x468] = struct.pack("<3I", 11, 22, 33)
-    inferior.data[camera + 0x468:camera + 0x46C] = struct.pack("<I", 0x1000)
-    inferior.data[player + 0x08:player + 0x14] = struct.pack("<3I", 0x10000, 0x20000, 0x30000)
-    inferior.data[player + 0x30B8:player + 0x30C0] = struct.pack("<2I", 4, 9)
-    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 0x2000)
-    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
-    context = Context(
-        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
-        memory,
-    )
-
-    record = camera_record(context, camera)
-
-    assert record["camera"] == "0x00000800"
-    assert record["camera_vtable"] == "0x005184b8"
-    assert record["tripod"] == "0x00000600"
-    assert record["camera_fields"]["mode"] == 1
-    assert record["camera_fields"]["update_tick"] == 7
-    current = record["camera_fields"]["current_vector"]
-    assert current["raw"] == [0x1000, 0xFFFFF000, 0x8000, 0x1000]
-    assert current["q12"] == [1.0, -1.0, 8.0, 1.0]
-    assert record["player_position"]["fixed16"] == [1.0, 2.0, 3.0]
-
-
-def test_camera_probe_samples_this_pointer_and_writes_trace_event():
-    inferior = FakeInferior()
-    memory = Memory(inferior)
-    player = 0x600
-    camera = 0x800
-    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
-    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
-    inferior.data[camera + 0x3A4:camera + 0x3A8] = struct.pack("<I", player)
-    inferior.data[camera + 0x3E0:camera + 0x3E4] = struct.pack("<I", 1)
-    inferior.data[camera + 0x504:camera + 0x508] = struct.pack("<I", 1)
-    inferior.data[0x100:0x104] = struct.pack("<I", 0x1234)
-    events = []
-
-    class Writer:
-        def event(self, record):
-            events.append(record)
-
-    probe = CameraProbe(count=1, writer=Writer())
-    context = Context(
-        CallContext(memory, registers={"esp": 0x100, "ecx": camera, "eip": 0x350}),
-        memory,
-    )
-    probe.on_hit(context)
-
-    assert probe.hits == 1
-    assert probe.remaining == 0
-    assert probe.enabled is False
-    assert events[0]["type"] == "camera"
-    assert events[0]["function"] == "Camera_Update"
-
-
-def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
-    inferior = FakeInferior()
-    memory = Memory(inferior)
-    player = 0x600
-    camera = 0x800
-    viewport = 0xA00
-    view_input = 0xB00
-    render_state = 0xC00
-    inferior.data[0x200:0x208] = struct.pack("<2I", player, 12)
-    inferior.data[player + 0x29B0:player + 0x29B4] = struct.pack("<I", camera)
-    inferior.data[camera:camera + 4] = struct.pack("<I", 0x005184B8)
-    inferior.data[camera + 0x14:camera + 0x1A] = struct.pack("<3H", 0x123, 0xF80, 0)
-    inferior.data[camera + 0x3F0:camera + 0x3FC] = struct.pack("<3I", 1, 2, 3)
-    inferior.data[camera + 0x40C:camera + 0x410] = struct.pack("<I", 12)
-    inferior.data[viewport:viewport + 0x70] = bytes(range(0x70))
-    inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
-    inferior.data[render_state:render_state + 0x20] = bytes(range(0x40, 0x60))
-    inferior.data[0x100:0x110] = struct.pack("<4I", 0x1234, viewport, view_input, render_state)
-    events = []
-
-    class Writer:
-        def event(self, record):
-            events.append(record)
-
-    probe = ViewProjectionProbe(count=1, writer=Writer())
-    context = Context(
-        CallContext(memory, registers={"esp": 0x100, "eip": 0x360}),
-        memory,
-    )
-    probe.on_hit(context)
-
-    assert probe.hits == 1
-    assert events[0]["type"] == "view_projection"
-    assert events[0]["viewport_block"]["raw"].startswith("00010203")
-    assert events[0]["camera_angles"]["angle_units"] == [0x123, 0xF80, 0]
-    assert events[0]["camera_look_target"]["raw"] == [1, 2, 3]

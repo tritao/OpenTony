@@ -1,10 +1,10 @@
 # Camera system and rendered-frame boundary
 
-Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, and the gameplay render/present ordering are established; projection scale semantics and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, the gameplay render/present ordering, and the ordinary common-vertex projection contract plus its static per-object producer are established; dynamic axis calibration, special vertex paths, and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), and `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion), `build/debug/camera-input-motion2.jsonl` (paired input/player/camera motion), `build/debug/camera-zoom-probe.jsonl` (dedicated camera-action experiment), `build/debug/camera-raster-live.jsonl` (post-transform raster-tail capture), `build/debug/camera-transformed-live7.jsonl` (completed common projected-vertex capture), and `build/debug/camera-transform-tail.jsonl` (raw source/coefficient/completed-output validation)
 
 ## Result
 
@@ -19,6 +19,8 @@ Game_MainLoop 0x0041c2d0
         -> message/timing/input
         -> Game_GameplayUpdate 0x00469de0
             -> object scheduler 0x00480ff0 / 0x00480fa0
+            -> player prephysics camera-point producer 0x004cd750
+                -> Camera_PointSelect 0x00411fc0
             -> camera vtable update 0x0040f850
                 -> Camera_SmoothAndValidate 0x0040e090
                 -> mode-specific camera handler
@@ -28,6 +30,10 @@ Game_MainLoop 0x0041c2d0
                 -> Render_SetViewProjection 0x0045e8e0
                 -> skater/scene submission 0x0045f530
                 -> object/model list 0x00460a90
+                    -> model submitter 0x004d14d0
+                        -> Render_TransformVertices 0x004d29e0
+                            -> completed records 0x00570878
+                        -> polygon/list assembly 0x004d1d40 / 0x004d20f0
         -> 0x0046a1a0
             -> double-buffer/render-now transition 0x0042ffc0
             -> 0x0042fd20 -> 0x004d0c30
@@ -37,69 +43,6 @@ Game_MainLoop 0x0041c2d0
 ```
 
 The camera update is therefore gameplay-object processing, not a renderer helper that happens to be called late in the frame. It runs before the world traversal that consumes the camera state.
-
-## Camera_Update boundary and ABI audit
-
-The reviewed raw body owns `0x0040f850..0x00410376`; `0x00410377` is the
-following alignment byte and the dispatch table begins at `0x00410378`. The
-entry is reached through the camera/object vtable with `ECX` holding the
-camera object. It has no stack parameters, returns `void`, and ends in a plain
-`ret`, so its tracked ABI is `__thiscall void Camera_Update()`.
-
-The static caller is the indirect camera/object hook at `0x00480fa0`: its
-second vtable call is at `0x00480fc4`, with return address `0x00480fc7` in the
-camera update body. Ghidra cannot represent that incoming reference as a
-direct call because the target is selected through a vtable. The runtime
-probe observed the same return address for all 240 accepted Warehouse hits.
-
-The update body directly reads or writes these additional camera fields. The
-names below are storage labels where the instruction sequence does not prove a
-semantic name; widths are taken from the operand encoding.
-
-| Offset | Access/width in `Camera_Update` | Conservative interpretation |
-|---:|---|---|
-| `+0x0c8` | read `u16` | constructor/level-selected raw word |
-| `+0x3a4` | read `u32` | primary tripod/player link |
-| `+0x3ac` | read `u8` | anchor-copy control flag |
-| `+0x3b0..+0x3b8` | read/write 3 `u32` | mirrored anchor words |
-| `+0x3bc` | read `u8` | tripod-position copy control flag |
-| `+0x3c0..+0x3c8` | read/write 3 `u32` | primary anchor/target words |
-| `+0x3dc` | read `u32` | secondary target/tripod link |
-| `+0x3e0` | read `u8` | secondary-target control flag |
-| `+0x3e4..+0x3ec` | read/write 3 `u32` | secondary anchor words |
-| `+0x3f0..+0x3f8` | read 3 `u32` | look-at target words |
-| `+0x40c` | read/write `u32`; publish low `u16` | raw viewport/framing parameter |
-| `+0x410` | read/write `u16` | raw transition/count word |
-| `+0x414` | read `u32` | raw viewport adjustment word |
-| `+0x434`, `+0x436` | read `s16` | camera-dependent raw angle/offset words |
-| `+0x444` | address passed as an embedded vector destination | current transform object header |
-| `+0x448..+0x454` | read/write 4 `u32` | current Q12-like transform words |
-| `+0x45c..+0x468` | read 4 `u32` | target Q12-like transform words |
-| `+0x470..+0x47c` | read/write 4 `u32` | previous Q12-like transform words |
-| `+0x4a9` | read/write `u8` | raw pending/state flag |
-| `+0x4f2..+0x4f6` | read/write 3 `s16` | effect/shake offsets |
-| `+0x4f8..+0x4fa` | read 3 `u8` | effect control bytes |
-| `+0x4fc..+0x500` | read 3 `s16` | effect phase/offset words |
-| `+0x504` | read/write `u32` | raw dispatch mode/state |
-| `+0x510` | read/write `u32` | update/mode tick |
-| `+0x5b4` | read/write `i32` | raw update accumulator |
-| `+0x5b8..+0x5c0` | read/write 3 `u32` | mode-produced vector words |
-| `+0x5c4..+0x5cc` | write 3 `u32` | mode-produced vector words |
-| `+0x5ec`, `+0x5f0` | read/write `i32` | smoothing adjustment accumulators |
-| `+0x610..+0x618` | read/write 3 `u32` | mode-produced vector words |
-| `+0x61c` | read `u32` | smoothing/state-stage counter |
-
-The `+0x444` header is observed separately in the constructor as the
-embedded vector vtable `0x005184d8`; this update body uses its address as the
-destination object for the effect/vector helper. The three vector blocks
-remain raw integer storage in the recovered type because their complete
-object semantics are not established here.
-
-Matching status for this unit is deliberately conservative: the exact body is
-isolated as `match/modules/text/text_0040f850.asm` with manifest status `raw`,
-and its module comparison is byte-identical. No C++ or assembly promotion is
-claimed for the exception-bearing body while the mode-specific semantics and
-helper-owned fields remain incomplete.
 
 ## The real present boundary
 
@@ -168,6 +111,47 @@ Static level-loop ordering from `0x0046a3a0` is:
 0x0046a250  session/UI cleanup or transition work
 ```
 
+### Simulation timing contract
+
+The two timing stages are separate from the confirmed present clock:
+
+```text
+0x004f7ce0  message pump
+0x004f5ff0  millisecond source -> public 60-Hz tick
+0x00469de0  gameplay/object/camera update
+0x0046a0f0  render preparation
+    -> 0x00468b30  three-sample camera-rate producer
+0x004d0ca4  present / Flip
+```
+
+`0x004f5ff0` (`Game_AdvanceTime`, semantic name) calls the timer source
+`0x00502ccb`, stores the previous 32-bit millisecond sample at
+`DAT_029d836c`, and computes the signed integer step
+`((now - previous) * 0x3c) / 1000`. A positive step advances
+`DAT_0056e31c`. The separate simulation-time accumulator
+`DAT_0056e320` advances only when `DAT_00561c04 == 0` and
+`DAT_0056a8e0 == 0`; there is no visible maximum-delta clamp in this path.
+The native reference exposes this as `advance_simulation_clock_ms`.
+
+`0x00468b30` (`Camera_TimingProducer`, semantic name) consumes the simulation
+time accumulator after gameplay/camera update. It stores a three-entry ring of
+time differences at `DAT_0056868c`, sums the entries, replaces a zero sum with
+`1`, computes the inverse-rate diagnostic `0xb4 / sum`, caps the sum at `15`,
+and derives the Q8 camera/physics rate as `(capped_sum << 8) / 6`. A guarded
+branch divides that rate by four, and `DAT_0056a948` applies the integer
+`*125/100` slow-rate branch. The squared rate and accumulated progress are
+updated with the same signed shifts. Because this helper runs in render
+preparation after `Camera_Update`, its `DAT_0056865c` result is consumed by the
+following camera update. The native `camera_timing.hpp` models this producer
+and keeps the rate as an explicit input to the camera smoothing stage.
+
+Static confidence: high for integer order, guards, ring window, and producer /
+consumer ordering. Runtime confidence: the camera probe now records all of
+these raw timing globals at update entry, and `tony-camera-timing-probe`
+records the post-producer state; a trace showing the rate used by a camera
+update does not equal the preceding producer result would falsify the claimed
+one-update latency or indicate another writer between the two boundaries.
+
 ## Camera construction and ownership
 
 ### `0x004691e0` — camera creation site
@@ -217,9 +201,10 @@ Exact observed behavior:
 - Uses `ECX` as `this` and begins by reading camera state, including `+0x3ac`, `+0x3bc`, `+0x3c0..+0x3c8`, `+0x3dc`, `+0x3e0`, and `+0x3f0..+0x3f8`.
 - Mirrors anchor/target values when the corresponding flags are set and may copy positions from the primary or secondary tripod.
 - Updates global camera/framing values at `DAT_00524a40/44/48`.
-- Adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`. The raw disassembly shows the exact control shape: a guarded assignment from `DAT_00524aa4`, decrement/increment flags at `DAT_0056b008`/`DAT_0056b018`, a reset-to-`0x100` flag at `DAT_0056aff8`, and a signed delta/timer pair at `+0x410/+0x414`.
+- Before the mode table is dispatched, adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`. The raw disassembly at `0x0040fa89..0x0040fc00` shows the exact control shape: a guarded assignment from `DAT_00524aa4`, decrement/increment flags at `DAT_0056b008`/`DAT_0056b018`, a reset-to-`0x100` flag at `DAT_0056aff8`, and a signed delta/timer pair at `+0x410/+0x414`. This ordering applies to the non-default mode paths as well; it is not part of the normal-follow common tail.
+- The same pre-dispatch block also exposes the remaining raw framing-input seam. When `DAT_0055fa30` is nonzero, `DAT_0056b244` restores `DAT_00524a40/44/48` from `DAT_0055f9a4/10/78`; flags `DAT_0056b174`/`b184` change camera `+0x5b4` by `-10/+10`; and the `x/y/z` flag pairs at `b1e4/b1f4`, `b204/b214`, and `b1a4/b1b4` change the three framing words. When `DAT_0055fa30` is zero, the branch skips the entire viewport/framing control block. The adjustment is `8` when `DAT_0056b254 == 0` and `0x20` for any nonzero byte, because the retail sequence is `neg byte; sbb reg,reg; and 0x18; add 8`; Y is masked with `0xfff` afterward. This is now represented as `CameraFramingInputControlRaw`, but its user-facing meaning is deliberately not promoted to FOV or camera-axis terminology.
 - Calls `0x00410610`, `Camera_SmoothAndValidate 0x0040e090`, and `Camera_BuildLookAngles 0x004c9770` for camera/vector preparation.
-- Dispatches through a jump table using `camera + 0x504`; the bounds check admits raw mode values `1..25`.
+- Dispatches through a jump table using `camera + 0x504`; the observed table covers mode values through `0x19`.
 - Handles death-camera mode through `0x00410c90`, applies effect/shake vectors, increments `camera + 0x510`, and performs a final smoothing/position pass.
 
 The same raw-disassembly pass resolves an important producer boundary that is
@@ -255,26 +240,61 @@ Possible falsifiers: a cutscene/death/two-player run could route through a diffe
 
 At `0x0040fed0`, the dispatcher computes `mode - 1`, bounds-checks it against
 `0x18`, indexes byte table `0x00410390`, and jumps through the six-entry
-target table at `0x00410378`. The exact address-based mapping is:
+target table at `0x00410378`. The currently proven mapping is:
 
 | `+0x504` value | dispatch target | observed/static role |
 |---:|---:|---|
 | `1` | `0x0040ff2b` | normal follow continuation; Warehouse runtime mode |
-| `2` | `0x00410006` → `0x004113f0` | separate handler; semantic label pending |
+| `2` | `0x00410006` → `0x004113f0` | separate camera-mode handler; exact semantic label pending |
 | `3..22` | `0x00410027` | unsupported/default diagnostic path in this build’s table |
-| `23` | `0x0041000f` → `0x00410f70` | separate handler; semantic label pending |
+| `23` | `0x0041000f` → `0x00410f70` | separate point/sequence-style handler; exact mode name pending |
 | `24` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
 | `25` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
 
-Values `0` and `26+` take the out-of-range default path. This is useful for a
-faithful recreation: preserve the raw table and its default diagnostic entry
-instead of collapsing every non-default state into a semantic enum. The
-special entries at `23..25` are real table bytes. Value `25` now also has
-runtime coverage: the dedicated
-`camera-zoom-probe` recorded two valid runtime intervals, and the camera path
-used the normal follow preparation with the mode-25 `(0,-0x1000,0)` offset
-branch before returning to mode `1`. Preserve this as a real transition rather
-than collapsing it into invalid-mode handling.
+The table has 25 byte entries, so mode `25` is a real dispatch value rather
+than padding. The dedicated `camera-zoom-probe` recorded two valid runtime
+intervals for it. Its alternate handler performs a normal follow/smoothing
+pass, may apply the transformed tripod-local offset guarded by camera `+0x4a9`,
+then calls `0x00410610` again before the common commit tail. The mode-25
+`(0,-0x1000,0)` offset is therefore a producer input within that handler, not
+evidence that mode `25` is an alias for mode `1`.
+
+### `0x0040feef` — mode-25 alternate-follow handler
+
+Static behavior from the raw dispatch target is:
+
+- call `Camera_FollowTarget 0x00410610`;
+- call `Camera_SmoothAndValidate 0x0040e090` with the alternate call-site
+  constant `0x2c7`;
+- if a linked tripod has physics state other than `1`, behavior flag `+0x2f64`
+  equal to zero, and follow-offset word `+0x3110 < 0`, write camera mode `1`;
+- if the tripod has `+0x3110 > 0x64` and physics state `1`, retain/write mode
+  `25`;
+- when camera byte `+0x4a9` is set, transform local `(0,0,-0x1000)` by the
+  tripod short basis at `+0x2e58` through `0x004e85a0`, store the result in
+  camera `+0x610..+0x618`, shift that vector left by `0xc` through
+  `0x004cad00` into `+0x5c4`, copy the unshifted result into `+0x5b8`, then
+  call `0x00410610` again;
+- before the alternate vector branch, update camera `+0x5ec` and `+0x5f0`
+  from the linked tripod scalar at `+0x50` when tripod `+0x31ec` is nonzero
+  and camera `+0x436` is nonzero. A nonnegative scalar increments `+0x5f0`, a
+  negative scalar decrements it, and `(-tripod_scalar >> 12) * camera+0x436`
+  is accumulated into `+0x5ec`; while `+0x5f0 > 0`, that accumulator is added
+  to camera anchor Y (`+0x3c4`). Separately, nonzero camera `+0x434` adjusts
+  shared angle global `DAT_00524a94` by `-s16(+0x434)` for nonpositive scalar,
+  or by `-(s16(+0x434) >> 1)` for positive scalar, then masks it to 12 bits;
+- join the common camera tail at `0x00410064`, which ultimately commits through
+  `0x0040be70`.
+
+Static callers/callees: caller `0x0040fed0` via the six-target jump table;
+callees `0x00410610`, `0x0040e090`, `0x004e85a0`, `0x004cad00`, and the common
+commit path. Runtime evidence: `camera-zoom-probe.jsonl` recorded intervals
+at frames `4108..4204` (97 camera observations) and `4292..4389` (98
+observations), with mode `1` before, between, and after. Confidence is high
+for dispatch and branch predicates, medium for the transformed-vector
+producer because the `+0x4a9` branch has not yet been live-sampled. A runtime
+mode-25 trace that bypasses the second follow call or uses a different local
+vector would falsify the remaining producer details.
 
 One mode-25 producer is visible at the gameplay boundary in
 `Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
@@ -302,7 +322,7 @@ a falsifier would be a trace showing the same `0x19` store used for a
 non-camera event or a mode-25 update that bypasses the recovered follow offset
 branch.
 
-The mode-21 and mode-22 targets do not return through the normal
+The mode-23 and mode-24 targets do not return through the normal
 `Camera_SmoothAndValidate` tail. Both handlers jump to `0x00410357`, which
 calls `Camera_CommitViewportEffects 0x0040be70` and then returns from
 `Camera_Update`. The native `update_camera` contract therefore exposes an
@@ -330,6 +350,7 @@ Exact static behavior:
 - Copies `+0x448..+0x454` into `+0x470..+0x47c` at entry.
 - Handles the no-tripod branch separately.
 - In the normal tripod branch, reads tripod physics state at `tripod + 0x30b8`, maintains history at `+0x620..+0x634`, applies interpolation/collision helpers, and writes final camera position to `+0x08/+0x0c/+0x10`.
+- The distance-history sample is now statically resolved through `0x004ca8f0`: it reads a separate tripod vector at `tripod + 0x4c`, shifts it to Q4 to measure length, clamps lengths above `100` to the Q16 vector `(100,0,0)`, and derives the history sample through `0x004f5f90`/`0x004f53b0`. This is distinct from the follow offset at `tripod + 0x310c`; the later collision/effect transform remains a separate injected producer.
 - Copies target/transform vectors between `+0x45c..+0x468`, `+0x448..+0x454`, and the previous block depending on `+0x510` and mode conditions.
 
 Static callers/callees: called twice from paths inside `0x0040f850` in the recovered raw disassembly; calls vector/collision helpers including `0x0040c370`, `0x0040e060`, `0x004a9bf0`, and fixed-point math helpers.
@@ -344,12 +365,93 @@ Possible falsifier: a mode-specific call could use the same helper for a non-fol
 
 | Address | Current name | Static evidence | Confidence |
 |---|---|---|---|
-| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. The `tony-camera-effects-probe` now records its guard globals, tripod gates, shared vertical effect, and raw effect fields. | static boundary; runtime hit count pending |
+| `0x0040c370` | `Camera_ApplyEffects` | Reads tripod physics state and camera effect counters/short fields; participates in shake, death/follow, and smoothing paths. The `tony-camera-effects-probe` records its guard globals, tripod gates, shared vertical effect, and raw effect fields. | high boundary for the settled normal path; producer sub-branches remain partial |
 | `0x00410c90` | `Camera_DeathMode` | Requires a tripod, latches its position at tick `+0x570 == 0`, interpolates toward the selected death position for ticks `0..30`, then writes mode `1`; also interpolates the death transform through the shared Q12 helpers. | medium; position contract is statically exact, transform producer remains partial |
 | `0x00410f70` | `Camera_PointMode` | Initializes the point-sequence state, builds a Q12 orientation sequence, interpolates position over duration `0x82` using `+0x55c`, optionally advances by six ticks after the late flag, and returns to mode `1` after the duration. | medium for the fixed-point position sequence; point-table producer remains partial |
 | `0x00411fc0` | `Camera_PointSelect` | Chooses the nearest registered camera point, sets `+0x504` to `1`/`2`, links `+0x3dc`, and writes selected point coordinates. | inferred |
 | `0x00411f30` | `Camera_RegisterPoint` | Appends a point ID to `DAT_0055fa58`, with a maximum of `0x46` entries. | observed |
 | `0x0040bd40` | `Camera_Shake` | Selects shake parameter sets by `EShakeType` and applies them to camera effect objects. | inferred |
+
+### Gameplay-owned camera-point producer: `0x004cd750 -> 0x00411fc0`
+
+The point selector is called from the player prephysics path at `0x004cd750`,
+before the per-frame camera vtable update. It receives the player/object in
+`ECX`, forms a candidate position from:
+
+```text
+candidate = player.position + player.camera_offset[+0x310c] * 0x6e
+```
+
+It compares that candidate against the registered point IDs at
+`DAT_0055fa58`, using the runtime count at `DAT_0055fae4`, and resolves the
+selected point through the point registry. The selected registry flags at
+`DAT_00524cb8[index]` choose the camera handoff:
+
+```text
+flags & 0x400 (without 0x800): mode 2,
+    target valid = 1, secondary link = player,
+    primary tripod link = 0, anchor source flag = 0,
+    anchor target = selected point
+
+flags & 0x800: mode 1,
+    target valid = 1, secondary link = player,
+    primary tripod link = player, anchor source flag = 1,
+    camera action variant = resolved point record word 1
+```
+
+This is the missing producer boundary behind the native `CameraModeInputRaw`
+hooks: the camera handlers consume the resulting mode/target state, but the
+point table and registry ownership belong to gameplay/player code. The new
+`tony-camera-point-probe` records the player position, `+0x310c` offset,
+candidate position, registered point IDs, point-state blocks, and the linked
+camera's pre-call mode/target fields. It deliberately does not infer which
+point was selected from a pre-call snapshot.
+
+Confidence: high for the static call and output writes; runtime promotion is
+pending a point-selection transition capture. Possible falsifier: a live hit
+at `0x00411fc0` that is only table maintenance or a path whose registry flags
+do not produce the documented mode/target writes.
+
+The native side now contains the same narrow boundary as
+`apply_camera_point_selection` and `build_camera_point_candidate_q16` in
+`src/camera/camera_system.hpp`: point-table search remains an injected
+gameplay producer, while the PE32 candidate arithmetic and mode-1/mode-2
+camera link/anchor writes are directly testable.
+
+The selector also has a second, render-visible tail after the mode/link
+handoff. It re-reads the selected registry flags and updates the active
+viewport input word at `DAT_00563a38 + 0x0c` (word 6):
+
+```text
+flags & 0x400 and flags & 0x200:
+    word6 = (flags & 0xff) * -10 + 0xb2c
+
+flags & 0x400 and flags & 0x100:
+    distance = clamp(distance(player, selected_point), 0x1c2, 0x960)
+    word6 = (flags & 0xff) * 0x8552 / distance
+```
+
+The distance helper at `0x004c9590` subtracts Q16 world words, shifts each
+component arithmetically by 12, sums the three 32-bit products, and passes the
+sum through the retail integer-square-root helper at `0x004f53b0`. For the
+`0x800` action branch, the switch on the selected point record’s action word
+is also exact:
+
+| action word | word 6 | `DAT_00524a40/44/48` | camera `+0x5b4` |
+|---:|---:|---|---:|
+| 0 | `0x96a` | `0xf5, 0xd7, -0x46` | `0` |
+| 1 | `0xb72` | `0xaf, 0x32, -0x11` | `0` |
+| 2 | `0xd52` | `0x122, 0x96, -0x6c` | `0` |
+| 4 | `0x96a` | `0xf5, 0xd7, -0x46` | `0x800` |
+| 5 | `0xb72` | `0xc3, 0x32, -0x11` | `0x800` |
+| 6 | `0xd52` | `0x122, 0x96, -0x6c` | `0x800` |
+
+The native point-selection result now exposes these raw viewport/framing
+outputs and applies the `+0x5b4` action value. This is a semantic producer
+boundary, not a claim that the point table itself belongs to the camera.
+Confidence: high static; runtime point-transition coverage is still missing.
+A live point hit with a different registry/action mapping would falsify the
+promotion and should be recorded before changing the native contract.
 
 The death-position sub-contract is now represented by
 `advance_camera_death_position`. Static dataflow gives:
@@ -416,10 +518,13 @@ The evidence-backed layout is recorded separately in [re/types/camera.yml](../..
 | `+0x448..+0x454` | current four-word transform/effect vector in Q12-like units | inferred |
 | `+0x45c..+0x468` | target four-word transform vector in Q12-like units | inferred |
 | `+0x470..+0x47c` | previous/saved four-word transform vector in Q12-like units | inferred |
+| `+0x434`, `+0x436` | raw signed-short phase words consumed by the mode-25 alternate-follow scalar path | observed; semantic axis labels intentionally omitted |
 | `+0x504` | camera mode/state dispatch value | observed; mode meanings incomplete |
 | `+0x510` | per-update/mode tick | observed; increments once per update in mode `1` |
 | `+0x570` | death-camera interpolation tick | observed |
 | `+0x5d8..+0x5e4` | smoothing/history counters | observed |
+| `+0x5e8` | follow-effect counter incremented on `0x00410610` entry and reset by its transition/dot-band branches | observed; not a distance value |
+| `+0x5ec`, `+0x5f0` | mode-25 alternate-follow integrator/counter pair | observed; producer scalar is tripod-owned |
 
 Numeric conclusion:
 
@@ -481,6 +586,10 @@ Promotion audit for these math helpers:
 | `0x004a9650` | called by `0x00410610`; consumes two embedded four-word transform objects and writes a four-word result | not independently counted; statically reached in normal follow preparation | observed; operand convention is exact, while the final matrix row/column interpretation remains a separate question |
 | `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular conversion is `0x004ca0a0` |
 | `0x004f5f90` | x87 dot product of two three-word integer vectors, scaled by `1/4096` and truncated | called twice by `0x00410610` for follow-direction thresholds | observed; earlier “length” wording was corrected, and a non-dot use at an unexamined callsite would falsify the global semantic name |
+| `0x004ca8f0` | quantizes a Q16 vector to Q4, measures it, and clamps lengths above 100 to `(100,0,0)` before the distance-history sample path | statically called from `0x0040e090`; the new camera collision/distance capture records its tripod-side source vector | high static; a live state-0/4 sample with a different source or clamp would falsify the producer mapping |
+| `0x004624d0` | initializes the spatial/ray query record used by the camera endpoint test, including result face pointer field `+0x1a` to zero | called from `0x0040e090` immediately before `0x00466090` | high static; hit-point/distance fields are typed only at the helper boundary |
+| `0x00466090` | wrapper around `0x004660b0` for the camera world query, called with flag `1` after the candidate endpoint is built | 80 paired Warehouse query/result observations; one query and one result at the same `Render_Present` frame, caller/resume `0x0040e78b`/`0x0040e790`, result raw `0` throughout | high boundary; a different caller-side result field or a query without the paired resume branch would falsify the current seam, while hit-value semantics remain open |
+| `0x00462a20` | tests candidate segment faces and writes the nearest hit face pointer to query `+0x1a`, hit point to `+0x1b..+0x1d`, nearest distance to `+0x23`, and face cache to `+0x20` | called by `0x004638d0`, reached by `0x004660b0`'s spatial traversal | high static; exact camera response after a nonzero hit remains a separate producer question |
 | `0x004c9500` | converts two 12-bit look angles and a scalar into the raw follow-direction vector | called by `0x00410610`; exact sine/cosine products are represented in the native reference | observed; the caller’s downstream scale interpretation remains raw/provisional |
 | `0x004f53e0` | transposes the nine prepared signed-short matrix words into the backend view-record order | called at the end of `0x0045e8e0` after the two fixed matrix multiplies | observed; downstream API row/column naming remains renderer-specific |
 
@@ -842,6 +951,31 @@ transform producer as an explicit special-branch result. The C++
 distance and effect stages; the shared vertical-effect word remains an
 explicit reference input.
 
+The native reference also contains `camera_distance_sample_from_q16`, which
+models the resolved `tripod + 0x4c` sample producer. It preserves the retail
+Q4 length check, the `100`-unit `(100,0,0)` clamp, and the Q16 dot/square-root
+sample. The remaining `0x004e85a0` collision/effect transform is intentionally
+still a hook boundary because it depends on gameplay/world collision state.
+
+The next static boundary is now isolated as `Camera_WorldCollisionQuery`:
+after the transition counter exceeds `3`, `0x0040e090` builds the candidate
+camera endpoint from the anchor and transformed local offset, initializes a
+spatial query record through `0x004624d0`, and calls the wrapper
+`0x00466090` (which delegates to `0x004660b0`) with query flag `1`. The
+query is a spatial/ray record whose result face pointer is at `+0x1a` (byte
+offset `+0x68`); `0x00462a20` writes that field on a face intersection and
+also records a hit point and nearest distance. The camera branches on this
+raw hit pointer before committing the target transform;
+when `DAT_0056a86c` disables world collision, the query is bypassed. A live
+Warehouse run produced 80 query events and 80 immediate result events on the
+same rendered-frame keys (`5054..6207`), all with query flag `1`, caller
+`0x0040e78b`, resume `0x0040e790`, and world-collision guard `0`. The sampled
+interval was unobstructed, so the raw hit-face pointer was `0` throughout; this confirms
+the game-owned query/result seam and its no-hit branch, but does not yet type
+the pointed-to query record or prove the nonzero hit/response payload.
+The native camera should therefore keep this as an explicit collision hook,
+not replace it with a guessed distance clamp.
+
 The orientation smoothing tail is now promoted as well. After its temporary
 effect branches, `0x0040e090` copies `camera +0x458` (target transform) and
 `camera +0x46c` (previous transform) into temporary transform objects, derives
@@ -873,7 +1007,13 @@ uses the equivalent maximum phase constant `0x5fb40 = 49 * 8000` and advances
 `+0x5e4`. The native reference exposes this as
 `advance_camera_effect_ramp`; it reports the special branch rather than
 guessing the unresolved collision/effect transform producer at
-`0x0040c370`.
+`0x0040c370`. A live Warehouse run hit `0x0040c370` exactly 160 times for
+160 camera updates on frames `4089..4238`, always from caller `0x0040eac5`,
+mode `1`, tripod physics state `0`, and all four effect guards clear. The
+sampled interval kept the special producer inputs mostly at zero while
+`DAT_0055f94c` changed from `-573440` to `-442368` and camera `+0x63c`
+developed nonzero values, confirming that the effect boundary is live even
+when the capture does not exercise a shake/death branch.
 
 Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
 `0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
@@ -897,7 +1037,7 @@ steady-state interpolation tick.
 Confidence: high for the two tail callsites, raw input scales, output ordering,
 and position/effect destinations; medium for the semantic source of the two
 input vectors because collision and effect branches can replace them.
-Possible falsifier: a mode-21/22/23 or split-screen trace that reaches
+Possible falsifier: a mode-23/24/25 or split-screen trace that reaches
 `0x004e85a0` through another caller and uses a different vector layout; those
 callers should be probed separately before making the hook inputs universal.
 
@@ -1086,6 +1226,34 @@ matrix scratch into the second view-record block. This fixes the engine’s
 internal matrix ordering even though the eventual renderer API should still
 keep handedness and clip-space naming as explicit contracts.
 
+The five-iteration view-to-object handoff is now represented by
+`prepare_view_records_q12` in `src/camera/camera_math.hpp`. Starting at basis
+word `1`, each iteration advances four words and sends the slices
+`[base-1..base+1]` and `[base+11..base+13]` through
+`Fixed_MatrixMultiplyQ12 0x004e39a0`. The first result is written to the
+fifteen-short record at `DAT_005620e8`; the second is written to
+`DAT_005620c0`. An identity-matrix fixture checks all five triplets and keeps
+the signed-short narrowing visible. This closes the camera-to-prepared-object
+record contract, while material/object traversal and the later geometry packet
+remain separate boundaries.
+
+The native seam is now composed by `prepare_camera_render_state_q12`. It takes
+the recovered camera transform, raw viewport record, selector, and two scale
+words, then returns both matrix orderings, the mutated viewport/basis state,
+and the two prepared fifteen-short records. Its row-ordered matrix is the
+input to the five `0x004e39a0` products; its backend matrix is the literal
+`0x004f53e0` transpose. This is an evidence-backed camera/render contract,
+not a graphics-API projection abstraction. The helper preserves the original
+zero-divisor failure result and leaves display-rectangle normalization as the
+separate `normalize_viewport_record` contract.
+
+Promotion audit:
+
+| address | exact behavior | runtime/static evidence | confidence / falsifier |
+|---|---|---|---|
+| `0x0045e8e0` | combines transform-to-matrix conversion, viewport/basis construction, and five prepared view-record products before the transpose handoff | static decomp/assembly plus 1,200 accepted Warehouse view mutations and matching geometry packets in `camera-projection6` | high for the normal path; an alternate view mode producing different matrix ordering or bypassing the five products would require a separate adapter |
+| `0x004f53e0` | transposes the prepared 3x3 matrix into backend view-record order | exact static store order and 1,091 normal gameplay comparisons in `camera-input-motion2` | high; non-default/alternate viewport conventions remain a possible separate path |
+
 ### Dynamic matrix-convention validation
 
 The paired `camera-input-motion2.jsonl` trace closes the previously open
@@ -1197,7 +1365,10 @@ reference contract, not a claim that the result is a conventional FOV matrix.
 
 It also normalizes the viewport rectangle against the display dimensions,
 using `<< 9 / DAT_029da394` horizontally and `* 0xf0 / DAT_029da398`
-vertically, then passes those four shorts to `0x004e87f0`. The Q12 basis
+vertically, then passes those four shorts to `0x004e87f0`. That helper writes
+the `0xe3000000` render-state header, copies the four shorts, and replaces a
+zero width or height with `1`; this is now modeled by
+`normalize_viewport_record` in `src/camera/camera_math.hpp`. The Q12 basis
 blocks at `DAT_00563a90..0x563ade` are built from normalized half-extents,
 `viewport[6]`, `viewport[7]`, and `viewport[4]`; each row is consumed by
 `Fixed_MatrixMultiplyQ12`. This establishes the integer projection setup and
@@ -1245,6 +1416,78 @@ alternating calls, and the exact screen/depth interpretation still needs a
 stationary basis-object or viewport-producer experiment. The strongest
 current semantic name is therefore `vertical_projection_input`, with high
 confidence for dataflow and medium confidence for its user-facing meaning.
+
+### Level-gated stationary-calibration attempt
+
+The frontend control problem was resolved with a narrowly scoped debug helper.
+`tony-frontend-play` breaks at `0x004532aa`, immediately after the real
+frontend selection helper returns, and writes `0x2a` (`PLAY_GAME`) to the
+caller’s result slot at `[esp+0x58]`. This preserves the normal helper and
+loader path; writing only `EAX` or using the auto-continuing generic breakpoint
+did not reliably advance the menu.
+
+With that control, `camera-stationary-calibration10` reached the real
+`PLAY_GAME` state and the Warehouse (`level 12`) loader. The run used the
+confirmed `0x004d0ca4` Flip clock and collected, before the bounded capture
+ended, 61 camera records, 101 view-setup records, 800 completed transformed
+vertex records, and 1,120 present records. The camera records were all level
+12, normal mode `1`, and the settled portion had one camera callback per
+present-clock step. The live view input included:
+
+```text
+(640, 480, 0, 0, 10, 20512, 3410, 12, 320, 240, 0, 0, 320, 480)
+```
+
+with `viewport_scale_x = viewport_scale_y = 4096`; the first setup call used
+the startup value `30000` in word 5 and `3410` in word 6. The captured ordinary
+view basis was:
+
+```text
+(-4091, 0, 0,
+     0, 3989, 933,
+     0,  933, -3984)
+```
+
+and completed vertex records exposed the repeated projection constants
+`(320, 240, 384)`, depth limit `10`, and depth scale `384`. These values are
+useful calibration fixtures, but the run is not a clean gameplay run: after
+the bounded transformed-vertex capture it faulted at `0x004cd257`, likely
+because a level was forced from a frontend state that normally selects a
+different level. The pre-fault records are retained as level-gated evidence;
+the stationary camera state, full per-object producer pairing, and any tail
+after the fault are not promoted.
+
+Confidence: high that the helper reaches the normal frontend-to-loader path and
+that the listed view/projection values are real Warehouse runtime values;
+medium for using this run as a renderer fixture; low for inferring stationary
+camera behavior or exact object-to-producer pairing. A crash-free retail-level
+entry with the same probes, or a clean run showing different normalized input,
+view basis, or projection constants, would falsify the stronger fixture claim.
+
+Evidence: `build/debug/camera-stationary-calibration10.jsonl` and the helper
+implementation in `re/gdb/opentony/commands.py`.
+
+The follow-up `camera-clean-pairing` run repeated the same level-entry setup
+without freezing the view-input record. It reached Warehouse and collected 61
+camera callbacks, 51 view setups, 100 geometry submissions, 100 raster-tail
+returns, 100 transformed-vertex returns, and 824 Flip events before the same
+retail fault at `0x004cd257`. The geometry and raster probes paired at the same
+six present-clock frames (`773..778`); the 100 transformed calls also occupied
+those frames. This confirms that the normal indexed/special geometry path and
+the ordinary transform path are both live under the level-gated experiment.
+
+It does not yet close the object pairing: the geometry probe’s `0x004d11d0`
+arguments identify changing geometry pointers and counts, while the completed
+transform probe returns shared scratch output and its producer snapshot is not
+yet guaranteed to belong to the same object on every call. The run therefore
+supports the existence and ordering of the two submission paths, but not a
+one-to-one mapping between a runtime scene object, its model basis, and every
+completed vertex packet.
+
+Evidence: `build/debug/camera-clean-pairing.jsonl`. Possible falsifier for the
+ordering claim: a clean run in which the geometry/raster callbacks occur without
+the intervening transform path, or in which a different caller owns the level
+submission for the same viewport.
 
 ### One actor submission path
 
@@ -1320,19 +1563,263 @@ negative experiment, not evidence that the actor path is bypassed. The later
 `camera-render-handoff` run reused the proven level-entry sequence and supplies
 the positive live world/object observations above.
 
-The static path proves the view/projection handoff, but not yet the exact matrix convention, FOV, near/far clip, or handedness. Those must be recovered before matching visual output exactly.
+The static path proves the view/projection handoff, and the ordinary common
+vertex path now has a live numerical projection/clip contract. The per-call
+linear-row/bias producer, the special flagged-vertex branch, non-default
+viewport state, and world-axis handedness still need validation before
+matching visual output exactly.
+
+### Raster-tail boundary: `0x004d11d0` -> `0x004d14c7`
+
+The new post-transform probe samples the return tail of the game-owned
+geometry routine rather than treating its entry as a hardware draw call.
+Static disassembly shows the relevant boundary precisely:
+
+```text
+0x004d11d0
+    -> fixed-point transform and per-vertex conversion
+    -> 0x0057e888, four bytes per output record
+0x004d14c7  return-tail probe
+    -> 0x004d14d0 / backend-facing conversion path
+```
+
+The routine reads the transform scratch at `0x006a3e48`, the prepared matrix
+at `0x006a3ec8`, and the geometry scratch at `0x006a3e80`. The conversion path
+uses the raw `1/4096` constant at `0x00518910`; its three per-vertex values are
+clamped against the `1.0` constant at `0x00518d70`, multiplied by the raw
+`0.01` constant at `0x00519938`, converted with the shared x87
+round-toward-zero helper, and stored as three byte channels at offsets
+`+0`, `+1`, and `+2` of a four-byte record. The fourth byte is not written by
+this loop and was zero in every captured record.
+
+Cross-session renderer analysis now identifies this as the indexed/special
+packet path, not the ordinary projected-vertex path. The common model
+submitter `0x004d14d0` calls `0x004d29e0`, which writes seven-word float
+working records at `0x00570878`:
+
+```text
+working +0x00  projected X
+working +0x04  projected Y
+working +0x08  projected Z
+working +0x0c  reciprocal depth
+working +0x10  source packed-vertex flags
+working +0x14  clip flags
+working +0x18  auxiliary/override value
+```
+
+The common submitter derives the input stream from model packet `+0x1c`; the
+transform loop advances eight bytes per vertex and reads signed 16-bit
+`x/y/z` at offsets `+0/+2/+4` plus the packed source word at `+0x6`. The
+probe now preserves that source block alongside the completed seven-word
+output, which is the required input contract for a native transform replay.
+
+Those records feed polygon creation at `0x004d1d40`, bucket/list ordering at
+`0x004d20f0`, and final list consumption at `0x004d3160`. Therefore
+`0x0057e888` must not be used to calibrate screen X/Y/Z or reciprocal depth;
+the correct projection-calibration boundary is the common
+`0x004d29e0`/`0x00570878` handoff. The native compatibility name is
+`IndexedPacketByteRecordRaw` (with the older `RasterVertexRecordRaw` alias),
+and its three byte-channel meanings remain intentionally unspecified.
+
+The bounded `camera-raster-live` run captured 100 active-level raster-tail
+returns on frames `2430..2435`. Each return had one same-frame geometry
+submission after deduplicating the two armed submission probes; the level
+path was Warehouse (`level 12`), player `0x05f39530`, and the stable caller
+of the geometry handoff was `0x0046192a`. The 100 records had three varying
+byte channels and an untouched fourth byte of zero. This confirms the raw
+post-transform record shape and its ordering relative to scene submission,
+but does not yet label the channels as screen X, screen Y, reciprocal depth,
+colour, or clipping flags.
+
+### Live common projected-vertex witness
+
+The corrected `camera-transformed-live7` run paired the arguments captured at
+the `0x004d29e0` entry with the records read at the completion tail
+`0x004d2d9e`. It recorded eight rejected frontend observations followed by
+eight accepted Warehouse observations, all at level `12`, with player
+`0x05f39530`, camera `0x05f40ac8`, and caller `0x004d1854`. The accepted rows
+were all from render frame `1305`; they are eight model submissions within one
+frame, not eight claims about the frame clock.
+
+The paired argument counts were `42, 4, 30, 42, 28, 28, 4, 4`, and every
+record count matched its entry argument. Representative output ranges were:
+
+```text
+vertex count 42: X 130.733..264.360, Y -829.595..285.391,
+                 Z 1298.696..4437.811, reciprocal depth .08653.. .29568,
+                 clip flags {0:32, 4:10}
+vertex count 4:  X 365.175..439.529, Y 241.118..268.749,
+                 Z 4121.638..4177.409, reciprocal depth .09192.. .09317,
+                 clip flags {0:4}
+vertex count 30: X 359.050..403.914, Y 178.206..178.763,
+                  Z 11814.979..11983.982, reciprocal depth .03204.. .03250,
+                  clip flags {0:30}
+```
+
+The output is therefore live, current post-transform data from the common
+model path rather than stale entry scratch. This promotes `0x00570878` as the
+runtime-supported projected-vertex working record and `0x004d2d9e` as the
+usable sampling boundary. The field labels remain based on the static
+consumer contract and are not a claim that this is the final hardware draw
+format. A split-screen/multi-view capture or a common-model call whose
+post-return records are not consumed with these seven fields would falsify
+the current generality, not the observed Warehouse path.
+
+Promotion audit:
+
+| address | exact observed behavior | static/runtime evidence | confidence / falsifier |
+|---|---|---|---|
+| `0x004d11d0` | consumes prepared fixed-point geometry and emits four-byte raster-side records before returning | static constants/stores; 100 active-level returns paired with geometry submissions | high for boundary and raw record shape; a different caller path could use a different packet interpretation |
+| `0x004d14c7` | stable return-tail boundary after the per-vertex byte stores | breakpoint hit on all 100 active-level samples, same frame as the corresponding geometry path | high for tail placement; a compiler/backend variant could move the last game-owned conversion |
+| `0x0057e888` | four-byte-stride indexed/special-packet scratch; three bytes written by the observed loop, fourth byte untouched in samples | 100 captured blocks, fourth byte zero throughout; renderer path separation from common `0x004d14d0`/`0x004d29e0` | high for record ownership/path; not evidence for projected coordinates; a direct indexed-packet consumer trace is the falsifier |
+| `0x00570878` | seven-word common-model transformed-vertex working record: projected X/Y/Z, reciprocal depth, source flags, clip flags, auxiliary value | static `0x004d14d0` -> `0x004d29e0` contract, renderer polygon-consumer reads, and eight accepted live Warehouse calls with exact entry-count/output-count agreement | high for ownership, stride, and completed common-path output; medium-high for field labels until basis-object calibration; a split-screen/multi-view or alternate consumer capture is the falsifier |
+| `0x004d2d9e` | return-tail boundary after `0x004d29e0` has completed its vertex loop and immediately before `ret` | PE32 disassembly shows the final `pop ecx` at `0x004d2d9d` followed by `ret`; the entry stack arguments are restored and `0x00570878` contains current output | high for probe placement; a compiler/build-specific tail change is the falsifier |
+
+The ordinary projected-vertex probe is armed at `0x004d2d9e`, not at the
+transform entry. A first entry probe showed why this matters: its records were
+read before the current call had written the shared scratch and are retained
+only as a rejected diagnostic experiment. The return-tail probe preserves the
+same call arguments while sampling the completed transform output.
+
+### Ordinary common-vertex projection contract
+
+The standard branch of `Render_TransformVertices 0x004d29e0` now has a
+numerically validated native contract. Its input pointer advances eight bytes
+per vertex and supplies signed-short `x/y/z` at `+0/+2/+4`, followed by a
+packed source word at `+6`. The branch applies the three rows at
+`0x0056e84c..0x0056e86c` and the three biases at `0x0058f318..0x0058f320`.
+Each linear result is stored to f32 scratch before the perspective stage:
+
+```text
+pre[i]       = f32(dot(linear_row[i], s16(x,y,z)) + bias[i])
+reciprocal   = f32(depth_scale / pre[2])
+projected_x  = f32(reciprocal * pre[0] + center_x)
+projected_y  = f32(reciprocal * pre[1] + center_y)
+projected_z  = pre[2]
+```
+
+For the ordinary Warehouse state, the live constants at the completed
+transform tail were linear rows
+`[[1, 0.000244140625, -0.001708984375],
+[-0.000732421875, 0.98388671875, -0.1796875],
+[0.001220703125, 0.1796875, 0.98388671875]]`, biases
+`[-641.56201171875, -1580.8857421875, 2868.30078125]`, screen center
+`(320,240)`, and depth scale `384`. The completed 42-vertex call in
+`camera-transform-tail.jsonl` matched this reconstruction with maximum
+absolute errors of `1.5e-5` in X, `2.7e-5` in Y, zero in stored Z, and
+`8.3e-9` in reciprocal depth. The first vertex, source `(0,1328,92,0)`,
+produced `(242.971054,205.074249,3197.443359,0.120095953)` in both the
+retail scratch and the native calculation within those bounds.
+
+The completed record remains seven raw words at `0x00570878`. In the
+ordinary branch, clip bits are: `0x01/0x02` for X outside left/right,
+`0x04/0x08` for Y outside top/bottom, `0x10` for Z below the near limit at
+`0x0058089c` (live value `10`), and `0x20` for Z at or beyond the far limit
+at `0x0059d33c`, unless state flag `0x0057e884 & 0x10` suppresses that test.
+The native `project_common_vertex` helper preserves the raw source flags and
+clip bits rather than converting them to a host renderer enum. The source
+flag `0x10` branch remains separate and is not covered by this formula.
+
+Promotion audit for the standard transform state:
+
+| address | exact behavior | callers/callees and runtime experiment | hit frequency / import or string evidence | confidence / falsifier |
+|---|---|---|---|---|
+| `0x004d29e0` | consumes packed s16 model vertices and writes seven-word completed records | called by common submitter `0x004d14d0`; tail-paired Warehouse call with 42 inputs | one accepted call in the bounded tail validation; no direct import/string | high for ordinary branch formula; a source-flag `0x10` or alternate state could select another branch |
+| `0x0056e84c` | three f32 linear rows consumed by the ordinary vertex transform | loaded by `0x004d29e0`; captured at its completion tail | 42 vertices in the accepted call; no import/string | high for arithmetic role, not a permanent camera-only matrix; a per-object basis change is expected |
+| `0x0058f318` | three f32 pre-perspective biases | loaded by `0x004d29e0`; captured with the same completed call | 42 vertices; no import/string | high for arithmetic role; a different renderer state could replace the values |
+| `0x005808a0` / `0x005808a8` | screen center X/Y and reciprocal-depth scale | loaded by `0x004d29e0`; live values `(320,240,384)` reproduce all 42 outputs | 42 vertices; no import/string | high for the standard path; split-screen or alternate projection state is the falsifier |
+| `0x0057e884`, `0x0058089c`, `0x0059d33c` | state flag, near-depth limit, and far-depth limit used for clip bits | read by `0x004d29e0`; live tail had `0x800`, `10`, and `20512000` | 42 clip evaluations; no import/string | high for observed clip tests; special/indexed paths may use different limits |
+
+This closes the numerical camera-to-projected-vertex stage for the ordinary
+model path. It does not yet prove the producer meaning of the per-call linear
+rows/biases, the special source-flag branch, or the final polygon/material
+backend behavior.
+
+### Ordinary common-vertex transform producer
+
+The producer meaning of those per-call values is now resolved statically for
+the ordinary model path. `Render_SubmitPolygon 0x004d14d0` does not consume a
+single persistent camera matrix. Before calling `Render_TransformVertices
+0x004d29e0`, its normal branch performs this composition:
+
+```text
+object_basis = s16[0x00563a18 .. 0x00563a28] / 4096
+view_basis   = s16[active_view + 0x74 .. +0x84] / 4096
+translation  = [0x00563af8, 0x00563afc, 0x00563b00]
+
+linear[row][column] = object_basis[row][column]
+bias[row] = dot(view_basis[row], translation)
+```
+
+The relative translation is already in the integer world-unit domain. The
+object traversal at `0x0045f530` produces it by shifting the object position
+words right by 12 and subtracting the active view-record position at
+`+0x04/+0x08/+0x0c`; it is not another Q12 vector. The same traversal builds
+the object basis before the submitter receives the model packet. The active
+view basis is written by `Render_SetViewProjection 0x0045e8e0` into the view
+record at `+0x74`.
+
+When submit state has bit `0x40`, `0x004d14d0` additionally writes the
+alternate perspective factors `-view_basis[1]`, `-view_basis[4]`, and
+`-view_basis[7]` to `0x0057e878..0x0057e880`. The ordinary native projection
+helper intentionally does not apply that alternate branch; the factors are
+preserved as a separate producer result until a live flagged-vertex capture
+identifies its consumer.
+
+The native `build_common_vertex_transform` helper in
+[`camera_math.hpp`](../../../src/camera/camera_math.hpp) mirrors this producer
+with raw signed-short/integer inputs and f32 stores at the same boundaries.
+It is deliberately separate from `project_common_vertex`: the former creates
+per-object transform state, while the latter consumes that state for each
+packed vertex.
+
+Promotion audit:
+
+| address | exact observed behavior | static/runtime experiment | confidence / possible falsifier |
+|---|---|---|---|
+| `0x004d14d0` | ordinary submitter copies the object basis, reads the active view basis, derives three view-space biases, optionally writes alternate perspective factors, then calls `0x004d29e0` | static PE32 disassembly; renderer call chain `0x004604f0 -> 0x00461b10 -> 0x004d14d0`; live Warehouse submitter arguments and completed transform tail | high for the producer/consumer boundary; a source-flag `0x10` or alternate state can select a different branch |
+| `0x00563a18` | nine signed shorts containing the current per-object basis in Q12 form | written/consumed in the `0x0045f530` -> `0x004d14d0` path; newly added transformed-vertex probe records the raw block | high for representation and role; a controlled basis-object capture could falsify the exact row/axis interpretation |
+| `active_view + 0x74` | nine signed shorts containing the active view basis in Q12 form | populated by `0x0045e8e0`; read by `0x004d14d0` before the validated ordinary transform call | high for representation and role; split-screen or alternate-view state may select another active record |
+| `0x00563af8..0x00563b00` | three signed integer object-relative translation words | produced by `0x0045f530` from shifted object position minus active view-record position; probe fields are implemented but no new accepted producer pairing was obtained in this run | high static, medium runtime; a live pair showing a different source or scale would falsify the producer mapping |
+| `0x0057e878..0x0057e880` | optional negated view-basis elements for the alternate perspective branch | static stores gated by submit state bit `0x40`; native result preserves the raw factors | medium until a flagged-vertex consumer is captured; an ordinary state using these factors would falsify the current branch separation |
+
+This closes the missing producer contract for the ordinary path without
+claiming that the producer is camera-only. The camera supplies the active view
+record; object traversal supplies the basis and relative position. A future
+stationary basis-object experiment should promote the axis signs and verify
+the dynamic object/view pairing, but it is not required to use the native
+camera matrix as a substitute for these per-object values.
+
+### Native default smoothing-stage adapter
+
+The value-level implementation now promotes the camera-owned common portion of
+`Camera_SmoothAndValidate 0x0040e090` into the normal C++ update path. A new
+`CameraSmoothingProducerInputRaw` supplies only the values that remain owned by
+gameplay/world state: the post-`0x004f53b0` distance sample, the
+`DAT_00524A98` distance bias, tripod effect gates, the global override, and the
+shared `DAT_0055F94C` vertical-effect word. `update_camera` then applies the
+recovered six-sample distance recurrence, effect-ramp counters, and base local
+position/effect vector when no replacement smoothing hook is installed.
+
+The input also carries an explicit validity bit for the distance sample. This
+prevents a missing producer from refreshing the retail history ring with an
+invented zero. The shared vertical effect is mirrored in the replay state only
+to carry it between calls; the evidence still treats the retail storage as a
+global/effect-system value rather than a proven camera member.
+
+Static confidence is high for the common recurrence and ramp arithmetic. A
+focused native fixture passes with the recovered `step=-45`, `distance=7`, and
+the expected `800`-unit effect-ramp increment. The collision-dependent
+transform branch after transition counter `+0x60c > 3`, and the special effect
+transform path, remain explicit producer hooks; a live nonzero collision/effect
+trace is the falsifier for treating this adapter as the complete smoothing
+routine.
 
 ## Minimal faithful C++ contract
 
 The value-level portion is now implemented in
 [camera_math.hpp](../../../src/camera/camera_math.hpp) and
-[camera_system.hpp](../../../src/camera/camera_system.hpp), with the owning
-[camera_runtime.hpp](../../../src/camera/camera_runtime.hpp) wrapper. The
-native `CameraRuntime` now owns the recovered camera state, viewport projection
-record, and last viewport commit; `GameplaySession` can run it after each fixed
-player/level step through
-an explicit opt-in configuration, preserving the simulation-to-camera frame
-boundary without fabricating tripod or collision producers. `CameraStateRaw`
+[camera_system.hpp](../../../src/camera/camera_system.hpp). `CameraStateRaw`
 preserves the recovered PE32/Q16/Q12 fields, `prepare_follow_target` keeps the
 mode-25 and dot/angle branches explicit, `update_camera_history` models the
 observed half-step recurrence, and `commit_viewport_effects` preserves the
@@ -1398,15 +1885,37 @@ void Renderer::present() {
 
 The names in this contract are reconstruction interfaces, not claims that the original binary used the same C++ class names. Mode dispatch, fixed-point rounding, camera-point transitions, death-camera interpolation, and projection conversion must be implemented as separate testable pieces.
 
+The executable version of that boundary is now available in
+[camera_frame.hpp](../../../src/camera/camera_frame.hpp). `advance_camera_frame`
+accepts the gameplay-owned raw producer inputs, runs the camera, copies the
+resulting transform into render preparation, and advances the timing producer
+after the camera update. `present_camera_frame` is a separate operation that
+increments the native present serial only after scene/backend submission has
+succeeded. This keeps the confirmed `0x004d0ca4` boundary explicit without
+choosing a graphics API or pretending that the camera owns gameplay updates.
+
+The frame fixture also verifies the one-update timing latency: the first frame
+uses the seeded Q8 step `0x100`, the render-preparation stage runs before the
+present marker, and a second present increments the serial exactly once.
+
 ## What remains before visual-faithful recreation
 
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
-1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
-2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates, and its relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
+1. Dynamically calibrate the renderer’s per-object production of the recovered
+   `0x0056e84c` rows and `0x0058f318` biases with controlled X/Y/Z basis
+   inputs. The static producer contract is now closed, but the live
+   object/view pairing, world-axis handedness, and screen-axis signs still need
+   separation.
+2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates; the newly decoded framing globals and rotation/axis controls likewise need a gameplay run that exercises their flags. Their relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
-5. Use the now-established input/player/camera frame contract for stationary projection calibration: vary one camera/viewport input at a time and compare known basis-object coordinates, clipping, depth, and present-to-present output. The live word-6 perturbation already closes the dataflow part of this gate.
+5. Use the now-established input/player/camera frame contract for stationary
+   producer calibration: vary one camera/viewport input at a time and compare
+   the per-call rows/biases, completed vertices, clipping, depth, and
+   present-to-present output. The live word-6 perturbation and ordinary
+   42-vertex numerical match already close the projection-consumer part of
+   this gate.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
 
@@ -1478,7 +1987,7 @@ DirectDraw backend.
   geometry submissions. The experiment proves the word-6 dataflow, but a
   stationary basis-object run is still required for final screen/depth
   semantics and for the independent `+0x40c` producer.
-- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524aa4`, `DAT_0056b008`, `DAT_0056b018`, `DAT_0056aff8`, and the `+0x410/+0x414` timer/delta pair. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
-- The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `21`, `22`, and `23` remain unobserved in a live level transition.
+- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524AA4`, `DAT_0056B008`, `DAT_0056B018`, `DAT_0056AFF8`, and the `+0x410/+0x414` timer/delta pair. The native `CameraViewportParameterControlRaw` now preserves the exact restore/decrement/increment/reset/timer ordering, and the camera probe records the raw control globals at update entry. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
+- The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `23`, and `24` remain unobserved in a live level transition; mode `25` is statically mapped to the alternate-follow handler and dynamically observed, but its transformed-offset branch is not yet live-sampled.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

@@ -6,7 +6,7 @@
 // camera update.  Keep these as integer state machines instead of hiding the
 // one-frame producer/consumer delay behind a floating-point dt.
 
-#include "camera_math.hpp"
+#include "src/camera/camera_math.hpp"
 
 #include <array>
 #include <cstdint>
@@ -68,7 +68,11 @@ struct CameraTimingStateRaw {
     Raw previous_simulation_time{}; // DAT_00568604
     std::array<Raw, 3> recent_deltas{}; // DAT_0056868c..+8
     std::uint32_t ring_index{}; // DAT_0056a934
-    Raw simulation_delta_q8{}; // DAT_0056865c
+    // The retail runtime seeds DAT_0056865c to one 60-Hz step before the
+    // first render-preparation sample is available.  Keeping that seed here
+    // matters because the timing producer is consumed by the next camera
+    // update, not the update that produced it.
+    Raw simulation_delta_q8{0x100}; // DAT_0056865c
     Raw simulation_delta_square_q8{}; // DAT_00568804
     Raw simulation_progress_q8{}; // DAT_00568810
     Raw progress_integer{}; // DAT_005685f4
@@ -103,7 +107,8 @@ inline CameraTimingStepRaw advance_camera_timing(
     if (!timing_paused) {
         state.recent_deltas[state.ring_index % state.recent_deltas.size()]
             = sample_delta;
-        state.ring_index = (state.ring_index + 1) % state.recent_deltas.size();
+        state.ring_index = static_cast<std::uint32_t>(
+            (state.ring_index + 1) % state.recent_deltas.size());
     }
 
     state.delta_q11 = multiply_s32(sample_delta, 0x800);
