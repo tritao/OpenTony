@@ -36,6 +36,15 @@ struct FixedPathRecord {
     std::array<std::int32_t, 6> fixed12() const;
 };
 
+struct CameraPointRecord {
+    std::array<std::int32_t, 3> position{};
+    // The two words after the decoded position are retained raw.  The
+    // downstream camera consumer uses the first to choose its 0x400/0x800
+    // state-bit branch and the second as a transition variant.
+    std::uint16_t selection_state_word{};
+    std::uint16_t transition_variant{};
+};
+
 struct ScriptObjectCommand {
     // FUN_00401060 receives the aligned u32 key and a pointer to the three
     // following u16 values. The constructor uses the key; the PC build does
@@ -68,6 +77,7 @@ public:
     // exactly; FUN_004c5460 gives values 2 and 4 distinct flag semantics.
     [[nodiscard]] std::vector<std::uint8_t> node_spawn_options(std::size_t index) const;
     [[nodiscard]] std::array<std::int32_t, 3> node_position(std::size_t index) const;
+    [[nodiscard]] CameraPointRecord camera_point(std::size_t index) const;
     // Type-10/type-11 constructors read the u16 immediately after their
     // fixed-point position triplet through FUN_004a9f70.  Keep that raw word
     // available instead of folding it into a guessed gameplay meaning.

@@ -65,7 +65,7 @@ The independently supported record is:
 | `+0x14` | resolved runtime object/context pointer | written by activation paths and consumed by the update |
 
 The record size and field offsets are also captured in
-[`RuntimeTrickObject`](../../types/trg-runtime.yml).
+[`RuntimeTrickObject`](../../types/trg.yml).
 
 ## Activation consumers
 

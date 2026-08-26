@@ -126,3 +126,10 @@ The exact meaning of all credits record vtable methods remains open. The
 source for a text record, while `@B` creates a bitmap record retaining the
 image object returned by the bitmap loader. These files should not be grouped
 with the unreferenced tool/debug text corpus.
+
+The native counterparts in `src/assets/text_asset.*` preserve the same
+ownership boundary: `ParkLabelTable` materializes the 50 `$`-prefixed labels,
+while `PresentationTextAsset` parses the bounded text/bitmap/marker record
+stream and owns each line after the source buffer can be released. Real
+`CDPARKS.TXT`, `CREDITS.TXT`, and `MUSIC.TXT` counts are covered by the native
+fixture.

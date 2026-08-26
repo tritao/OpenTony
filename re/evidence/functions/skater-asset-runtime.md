@@ -1,11 +1,14 @@
 # Skater PSX model-region loading
 
 Status: confirmed named skater-model PSX load, shared `SK2DEF.PSX` source,
-player-spool PSH/PSX handoff, and player-region handoff
+complete static skater/costume selector table, player-spool PSH/PSX handoff,
+and player-region handoff
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Addresses: `0x0042f950`, `0x00448dd0`, `0x004b5010`, `0x004521c0`,
 `0x004a6bf0`, `0x004b0c60`, `0x004b1430`,
-`0x004b43e0`, `0x004b47a0`, `0x004b4940`, `0x004b5370`, `0x004b5620`,
+`0x004b0f80`, `0x004b1700`, `0x004b1980`, `0x004b43e0`, `0x004b47a0`,
+`0x004b4940`,
+`0x004b5370`, `0x004b5620`,
 `0x004b3750`, `0x004b37a0`, `0x004b2450`, `0x00452390`, `0x00457420`
 
 The level loader does not only load Warehouse geometry. It also resolves the
@@ -20,10 +23,58 @@ supports eight slots; `0x004b0c60(manager, slot)` returns the slot's resource
 pointer at `manager + 0x04 + slot * 0x0c`. A second slot record is accessed by
 `0x004b1430(manager, slot)` at `manager + 0xb8 + slot * 0xbc`.
 
-`0x004b1980` maps a logical player index to the corresponding enabled/custom
-skater index by scanning the 13 skater records at `DAT_0053a514`, whose stride
-is `0x170`. This is the stable boundary between front-end player selection and
-the skater manager's model/costume slots.
+`0x004b1980` maps a logical custom-player index to the corresponding enabled
+skater record by scanning 20 records at `DAT_0053a514`, whose stride is
+`0x170`. It tests record flag bit `0x02`; in this executable logical custom
+indices `0..3` therefore select rows `13..16`, while an index beyond the four
+enabled records reaches the out-of-range diagnostic. This is the stable
+boundary between front-end player selection and the skater manager's
+model/costume slots.
+
+The concrete name selector is `0x004b1700`. It validates the requested costume
+against the count returned by `0x004b0f80`, then returns the selected base name
+from the static table at `DAT_0053a3b8` using the exact index expression
+`(costume_index + skater_index * 0x2e) * 2`. The table therefore has a
+0x170-byte logical row per skater. `0x004b0f80` counts only the first four
+logical positions and applies the record's optional flag filters before the
+selector accepts a costume index; the `* 2` stride selects every other pointer
+slot in the static table. The returned name is the value that the `%s.psx` and
+`%s.psh` loaders consume. `0x004521c0` uses this selector on both its ordinary
+and special/custom branches before publishing the player resource handles.
+
+The complete static table and count behavior are independently recoverable:
+
+| row | record flags | first four selector names | accepted count |
+| ---: | ---: | --- | ---: |
+| 0 | `0x208` | `hawk2`, `hawk2b`, `secret4`, empty | 2 (flag `0x08` stops before slot 2) |
+| 1 | `0x000` | `burnq2`, `burnq2b`, empty, empty | 2 |
+| 2 | `0x000` | `cab`, `cab2b`, empty, empty | 2 |
+| 3 | `0x000` | `campb2`, `campb2b`, empty, empty | 2 |
+| 4 | `0x000` | `glif2`, `glif2b`, empty, empty | 2 |
+| 5 | `0x000` | `koston`, `koston2b`, empty, empty | 2 |
+| 6 | `0x000` | `lasek2`, `lasek2b`, empty, empty | 2 |
+| 7 | `0x000` | `mullen`, `mullen2b`, empty, empty | 2 |
+| 8 | `0x000` | `muska2`, `muska2b`, empty, empty | 2 |
+| 9 | `0x000` | `rynld2`, `rynld2b`, empty, empty | 2 |
+| 10 | `0x000` | `rowley2`, `rowley2b`, empty, empty | 2 |
+| 11 | `0x001` | `steam2`, `steam2b`, empty, empty | 2 |
+| 12 | `0x000` | `thomas2`, `thomas2b`, empty, empty | 2 |
+| 13 | `0x002` | `error`, `error`, empty, empty | 2 |
+| 14 | `0x002` | `error`, `error`, empty, empty | 2 |
+| 15 | `0x002` | `error`, `error`, empty, empty | 2 |
+| 16 | `0x002` | `error`, `error`, empty, empty | 2 |
+| 17 | `0x060` | `secret1`, `secret1b`, empty, empty | 2 |
+| 18 | `0x0a1` | `secret2`, `secret2b`, empty, empty | 2 |
+| 19 | `0x120` | `secret3`, `secret3b`, `secret3c`, `secret3d` | 4 |
+
+Rows 13..16 are the four enabled custom records selected by
+`0x004b1980`; their built-in `error` names are placeholders in the static
+table, so the custom front-end/name replacement remains a separate producer
+question. Rows 17..19 are real hidden/skater rows in the same selector table,
+and row 19 is the only row with four accepted static model names. The live
+`hawk2` load is one concrete row/slot witness; the table above closes the
+remaining static name coverage without claiming which front-end screen
+selects each hidden row.
 
 ## Named PSX model load
 
@@ -150,10 +201,12 @@ that the player-facing image is a runtime resource, not just front-end text.
 
 `0x004b47a0` is the synchronous PSH entry point. It constructs `%s.psh`,
 reads the file through `0x00448dd0`, and passes the buffer to `0x004b4940`.
-The latter parses the text manifest by locating `.spart` records, returns the
-part count through its output argument, and writes pointers to the discovered
-part records and names into caller-provided arrays. It also normalizes a
-`%s.spart` companion name. The parser enforces a caller-supplied maximum and
+The PSH files are C-preprocessor-style text headers, not separate `.spart`
+files. The latter parses the text manifest by locating the `<base>part_` token
+(for example `HAWK2PART_`), returns the part count through its output argument,
+and writes pointers to the discovered part definitions and names into
+caller-provided arrays. It also normalizes the search token before scanning.
+The parser enforces a caller-supplied maximum and
 raises the exact `No %s parts found in %s.PSH file!` and `Too many pieces in
 %s.psh` diagnostics, so the count and pointer-array contract is confirmed.
 
@@ -174,8 +227,9 @@ PSH file buffer
 ```
 
 The PSH parser's output contract is independently recoverable from
-`0x004b4940`. It constructs a `<base>.spart` search token, scans the loaded
-PSH buffer, and for every match writes:
+`0x004b4940`. It constructs a `<base>part_` search token, scans the loaded
+PSH buffer, and for every matching `#define <base>part_<model>_<part>` line
+writes:
 
 ```text
 part_count                         -> caller's u32 at param_5
@@ -187,6 +241,20 @@ The parser bounds the count by the caller's `param_6`, rejects a zero-result
 manifest, and terminates the extracted name at `_` and the following text at
 the next newline. This is enough to recreate the manifest object as borrowed
 pointers into the PSH buffer; it does not require copying the source lines.
+
+The archive-wide manifest check closes the count boundary for the player
+family. All 106 extracted PSH files have contiguous zero-based part indices.
+104 have an exact same-base PSX companion, and every one of those 104 pairs
+has equal PSH part count and PSX object/model counts. The two unmatched
+manifests are `SK2ANIM1.PSH` and `SKED.PSH`: the former has no same-base PSX
+file, while the latter is an editor/shared manifest whose related geometry is
+split across `SKED1.PSX` through `SKED4.PSX`. They remain explicit alias/editor
+cases rather than being fabricated into missing runtime regions.
+
+The part-count distribution is also stable across the corpus: 91 manifests
+have 19 parts, four have 151, two have 110, and the remaining nine have 1, 3,
+5, 6, 8, or 29 parts. The 19-part `HAWK2.PSH`/`HAWK2.PSX` pair remains the
+concrete name-remap witness used by the animated player path.
 
 Two asset pairs cross-check the manifest count against the common PSX
 container: `C_TAXI.PSH` has six numbered parts and `C_TAXI.PSX` has six
@@ -358,5 +426,31 @@ for the active player roster.
   PSH region publication path, and shared spool drain; the PSX scheduling
   queue uses 20 0x11-byte entries.
 - `inferred`: the precise C++ class types returned through
-  `DAT_00568648`/`DAT_0056a848` and the model names selected by every skater
-  record.
+  `DAT_00568648`/`DAT_0056a848` and the front-end conditions selecting each
+  remaining skater/costume row beyond the statically recovered name table.
+
+The native PSH boundary is implemented in `src/assets/psh_asset.*`. It parses
+the C-header-style `#define <base>PART_<model>_<part> <index>` stream into an
+owned, source-ordered part list, retains both the model prefix and the trailing
+runtime part label, and requires the contiguous zero-based indices observed by
+the runtime parser. `match_psh_parts` reproduces the name-based merge: it joins
+`SK2ANIM.PSH` and `HAWK2.PSH` by labels and returns the independently observed
+animation-to-model map `0->0, 1->3, 2->1, 3->2`, with the remaining ordinary
+parts unchanged. The native test walks the real 106-manifest corpus in
+addition to the HAWK2 and C_TAXI witnesses.
+
+The player queue lifecycle is implemented in
+[`player_resource_spool.hpp`](../../src/runtime/player_resource_spool.hpp) and
+`player_resource_spool.cpp`. It preserves the `0xa10` manager image, 0x40
+entries at 0x28-byte stride, processed/name/mode/handle/heap offsets, the
+separate requested-size staging word, and the loading/wait/idle state
+transitions. `load_current()` dispatches the proven PSH versus direct-PSX
+file path into the native manifest/archive readers and retains the parsed
+resource until completion. A native test uses the real HAWK2 pair and checks
+the manager counters, entry fields, file-read result, and reset behavior.
+The same queue now has a package-backed load overload: it selects the
+case-insensitive `DATA/HAWK2.PSH` or `DATA/HAWK2.PSX` entry from `ALL.PKR`,
+decodes it through the common PKR backend, and retains the parsed manifest or
+archive in the queue's loaded-resource record. This preserves the direct-file
+versus PSH-region dispatch while making the loose-file and packaged player
+paths converge.

@@ -99,6 +99,20 @@ the buffer, copies the returned one or two regions from the decoded sample,
 unlocks it, and frees the temporary sample allocation. The loaded sound is
 therefore a normal runtime buffer, not a pointer into the PKR/PRE file.
 
+The native asset layer in `src/assets/wav_asset.*` now implements the
+file-to-sample half of this boundary. It validates RIFF/WAVE, walks `fmt ` and
+`data` chunks, preserves the observed WAVEFORMATEX fields, rejects non-PCM
+formats, and owns a four-byte-aligned sample allocation. The eventual audio
+device adapter can submit those values to a platform buffer without retaining
+a pointer into the package or PRE source.
+
+`src/assets/sound_runtime.*` implements the adjacent game-owned table seam.
+`SoundBankRuntime` preserves the 0x42 description bound and 0x34 stride
+contract, resolves `audio/<name>.wav`, publishes at most 0x80 0x28-byte sound
+slots, and applies the proven description `+0x2c` to runtime state bit 1 when
+a buffer is marked started. Device-specific buffer pointers and voice mixing
+remain adapter-owned.
+
 The surrounding runtime tables are supported at the following boundaries:
 
 ```text

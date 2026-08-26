@@ -11,6 +11,19 @@ still uncertain.
 ## Already usable
 
 - Bounded native readers for TRG, PSX, and PRE data.
+- Native PKR2 package loading with raw/BIBD/WIBD/ZLIB entry transforms and a
+  real `ALL.PKR -> SKWARE.PSX` integration fixture.
+- Native custom-park, replay/card, SC save/career-image, PC BMP, presentation
+  text, and PSH part-manifest readers, each retaining the proven disk/runtime
+  allocation or ownership boundary.
+- Native custom-park generation state now expands the 0x10/0x2c runtime images
+  and exposes the proven generated-piece -> 0x4c published-object and paired
+  0x58 gap-member finalization seam with model lookup left as an explicit
+  data input.
+- Native SC/MMU manager state now preserves `.SAV` discovery records,
+  case-insensitive lookup, 8192-byte free-block accounting, four aligned
+  buffer slots, type-specific registration, and the common registered-payload
+  write assembly.
 - TRG node/script representation, command cursor, dispatcher, timers,
   resources, restarts, goals, gaps, and deterministic level state.
 - Type-10/type-11 runtime-list state (position, raw flags, pulse/kill state)
@@ -23,6 +36,73 @@ still uncertain.
   state for the current object/skater offsets (`0x99`/`0x9a`, `0xa0`,
   `0xa3`-`0xa8`, `0xac`, `0xad`, `0xb1`).
 - PSX scene object/model binding and lazy factory-asset resolution.
+- Package-backed `LevelRuntime` construction now decodes `ALL.PKR` TRG/PSX
+  entries into owned images before building the same scene/object/collision
+  runtime, closing the packaged-file variant of the level path.
+- Package-backed level resource bindings now resolve TRG-requested names from
+  `ALL.PKR` when no extracted catalog exists, so the package path exposes the
+  same resource availability contract as loose files.
+- Native PSX environment records now preserve the retail count-prefixed
+  `0x4c` object allocation, relocated model-pointer table, and shared
+  `0x2c` checksum/material records. Render snapshots carry the resolved
+  runtime material index/checksum instead of stopping at a source texture
+  index.
+- Native TRG runtime lists now cover the proven type-13 camera-point registry,
+  type-10/type-11 rail records, and type-5 powerup records, including the
+  Warehouse subtype-to-`ITEMS.PSX` model bridge.
+- Native traffic records now cover the proven type-1 `0x1e8` allocation,
+  subtype-selected shared `C_*.PSX` regions, constructor fixed-point fields,
+  and positional-sound metadata for loose-file and package-backed assets.
+- Native trigger factory records now materialize the proven `0xcb`/`0x192`
+  `0x1f4`/`0x218` allocations and synchronize their supported flag fields with
+  the trigger state service.
+- Native PSX post-model runtime readers preserve BITS type-`0x45` named
+  groups and the shared animation `0x2a`/`0x2c` count/record/source-stream
+  boundary, including raw hierarchy payload ownership.
+- Native bounded WAV and FNT readers now cover the proven PCM sample-buffer
+  and font/glyph allocation boundaries; platform audio and text backends are
+  still adapters around those values.
+- Native animation channel decoding/playback preserves the recovered packed
+  stream formats, consumed-byte boundary, object playback fields, and modes
+  0 through 4 with caller-supplied retail clocks.
+- Native sound-bank state preserves the 0x34-byte description contract,
+  `audio/<name>.wav` naming, 0x28-byte runtime slots, and post-start flag
+  handoff; DirectSound device/voice objects remain platform adapters.
+- Native PSH matching uses the runtime trailing-part labels and reproduces the
+  `SK2ANIM.PSH` to `HAWK2.PSH` index remap.
+- Native skater-object ownership now includes the 0x3538 gameplay allocation,
+  contained 0x674 camera allocation, region/model fields, and peer link.
+- Native skater asset binding now owns a selected PSX region, joins PSH model
+  and animation parts by name, resolves the model-table entry, and publishes
+  the proven region/model fields into the 0x3538 skater allocation.
+- Native player resource spool state now preserves the 0xa10 manager, 0x40
+  0x28-byte queue entries, PSH/direct-PSX dispatch, parsed resource lifetime,
+  and load/wait/completion transitions. The queue also decodes the same PSH
+  and direct-PSX entries from package-only `ALL.PKR` sessions.
+- Native `CameraRuntime` now owns the recovered value-level camera state and
+  viewport commit, with explicit mode-21/22 inputs and an opt-in
+  `GameplaySession` post-physics camera update boundary.
+- Native renderer packet construction now consumes the PSX-backed render
+  snapshot, applies the recovered Q12 object/camera transform, preserves the
+  `0xb0` polygon and 3/4-vertex boundary, and normalizes textured UVs through
+  an explicit material-dimension resolver; projection/raster submission stays
+  a callback until its live viewport calibration is recovered.
+- Native PC texture runtime now owns the proven `0x2c` material-image records,
+  resolves the four Warehouse `NEWTEX` bitmap witnesses from loose files or
+  PKR entries, and decodes inline PSX textures into the same device-independent
+  image product. The session passes those dimensions into render packets while
+  leaving Direct3D resource pointers as a presentation adapter.
+- Native in-air contact now has a direct packed-face-field predicate boundary
+  for the ordinary landing branch; wall, rail, and special-contact selection
+  remain explicit policy inputs.
+- Native pickup rendering now joins existing TRG type-5 entities to the
+  finalized `ITEMS.PSX`/`SKMEDALS.PSX` region runtimes, preserving source-node
+  identity, resolved checksum/model index, region-local materials, and the
+  same `0xb0` packet path. Package-only `ALL.PKR` loading supplies the optional
+  item regions as well; unmapped subtypes remain geometry-less.
+- Package-only `ALL.PKR` level setup also retains the proven `BITS.PSX`
+  type-`0x45` named-group runtime, keeping the effect-resource lookup on the
+  same common package path as scene and item assets.
 - Native PSX palette/texture expansion for 4bpp, 8bpp, and 16bpp payloads.
 - PSX blockmap-selected collision geometry with fixed-point world placement.
 - Retail-shaped segment-query metadata: hit face/object, hit point, normal,
@@ -154,7 +234,9 @@ The work is now separated into three kinds of missing behavior:
 
 2. **Required for behavioral completeness after that slice:**
 
-   - object factories and live object behavior for the TRG/PSX records;
+   - the remaining object factories and live behavior around the now-modeled
+     TRG/PSX records, including runtime pointer/list ownership and powerup
+     update/glow state;
    - goal, gap, level-event, restart, two-player, and career state transitions;
    - all action records, animation/trick state, vehicles, pickups, audio,
      effects, and unknown script opcodes; and

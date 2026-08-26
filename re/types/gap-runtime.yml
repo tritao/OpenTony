@@ -1,0 +1,43 @@
+version: 1
+types:
+  - name: RuntimeGapDefinition
+    kind: fixed_layout
+    size: 0x2c
+    confidence: confirmed
+    description: One general/Warehouse executable gap-definition record at VA 0x00546110.
+    fields:
+      - offset: 0x00
+        name: flags
+        type: u16
+        confidence: confirmed
+        description: Runtime branch flags; bits 0x08 and 0x40 select the observed deferred path.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x02
+        name: unknown_word
+        type: u16
+        confidence: confirmed
+        description: Copied table word whose semantic use is not yet established.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x04
+        name: divider
+        type: u16
+        confidence: confirmed
+        description: Divider/argument matched by the second operand of trigger command 0x00c9.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x06
+        name: score
+        type: i16
+        confidence: confirmed
+        description: Signed score value passed with the matched definition.
+        evidence:
+          - re/evidence/functions/gap-runtime.md
+      - offset: 0x08
+        name: display_name
+        type: array<char,36>
+        confidence: confirmed
+        description: NUL-terminated presentation name.
+        evidence:
+          - re/evidence/functions/gap-runtime.md

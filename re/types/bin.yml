@@ -316,6 +316,108 @@ types:
         evidence:
           - re/evidence/functions/bin-runtime.md
 
+  - name: RuntimeTrickInputHistoryEntry
+    kind: fixed_layout
+    size: 0x08
+    confidence: confirmed
+    description: One action/button event stored by the skater trick-input history writer.
+    fields:
+      - offset: 0x00
+        name: action_code
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x01
+        name: pressed_state
+        type: u8
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x04
+        name: timestamp
+        type: u32
+        confidence: confirmed
+        description: Runtime tick captured when the action state changed.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickInputHistory
+    kind: fixed_layout
+    confidence: confirmed
+    description: Embedded action-history and delayed-start state used between the player action bank and TRICKS.BIN script cursor.
+    fields:
+      - offset: 0x2a14
+        name: entries
+        type: array<RuntimeTrickInputHistoryEntry,32>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2b14
+        name: write_cursor
+        type: u32
+        confidence: confirmed
+        description: Circular history cursor, wrapped after 32 entries.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2b18
+        name: current_button_latches
+        type: array<u8,32>
+        confidence: observed
+        description: Current per-button state bytes; only the active button range is semantically assigned.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2b38
+        name: pending_start_records
+        type: array<RuntimeTrickPendingStartRecord,10>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2bd8
+        name: pending_count
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2bdc
+        name: pending_head
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickPendingStartRecord
+    kind: fixed_layout
+    size: 0x10
+    confidence: confirmed
+    description: One delayed TRICKS.BIN script-start request in the ten-entry player queue.
+    fields:
+      - offset: 0x00
+        name: raw_stream_request
+        type: u32
+        confidence: confirmed
+        description: Raw stream/request word passed through the selection path.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x04
+        name: enqueue_timestamp
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x08
+        name: selection_word
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x0c
+        name: parameter_word
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
   - name: RuntimeSkaterTrickScriptState
     kind: fixed_layout
     confidence: observed
@@ -524,6 +626,109 @@ types:
         type: u32
         confidence: confirmed
         description: Written by command 0x55 and tested/cleared by command 0x4e.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickPointStack
+    kind: fixed_layout
+    confidence: observed
+    description: Embedded trick-stack bookkeeping used by the script point-adjustment path; only the count and current entry point word are assigned.
+    fields:
+      - offset: 0x8f4
+        name: stack_entries
+        type: sequence<RuntimeTrickPointStackEntry>
+        confidence: observed
+        description: Current trick-stack storage with a 0x28-byte stride; the active entry is addressed as +0x8f4 + count * 0x28 using the count at +0x2858.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2858
+        name: stack_count
+        type: i32
+        confidence: confirmed
+        description: Number of active trick-stack entries; zero suppresses point adjustments.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2f54
+        name: active_trick_timer
+        type: i32
+        confidence: observed
+        description: Timer advanced by the point-adjustment helper before it checks the optional limit.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2f58
+        name: trick_timer_limit
+        type: i32
+        confidence: observed
+        description: Optional limit compared against the active trick timer; its public gameplay name remains open.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeTrickPointStackEntry
+    kind: fixed_layout
+    size: 0x28
+    confidence: observed
+    description: One embedded trick-stack entry; only its leading point word is directly modified by the script point path.
+    fields:
+      - offset: 0x00
+        name: point_value
+        type: i32
+        confidence: confirmed
+        description: Signed point adjustment target increased by 0x0048d710.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+
+  - name: RuntimeGameplayTrickScoreState
+    kind: fixed_layout
+    confidence: observed
+    description: Evidence-backed landed-score slice on the gameplay skater; the surrounding score/panel object begins at skater + 0x168.
+    fields:
+      - offset: 0x176
+        name: best_stack_count
+        type: u16
+        confidence: observed
+        description: Stack count copied when a newly committed landed-trick score exceeds the prior best score.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x178
+        name: best_landed_trick_score
+        type: i32
+        confidence: confirmed
+        description: Per-skater best landed-trick score compared and replaced by the landed commit path.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2858
+        name: trick_stack_count
+        type: i32
+        confidence: confirmed
+        description: Number of active trick-stack entries consumed by the landed commit.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2a8
+        name: landed_total_score
+        type: i32
+        confidence: confirmed
+        description: Accumulator increased by the value returned from the landed-trick score calculator and read by the panel display.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2ac
+        name: current_landed_trick_score
+        type: i32
+        confidence: confirmed
+        description: Most recently committed landed-trick value.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x3024
+        name: pending_gap_trick
+        type: pointer<void>
+        confidence: observed
+        description: Pending gap-trick object validated during landed commit and then cleared.
+        evidence:
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x3028
+        name: pending_gap_trick_secondary
+        type: pointer<void>
+        confidence: observed
+        description: Secondary pending gap-trick pointer passed to the adjacent gap-validation path and then cleared.
         evidence:
           - re/evidence/functions/bin-runtime.md
 

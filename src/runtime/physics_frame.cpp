@@ -299,13 +299,29 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     *result.collision_hit,
                     result.position_commit);
             }
-            if (result.collision_hit.has_value() &&
-                stage == PhysicsDispatchStage::InAir_97f40 &&
-                hooks.on_air_contact &&
-                hooks.on_air_contact(
-                    current_player,
-                    *result.collision_hit,
-                    result.position_commit)) {
+            bool accepted_air_contact = false;
+            if (result.collision_hit.has_value()
+                && stage == PhysicsDispatchStage::InAir_97f40) {
+                if (hooks.on_air_contact) {
+                    accepted_air_contact = hooks.on_air_contact(
+                        current_player,
+                        *result.collision_hit,
+                        result.position_commit);
+                } else if (hooks.standard_air_contact_input) {
+                    const std::optional<StandardAirContactInput> contact_input =
+                        hooks.standard_air_contact_input(
+                            current_player, input, *result.collision_hit);
+                    accepted_air_contact = contact_input.has_value()
+                        && accepts_standard_air_contact(
+                            *result.collision_hit,
+                            current_player.physics_state(),
+                            input.action(kJumpActionBit).held,
+                            input.action(kJumpActionBit).inactive_frames,
+                            current_player.frame_counter(),
+                            *contact_input);
+                }
+            }
+            if (accepted_air_contact) {
                 result.landed = current_player.accept_air_contact(
                     result.position_commit.position);
             }

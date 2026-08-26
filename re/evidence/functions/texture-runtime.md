@@ -481,3 +481,17 @@ PC-texture ownership.
   marker at `+0x20`, the separate indexed/color branches, and a live
   constructor-to-upload record with 64x64 dimensions.
 - `inferred`: `0x004e8770`'s complete role and all Direct3D texture flags.
+
+The native PC image half is implemented in `src/assets/bmp_asset.*`. It
+validates the 14-byte BMP header and 0x28-byte DIB header used by the runtime,
+accepts the proven uncompressed 24-bit branch, handles bottom-up row order and
+padding, and returns top-left-origin RGB pixels. `src/assets/pc_texture_runtime.*`
+then owns one device-independent image record per resolved scene material. Its
+raw image preserves the proven `0x2c` allocation, checksum at `+0x0c`, flags at
+`+0x10`, declared/normalized/source dimensions at `+0x14..+0x1e`, and ready
+sentinel at `+0x20`; the material-to-record association remains native side
+data because retail `+0x00/+0x04/+0x24/+0x28` are process-local pointers.
+Loose `NEWTEX`/`NEWBMP` candidates, package entries, and inline PSX textures
+all feed this same manager. The native fixture validates the four known
+Warehouse hash-named images and their 128x128, 256x128, 128x64, and 64x32
+dimensions; Direct3D resource ownership remains a presentation adapter.

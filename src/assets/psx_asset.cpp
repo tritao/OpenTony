@@ -566,8 +566,11 @@ PsxDecodedTexture PsxArchive::decode_texture(
         : texture.color_count == 256U ? 1U : 0U;
     const std::uint32_t width =
         (static_cast<std::uint32_t>(texture.width) + alignment) & ~alignment;
-    const std::uint32_t height =
-        (static_cast<std::uint32_t>(texture.height) + alignment) & ~alignment;
+    // The packed rows round their width to the texel-group boundary. Height
+    // is stored and emitted as-is; several shipped ITEM textures (for
+    // example 128x42 4bpp) prove that padding the height would consume bytes
+    // from the following texture record.
+    const std::uint32_t height = static_cast<std::uint32_t>(texture.height);
     const std::uint64_t expected_size = texture.color_count == 16U
         ? static_cast<std::uint64_t>(width) * height / 2U
         : texture.color_count == 256U

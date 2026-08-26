@@ -158,6 +158,120 @@ types:
         evidence:
           - re/evidence/functions/trg-runtime.md
 
+  - name: RuntimeTriggerScriptObject0xab
+    kind: fixed_layout
+    size: 0xcc
+    confidence: observed
+    description: Runtime record allocated by trigger opcode 0x00ab. The constructor fields are separated from the command's three raw trailing words.
+    fields:
+      - offset: 0x00
+        name: vtable_or_class_dispatch
+        type: pointer<void>
+        confidence: confirmed
+        description: Constructor installs vtable 0x0051836c.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x04
+        name: object_flags
+        type: u16
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x1a
+        name: resolved_key_value
+        type: u16
+        confidence: confirmed
+        description: Result written after resolving the aligned u32 command key through the PSX model/checksum lookup helper.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x20
+        name: next_object
+        type: pointer<RuntimeTriggerScriptObject0xab>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x34
+        name: previous_object
+        type: pointer<RuntimeTriggerScriptObject0xab>
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xc8
+        name: list_identifier
+        type: u16
+        confidence: observed
+        description: Identifier used by the 0x83/0x84 object-flag command space.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeTriggerRailRecord
+    kind: fixed_layout
+    size: null
+    confidence: observed
+    description: Dedicated runtime-list record created from type-10 rail-point and type-11 rail-definition nodes. Only fields directly supported by the constructor and pulse/kill consumers are named.
+    fields:
+      - offset: 0x04
+        name: rail_state
+        type: u8
+        confidence: confirmed
+        description: Set to one by the pulse path and zero by the kill path.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x06
+        name: source_trg_node_index
+        type: u16
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x24
+        name: next_rail_record
+        type: pointer<RuntimeTriggerRailRecord>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeCameraPointRegistry
+    kind: fixed_layout
+    size: 0x90
+    confidence: observed
+    description: "Global type-13 TRG camera-point registry: 70 u16 node indices followed by the active count word."
+    fields:
+      - offset: 0x00
+        name: node_indices
+        type: array<u16,70>
+        confidence: observed
+        description: Registered source TRG node indices; the first-pass camera-point handler appends one index per type-13 node.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x8c
+        name: count
+        type: u32
+        confidence: observed
+        description: Active entry count, bounded below 0x46.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
+  - name: RuntimeCameraPointPayload
+    kind: fixed_layout
+    size: null
+    confidence: observed
+    description: Decoded payload immediately following a type-13 camera-point position; the two words are consumed by camera selection with public names still open.
+    fields:
+      - offset: 0x00
+        name: selection_state_word
+        type: u16
+        confidence: observed
+        description: Value one selects the camera state bit 0x400; other values select bit 0x800 in the nearest-point consumer.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0x02
+        name: transition_variant
+        type: u16
+        confidence: observed
+        description: Retained by the camera transition path as the selected point's raw variant value.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+
   - name: RuntimeTrickObject
     kind: fixed_layout
     size: 0x18
@@ -730,6 +844,13 @@ types:
         type: i32
         confidence: observed
         description: Fixed-point response component initialized and integrated by the traffic update; exact gameplay axis semantics remain open.
+        evidence:
+          - re/evidence/functions/trg-runtime.md
+      - offset: 0xb4
+        name: constructor_field_b4
+        type: u16
+        confidence: observed
+        description: Constructor initializes this field to 0x3c; later semantic use is not assigned.
         evidence:
           - re/evidence/functions/trg-runtime.md
       - offset: 0x1a

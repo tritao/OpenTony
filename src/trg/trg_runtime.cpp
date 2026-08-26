@@ -399,6 +399,26 @@ std::array<std::int32_t, 3> TrgFile::node_position(std::size_t index) const {
     return {fixed[0], fixed[1], fixed[2]};
 }
 
+CameraPointRecord TrgFile::camera_point(std::size_t index) const {
+    const NodeView& current = node(index);
+    if (current.type != 13) {
+        throw FormatError("node is not a type-13 camera point");
+    }
+    const std::size_t begin = current.offset;
+    const std::size_t end = begin + current.size;
+    const std::uint16_t link_words = u16_at(backing_, begin + 2);
+    const std::size_t position = (begin + static_cast<std::size_t>(link_words) * 2 + 7)
+        & ~static_cast<std::size_t>(3);
+    if (position > end || end - position < 16) {
+        throw FormatError("camera-point payload exceeds its node");
+    }
+    return CameraPointRecord{
+        node_position(index),
+        u16_at(backing_, position + 12),
+        u16_at(backing_, position + 14),
+    };
+}
+
 std::uint16_t TrgFile::node_trigger_flags(std::size_t index) const {
     const NodeView& current = node(index);
     if (current.type != 10 && current.type != 11) {

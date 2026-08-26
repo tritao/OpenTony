@@ -142,6 +142,127 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/fileio-runtime.md
+  - address: 0x00473d20
+    name: Mmu_ValidateSaveActionType
+    description: validate career/replay/custom-park save action types and mode constraints
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x004747d0
+    name: Mmu_BuildSaveFilename
+    description: construct a THPS2_*.SAV filename for a save action
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00474d70
+    name: Mmu_ScanSaveFiles
+    description: scan *.SAV records, classify save types, and compute card-block usage
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475480
+    name: Mmu_MapCardResult
+    description: map low-level card result codes to frontend save states
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475620
+    name: Mmu_GetCardState
+    description: return the current MMU/card state word
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475640
+    name: Mmu_CheckCardReady
+    description: run the backend card-ready check used by save operations
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475660
+    name: Mmu_DeleteSaveFile
+    description: delete one indexed save file through the backend
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475700
+    name: Mmu_BuildSaveHeader
+    description: build the 0x200-byte SC save header and three initial blocks
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00475840
+    name: Mmu_AddSaveBuffer
+    description: register one caller-owned aligned save buffer, up to four
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x004758e0
+    name: Mmu_SaveFile
+    description: write registered save buffers and an SC header to a THPS2_*.SAV file
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x00476200
+    name: Mmu_LoadFile
+    description: load and validate a selected THPS2_*.SAV file into registered buffers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x004780d0
+    name: Front_SaveCardStateMachine
+    description: frontend state machine for save/load/delete/format operations
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a030
+    name: Mmu_RegisterSaveBuffer
+    description: forward one caller-owned save buffer and size to the MMU buffer table
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a0b0
+    name: Mmu_SetupCareerSaveBuffer
+    description: allocate and register the fixed 0x1e00-byte career save buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a220
+    name: Mmu_SetupReplaySaveBuffers
+    description: serialize replay headers and register one or two 0x7fe00-byte save streams
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a480
+    name: Mmu_SetupParkSaveBuffer
+    description: validate and register an aligned custom-park save buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a6c0
+    name: Mmu_SetupCareerLoadBuffer
+    description: allocate and register the fixed 0x1e00-byte career load buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047a8a0
+    name: Mmu_SetupReplayLoadBuffer
+    description: allocate and register the observed 0x280-byte replay/video load buffer
+    confidence: observed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047aa50
+    name: Mmu_SetupParkLoadBuffer
+    description: validate and register an aligned custom-park load buffer
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+  - address: 0x0047ae10
+    name: Mmu_FinalizeIngameScreen
+    description: finalize the MMU ingame screen and copy the loaded career image into live career state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/save-runtime.md
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x004ed9b0
     name: Audio_LoadWavPcm
     description: read a WAV resource, parse PCM format, and return aligned sample bytes
@@ -729,6 +850,18 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x00411f30
+    name: TRG_RegisterCameraPoint
+    description: decode a type-13 TRG node and append its node index to the bounded camera-point registry
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x00411fc0
+    name: Camera_SelectNearestTriggerPoint
+    description: select an eligible registered TRG camera point and arm the skater camera transition state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x004c5460
     name: TRG_CreateObject
     description: construct a gameplay object for a TRG node
@@ -736,6 +869,42 @@ functions:
     evidence:
       - re/evidence/functions/trg-runtime.md
       - re/evidence/functions/scripting.md
+  - address: 0x00401060
+    name: TRG_CreateScriptObject
+    description: allocate and register the 0xcc-byte runtime object created by command 0x00ab
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004a9f70
+    name: TRG_ReadRailTriggerWord
+    description: read the u16 immediately following a type-10/type-11 fixed-point position
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004aa3c0
+    name: Rail_SetState
+    description: set a type-10/type-11 runtime-list record state byte
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004aa410
+    name: Rail_ClearState
+    description: clear a type-10/type-11 runtime-list record state byte from the kill path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004aa420
+    name: Rail_ActivateNode
+    description: pulse a type-10/type-11 node through the rail runtime-list state helper
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+  - address: 0x004aa8c0
+    name: Rail_CreateRuntimeRecord
+    description: allocate and link the runtime-list record for a type-10/type-11 TRG node
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/trg-runtime.md
   - address: 0x004bd700
     name: TrickObject_DeleteAll
     description: delete all records in the global TRG type-12/14 trick-object list
@@ -887,12 +1056,102 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x00466c10
+    name: LevelEvent_InitializeAndDispatch
+    description: initialize the level-event latch/global state and dispatch the mode-dependent work reached by TRG command 0x009e
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
   - address: 0x004136e0
     name: TRG_CheckTrafficProximity
     description: scan active runtime objects for nearby traffic and latch subtype-specific proximity effects
     confidence: confirmed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x004c4e30
+    name: Trig_ExecuteRestart
+    description: apply a selected restart position/auxiliary state and execute the restart-node command stream
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/restart-runtime.md
+  - address: 0x004c4c50
+    name: Trig_FindRestartByName
+    description: resolve a type-8 restart node by its embedded name
+    confidence: observed
+    evidence:
+      - re/evidence/functions/restart-runtime.md
+  - address: 0x0048f690
+    name: Gap_ApplyDefinitionState
+    description: consume a matched executable gap definition with score/mode arguments in immediate and deferred completion paths
+    confidence: observed
+    evidence:
+      - re/evidence/functions/gap-runtime.md
+  - address: 0x00414c50
+    name: Gap_CompleteDefinition
+    description: mark or finalize a matched runtime gap definition before source-node pulse propagation
+    confidence: observed
+    evidence:
+      - re/evidence/functions/gap-runtime.md
+  - address: 0x004138f0
+    name: Career_ResetSaveImage
+    description: clear and initialize the 0x1dc4-byte career image, static skater records, and preserved career blocks
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00413c10
+    name: Career_SerializeLiveState
+    description: copy live career globals, profile tables, text, and selection records into the career save image
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00413d60
+    name: Career_ApplySerializedState
+    description: copy career image fields back into live globals and rebuild the selection-index views
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00413ed0
+    name: Career_RebuildCareerPointers
+    description: rebuild pointer views from the serialized four-entry career/profile table
+    confidence: observed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x004165d0
+    name: Career_ApplyLoadedSave
+    description: validate the career image magic and apply loaded selectors, career state, defaults, and flags
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x004166f0
+    name: Career_PrepareSave
+    description: serialize live career state and capture the active skater/costume selectors before MMU registration
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x004171e0
+    name: Career_SaveCustomAppearance
+    description: copy a selected custom skater record appearance blob into the career image staging area
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00417260
+    name: Career_LoadCustomAppearance
+    description: copy a selected custom skater appearance blob from the career image staging area into its runtime record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00417300
+    name: Career_CaptureSkaterDefaults
+    description: capture static skater-selection flags used when initializing or restoring career state
+    confidence: observed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
+  - address: 0x00417330
+    name: Career_ResetRuntimeState
+    description: reset runtime career flags and restore captured static skater-selection defaults
+    confidence: observed
+    evidence:
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x00402bb0
     name: TRG_GetScriptVariable
     description: expose trigger-object script variables and consume operands from its command cursor
@@ -1410,7 +1669,7 @@ functions:
       - re/evidence/functions/skater-asset-runtime.md
   - address: 0x004b4940
     name: PlayerSpool_ParsePartsManifest
-    description: parse PSH .spart records into caller-owned pointers and a count
+    description: scan C-header-style PSH <base>part_ definitions into caller-owned pointers and a count
     confidence: confirmed
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
@@ -1686,12 +1945,14 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x004bbf00
     name: TrickDatabase_ApplyCharacterBindings
     description: map TRICKS.BIN button-key records into a character assignment configuration
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x004bc3a0
     name: TrickTable_BuildPlayerReturnCombos
     description: copy player-return trick key entries into an intermediate six-word combo list
@@ -1752,6 +2013,54 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+  - address: 0x00492120
+    name: TrickInput_DerivePattern
+    description: derive the composite action/analog pattern index used by the skater trick history
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492190
+    name: TrickInput_RefreshHistory
+    description: publish action-bank/profile states into the skater trick history ring
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00491c90
+    name: TrickInput_RecordState
+    description: append a changed action/button state to the 32-entry skater history ring
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492560
+    name: TrickInput_MatchHistory
+    description: search recent pressed action history entries within a timestamp window
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x004925e0
+    name: TrickInput_SelectSequence
+    description: match a generated player trick table against action history and enqueue a script request
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492400
+    name: TrickScript_StartPending
+    description: consume an eligible delayed script request and initialize its player cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492290
+    name: TrickScript_QueueStart
+    description: enqueue or update a selected TRICKS.BIN script request in the player action state
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x00492ea0
+    name: TrickScript_Update
+    description: update action history, select/start pending trick scripts, and execute an active cursor
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
   - address: 0x00492d10
     name: TrickScript_ParseStream
     description: parse one TRICKS.BIN script stream and register its extra animations
@@ -1806,6 +2115,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x00416140
     name: TrickConfig_ConsumePointsAndSetBit
     description: consume an optional trick cost and set a runtime trick bit
@@ -1830,6 +2140,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/career-save-runtime.md
   - address: 0x004c0430
     name: TrickMenu_InitializeRuntime
     description: initialize the trick manager and route the active character through trick configuration setup
@@ -2106,6 +2417,25 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x00464a80
+    name: M3D_PrepareTextureWib
+    description: preflight a PSX texture-WIB item-info table for model texture use
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x00461cf0
+    name: M3D_ApplyTextureWib
+    description: apply texture-WIB item records to relocated model and face texture coordinates
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
+  - address: 0x00462170
+    name: M3D_UpdateColourPulse
+    description: update a PSX colour-pulse table and its RGBS colour output
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/psx-tags-runtime.md
   - address: 0x004b5620
     name: PlayerSpool_LoadQueuedItem
     description: consume one queued player resource through file I/O or the PSX region queue
@@ -2230,6 +2560,7 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
+      - re/evidence/functions/level-event-runtime.md
   - address: 0x00480950
     name: Animation_Advance
     gdb_aliases: [animation_update]
@@ -2261,6 +2592,24 @@ functions:
   - address: 0x004b1430
     name: Skater_GetSlotRecord
     description: return one skater-manager slot record
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b1980
+    name: Skater_MapEnabledIndex
+    description: map a logical player index through the enabled custom-skater records
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b0f80
+    name: Skater_CountCostumeNames
+    description: count valid model-name choices for a skater row with its optional flag filters
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+  - address: 0x004b1700
+    name: Skater_SelectModelName
+    description: select a skater/costume base name from the static model-name table
     confidence: confirmed
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
@@ -2324,18 +2673,6 @@ functions:
     name: Camera_DeathMode
     description: death-camera mode handler; requires a tripod and interpolates camera state
     confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x00411fc0
-    name: Camera_PointSelect
-    description: selects/interpolates a registered camera point for a player object
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/camera-system.md
-  - address: 0x00411f30
-    name: Camera_RegisterPoint
-    description: appends a camera point identifier to the runtime camera-point table
-    confidence: observed
     evidence:
       - re/evidence/functions/camera-system.md
   - address: 0x0040be70
@@ -2549,12 +2886,6 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics-states.md
-  - address: 0x0049d480
-    name: Skater_VelocityDamping
-    description: post-position velocity damping and fixed-point speed limiting
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/physics-states.md
   - address: 0x00496060
     name: Skater_PositionWritePath
     description: shared skater position/collision commit path
@@ -2573,14 +2904,6 @@ functions:
   - address: 0x00497aa0
     name: Skater_AirCollisionRecovery
     description: selected-contact raw-state recovery and horizontal velocity correction
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/physics-states.md
-  - address: 0x00497df0
-    name: Skater_PrepareInAirOrientation
-    gdb_aliases:
-      - physics_air_orientation
-    description: rolling basis normalization and cross-product preparation before in-air action control
     confidence: inferred
     evidence:
       - re/evidence/functions/physics-states.md
@@ -2932,6 +3255,94 @@ functions:
       - re/evidence/functions/player-runtime.md
       - re/evidence/functions/physics.md
       - re/evidence/functions/physics-states.md
+  - address: 0x00490610
+    name: Skater_RemoveNormalComponent
+    description: remove the supplied fixed-point normal component from a three-word movement vector
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00497df0
+    name: Skater_UpdateAirBasis
+    gdb_aliases:
+      - physics_air_orientation
+    description: update the airborne vertical basis offset and recompute paired fixed-point basis vectors
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x0049d480
+    name: Skater_DampResponseVector
+    gdb_aliases:
+      - physics_velocity_damping
+    description: limit and damp the collision/platform response vector after position integration
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x0049df00
+    name: Skater_UpdateBrakeMode
+    description: advance the raw brake-mode state machine and issue its animation transitions
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00494210
+    name: Skater_UpdateRailPhysics
+    description: consume the current relocated TRG rail segment, integrate rail motion, and test ledge/wall sweeps
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x00499710
+    name: Skater_UpdateSweptContactState
+    description: integrate the raw state-5 contact path and commit accepted swept PSX-face contacts
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x004993f0
+    name: Skater_EnterFootplantState
+    description: seed the raw state-6 footplant response before the shared in-air physics handler
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x004995d0
+    name: Skater_UpdateSpecialBasisState
+    description: update the raw state-8 special-move basis vectors and vertical source offset
+    confidence: observed
+    evidence:
+      - re/evidence/functions/physics.md
+  - address: 0x0048f720
+    name: TrickScore_AdvancePointTimer
+    description: advance the active trick timer and forward script point adjustments to the current trick-stack entry
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0048d710
+    name: TrickScore_AdjustCurrentStackEntry
+    description: add a signed point adjustment to the current 0x28-byte trick-stack entry and refresh the panel
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0048cbc0
+    name: TrickScore_ComputeStackSum
+    description: compute the fixed-point score sum for active trick-stack entries and level modifiers
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0048cd40
+    name: TrickScore_ComputeLandedValue
+    description: apply the active stack-count multiplier to the fixed-point trick-stack sum
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0048e680
+    name: TrickScore_CommitLandedStack
+    description: commit the active trick stack into current/best/landed-total score fields and clear it
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+  - address: 0x0048e8a0
+    name: TrickScore_RollbackStack
+    description: apply the negative current stack value through the score consumer and clear the active stack
+    confidence: observed
+    evidence:
+      - re/evidence/functions/bin-runtime.md
   - address: 0x004b1bb0
     name: PSX_FindFreeRegionSlot
     description: scan the 20 named PSX region slots for a free entry
@@ -2992,18 +3403,6 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/psx-lifecycle.md
-  - address: 0x004c4e30
-    name: Trig_ExecuteRestart
-    description: reset players and execute a restart-node command stream
-    confidence: inferred
-    evidence:
-      - re/evidence/functions/scripting.md
-  - address: 0x004c4c50
-    name: Trig_FindRestartByName
-    description: resolve a restart node by its embedded name
-    confidence: observed
-    evidence:
-      - re/evidence/functions/scripting.md
   - address: 0x00480c30
     name: CSuper_FrameReached
     gdb_aliases:

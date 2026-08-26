@@ -179,12 +179,17 @@ void test_script_object_state() {
     const std::array<std::uint16_t, 3> expected_parameters{1, 2, 3};
     assert(state.script_objects()[0].parameters == expected_parameters);
     assert(state.script_objects()[0].identifier == 0);
+    assert(state.script_objects()[0].raw_record().size() == 0xcc);
+    assert(state.script_objects()[0].raw_record()[0xc8] == std::byte{0});
+    assert(state.script_objects()[0].raw_record()[0xc9] == std::byte{0});
 
     // 0x83/0x84 search the same retail object-list identity space.
     state.on_object_flag_by_id(0, true);
     assert((state.script_objects()[0].flags & 1U) != 0);
+    assert(state.script_objects()[0].raw_record()[0x04] == std::byte{1});
     state.on_object_flag_by_id(0, false);
     assert((state.script_objects()[0].flags & 1U) == 0);
+    assert(state.script_objects()[0].raw_record()[0x04] == std::byte{0});
 }
 
 void test_type10_type11_pulse_and_kill_state() {
@@ -221,10 +226,17 @@ void test_type12_type14_runtime_activation() {
     assert(object->has_special_runtime);
     assert(!object->special_runtime_active);
     assert(object->link_key == 0xfeedcafe);
+    assert(object->raw_special_record().size() == 0x18);
+    assert(object->raw_special_record()[0x04] == std::byte{0xfe});
+    assert(object->raw_special_record()[0x05] == std::byte{0xca});
+    assert(object->raw_special_record()[0x08] == std::byte{8});
+    assert(object->raw_special_record()[0x0a] == std::byte{0});
     state.on_node_pulse(8);
     assert(state.object(8)->special_runtime_active);
     assert(state.object(8)->has_special_runtime_context);
     assert(state.object(8)->special_runtime_owner == 2);
+    assert(state.object(8)->raw_special_record()[0x0a] == std::byte{1});
+    assert(state.object(8)->raw_special_record()[0x0b] == std::byte{2});
     assert(state.object(8)->special_runtime_control == 0x13579bdf);
     assert(state.object(8)->has_special_asset_state);
     assert(state.object(8)->special_asset_flags_or == 4);

@@ -3,7 +3,7 @@
 // Replayable native camera contract. This intentionally models the raw state
 // and the recovered stage ordering; it is not a gameplay replacement yet.
 
-#include "src/camera/camera_math.hpp"
+#include "camera_math.hpp"
 
 #include <cstdint>
 

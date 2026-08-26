@@ -2,6 +2,7 @@
 
 #include "physics_dispatch.hpp"
 #include "action_profile.hpp"
+#include "air_contact.hpp"
 
 #include <functional>
 #include <optional>
@@ -123,6 +124,13 @@ struct PlayerPhysicsFrameHooks {
         PlayerState&,
         const PositionCollisionHit&,
         const PositionCommitResult&)> on_air_contact;
+    // Optional direct bridge for the ordinary 0x00497f40 landing predicate.
+    // The callback supplies only the player-owned blocked/last-surface fields;
+    // packed material flags are decoded from PositionCollisionHit.
+    std::function<std::optional<StandardAirContactInput>(
+        const PlayerState&,
+        const InputState&,
+        const PositionCollisionHit&)> standard_air_contact_input;
     std::function<void(PlayerState&, const PhysicsDispatchResult&)>
         on_postphysics;
     // Optional post-dispatch producer for the confirmed 0x0049d480 response

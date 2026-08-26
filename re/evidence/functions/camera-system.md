@@ -1326,7 +1326,13 @@ The static path proves the view/projection handoff, but not yet the exact matrix
 
 The value-level portion is now implemented in
 [camera_math.hpp](../../../src/camera/camera_math.hpp) and
-[camera_system.hpp](../../../src/camera/camera_system.hpp). `CameraStateRaw`
+[camera_system.hpp](../../../src/camera/camera_system.hpp), with the owning
+[camera_runtime.hpp](../../../src/camera/camera_runtime.hpp) wrapper. The
+native `CameraRuntime` now owns the recovered camera state, viewport projection
+record, and last viewport commit; `GameplaySession` can run it after each fixed
+player/level step through
+an explicit opt-in configuration, preserving the simulation-to-camera frame
+boundary without fabricating tripod or collision producers. `CameraStateRaw`
 preserves the recovered PE32/Q16/Q12 fields, `prepare_follow_target` keeps the
 mode-25 and dot/angle branches explicit, `update_camera_history` models the
 observed half-step recurrence, and `commit_viewport_effects` preserves the

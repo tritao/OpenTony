@@ -168,7 +168,7 @@ candidate without treating the action-script impulse path as ordinary steering.
 
 ## Action handoff
 
-The input mapping is already established in [input.md](../input.md):
+The input mapping is already established in [input.md](input.md):
 
 - Left: global mask `0x8000`, DirectInput scan `203`, action record `0x0056b078`.
 - Right: global mask `0x2000`, DirectInput scan `205`, action record `0x0056b088`.

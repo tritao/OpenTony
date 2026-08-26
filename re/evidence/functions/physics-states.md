@@ -1159,3 +1159,11 @@ The optional runtime entry probes for `0x004900b0`, `0x004902bf`, and
 the primary dynamic state sequence; the independent frontend trace adds direct
 `0x00497f40` entry records and live state-request records, strengthening the
 handler and landing assignments without globally renaming the raw enum.
+
+The native frame now exposes the ordinary landing predicate directly through
+`accepts_standard_air_contact()`. It recomputes the five raw expressions from
+the packed `PositionCollisionHit` face word and face flags, then applies the
+player-owned blocked/last-surface inputs before calling the existing
+commit-before-state-request path. This closes the disk PSX face metadata to
+in-air state transition boundary while leaving wall, rail, and special-contact
+classification outside the generic predicate.

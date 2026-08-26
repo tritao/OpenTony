@@ -1,0 +1,117 @@
+#include "psx_animation_runtime.hpp"
+
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace {
+
+void put16(std::vector<std::byte>& bytes, std::size_t offset, std::uint16_t value) {
+    bytes[offset] = static_cast<std::byte>(value & 0xffU);
+    bytes[offset + 1] = static_cast<std::byte>(value >> 8U);
+}
+
+void put32(std::vector<std::byte>& bytes, std::size_t offset, std::uint32_t value) {
+    put16(bytes, offset, static_cast<std::uint16_t>(value));
+    put16(bytes, offset + 2, static_cast<std::uint16_t>(value >> 16U));
+}
+
+} // namespace
+
+int main() {
+    constexpr std::size_t first_tag = 0x10;
+    constexpr std::size_t first_payload = first_tag + 8;
+    constexpr std::size_t first_size = 4 + 2 * 8 + 3;
+    constexpr std::size_t second_tag = first_payload + first_size;
+    constexpr std::size_t second_payload = second_tag + 8;
+    constexpr std::size_t end = second_payload + 4;
+    std::vector<std::byte> bytes(end + 4, std::byte{0});
+    put16(bytes, 0, 4);
+    put16(bytes, 2, 2);
+    put32(bytes, 4, static_cast<std::uint32_t>(first_tag));
+    put32(bytes, first_tag, opentony::assets::kPsxCompressedAnimationTag);
+    put32(bytes, first_tag + 4, static_cast<std::uint32_t>(first_size));
+    put32(bytes, first_payload, 2);
+    for (std::size_t index = 0; index < 16; ++index) {
+        bytes[first_payload + 4 + index] = static_cast<std::byte>(0x10 + index);
+    }
+    bytes[first_payload + 20] = std::byte{0xa1};
+    bytes[first_payload + 21] = std::byte{0xa2};
+    bytes[first_payload + 22] = std::byte{0xa3};
+    put32(bytes, second_tag, opentony::assets::kPsxHierarchyTag);
+    put32(bytes, second_tag + 4, 4);
+    bytes[second_payload + 0] = std::byte{0xb1};
+    bytes[second_payload + 1] = std::byte{0xb2};
+    bytes[second_payload + 2] = std::byte{0xb3};
+    bytes[second_payload + 3] = std::byte{0xb4};
+    put32(bytes, end, 0xffffffffU);
+
+    const opentony::assets::PsxArchive archive =
+        opentony::assets::PsxArchive::parse(std::move(bytes), "animation.psx");
+    opentony::assets::PsxAnimationRuntime runtime;
+    runtime.build(archive);
+    assert(runtime.products().size() == 1);
+    assert(runtime.products()[0].tag_type
+        == opentony::assets::kPsxCompressedAnimationTag);
+    assert(runtime.products()[0].records.size() == 2);
+    assert(runtime.products()[0].records[1][7] == std::byte{0x1f});
+    assert(runtime.products()[0].source_stream.size() == 3);
+    assert(runtime.products()[0].source_stream[0] == std::byte{0xa1});
+    assert(runtime.hierarchy_payload().size() == 4);
+    assert(runtime.hierarchy_payload()[3] == std::byte{0xb4});
+
+    const auto literal = opentony::assets::decode_psx_animation_channel(
+        std::array<std::byte, 5>{
+            std::byte{0x20}, std::byte{0x00}, std::byte{0x00},
+            std::byte{0x06}, std::byte{0x00}},
+        2);
+    assert(literal.interpolation_count == 3);
+    assert(literal.encoding == 0);
+    assert((literal.samples == std::vector<std::int16_t>{0, 2, 4, 6}));
+    assert(literal.consumed_bytes == 5);
+
+    const auto packed = opentony::assets::decode_psx_animation_channel(
+        std::array<std::byte, 4>{
+            std::byte{0x01}, std::byte{100}, std::byte{0}, std::byte{0xc0}},
+        2);
+    assert((packed.samples == std::vector<std::int16_t>{100, 99}));
+    assert(packed.consumed_bytes == 4);
+
+    const auto repeated = opentony::assets::decode_psx_animation_channel(
+        std::array<std::byte, 3>{std::byte{0x0e}, std::byte{7}, std::byte{0}}, 3);
+    assert((repeated.samples == std::vector<std::int16_t>{7, 7, 7}));
+    const auto zeroes = opentony::assets::decode_psx_animation_channel(
+        std::array<std::byte, 1>{std::byte{0x0f}}, 2);
+    assert((zeroes.samples == std::vector<std::int16_t>{0, 0}));
+
+    opentony::assets::PsxAnimationPlaybackState playback;
+    playback.start(7, 10, 0, 9);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.advance(0x100);
+    assert(playback.animation_index() == 7);
+    assert(playback.current_frame() == 1);
+    assert(playback.direction() == 1);
+    playback.set_mode(1);
+    for (int index = 0; index < 10; ++index) {
+        playback.advance(0x100);
+    }
+    assert(playback.current_frame() == 1);
+
+    playback.start(3, 8, 0, 3);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.set_mode(4);
+    for (int index = 0; index < 4; ++index) {
+        playback.advance(0x100);
+    }
+    assert(playback.direction() == -1);
+    assert(playback.end_frame() == 0);
+
+    playback.start(4, 8, 0, 3);
+    playback.set_mode(3);
+    playback.set_playback_rate_fixed(0x10000);
+    playback.set_pingpong_range(2, 4, 0);
+    playback.advance(0x100, 2);
+    assert(playback.current_frame() == 3);
+    return 0;
+}
