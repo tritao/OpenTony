@@ -538,6 +538,16 @@ inline Raw x86_shift_left(Raw value, unsigned count) {
     return static_cast<Raw>(static_cast<std::uint32_t>(value) << (count & 31u));
 }
 
+inline std::int16_t narrow_s16(Raw value) {
+    const auto bits = static_cast<std::uint16_t>(
+        static_cast<std::uint32_t>(value));
+    if (bits < 0x8000u) {
+        return static_cast<std::int16_t>(bits);
+    }
+    return static_cast<std::int16_t>(-
+        static_cast<std::int32_t>(0x10000u - bits));
+}
+
 inline std::int16_t clamp_to_s16(Raw value) {
     // 0x004e2070 obtains the signed-short endpoints from 2^15 and 2^15-1,
     // then calls the game's truncate-toward-zero x87 conversion helper
@@ -550,6 +560,117 @@ inline std::int16_t clamp_to_s16(Raw value) {
         return std::numeric_limits<std::int16_t>::max();
     }
     return static_cast<std::int16_t>(value);
+}
+
+struct CollisionBounds {
+    RawVec3 min{};
+    RawVec3 max{};
+};
+
+// 0x004f4130 expands a model's local bounds by two units and optionally
+// reflects each axis around the query endpoint sum.  The reflection mask is
+// produced by 0x004f4050 when the query endpoints are ordered oppositely.
+inline CollisionBounds build_object_bounds(
+    const CollisionModelHeader& model, const RawVec3& query_start,
+    const RawVec3& query_end, const RawVec3& object_offset,
+    std::uint8_t reflection_mask = 0) {
+    CollisionBounds result;
+    const std::array<Raw, 3> model_min{
+        model.x_min, model.y_min, model.z_min};
+    const std::array<Raw, 3> model_max{
+        model.x_max, model.y_max, model.z_max};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        result.min[axis] = wrapping_sub(
+            wrapping_add(model_min[axis], object_offset[axis]), 2);
+        result.max[axis] = wrapping_add(
+            wrapping_add(model_max[axis], object_offset[axis]), 2);
+        if ((reflection_mask & (1u << axis)) != 0) {
+            const auto endpoint_sum = wrapping_add(query_start[axis],
+                                                   query_end[axis]);
+            const auto old_min = result.min[axis];
+            const auto old_max = result.max[axis];
+            result.min[axis] = wrapping_sub(endpoint_sum, old_max);
+            result.max[axis] = wrapping_sub(endpoint_sum, old_min);
+        }
+    }
+    return result;
+}
+
+// This is the complete boolean prefilter in 0x004f4240, including its
+// short-cross-product edge test.  It is intentionally kept separate from
+// face testing: 0x004f43e0 uses it only to decide whether an object deserves
+// the more expensive transformed-vertex pass.
+inline std::array<std::int16_t, 3> broadphase_cross_s16(
+    const std::array<std::int16_t, 3>& direction,
+    const std::array<std::int16_t, 3>& point) {
+    return {
+        clamp_to_s16(static_cast<Raw>(direction[1]) * point[2] -
+                     static_cast<Raw>(direction[2]) * point[1]),
+        clamp_to_s16(static_cast<Raw>(direction[2]) * point[0] -
+                     static_cast<Raw>(direction[0]) * point[2]),
+        clamp_to_s16(static_cast<Raw>(direction[0]) * point[1] -
+                     static_cast<Raw>(direction[1]) * point[0]),
+    };
+}
+
+inline bool object_broadphase_test(const RawVec3& query_start,
+                                   const RawVec3& query_end,
+                                   const CollisionBounds& bounds) {
+    // First six comparisons from 0x004f4240.  The first endpoint is the
+    // lower side and the second is the upper side after 0x004f4050's axis
+    // ordering; callers should pass the same ordered endpoints they use to
+    // build the reflection mask.
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        if (bounds.min[axis] >= query_end[axis] ||
+            bounds.max[axis] < query_start[axis]) {
+            return false;
+        }
+    }
+
+    const std::array<std::int16_t, 3> direction{
+        narrow_s16(wrapping_sub(query_end[0], query_start[0])),
+        narrow_s16(wrapping_sub(query_end[1], query_start[1])),
+        narrow_s16(wrapping_sub(query_end[2], query_start[2])),
+    };
+    const std::array<std::int16_t, 3> max_from_start{
+        narrow_s16(wrapping_sub(bounds.max[0], query_start[0])),
+        narrow_s16(wrapping_sub(bounds.max[1], query_start[1])),
+        narrow_s16(wrapping_sub(bounds.max[2], query_start[2])),
+    };
+    const std::array<std::int16_t, 3> min_from_start{
+        narrow_s16(wrapping_sub(bounds.min[0], query_start[0])),
+        narrow_s16(wrapping_sub(bounds.min[1], query_start[1])),
+        narrow_s16(wrapping_sub(bounds.min[2], query_start[2])),
+    };
+
+    auto cross = broadphase_cross_s16(direction, min_from_start);
+    if (cross[0] < 0) {
+        if (cross[1] >= 0) {
+            auto edge = min_from_start;
+            edge[2] = max_from_start[2];
+            cross = broadphase_cross_s16(direction, edge);
+            if (cross[0] < 0) {
+                return false;
+            }
+            return cross[1] < 1;
+        }
+    } else if (cross[2] < 0) {
+        auto edge = min_from_start;
+        edge[1] = max_from_start[1];
+        cross = broadphase_cross_s16(direction, edge);
+        if (cross[0] > 0) {
+            return false;
+        }
+        return cross[2] >= -1;
+    }
+
+    auto edge = min_from_start;
+    edge[0] = max_from_start[0];
+    cross = broadphase_cross_s16(direction, edge);
+    if (cross[1] < -1) {
+        return false;
+    }
+    return cross[2] < 1;
 }
 
 struct FaceGeometry {
@@ -595,6 +716,81 @@ inline std::optional<std::uint32_t> read_le_u32(std::span<const std::uint8_t> by
            (static_cast<std::uint32_t>(bytes[offset + 1]) << 8u) |
            (static_cast<std::uint32_t>(bytes[offset + 2]) << 16u) |
            (static_cast<std::uint32_t>(bytes[offset + 3]) << 24u);
+}
+
+inline std::optional<Raw> read_le_i32(std::span<const std::uint8_t> bytes,
+                                       std::size_t offset) {
+    const auto value = read_le_u32(bytes, offset);
+    return value ? std::optional<Raw>(static_cast<Raw>(*value))
+                 : std::nullopt;
+}
+
+// Minimum linked-object prefix consumed by 0x004f43e0 and 0x00463e50. The
+// first word and the three bytes before model_kind are deliberately opaque;
+// the executable only establishes that the collision fields below exist at
+// these offsets. The next link is a 32-bit game pointer at +0x20.
+#pragma pack(push, 1)
+struct LinkedCollisionObjectLayout {
+    std::uint32_t unknown_00 = 0;
+    std::uint16_t flags = 0;          // +0x04; byte +0x05 has a cull bit
+    std::uint16_t query_stamp = 0;    // +0x06
+    Raw position[3]{};                // +0x08, fixed-point
+    std::int16_t angles[3]{};         // +0x14, x/y/z angle units
+    std::uint16_t model_index = 0;    // +0x1a
+    std::uint8_t unknown_1c[3]{};
+    std::uint8_t model_kind = 0;      // +0x1f
+    std::uint32_t next = 0;            // +0x20, 32-bit game pointer
+};
+#pragma pack(pop)
+
+static_assert(sizeof(LinkedCollisionObjectLayout) == 0x24);
+static_assert(offsetof(LinkedCollisionObjectLayout, flags) == 0x04);
+static_assert(offsetof(LinkedCollisionObjectLayout, query_stamp) == 0x06);
+static_assert(offsetof(LinkedCollisionObjectLayout, position) == 0x08);
+static_assert(offsetof(LinkedCollisionObjectLayout, angles) == 0x14);
+static_assert(offsetof(LinkedCollisionObjectLayout, model_index) == 0x1a);
+static_assert(offsetof(LinkedCollisionObjectLayout, model_kind) == 0x1f);
+static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
+
+struct LinkedCollisionObjectRecord {
+    std::uint16_t flags = 0;
+    std::uint16_t query_stamp = 0;
+    RawVec3 position{};
+    std::array<std::int16_t, 3> angles{};
+    std::uint16_t model_index = 0;
+    std::uint8_t model_kind = 0;
+    std::uint32_t next = 0;
+};
+
+inline std::optional<LinkedCollisionObjectRecord>
+read_linked_collision_object(std::span<const std::uint8_t> bytes) {
+    if (bytes.size() < sizeof(LinkedCollisionObjectLayout)) {
+        return std::nullopt;
+    }
+    const auto flags = read_le_u16(bytes, 0x04);
+    const auto query_stamp = read_le_u16(bytes, 0x06);
+    const auto x = read_le_i32(bytes, 0x08);
+    const auto y = read_le_i32(bytes, 0x0c);
+    const auto z = read_le_i32(bytes, 0x10);
+    const auto angle_x = read_le_i16(bytes, 0x14);
+    const auto angle_y = read_le_i16(bytes, 0x16);
+    const auto angle_z = read_le_i16(bytes, 0x18);
+    const auto model_index = read_le_u16(bytes, 0x1a);
+    const auto model_kind = bytes[0x1f];
+    const auto next = read_le_u32(bytes, 0x20);
+    if (!flags || !query_stamp || !x || !y || !z || !angle_x || !angle_y ||
+        !angle_z || !model_index || !next) {
+        return std::nullopt;
+    }
+    return LinkedCollisionObjectRecord{
+        .flags = *flags,
+        .query_stamp = *query_stamp,
+        .position = {*x, *y, *z},
+        .angles = {*angle_x, *angle_y, *angle_z},
+        .model_index = *model_index,
+        .model_kind = model_kind,
+        .next = *next,
+    };
 }
 
 struct CollisionModelView {

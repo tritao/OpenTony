@@ -301,6 +301,19 @@ the wrapper; the query does not parse a file on each call.
     optional Euler/rotation shorts at `+0x14..0x18`. It calls
     `0x004f4130`/`0x004f4240` for object-space broad-phase culling before the
     transformed face pass.
+    The minimum node prefix is now represented as a 0x24-byte view: the
+    opaque first word is followed by flags, query stamp, three fixed-point
+    position words, X/Y/Z angle shorts, model index, model kind, and the
+    32-bit next pointer. This is an in-memory ABI view only; it does not
+    claim that heap nodes are serialized in a level file.
+  - `0x004f4050` orders the two query endpoints independently on X/Y/Z and
+    returns a three-bit reflection mask. `0x004f4130` expands the selected
+    model bounds by two units and reflects them around the endpoint sum for
+    each set mask bit. `0x004f4240` first performs strict lower-bound/upper-
+    bound endpoint gates, then runs the short cross-product edge test using
+    the query delta. These are now available as tested native helpers, which
+    closes the object-space broad-phase arithmetic while leaving only the
+    source of the linked node bytes unresolved.
   - `0x00463e50` transforms the query into object/model space and calls
     `0x004f4b00` to transform all model vertices into a temporary buffer.
     Each temporary record is three signed shorts plus a 16-bit clip mask.
@@ -538,6 +551,8 @@ of that API without fabricating the unresolved zone/model format. It provides:
   `0x004e2070`;
 - the projected dynamic-face winding gate, candidate distance, nearest-hit
   update, and the dynamic contact fallback arithmetic.
+- the recovered linked-object prefix view, model-bound expansion/reflection,
+  and the complete short-arithmetic object broad-phase prefilter.
 
 The asset-facing native layer at
 [`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
@@ -552,7 +567,8 @@ reproduced.
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact
 contact point), the raw query layout, both line-basis branches, synthetic
 model-face traversal, candidate filtering, zone indexing, a horizontal grid
-walk, and the dynamic projected-face candidate/fallback path. This is a
+walk, the linked-object prefix and broad-phase path, and the dynamic
+projected-face candidate/fallback path. This is a
 reference query layer rather than a complete level-file loader: the remaining
 engine-specific work is wiring the PC linked-object cache and its broad-phase
 records into these interfaces. The Q12 object-angle basis used by normal

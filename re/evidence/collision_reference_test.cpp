@@ -13,6 +13,43 @@ int main() {
     assert(clamp_to_s16(-32768) == -32768);
     assert(clamp_to_s16(32767) == 32767);
     assert(clamp_to_s16(40000) == 32767);
+    assert(narrow_s16(-32769) == 32767);
+    assert(narrow_s16(32768) == -32768);
+
+    std::array<std::uint8_t, sizeof(LinkedCollisionObjectLayout)> linked_bytes{};
+    const auto put_linked16 = [&linked_bytes](std::size_t offset,
+                                               std::uint16_t value) {
+        linked_bytes[offset] = static_cast<std::uint8_t>(value);
+        linked_bytes[offset + 1] = static_cast<std::uint8_t>(value >> 8u);
+    };
+    const auto put_linked32 = [&linked_bytes](std::size_t offset,
+                                               std::uint32_t value) {
+        linked_bytes[offset] = static_cast<std::uint8_t>(value);
+        linked_bytes[offset + 1] = static_cast<std::uint8_t>(value >> 8u);
+        linked_bytes[offset + 2] = static_cast<std::uint8_t>(value >> 16u);
+        linked_bytes[offset + 3] = static_cast<std::uint8_t>(value >> 24u);
+    };
+    put_linked16(0x04, 0x0025);
+    put_linked16(0x06, 0x1234);
+    put_linked32(0x08, 4096);
+    put_linked32(0x0c, static_cast<std::uint32_t>(-8192));
+    put_linked32(0x10, 12288);
+    put_linked16(0x14, 0x0100);
+    put_linked16(0x16, 0xff00);
+    put_linked16(0x18, 0x0200);
+    put_linked16(0x1a, 171);
+    linked_bytes[0x1f] = 6;
+    put_linked32(0x20, 0x12345678);
+    const auto linked = read_linked_collision_object(linked_bytes);
+    assert(linked);
+    assert(linked->flags == 0x0025);
+    assert(linked->query_stamp == 0x1234);
+    assert((linked->position == RawVec3{4096, -8192, 12288}));
+    assert((linked->angles == std::array<std::int16_t, 3>{0x0100, -0x0100,
+                                                           0x0200}));
+    assert(linked->model_index == 171);
+    assert(linked->model_kind == 6);
+    assert(linked->next == 0x12345678);
 
     assert(face_record_stride_bytes(0x001c1083) == 0x1c);
     assert(face_record_stride_bytes(0x00205823) == 0x20);
@@ -24,6 +61,28 @@ int main() {
     assert(model_normal_offset(model) == 0x8c);
     assert(model_face_offset(model) == 0xbc);
     assert(model_record_offset(13) == 13u * 8u);
+
+    model.x_min = -10;
+    model.x_max = 20;
+    model.y_min = -5;
+    model.y_max = 15;
+    model.z_min = -30;
+    model.z_max = 40;
+    const auto object_bounds = build_object_bounds(
+        model, {0, 0, 0}, {100, 100, 100}, {5, 6, 7});
+    assert((object_bounds.min == RawVec3{-7, -1, -25}));
+    assert((object_bounds.max == RawVec3{27, 23, 49}));
+    const auto reflected_bounds = build_object_bounds(
+        model, {0, 0, 0}, {100, 100, 100}, {0, 0, 0}, 0x01);
+    assert(reflected_bounds.min[0] == 78);
+    assert(reflected_bounds.max[0] == 112);
+
+    const CollisionBounds broadphase_bounds{
+        .min = {4, -1, -1}, .max = {6, 1, 1}};
+    assert(object_broadphase_test({0, 0, 0}, {10, 0, 0},
+                                  broadphase_bounds));
+    assert(!object_broadphase_test({0, 3, 0}, {10, 3, 0},
+                                   broadphase_bounds));
 
     assert(sizeof(CollisionQueryLayout) == 0x90);
     assert(offsetof(CollisionQueryLayout, line_basis) == 0x48);
