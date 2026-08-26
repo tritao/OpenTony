@@ -740,9 +740,9 @@ def split_verify(_args) -> int:
     section_status: dict[str, dict[str, int]] = {}
     for module in manifest.get("modules", []):
         status = str(module.get("status", "raw"))
-        if status not in {"raw", "asm", "cpp"}:
+        if status not in {"raw", "hybrid", "asm", "cpp"}:
             errors.append(f"unknown module status {status!r}: {module['id']}")
-        totals = section_status.setdefault(module["section"], {"raw": 0, "asm": 0, "cpp": 0})
+        totals = section_status.setdefault(module["section"], {"raw": 0, "hybrid": 0, "asm": 0, "cpp": 0})
         if status in totals:
             totals[status] += int(module["size"])
         built = _built_path(module)
@@ -762,7 +762,12 @@ def split_verify(_args) -> int:
             errors.append(f"module bytes differ: {module['id']}")
         else:
             matching += 1
-        if status != "raw":
+        if status == "hybrid":
+            reconstructed_size = int(module.get("reconstructed_size", 0))
+            if not 0 < reconstructed_size < int(module["size"]):
+                errors.append(f"invalid hybrid reconstructed_size: {module['id']}")
+            reconstructed += reconstructed_size
+        elif status != "raw":
             reconstructed += int(module["size"])
 
     source = _source_executable()
@@ -773,12 +778,17 @@ def split_verify(_args) -> int:
     total = sum(int(module["size"]) for module in manifest.get("modules", []))
     print(f"coverage: {total} file bytes across {len(manifest.get('sections', []))} sections")
     for section in manifest.get("sections", []):
-        statuses = section_status.get(section["name"], {"raw": 0, "asm": 0, "cpp": 0})
+        statuses = section_status.get(section["name"], {"raw": 0, "hybrid": 0, "asm": 0, "cpp": 0})
         raw_size = int(section["raw_size"])
-        reconstructed_size = statuses["asm"] + statuses["cpp"]
+        hybrid_reconstructed = sum(
+            int(module.get("reconstructed_size", 0))
+            for module in manifest.get("modules", [])
+            if module["section"] == section["name"] and module.get("status") == "hybrid"
+        )
+        reconstructed_size = statuses["asm"] + statuses["cpp"] + hybrid_reconstructed
         percent = reconstructed_size * 100 / raw_size if raw_size else 0
         print(
-            f"  {section['name']}: raw={statuses['raw']} asm={statuses['asm']} "
+            f"  {section['name']}: raw={statuses['raw']} hybrid={statuses['hybrid']} asm={statuses['asm']} "
             f"cpp={statuses['cpp']} reconstructed={percent:.2f}%"
         )
     print(f"modules: {matching}/{len(manifest.get('modules', []))} byte-identical")

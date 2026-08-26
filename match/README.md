@@ -4,6 +4,8 @@ This tree contains the tracked manifest and modular NASM sources for rebuilding
 the recorded `THawk2.exe` without a linker. Original and assembled binary
 fragments are generated locally and ignored by Git.
 
+See `match/POLICY.md` for ownership, status, encoding, and subsystem rules.
+
 Bootstrap the split after extracting the recorded executable:
 
 ```bash
