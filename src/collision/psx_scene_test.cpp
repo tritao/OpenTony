@@ -92,6 +92,40 @@ std::vector<std::uint8_t> synthetic_scene() {
     return bytes;
 }
 
+void check_wrapped_blockmap_bounds() {
+    auto bytes = synthetic_scene();
+    constexpr std::size_t tag_offset = 140;
+    constexpr std::size_t blockmap_payload_offset = tag_offset + 8;
+    constexpr std::size_t blockmap_payload_size = 36;
+    bytes.resize(tag_offset + 8 + blockmap_payload_size + 4, 0);
+    put_u32(bytes, tag_offset, 0x0000000a);
+    put_u32(bytes, tag_offset + 4, blockmap_payload_size);
+    put_u32(bytes, blockmap_payload_offset + 0x00, 0x7fffffffu);
+    put_u32(bytes, blockmap_payload_offset + 0x04, 0);
+    put_u32(bytes, blockmap_payload_offset + 0x08, 0x80000000u);
+    put_u32(bytes, blockmap_payload_offset + 0x0c, 0);
+    put_u16(bytes, blockmap_payload_offset + 0x10, 1);
+    put_u16(bytes, blockmap_payload_offset + 0x12, 1);
+    // Zero-valued cell metadata, an empty reference list, and its zero
+    // terminator are all valid payload values, not truncated reads.
+    put_u32(bytes, blockmap_payload_offset + 0x14, 0);
+    put_u32(bytes, blockmap_payload_offset + 0x18, 0);
+    put_u32(bytes, blockmap_payload_offset + 0x1c, 0);
+    put_u32(bytes, blockmap_payload_offset + 0x20, 0);
+    put_u32(bytes, tag_offset + 8 + blockmap_payload_size, 0xffffffffu);
+
+    std::string error;
+    const auto scene = PsxScene::parse(bytes, &error);
+    assert(scene && error.empty());
+    assert(scene->blockmaps().size() == 1);
+    assert(scene->blockmaps()[0].cells[0].object_indices.empty());
+    // The wrapped one-unit span is outside this query, so the blockmap must
+    // suppress the otherwise colliding synthetic face.
+    const auto query = scene->query({4096, 4096, 4096},
+                                    {4096, 4096, -4096});
+    assert(query.hit_body == 0);
+}
+
 void check_synthetic_scene() {
     std::string error;
     const auto bytes = synthetic_scene();
@@ -321,6 +355,7 @@ void check_packaged_scene(const char* path) {
 
 int main(int argc, char** argv) {
     check_synthetic_scene();
+    check_wrapped_blockmap_bounds();
     if (argc == 2) {
         check_packaged_scene(argv[1]);
     }
