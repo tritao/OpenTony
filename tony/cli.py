@@ -138,6 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="also rebuild/verify matching output and verify Ghidra state")
     p.set_defaults(func=commands.verify)
 
+    worktree = sub.add_parser("worktree", help="prepare and check isolated reconstruction worktrees")
+    worktree_sub = worktree.add_subparsers(dest="worktree_command", required=True)
+    p = worktree_sub.add_parser("prepare", help="share immutable inputs and seed a private Ghidra project")
+    p.add_argument("--source", help="ready primary checkout; defaults to the main Git worktree")
+    p.set_defaults(func=commands.worktree_prepare)
+    p = worktree_sub.add_parser("verify", help="check prerequisites without provisioning or rebuilding")
+    p.set_defaults(func=commands.worktree_verify)
+
     recovered_types = sub.add_parser("types", help="validate recovered retail memory layouts")
     recovered_types_sub = recovered_types.add_subparsers(dest="types_command", required=True)
     p = recovered_types_sub.add_parser("verify", help="validate recovered type schemas and evidence")

@@ -76,6 +76,10 @@ from .wine import (  # noqa: F401 - public command compatibility
     wine_mount_disc,
     wine_unmount_disc,
 )
+from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
+    worktree_prepare,
+    worktree_verify,
+)
 
 
 def play_game(args) -> int:

@@ -64,11 +64,15 @@ working directory.
 ```bash
 git worktree add ../opentony-camera -b re/camera-update
 cd ../opentony-camera
+./tony.sh worktree prepare
+./tony.sh worktree verify
 tony slice prompt camera-update
 ```
 
 Slice claims are stored in Git's shared administrative directory, so every
-worktree sees the same owner. Each worktree should use its own editable Python
-environment and writable Ghidra project; do not point several agents at one
-writable project. Provision ignored inputs and generated analysis in each
-worktree as needed.
+worktree sees the same owner. `worktree prepare` links immutable inputs and the
+Ghidra installation from the primary checkout, then copies its existing Ghidra
+project for private use. It does not download media or rebuild analysis. Each
+worktree keeps its own editable Python environment and writable Ghidra project.
+During slice work, a failed readiness check is a prerequisite problem to report;
+do not run setup or `tony ghidra rebuild`.

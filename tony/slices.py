@@ -173,8 +173,10 @@ Repository: {ROOT}
 Branch: {branch}
 
 Read `AGENTS.md` and `docs/SLICE_WORKFLOW.md`. Claim the slice with
-`tony slice claim {args.slice_id}`, inspect it with `tony slice show {args.slice_id}`,
-then select one scoped target with `tony ghidra gaps --slice {args.slice_id}`.
+`tony slice claim {args.slice_id}`. Run `tony worktree verify`; do not download
+inputs, run setup, or rebuild Ghidra during slice work. If readiness fails,
+report it instead. Inspect with `tony slice show {args.slice_id}`, then select
+one scoped target with `tony ghidra gaps --slice {args.slice_id}`.
 
 Current priorities:
 {priorities}

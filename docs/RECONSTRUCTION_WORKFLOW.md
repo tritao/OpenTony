@@ -66,6 +66,11 @@ committed manifests remain the reviewable scope and completion contract. Use
 one worktree and branch per concurrent editing agent. `tony slice prompt ID`
 prints the compact handoff prompt for a new or continuing agent.
 
+Hydrate a new worktree once with `tony worktree prepare`. It shares immutable
+inputs and tools while seeding a private copy of the ready Ghidra project.
+Agents must use `tony worktree verify` as a read-only readiness check and must
+not download inputs or rebuild Ghidra as part of slice reconstruction.
+
 ## Reconstruction stages
 
 ### 1. Analyze before transcribing

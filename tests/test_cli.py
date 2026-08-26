@@ -12,6 +12,14 @@ def test_verify_all_parse():
     assert callable(args.func)
 
 
+def test_worktree_commands_parse():
+    prepare = build_parser().parse_args(["worktree", "prepare", "--source", "/repo/main"])
+    verify = build_parser().parse_args(["worktree", "verify"])
+    assert prepare.source == "/repo/main"
+    assert callable(prepare.func)
+    assert callable(verify.func)
+
+
 def test_experiments_parse():
     args = build_parser().parse_args(["experiments", "list"])
     assert callable(args.func)
