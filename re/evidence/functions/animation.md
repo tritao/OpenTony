@@ -35,6 +35,24 @@ addresses above are the addresses used by the decompilation project for this
 retail executable; the map is supporting source-name evidence, not a license
 to mix addresses from another regional build.
 
+The recovered API seam is:
+
+| Retail/source role | PC body | Status for recreation |
+| --- | ---: | --- |
+| `CSuper::RunAnim` | `0x00480730` | Exact request initialization, validation, clamping, direction, and endpoint setup. |
+| `CSuper::CycleAnim` | `0x00480890` | Exact looping cursor initialization. |
+| `CSuper::UpdateFrame` | `0x00480950` | Exact fixed-point advancement and five-mode dispatch. |
+| `CSuper::FrameReached` | `0x00480c30` | Exact inclusive old/new range query; omitted from the generated function list but present as executable code. |
+| `CSuper::SetAnimOrder` | `0x00480cd0` | Exact model/render-part to animation-part byte mapping. |
+| `CSuper::ApplyPose` | `0x00480f50` | Body/signature match; initializes tween and pose stages, but direct PC caller not proven. |
+| `Decomp_GetAnimTransform` | `0x00430920` | Exact cache/hierarchy entry boundary and compressed-frame decode target. |
+| `M3dUtils_ClearPoseStuff` | `0x00464bb0` | Exact pose/mapping cleanup body. |
+| `M3dUtils_BuildPose` | `0x00465300` | Proven skeleton pose-builder boundary; source name is corroborating rather than a recovered PC symbol. |
+
+This table is the practical stopping point for the minimal animation system:
+the remaining work is event-write provenance and broader gameplay selection,
+not discovery of another hidden “current animation” or “advance” stage.
+
 ## Selection / controlled states
 
 `0x00492f20` is the useful controlled-state selector in the skater steering path. It reads the steering/turn inputs at the skater object, examines the current animation at `player+0xf6`, and requests animation changes through `0x00490450`:
@@ -137,8 +155,15 @@ The decompilation of `0x00480730` shows these writes on the same skater/`CSuper`
 | `+0x100` | playback direction | Set to forward/reverse from the requested start/end range. |
 | `+0x101` | endpoint frame | Stored by `RunAnim` and used by the mode logic. |
 | `+0x102` | alternate/next endpoint | If non-negative, replaces `+0x101` when the current endpoint is reached and reverses direction; this is endpoint-swap/ping-pong state, not a blend amount. |
+| `+0xfa` | mode-3 target frame | Used by the special target-frame oscillator path in `UpdateFrame`; not part of ordinary `RunAnim` range requests. |
+| `+0xfc` | mode-3 second target/phase value | Written by the mode-3 setup path and consumed by the special oscillator. Its exact gameplay meaning is not needed by the ordinary idle/push/turn path. |
+| `+0xfe` | mode-3 captured clock value | Sampled from the global animation clock when mode 3 is entered and used by its timing calculation. |
 | `+0x107` | finished / endpoint flag | Set when the requested range is already at its endpoint and updated by the playback-mode logic. |
 | `+0x114` | saved/original start frame | Written during request setup and used by reverse/endpoint transitions. |
+| `+0x10c` | old frame for transition/frame-crossing tests | Source member order identifies this as `mOldFrame`; consumed by the recovered `FrameReached` helper. |
+| `+0x10e` | new frame for transition/frame-crossing tests | Source member order identifies this as `mNewFrame`; consumed by the recovered `FrameReached` helper. |
+| `+0x110` | old animation ID for transition/frame-crossing tests | Source member order identifies this as `mOldAnim`; `FrameReached` rejects a query for a different animation. |
+| `+0x112` | old animation direction for transition/frame-crossing tests | Source member order identifies this as `mOldAnimDir`; controls whether the crossed range wraps. |
 
 The pose-side fields that complete the object contract are:
 
@@ -157,7 +182,13 @@ The pose-side fields that complete the object contract are:
 | `+0x14c` | animation-order dirty flag | Set by `SetAnimOrder`. |
 | `+0x150..` | model/render part ID → animation-part order map | `SetAnimOrder(render_id, render_order)` writes one byte per model/render part. |
 
-`0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. Its mode switch handles stop, loop, ping-pong, and reverse endpoint behavior. This is the reproducible time/frame advancement path.
+`0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. The dispatch table at `0x00480c18` is exact: mode `0` goes to the stop/clamp path at `0x00480a53`, mode `1` wraps at the selected frame count at `0x00480be5`, mode `2` has no post-advance endpoint rule, mode `3` uses the target/clock oscillator at `0x00480ae8`, and mode `4` uses the reverse/saved-endpoint path at `0x00480a92`. Modes `2` and `3` zero the ordinary frame delta before their special handling. This is the reproducible time/frame advancement path.
+
+`DAT_0056865c` is a global frame-time scale, not a per-skater value. It is
+initialized to `0x100` during object/player setup and can be recomputed by the
+game clock at `0x00468bfe`; `UpdateFrame` therefore has both a local playback
+rate (`+0x108`) and a global time-scale input. A faithful engine should pass
+the sampled scale into the cursor rather than bake `1.0` into animation code.
 
 The recovered debug/source symbol inventory gives the corresponding retail
 member names: `mAnim` (`+0xf6`), `mAnimMode` (`+0xf8`), `mAnimDir`
@@ -168,6 +199,53 @@ member names: `mAnim` (`+0xf6`), `mAnimMode` (`+0xf8`), `mAnimDir`
 (`+0xf2`), `mDecompressedFrame` (`+0xf3`), and `mpPoseBuffer` (`+0x138`).
 These names come from `SKATE2.TAG` and corroborate the field roles; the PC
 offset mapping is established by the decompiled reads/writes above.
+
+### Construction and transition compatibility
+
+The `CSuper` constructor at `0x00480610` supplies important non-zero defaults
+that a standalone C++ cursor must not leave to incidental memory state. After
+calling the base object constructor it sets the object flag at `+0x04` bit 1,
+sets `+0x106` (`mNumFrames`) to `1`, sets `+0x107` (`mAnimFinished`) to `1`,
+sets `+0x163` to `1`, installs the `CSuper` vtable, clears `+0xd8`, sets
+`+0x108` (`mAnimSpeed`) to `0x10000`, and clears `+0x14c` (animation-order
+dirty). It does not explicitly initialize every animation field in this
+function; the base constructor and normal request path remain part of the
+object initialization contract.
+
+The destructor body at `0x00480680` frees, when non-null, `+0x138`, `+0x13c`,
+`+0xec`, and `+0xe8`, then calls the base destructor. This gives the pose
+buffer, model mapping records, decompressed-frame cache, and calculation-order
+array a clear ownership/lifetime rule. The deleting-destructor wrapper at
+`0x00480660` optionally releases the object itself after that body returns.
+
+The source inventory places four transition-history members consecutively:
+`mOldFrame`, `mNewFrame`, `mOldAnim`, and `mOldAnimDir`. The PC fields at
+`+0x10c`, `+0x10e`, `+0x110`, and `+0x112` match that order and are consumed by
+the code at `0x00480c30`, which is the inlined/omitted-from-the-function-list
+body of `CSuper::FrameReached(int anim, int frame)`.
+
+`FrameReached` first requires the queried animation ID to equal `+0x110`.
+It then performs an inclusive path-crossing test over the old/new frame range:
+
+```cpp
+bool frame_reached(int anim, int frame) const {
+    if (anim != old_anim) return false;
+    if (old_frame <= new_frame) {
+        return old_anim_dir >= 0
+            ? old_frame <= frame && frame <= new_frame
+            : frame <= old_frame || frame >= new_frame;
+    }
+    return old_anim_dir >= 0
+        ? frame <= new_frame || frame >= old_frame
+        : new_frame <= frame && frame <= old_frame;
+}
+```
+
+This is a transition/event query, not a test for equality with the current
+frame. `StoreOldFrameAnim` and `StoreNewFrame` are listed as header-inline
+source methods; no separate PC entry point was found, so their exact write
+sites should be recovered from a caller before relying on them for gameplay
+events.
 
 The endpoint behavior is now resolved from the decompilation rather than left
 as a transition guess. Before advancing, mode `0`/`2` checks whether the
@@ -198,6 +276,19 @@ The animation resource is table-backed rather than a separately proven per-playe
 
 Thus the minimal identity is `(object+0x1f model/part set, object+0xf6 animation ID)`, with the loaded `sk2anim.psx` resource resolved through the global model-region tables. No unverified “current resource pointer” field is introduced.
 
+### Runtime diagnostics that delimit the contract
+
+The executable's own diagnostics reinforce the useful failure boundaries for
+a recreation. The animation/pose path checks for `SetFrame` before `SetAnim`,
+bad frame numbers, bad animation numbers, unloaded animation entries, a
+missing animation region, a missing or multiply rooted hierarchy, missing
+animation parts or part-name lists, and an invalid `mUseAnimOrder` state.
+`RunAnim` and `CycleAnim` each have distinct bad-animation diagnostics, while
+the mode-3 path reports “Pingpong on same frame in anim %d, frame %d”. These
+messages are evidence of validation points, not merely logging text: a
+compatible implementation should reject or normalize inputs at the same
+boundaries before decoding pose data.
+
 ## Per-update and pose boundary
 
 `0x00480fa0` is the object update dispatcher. The level loop's per-frame
@@ -214,10 +305,14 @@ from those callback slots.
 
 The next pose stages are also statically bounded:
 
-1. `0x00480f50` initializes model-part mapping state when needed, calls
-   `0x00465060` to prepare a tween buffer, and, when the object is active,
-   calls `0x00461bf0` for object/world transform preparation followed by
-   `0x00465300` for skeleton pose generation.
+1. `0x00480f50` is a one-argument `CSuper` pose-application seam
+   (`ret 0x4`), matching the source inventory's
+   `ApplyPose__6CSuperPs` signature. It initializes model-part mapping state
+   when needed, calls `0x00465060` to prepare a tween buffer, and, when the
+   object is active, calls `0x00461bf0` for object/world transform preparation
+   followed by `0x00465300` for skeleton pose generation. No direct PC caller
+   to this helper was recovered, so this is a proven API/body boundary, not a
+   claim that `0x00480fa0` calls it directly on every update.
 2. `0x00465060` obtains the current animation table entry and calls
    `0x00465110` for all animation parts. `0x00465110` chooses neighboring
    keyframes around the discrete `+0xf4` frame, computes a 12-bit blend
@@ -260,6 +355,13 @@ mapping record, and stores the matching model-descriptor index at record
 offset `+0x0a` by comparing descriptor keys. The two mappings serve different
 purposes: `+0x13c` binds model descriptors, while `+0x150` reorders animation
 pose records for model/render consumption.
+
+`0x00464bb0` is the matching pose-resource cleanup helper. It clears
+`+0x140`, frees `+0x138` and `+0x13c` when present, and nulls both pointers.
+Its one-pointer cdecl body matches the source inventory's
+`M3dUtils_ClearPoseStuff(CSuper*)`. The `CSuper` destructor repeats the
+necessary frees for final object teardown; a model/resource rebuild should use
+the cleanup boundary before allocating a new pose/mapping pair.
 
 `SK2ANIM.PSX` SHA-256 is
 `70cf84ac83e86a99815472325fa8ea875e01ef5c50152eff144731152f9ba1e5` and
@@ -406,9 +508,16 @@ struct AnimationCursor {
     std::int8_t   direction;   // +0x100: -1, 0, +1
     std::int8_t   endpoint;    // +0x101
     std::int8_t   alternate_endpoint; // +0x102
+    std::int16_t  target_frame;  // +0xfa, mode 3
+    std::int16_t  target_frame2; // +0xfc, mode 3
+    std::int16_t  mode3_clock;   // +0xfe, captured global clock value
     std::uint8_t  frame_count; // +0x106
     bool           finished;   // +0x107
     std::int16_t   request_start; // +0x114
+    std::int16_t  old_frame;    // +0x10c, transition history
+    std::int16_t  new_frame;    // +0x10e, transition history
+    std::uint16_t old_anim;     // +0x110, transition history
+    std::int8_t   old_anim_dir; // +0x112, transition history
 };
 ```
 
@@ -426,6 +535,8 @@ retail object layout. The required operations are:
 * `advance(global_scale)`: add or subtract
   `(rate * global_scale) >> 8` to the 16.16 `(frame << 16)|fraction`
   accumulator, then apply the mode's endpoint rule;
+* `frame_reached(anim, frame)`: use the inclusive wrapped old/new range test
+  above for transition events; do not reduce this to `frame == current_frame`;
 * `decode_pose()`: if ID/frame changed, decode the selected frame into local
   part transforms, apply the resource's key-spacing interpolation, and compose
   parents in the cached calculation order. For the extracted skater resource,
@@ -433,6 +544,9 @@ retail object layout. The required operations are:
 * `bind_parts()`: match animation and model part names and build the
   model/render-part→animation-part order map before exposing the pose to
   rendering; keep the separate `+0x13c` model-descriptor records as well.
+* `clear_pose_stuff()`: release the pose buffer and model mapping records,
+  clear the model descriptor pointer, and invalidate any dependent pose state
+  before a resource/model rebuild.
 
 The first differential tests should be deterministic unit tests rather than
 visual tests:
@@ -449,14 +563,19 @@ visual tests:
 6. Pose-cache invalidation on ID/frame changes and root-first hierarchy
    composition, with compressed-packet decoding tested separately once its
    format is deliberately researched.
+7. `FrameReached` inclusive range semantics for forward, reverse, and wrapped
+   old/new frame transitions.
+8. Constructor/destructor allocation ownership and `ClearPoseStuff` rebuild
+   behavior.
 
 ## Open questions / falsifiers
 
 * A gameplay trace can still confirm whether a concrete level ever selects a distinct straight-roll ID, and can identify which derived vtable callbacks are active for a concrete player object. The base `CSuper` callbacks observed statically are no-ops, so this is not a blocker for the pose path already established.
 * If a gameplay trace shows a distinct roll animation ID under straight motion, the “stable ID 0 after push” statement should be narrowed to the tested grounded path; it does not affect the selection/current/time/pose pipeline.
-* The source inventory also exposes adjacent compatibility methods—`FrameReached`,
-  `ApplyPose`, `SetAnimSpeed`, `StoreNewFrame`, `StoreOldFrameAnim`,
-  `M3dUtils_ClearPoseStuff`, `M3dUtils_BuildPose`, and
-  `M3dUtils_GetPartPosition`. Their names establish useful future API seams,
-  but their exact standalone PC entry points are outside this minimal pipeline
-  and should not be mistaken for missing selection or advancement stages.
+* `SetAnimSpeed`, `StoreNewFrame`, and `StoreOldFrameAnim` remain the useful
+  adjacent compatibility seams whose exact PC write sites are not yet mapped.
+  `FrameReached`, `ApplyPose`, and `M3dUtils_ClearPoseStuff` now have recovered
+  PC bodies or body-level matches at `0x00480c30`, `0x00480f50`, and
+  `0x00464bb0`; `M3dUtils_BuildPose` remains represented by the proven
+  `0x00465300` pose-builder boundary. `M3dUtils_GetPartPosition` is outside
+  the minimal current-pose contract.
