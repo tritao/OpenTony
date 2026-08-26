@@ -44,6 +44,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || camera.current_transform.z != expected_follow.z
                     || camera.current_transform.w != expected_follow.w
                     || camera.viewport_parameter_raw != 13
+                    || committed.viewport_parameter_low_raw != 13
                     || static_cast<unsigned>(camera.viewport_timer_raw & 0xffff) != 1
                     || committed.rendered_position.x != 16) {
                     return 1;
@@ -152,6 +153,25 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 39;
                 }
 
+                // The viewport control block is at the beginning of
+                // Camera_Update, before mode dispatch. Verify that an
+                // explicit restore/decrement operation is applied even on a
+                // non-default mode path.
+                CameraStateRaw mode2_viewport_control;
+                mode2_viewport_control.mode = 2;
+                mode2_viewport_control.viewport_parameter_raw = 7;
+                mode2_viewport_control.viewport_parameter_delta_raw = -2;
+                mode2_viewport_control.viewport_timer_raw = 1;
+                update_camera(
+                    mode2_viewport_control, {}, {}, {}, {}, {}, {}, {},
+                    {true, 100, true, false, false});
+                if (mode2_viewport_control.viewport_parameter_raw != 97
+                    || static_cast<unsigned>(
+                        mode2_viewport_control.viewport_timer_raw & 0xffff)
+                        != 0) {
+                    return 45;
+                }
+
                 CameraStateRaw viewport_control;
                 viewport_control.viewport_parameter_raw = 7;
                 viewport_control.viewport_parameter_delta_raw = -2;
@@ -169,6 +189,46 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     {false, 0, false, false, true});
                 if (viewport_control.viewport_parameter_raw != 0x100) {
                     return 38;
+                }
+
+                // The raw Camera_Update framing block uses a byte carry test,
+                // not a signed directional comparison: zero selects 8 and
+                // every nonzero byte selects 0x20.  It also masks Y to 12
+                // bits after the paired Y operations.
+                CameraStateRaw framing;
+                framing.follow_rotation_raw = 100;
+                framing.framing_globals_raw = {100, 0x1005, 200};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, false, {}, true, false, 0,
+                     true, false, true, false, false, true});
+                if (framing.follow_rotation_raw != 90
+                    || framing.framing_globals_raw.x != 92
+                    || framing.framing_globals_raw.y != 0xffd
+                    || framing.framing_globals_raw.z != 208) {
+                    return 49;
+                }
+                framing.framing_globals_raw = {100, 0, 200};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, false, {}, false, false, 1,
+                     false, true, false, false, false, true});
+                if (framing.framing_globals_raw.x != 132
+                    || framing.framing_globals_raw.y != 0
+                    || framing.framing_globals_raw.z != 232) {
+                    return 50;
+                }
+                framing.viewport_parameter_raw = 12;
+                framing.framing_globals_raw = {1, 2, 3};
+                apply_camera_framing_input_control(
+                    framing,
+                    {true, true, {10, 20, 30}, true, true, 1,
+                     true, true, true, true, true, true});
+                if (framing.viewport_parameter_raw != 12
+                    || framing.framing_globals_raw.x != 1
+                    || framing.framing_globals_raw.y != 2
+                    || framing.framing_globals_raw.z != 3) {
+                    return 51;
                 }
 
                 // Mode 2 has its own handler.  This fixture chooses an
@@ -229,7 +289,10 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || point_selected.anchor_update_flag != 0
                     || point_selected.tripod_anchor_flag != 1
                     || point_selected.anchor_target.y != -0x2000
-                    || mode2_point_result.camera_action_variant_raw != 5) {
+                    // The selector's mode-2 branch does not copy the
+                    // action variant; that state is only written by the
+                    // 0x800/mode-1 branch.
+                    || mode2_point_result.camera_action_variant_raw != 0) {
                     return 30;
                 }
                 CameraStateRaw normal_point;
@@ -243,6 +306,36 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || normal_point.primary_tripod_link_raw != 0x87654321
                     || normal_point.anchor_update_flag != 1) {
                     return 31;
+                }
+                CameraStateRaw action_point;
+                const CameraPointSelectionInputRaw action_point_input{
+                    true, 0x800, {1, 2, 3}, 0x12345678, 5};
+                const auto action_point_result = apply_camera_point_selection(
+                    action_point, action_point_input);
+                if (!action_point_result.viewport_word6_valid
+                    || action_point_result.viewport_word6_raw != 0xb72
+                    || !action_point_result.framing_globals_valid
+                    || action_point_result.framing_globals_raw.x != 0xc3
+                    || action_point_result.framing_globals_raw.y != 0x32
+                    || action_point_result.framing_globals_raw.z != -0x11
+                    || !action_point_result.follow_rotation_updated
+                    || action_point.follow_rotation_raw != 0x800) {
+                    return 46;
+                }
+                CameraStateRaw viewport_point;
+                const CameraPointSelectionInputRaw viewport_point_input{
+                    true, 0x6a5, {1, 2, 3}, 0x12345678, 0,
+                    false, 0};
+                const auto viewport_point_result = apply_camera_point_selection(
+                    viewport_point, viewport_point_input);
+                if (!viewport_point_result.viewport_word6_valid
+                    || viewport_point_result.viewport_word6_raw
+                        != static_cast<unsigned short>(0xb2c - 0xa5 * 10)) {
+                    return 47;
+                }
+                if (camera_point_distance_q4(
+                        {0x10000, 0x20000, 0x30000}, {}) != 59) {
+                    return 48;
                 }
                 const auto candidate = build_camera_point_candidate_q16(
                     {0x10000, 0x20000, 0x30000}, {0x400, -0x800, 0x120});
@@ -772,6 +865,50 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || seeded_state.mode_vector.y != seeded.direction_raw.y
                     || seeded_state.mode_vector.z != seeded.direction_raw.z) {
                     return 18;
+                }
+
+                // The level timer is a signed millisecond-to-60-Hz
+                // accumulator.  Public time still advances while the
+                // simulation accumulator is paused by the second guard.
+                SimulationClockStateRaw clock;
+                const auto clock_first = advance_simulation_clock_ms(
+                    clock, 1000, false, false);
+                const auto clock_second = advance_simulation_clock_ms(
+                    clock, 1017, false, false);
+                const auto clock_paused = advance_simulation_clock_ms(
+                    clock, 1051, false, true);
+                if (clock_first.advanced
+                    || clock_second.tick_delta != 1
+                    || clock.public_tick != 3
+                    || clock.simulation_time != 1
+                    || clock_paused.tick_delta != 2) {
+                    return 49;
+                }
+
+                // 0x00468b30 smooths the timing delta over three samples;
+                // its result is the next Camera_Update smoothing input.
+                CameraTimingStateRaw timing;
+                const auto timing_first = advance_camera_timing(
+                    timing, 0, false, false, false, false);
+                const auto timing_second = advance_camera_timing(
+                    timing, 3, false, false, false, false);
+                const auto timing_third = advance_camera_timing(
+                    timing, 6, false, false, false, false);
+                if (!timing_first.updated
+                    || timing_first.sample_sum != 1
+                    || timing_second.sample_sum != 3
+                    || timing_third.sample_sum != 6
+                    || timing.simulation_delta_q8 != 0x100
+                    || timing.progress_integer != 3) {
+                    return 50;
+                }
+                CameraTimingStateRaw scaled_timing;
+                const auto scaled = advance_camera_timing(
+                    scaled_timing, 6, false, true, true, false);
+                if (!scaled.quarter_rate_applied
+                    || !scaled.slow_rate_applied
+                    || scaled_timing.simulation_delta_q8 != 80) {
+                    return 51;
                 }
                 return 0;
             }

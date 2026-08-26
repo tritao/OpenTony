@@ -4,6 +4,7 @@
 // and the recovered stage ordering; it is not a gameplay replacement yet.
 
 #include "src/camera/camera_math.hpp"
+#include "src/camera/camera_timing.hpp"
 
 #include <cstdint>
 
@@ -43,6 +44,10 @@ struct CameraStateRaw {
     Raw viewport_parameter_raw{};
     Raw viewport_timer_raw{};
     Raw viewport_parameter_delta_raw{};
+    // DAT_00524a40/44/48 are shared framing words consumed by the camera
+    // update.  They are kept as a raw vector here; their final display
+    // meaning is still not promoted to FOV/clip terminology.
+    Q16Vec3 framing_globals_raw{};
     std::uint32_t mode{};
     std::uint32_t update_tick{};
     std::uint32_t death_camera_tick{}; // camera +0x570
@@ -113,6 +118,10 @@ struct CameraViewportCommitRaw {
     Q16Vec3 screen_delta{};
     Q4Vec3 rendered_look_target{};
     TransformQ12 current_transform{};
+    // Camera_Update writes the low 16 bits of +0x40c to the active viewport
+    // record at +0x0e before mode dispatch. Preserve that render-visible
+    // handoff even though the viewport memory lives outside CameraStateRaw.
+    std::uint16_t viewport_parameter_low_raw{};
 };
 
 struct CameraFollowSnapshot {
@@ -679,6 +688,11 @@ struct CameraPointSelectionInputRaw {
     Q16Vec3 selected_point{};
     std::uint32_t player_link_raw{};
     std::int32_t camera_action_variant_raw{};
+    // Used only by the 0x400/0x100 distance-scaled viewport branch. The
+    // distance producer is gameplay-owned; callers may provide its exact raw
+    // result without making the point selector own player geometry.
+    bool point_distance_valid{};
+    Raw point_distance_raw{};
 };
 
 // Exact selector mapping recovered from the byte table at 0x00410390 and
@@ -699,6 +713,13 @@ struct CameraPointSelectionResultRaw {
     bool applied{};
     CameraDispatchKind kind{};
     std::int32_t camera_action_variant_raw{};
+    bool viewport_word6_valid{};
+    std::uint16_t viewport_word6_raw{};
+    bool framing_globals_valid{};
+    Q16Vec3 framing_globals_raw{}; // DAT_00524a40/44/48
+    bool follow_rotation_updated{};
+    std::int16_t follow_rotation_raw{}; // camera +0x5b4
+    Raw clamped_point_distance_raw{};
 };
 
 constexpr CameraDispatchKind camera_dispatch_kind(std::uint32_t mode) {
@@ -726,7 +747,8 @@ inline CameraPointSelectionResultRaw apply_camera_point_selection(
     CameraStateRaw& camera,
     const CameraPointSelectionInputRaw& input) {
     CameraPointSelectionResultRaw result{
-        false, CameraDispatchKind::default_path, 0};
+        false, CameraDispatchKind::default_path, 0, false, 0, false,
+        {}, false, 0, 0};
     if (!input.selected) {
         return result;
     }
@@ -741,6 +763,65 @@ inline CameraPointSelectionResultRaw apply_camera_point_selection(
         result.camera_action_variant_raw = input.camera_action_variant_raw;
         result.kind = CameraDispatchKind::normal_follow;
         result.applied = true;
+
+        // The post-selection tail of 0x00411fc0 selects both the vertical
+        // viewport input and the follow rotation/framing tuple. Values not
+        // listed by the retail switch leave the viewport/framing outputs
+        // unchanged after the unconditional rotation reset.
+        result.follow_rotation_updated = true;
+        result.follow_rotation_raw = 0;
+        switch (input.camera_action_variant_raw) {
+        case 0:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0x96a;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0xf5, 0xd7, -0x46};
+            break;
+        case 1:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0xb72;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0xaf, 0x32, -0x11};
+            break;
+        case 2:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0xd52;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0x122, 0x96, -0x6c};
+            break;
+        case 4:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0x96a;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0xf5, 0xd7, -0x46};
+            result.follow_rotation_updated = true;
+            result.follow_rotation_raw = 0x800;
+            break;
+        case 5:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0xb72;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0xc3, 0x32, -0x11};
+            result.follow_rotation_updated = true;
+            result.follow_rotation_raw = 0x800;
+            break;
+        case 6:
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = 0xd52;
+            result.framing_globals_valid = true;
+            result.framing_globals_raw = {0x122, 0x96, -0x6c};
+            result.follow_rotation_updated = true;
+            result.follow_rotation_raw = 0x800;
+            break;
+        default:
+            break;
+        }
+        if (result.follow_rotation_updated) {
+            camera.follow_rotation_raw = result.follow_rotation_raw;
+        }
+        if (result.framing_globals_valid) {
+            camera.framing_globals_raw = result.framing_globals_raw;
+        }
         return result;
     }
     if ((input.registry_flags & 0x400U) != 0) {
@@ -753,6 +834,31 @@ inline CameraPointSelectionResultRaw apply_camera_point_selection(
         camera.anchor_target = input.selected_point;
         result.kind = CameraDispatchKind::mode2;
         result.applied = true;
+
+        // 0x00411fc0's 0x400 tail has two independent viewport branches.
+        // Preserve the registry low byte and the distance clamp exactly;
+        // only the distance-scaled branch requires a gameplay-provided
+        // distance result.
+        if ((input.registry_flags & 0x200U) != 0) {
+            const Raw low_byte = static_cast<Raw>(input.registry_flags & 0xffU);
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = static_cast<std::uint16_t>(
+                add_s32(0xb2c, multiply_s32(low_byte, -10)));
+        } else if ((input.registry_flags & 0x100U) != 0
+                   && input.point_distance_valid) {
+            Raw distance = input.point_distance_raw;
+            if (distance < 0x1c2) {
+                distance = 0x1c2;
+            } else if (distance > 0x960) {
+                distance = 0x960;
+            }
+            const Raw low_byte = static_cast<Raw>(input.registry_flags & 0xffU);
+            result.viewport_word6_valid = true;
+            result.viewport_word6_raw = static_cast<std::uint16_t>(
+                divide_toward_zero(
+                    multiply_s32(low_byte, 0x8552), distance));
+            result.clamped_point_distance_raw = distance;
+        }
     }
     return result;
 }
@@ -768,6 +874,21 @@ inline Q16Vec3 build_camera_point_candidate_q16(
         add_s32(player_position.y, multiply_s32(camera_offset.y, 0x6e)),
         add_s32(player_position.z, multiply_s32(camera_offset.z, 0x6e)),
     };
+}
+
+// 0x004c9590: point-view distance used by the 0x400/0x100 registry branch.
+// Differences are reduced from Q16 world words to integer world units before
+// the squared length is passed to the retail x87 integer-square-root helper.
+inline Raw camera_point_distance_q4(
+    const Q16Vec3& left,
+    const Q16Vec3& right) {
+    const Raw dx = arithmetic_shift_right(subtract_s32(left.x, right.x), 12);
+    const Raw dy = arithmetic_shift_right(subtract_s32(left.y, right.y), 12);
+    const Raw dz = arithmetic_shift_right(subtract_s32(left.z, right.z), 12);
+    const Raw square = add_s32(
+        add_s32(multiply_s32(dx, dx), multiply_s32(dy, dy)),
+        multiply_s32(dz, dz));
+    return static_cast<Raw>(isqrt_u32_x87(static_cast<std::uint32_t>(square)));
 }
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {
@@ -1093,6 +1214,8 @@ inline CameraViewportCommitRaw commit_viewport_effects(
     result.screen_delta = camera.screen_delta;
     result.rendered_look_target = world_to_q4(add_q16(camera.look_target, look_target_offset));
     result.current_transform = camera.current_transform;
+    result.viewport_parameter_low_raw = static_cast<std::uint16_t>(
+        camera.viewport_parameter_raw);
     return result;
 }
 
@@ -1319,6 +1442,78 @@ struct CameraViewportParameterControlRaw {
     bool reset_to_default{};
 };
 
+// Raw input/framing controls in Camera_Update 0x0040f850.  The retail code
+// executes this block after the viewport-parameter controls and before the
+// mode table.  The names describe observed operations and addresses, not
+// assumed gameplay meanings.
+struct CameraFramingInputControlRaw {
+    bool global_override{}; // DAT_0055FA30 != 0 skips the control block
+    bool restore_axes_from_globals{}; // DAT_0056B244
+    Q16Vec3 restored_axes_raw{}; // x=0055F9A4, y=0055F910, z=0055F978
+    bool rotation_decrement{}; // DAT_0056B174, camera +0x5B4 -= 10
+    bool rotation_increment{}; // DAT_0056B184, camera +0x5B4 += 10
+    std::uint8_t directional_input_raw{}; // DAT_0056B254
+    bool x_decrement{}; // DAT_0056B1E4
+    bool x_increment{}; // DAT_0056B1F4
+    bool y_decrement{}; // DAT_0056B204
+    bool y_increment{}; // DAT_0056B214
+    bool z_decrement{}; // DAT_0056B1A4
+    bool z_increment{}; // DAT_0056B1B4
+};
+
+// `neg byte; sbb reg,reg; and reg,0x18; add reg,8` yields 8 when the
+// directional byte is zero and 0x20 for every nonzero byte.  It is not a
+// signed-byte test despite the input's apparent directional role.
+inline Raw camera_framing_step_raw(std::uint8_t directional_input_raw) {
+    return directional_input_raw == 0 ? 8 : 0x20;
+}
+
+inline void apply_camera_framing_input_control(
+    CameraStateRaw& camera,
+    const CameraFramingInputControlRaw& control) {
+    if (control.global_override) {
+        return;
+    }
+    if (control.restore_axes_from_globals) {
+        camera.framing_globals_raw = control.restored_axes_raw;
+    }
+    if (control.rotation_decrement) {
+        camera.follow_rotation_raw = static_cast<std::int16_t>(
+            add_s32(camera.follow_rotation_raw, -10));
+    }
+    if (control.rotation_increment) {
+        camera.follow_rotation_raw = static_cast<std::int16_t>(
+            add_s32(camera.follow_rotation_raw, 10));
+    }
+    const Raw step = camera_framing_step_raw(control.directional_input_raw);
+    if (control.x_decrement) {
+        camera.framing_globals_raw.x = subtract_s32(
+            camera.framing_globals_raw.x, step);
+    }
+    if (control.x_increment) {
+        camera.framing_globals_raw.x = add_s32(
+            camera.framing_globals_raw.x, step);
+    }
+    if (control.y_decrement) {
+        camera.framing_globals_raw.y = subtract_s32(
+            camera.framing_globals_raw.y, step);
+    }
+    if (control.y_increment) {
+        camera.framing_globals_raw.y = add_s32(
+            camera.framing_globals_raw.y, step);
+    }
+    // 0x0040fbb8 masks the Y framing word after both Y operations.
+    camera.framing_globals_raw.y &= 0xfff;
+    if (control.z_decrement) {
+        camera.framing_globals_raw.z = subtract_s32(
+            camera.framing_globals_raw.z, step);
+    }
+    if (control.z_increment) {
+        camera.framing_globals_raw.z = add_s32(
+            camera.framing_globals_raw.z, step);
+    }
+}
+
 inline void apply_viewport_parameter_control(
     CameraStateRaw& camera,
     const CameraViewportParameterControlRaw& control) {
@@ -1351,7 +1546,18 @@ inline CameraViewportCommitRaw update_camera(
     const CameraUpdateHooks& hooks = {},
     const CameraModeInputRaw& mode_input = {},
     const CameraMode25ProducerInputRaw& mode25_input = {},
-    const CameraAlternateFollowInputRaw& alternate_follow_input = {}) {
+    const CameraAlternateFollowInputRaw& alternate_follow_input = {},
+    const CameraViewportParameterControlRaw& viewport_control = {},
+    const CameraFramingInputControlRaw& framing_control = {}) {
+    // 0x0040f881..0x0040fc00 runs before the mode table is dispatched. In
+    // particular, the restore/decrement/increment/reset operations must also
+    // occur for modes 2, 23, and 24; placing this at the old common-tail
+    // location silently skipped those paths.
+    if (!framing_control.global_override) {
+        apply_viewport_parameter_control(camera, viewport_control);
+        apply_camera_framing_input_control(camera, framing_control);
+    }
+
     const CameraDispatchKind dispatch = camera_dispatch_kind(camera.mode);
     const bool alternate_follow =
         dispatch == CameraDispatchKind::alternate_follow;
@@ -1508,9 +1714,6 @@ inline CameraViewportCommitRaw update_camera(
 
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
     apply_camera_shake(camera, hooks.shake_phase_multiplier);
-    // Retail updates +0x40c/+0x410 before copying the low word to the active
-    // viewport at +0x0e.  Keep the timer step before the commit boundary.
-    advance_viewport_parameter(camera);
     // 0x0040ff2b..0x0040ff4b promotes the normal-follow camera to mode 25
     // after the mode-1 preparation/smoothing work above. The next update
     // therefore consumes the mode-25 follow offset; do not feed this result

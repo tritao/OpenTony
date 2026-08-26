@@ -21,8 +21,52 @@ GEOMETRY_SUBMISSION = 0x004D11D0
 VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
 CAMERA_POINT_TABLE = 0x0055FA58
 CAMERA_POINT_COUNT = 0x0055FAE4
+CAMERA_POINT_FLAGS = 0x00524CB8
 CAMERA_POINT_STATE_MAIN = 0x0056E5D8
 CAMERA_POINT_STATE_SECONDARY = 0x0056E450
+CAMERA_POINT_SELECT_POSTCALL = 0x004CD7B6
+# Camera_Update 0x0040f850's viewport/framing control inputs. These are
+# deliberately recorded as raw globals: their producer ownership is not yet
+# promoted to a single subsystem-level type.
+VIEWPORT_PARAMETER_GLOBAL = 0x00524AA4
+VIEWPORT_PARAMETER_X = 0x00524A40
+VIEWPORT_PARAMETER_Y = 0x00524A44
+VIEWPORT_PARAMETER_Z = 0x00524A48
+VIEWPORT_PARAMETER_STATE = 0x0055FA30
+VIEWPORT_PARAMETER_RESTORE = 0x0055FA48
+VIEWPORT_PARAMETER_DECREMENT = 0x0056B008
+VIEWPORT_PARAMETER_INCREMENT = 0x0056B018
+VIEWPORT_PARAMETER_RESET = 0x0056AFF8
+FRAMING_RESTORE_AXES = 0x0056B244
+FRAMING_ROTATION_DECREMENT = 0x0056B174
+FRAMING_ROTATION_INCREMENT = 0x0056B184
+FRAMING_X_DECREMENT = 0x0056B1E4
+FRAMING_X_INCREMENT = 0x0056B1F4
+FRAMING_Y_DECREMENT = 0x0056B204
+FRAMING_Y_INCREMENT = 0x0056B214
+FRAMING_Z_DECREMENT = 0x0056B1A4
+FRAMING_Z_INCREMENT = 0x0056B1B4
+FRAMING_DIRECTION_INPUT = 0x0056B254
+FRAMING_GLOBAL_X = 0x0055F9A4
+FRAMING_GLOBAL_Y = 0x0055F910
+FRAMING_GLOBAL_Z = 0x0055F978
+# 0x00468b30 produces the Q8 rate consumed by Camera_Update on the following
+# iteration. Keep the timing state raw so the producer/consumer delay can be
+# checked against the present-clocked camera records.
+SIMULATION_TICK = 0x0056E31C
+SIMULATION_TIME = 0x0056E320
+SIMULATION_DELTA_Q8 = 0x0056865C
+TIMING_PREVIOUS_TIME = 0x00568604
+TIMING_RING = 0x0056868C
+TIMING_RING_INDEX = 0x0056A934
+TIMING_DELTA_Q11 = 0x0056A93C
+TIMING_PHASE_HALF = 0x0056A940
+TIMING_PHASE_PARITY = 0x0056A944
+TIMING_SLOW_RATE = 0x0056A948
+TIMING_PROGRESS_Q8 = 0x00568810
+TIMING_PROGRESS_INTEGER = 0x005685F4
+TIMING_PAUSED = 0x00561C04
+SIMULATION_PAUSED = 0x0056A8E0
 
 
 def _steady_single_view_input(memory, address: int) -> bool:
@@ -135,6 +179,11 @@ def camera_record(ctx: Context, camera: int) -> dict:
         # of the camera math.
         "follow_rotation_raw": _short(memory, camera + 0x5B4),
         "viewport_zoom_candidate": _field_words(memory, camera, 0x40C),
+        "framing_globals_raw": {
+            "x": _optional_s32(memory, VIEWPORT_PARAMETER_X),
+            "y": _optional_s32(memory, VIEWPORT_PARAMETER_Y),
+            "z": _optional_s32(memory, VIEWPORT_PARAMETER_Z),
+        },
         "time_or_smoothing_a": _field_words(memory, camera, 0x410),
         "time_or_smoothing_b": _field_words(memory, camera, 0x414),
             "smoothing_counter_a": _field_words(memory, camera, 0x5D8),
@@ -193,6 +242,43 @@ def camera_record(ctx: Context, camera: int) -> dict:
         "tripod": f"0x{tripod:08x}",
         "secondary_target": f"0x{secondary_target:08x}",
         "camera_fields": camera_fields,
+        "viewport_control_before": {
+            "global_parameter_raw": _optional_s32(
+                memory, VIEWPORT_PARAMETER_GLOBAL),
+            "global_parameter_x_raw": _optional_s32(
+                memory, VIEWPORT_PARAMETER_X),
+            "global_parameter_y_raw": _optional_s32(
+                memory, VIEWPORT_PARAMETER_Y),
+            "global_parameter_z_raw": _optional_s32(
+                memory, VIEWPORT_PARAMETER_Z),
+            "parameter_state_raw": _optional_u32(
+                memory, VIEWPORT_PARAMETER_STATE),
+            "restore_pending_raw": _optional_u32(
+                memory, VIEWPORT_PARAMETER_RESTORE),
+            "decrement": _optional_u32(
+                memory, VIEWPORT_PARAMETER_DECREMENT),
+            "increment": _optional_u32(
+                memory, VIEWPORT_PARAMETER_INCREMENT),
+            "reset": _optional_u32(memory, VIEWPORT_PARAMETER_RESET),
+            "global_override": _optional_s32(memory, VIEWPORT_PARAMETER_STATE),
+            "restore_axes": _optional_u32(memory, FRAMING_RESTORE_AXES),
+            "rotation_decrement": _optional_u32(
+                memory, FRAMING_ROTATION_DECREMENT),
+            "rotation_increment": _optional_u32(
+                memory, FRAMING_ROTATION_INCREMENT),
+            "x_decrement": _optional_u32(memory, FRAMING_X_DECREMENT),
+            "x_increment": _optional_u32(memory, FRAMING_X_INCREMENT),
+            "y_decrement": _optional_u32(memory, FRAMING_Y_DECREMENT),
+            "y_increment": _optional_u32(memory, FRAMING_Y_INCREMENT),
+            "z_decrement": _optional_u32(memory, FRAMING_Z_DECREMENT),
+            "z_increment": _optional_u32(memory, FRAMING_Z_INCREMENT),
+            "direction_input_raw": _optional_u32(
+                memory, FRAMING_DIRECTION_INPUT),
+            "restore_global_x": _optional_s32(memory, FRAMING_GLOBAL_X),
+            "restore_global_y": _optional_s32(memory, FRAMING_GLOBAL_Y),
+            "restore_global_z": _optional_s32(memory, FRAMING_GLOBAL_Z),
+        },
+        "timing_before": _timing_record(memory),
     }
     if player and memory.valid(player):
         record["player_position"] = _words(memory, player + 0x08, 3)
@@ -219,6 +305,43 @@ def camera_record(ctx: Context, camera: int) -> dict:
         record["tripod_effect_transform_gate"] = None
         record["tripod_unknown_state"] = None
     return record
+
+
+def _timing_record(memory) -> dict:
+    """Capture the raw clock/rate state surrounding Camera_Update."""
+
+    return {
+        "simulation_tick": _optional_s32(memory, SIMULATION_TICK),
+        "simulation_time": _optional_s32(memory, SIMULATION_TIME),
+        "simulation_delta_q8": _optional_s32(memory, SIMULATION_DELTA_Q8),
+        "previous_simulation_time": _optional_s32(memory, TIMING_PREVIOUS_TIME),
+        "recent_deltas": [
+            _optional_s32(memory, TIMING_RING + index * 4)
+            for index in range(3)
+        ],
+        "ring_index": _optional_u32(memory, TIMING_RING_INDEX),
+        "delta_q11": _optional_s32(memory, TIMING_DELTA_Q11),
+        "phase_half": _optional_s32(memory, TIMING_PHASE_HALF),
+        "phase_parity": _optional_u32(memory, TIMING_PHASE_PARITY),
+        "slow_rate": _optional_u32(memory, TIMING_SLOW_RATE),
+        "progress_q8": _optional_s32(memory, TIMING_PROGRESS_Q8),
+        "progress_integer": _optional_s32(memory, TIMING_PROGRESS_INTEGER),
+        "timing_paused": _optional_u32(memory, TIMING_PAUSED),
+        "simulation_paused": _optional_u32(memory, SIMULATION_PAUSED),
+    }
+
+
+def camera_timing_record(ctx: Context) -> dict:
+    """Capture the post-0x00468b30 camera-rate producer state."""
+
+    return {
+        "type": "camera_timing",
+        "frame": ctx.frame,
+        "function": "Camera_TimingProducer",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "timing": _timing_record(ctx.memory),
+    }
 
 
 def camera_effect_record(ctx: Context) -> dict:
@@ -476,6 +599,81 @@ def camera_point_select_record(ctx: Context) -> dict | None:
     return record
 
 
+def camera_point_state_record(ctx: Context) -> dict | None:
+    """Capture the post-call state at 0x004cd7b6.
+
+    The selector has several early returns and its render-visible viewport
+    writes happen after the point/mode handoff. The caller's instruction after
+    the call is therefore the stable boundary for observing the selected
+    registry flags, action variant, camera +0x5b4, and viewport word 6.
+    """
+
+    memory = ctx.memory
+    player = ctx.register("esi")
+    if not player or not memory.valid(player):
+        return None
+    camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+    if not camera or not memory.valid(camera):
+        return None
+    main_player = (
+        _optional_u32(memory, GLOBALS["Player"])
+        if "Player" in GLOBALS
+        else None
+    )
+    state_address = (
+        CAMERA_POINT_STATE_MAIN
+        if player == main_player
+        else CAMERA_POINT_STATE_SECONDARY
+    )
+    if not memory.readable(state_address, 0x50):
+        return None
+    current_index = memory.s32(state_address + 0x28)
+    if current_index < 0 or current_index >= 0x46:
+        return None
+    flags_address = CAMERA_POINT_FLAGS + current_index * 4
+    if not memory.readable(flags_address, 4):
+        return None
+    active_viewport = _optional_u32(memory, VIEWPORT_STATE)
+    return {
+        "type": "camera_point_state",
+        "frame": ctx.frame,
+        "function": "Camera_PointSelect_PostCall",
+        "eip": f"0x{ctx.eip:08x}",
+        "caller": f"0x{ctx.caller():08x}",
+        "player": f"0x{player:08x}",
+        "camera": f"0x{camera:08x}",
+        "state": f"0x{state_address:08x}",
+        "current_point_index": current_index,
+        "previous_point_index": memory.s32(state_address + 0x40),
+        "action_variant_raw": memory.s32(state_address + 0x4c),
+        "selected_point": _words(memory, state_address + 0x2c, 3),
+        "registry_flags": memory.u32(flags_address),
+        "camera_after": {
+            "mode": memory.u32(camera + 0x504),
+            "target_valid": memory.u8(camera + 0x3e0),
+            "primary_link": memory.u32(camera + 0x3a4),
+            "secondary_link": memory.u32(camera + 0x3dc),
+            "anchor_update_flag": memory.u8(camera + 0x3ac),
+            "tripod_anchor_flag": memory.u8(camera + 0x3bc),
+            "follow_rotation_raw": memory.s16(camera + 0x5b4),
+            "anchor_target": _field_words(memory, camera, 0x3c0, 3),
+        },
+        "viewport_after": {
+            "address": f"0x{active_viewport:08x}" if active_viewport else None,
+            "word6_raw": (
+                memory.u16(active_viewport + 0x0c)
+                if active_viewport and memory.readable(active_viewport + 0x0c, 2)
+                else None
+            ),
+        },
+        "framing_globals": {
+            "x": _optional_s32(memory, VIEWPORT_PARAMETER_X),
+            "y": _optional_s32(memory, VIEWPORT_PARAMETER_Y),
+            "z": _optional_s32(memory, VIEWPORT_PARAMETER_Z),
+        },
+    }
+
+
 def camera_position_transform_record(ctx: Context) -> dict | None:
     """Capture one exact 0x004e85a0 camera-tail input triplet."""
 
@@ -553,6 +751,27 @@ class CameraProbe(CountingBreakpoint):
         gdb.write(f"camera probe complete: {self.hits} observations\n")
 
 
+class CameraTimingProbe(CountingBreakpoint):
+    """Sample the timing/rate producer after it computes the next rate."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(0x00468B30, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_timing_record(ctx)
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera timing probe complete: {self.hits} observations\n")
+
+
 class CameraPointSelectProbe(CountingBreakpoint):
     """Sample the player-owned camera-point selection producer."""
 
@@ -574,6 +793,29 @@ class CameraPointSelectProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"camera point-select probe complete: {self.hits} observations\n")
+
+
+class CameraPointStateProbe(CountingBreakpoint):
+    """Sample the render-visible point state after the selector returns."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(CAMERA_POINT_SELECT_POSTCALL, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        record = camera_point_state_record(ctx)
+        if record is None:
+            return False
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"camera point-state probe complete: {self.hits} observations\n")
 
 
 class CameraEffectProbe(CountingBreakpoint):

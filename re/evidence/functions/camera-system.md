@@ -107,6 +107,47 @@ Static level-loop ordering from `0x0046a3a0` is:
 0x0046a250  session/UI cleanup or transition work
 ```
 
+### Simulation timing contract
+
+The two timing stages are separate from the confirmed present clock:
+
+```text
+0x004f7ce0  message pump
+0x004f5ff0  millisecond source -> public 60-Hz tick
+0x00469de0  gameplay/object/camera update
+0x0046a0f0  render preparation
+    -> 0x00468b30  three-sample camera-rate producer
+0x004d0ca4  present / Flip
+```
+
+`0x004f5ff0` (`Game_AdvanceTime`, semantic name) calls the timer source
+`0x00502ccb`, stores the previous 32-bit millisecond sample at
+`DAT_029d836c`, and computes the signed integer step
+`((now - previous) * 0x3c) / 1000`. A positive step advances
+`DAT_0056e31c`. The separate simulation-time accumulator
+`DAT_0056e320` advances only when `DAT_00561c04 == 0` and
+`DAT_0056a8e0 == 0`; there is no visible maximum-delta clamp in this path.
+The native reference exposes this as `advance_simulation_clock_ms`.
+
+`0x00468b30` (`Camera_TimingProducer`, semantic name) consumes the simulation
+time accumulator after gameplay/camera update. It stores a three-entry ring of
+time differences at `DAT_0056868c`, sums the entries, replaces a zero sum with
+`1`, computes the inverse-rate diagnostic `0xb4 / sum`, caps the sum at `15`,
+and derives the Q8 camera/physics rate as `(capped_sum << 8) / 6`. A guarded
+branch divides that rate by four, and `DAT_0056a948` applies the integer
+`*125/100` slow-rate branch. The squared rate and accumulated progress are
+updated with the same signed shifts. Because this helper runs in render
+preparation after `Camera_Update`, its `DAT_0056865c` result is consumed by the
+following camera update. The native `camera_timing.hpp` models this producer
+and keeps the rate as an explicit input to the camera smoothing stage.
+
+Static confidence: high for integer order, guards, ring window, and producer /
+consumer ordering. Runtime confidence: the camera probe now records all of
+these raw timing globals at update entry, and `tony-camera-timing-probe`
+records the post-producer state; a trace showing the rate used by a camera
+update does not equal the preceding producer result would falsify the claimed
+one-update latency or indicate another writer between the two boundaries.
+
 ## Camera construction and ownership
 
 ### `0x004691e0` — camera creation site
@@ -156,7 +197,8 @@ Exact observed behavior:
 - Uses `ECX` as `this` and begins by reading camera state, including `+0x3ac`, `+0x3bc`, `+0x3c0..+0x3c8`, `+0x3dc`, `+0x3e0`, and `+0x3f0..+0x3f8`.
 - Mirrors anchor/target values when the corresponding flags are set and may copy positions from the primary or secondary tripod.
 - Updates global camera/framing values at `DAT_00524a40/44/48`.
-- Adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`. The raw disassembly shows the exact control shape: a guarded assignment from `DAT_00524aa4`, decrement/increment flags at `DAT_0056b008`/`DAT_0056b018`, a reset-to-`0x100` flag at `DAT_0056aff8`, and a signed delta/timer pair at `+0x410/+0x414`.
+- Before the mode table is dispatched, adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`. The raw disassembly at `0x0040fa89..0x0040fc00` shows the exact control shape: a guarded assignment from `DAT_00524aa4`, decrement/increment flags at `DAT_0056b008`/`DAT_0056b018`, a reset-to-`0x100` flag at `DAT_0056aff8`, and a signed delta/timer pair at `+0x410/+0x414`. This ordering applies to the non-default mode paths as well; it is not part of the normal-follow common tail.
+- The same pre-dispatch block also exposes the remaining raw framing-input seam. Unless `DAT_0055fa30` is nonzero, `DAT_0056b244` restores `DAT_00524a40/44/48` from `DAT_0055f9a4/10/78`; flags `DAT_0056b174`/`b184` change camera `+0x5b4` by `-10/+10`; and the `x/y/z` flag pairs at `b1e4/b1f4`, `b204/b214`, and `b1a4/b1b4` change the three framing words. The adjustment is `8` when `DAT_0056b254 == 0` and `0x20` for any nonzero byte, because the retail sequence is `neg byte; sbb reg,reg; and 0x18; add 8`; Y is masked with `0xfff` afterward. This is now represented as `CameraFramingInputControlRaw`, but its user-facing meaning is deliberately not promoted to FOV or camera-axis terminology.
 - Calls `0x00410610`, `Camera_SmoothAndValidate 0x0040e090`, and `Camera_BuildLookAngles 0x004c9770` for camera/vector preparation.
 - Dispatches through a jump table using `camera + 0x504`; the observed table covers mode values through `0x19`.
 - Handles death-camera mode through `0x00410c90`, applies effect/shake vectors, increments `camera + 0x510`, and performs a final smoothing/position pass.
@@ -370,6 +412,41 @@ The native side now contains the same narrow boundary as
 `src/camera/camera_system.hpp`: point-table search remains an injected
 gameplay producer, while the PE32 candidate arithmetic and mode-1/mode-2
 camera link/anchor writes are directly testable.
+
+The selector also has a second, render-visible tail after the mode/link
+handoff. It re-reads the selected registry flags and updates the active
+viewport input word at `DAT_00563a38 + 0x0c` (word 6):
+
+```text
+flags & 0x400 and flags & 0x200:
+    word6 = (flags & 0xff) * -10 + 0xb2c
+
+flags & 0x400 and flags & 0x100:
+    distance = clamp(distance(player, selected_point), 0x1c2, 0x960)
+    word6 = (flags & 0xff) * 0x8552 / distance
+```
+
+The distance helper at `0x004c9590` subtracts Q16 world words, shifts each
+component arithmetically by 12, sums the three 32-bit products, and passes the
+sum through the retail integer-square-root helper at `0x004f53b0`. For the
+`0x800` action branch, the switch on the selected point record’s action word
+is also exact:
+
+| action word | word 6 | `DAT_00524a40/44/48` | camera `+0x5b4` |
+|---:|---:|---|---:|
+| 0 | `0x96a` | `0xf5, 0xd7, -0x46` | `0` |
+| 1 | `0xb72` | `0xaf, 0x32, -0x11` | `0` |
+| 2 | `0xd52` | `0x122, 0x96, -0x6c` | `0` |
+| 4 | `0x96a` | `0xf5, 0xd7, -0x46` | `0x800` |
+| 5 | `0xb72` | `0xc3, 0x32, -0x11` | `0x800` |
+| 6 | `0xd52` | `0x122, 0x96, -0x6c` | `0x800` |
+
+The native point-selection result now exposes these raw viewport/framing
+outputs and applies the `+0x5b4` action value. This is a semantic producer
+boundary, not a claim that the point table itself belongs to the camera.
+Confidence: high static; runtime point-transition coverage is still missing.
+A live point hit with a different registry/action mapping would falsify the
+promotion and should be recorded before changing the native contract.
 
 The death-position sub-contract is now represented by
 `advance_camera_death_position`. Static dataflow gives:
@@ -1434,7 +1511,7 @@ The names in this contract are reconstruction interfaces, not claims that the or
 The camera boundary is now usable, but these items still matter for pixel/behavior fidelity:
 
 1. Validate the renderer’s consumption of the recovered `0x004a9910` matrix row/column and sign convention with controlled X/Y/Z basis inputs; both payload/matrix conversion directions, the follow cross-product basis, and the Q12 transform composition are now statically encoded.
-2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates, and its relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
+2. Isolate the remaining projection producers. The gated perturbation now proves that viewport input word `6` changes prepared view/object packets. Camera `+0x40c` still needs a producer trace that exercises its guarded assignment, increment/decrement flags, reset, and timed delta updates; the newly decoded framing globals and rotation/axis controls likewise need a gameplay run that exercises their flags. Their relationship to viewport word `7` must remain separate from the proven word-6 dataflow.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
 5. Use the now-established input/player/camera frame contract for stationary projection calibration: vary one camera/viewport input at a time and compare known basis-object coordinates, clipping, depth, and present-to-present output. The live word-6 perturbation already closes the dataflow part of this gate.
@@ -1509,7 +1586,7 @@ DirectDraw backend.
   geometry submissions. The experiment proves the word-6 dataflow, but a
   stationary basis-object run is still required for final screen/depth
   semantics and for the independent `+0x40c` producer.
-- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524aa4`, `DAT_0056b008`, `DAT_0056b018`, `DAT_0056aff8`, and the `+0x410/+0x414` timer/delta pair. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
+- `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). Static code nevertheless shows direct camera-side control through `DAT_00524AA4`, `DAT_0056B008`, `DAT_0056B018`, `DAT_0056AFF8`, and the `+0x410/+0x414` timer/delta pair. The native `CameraViewportParameterControlRaw` now preserves the exact restore/decrement/increment/reset/timer ordering, and the camera probe records the raw control globals at update entry. A run that changes actual projection scale without changing `+0x40c` would falsify its current viewport/framing interpretation and move the projection search to another viewport/global field; a run that exercises those flags would close the producer side of this field.
 - The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `23`, and `24` remain unobserved in a live level transition; mode `25` is statically mapped to the alternate-follow handler and dynamically observed, but its transformed-offset branch is not yet live-sampled.
 - The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

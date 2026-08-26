@@ -38,7 +38,8 @@ breakpoint. If the GDB/WineDbg proxy disconnects, the trace is closed with
 the four movement action-state records alongside the action mask.
 
 Camera/render traces can additionally use `tony-camera-probe`,
-`tony-camera-point-probe`,
+`tony-camera-timing-probe`,
+`tony-camera-point-probe`, and `tony-camera-point-state-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw
 `tony-geometry-probe [COUNT]`. For projection calibration,
 `tony-view-perturb [COUNT]` alternates view-input word 6 between its observed

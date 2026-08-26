@@ -51,6 +51,7 @@ from opentony.calling import CallContext
 from opentony.camera import (
     camera_effect_record,
     camera_point_select_record,
+    camera_timing_record,
     CameraPointSelectProbe,
     CameraPositionTransformProbe,
     CameraProbe,
@@ -376,6 +377,53 @@ def test_camera_record_keeps_raw_and_scale_candidates():
     assert effect_record["tripod_effect_gate"] == 1
     assert effect_record["tripod_effect_transform_gate"] == 3
     assert effect_record["raw_fields"]["0x5d8"]["s32"] == [0]
+
+
+def test_camera_timing_record_preserves_rate_producer_state():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    inferior.data[0x100:0x10C] = struct.pack("<3I", 11, 22, 33)
+    # The real globals are outside this fixture's mapped range, so use a
+    # sparse memory shim that exposes only the timing addresses needed here.
+    class SparseMemory:
+        def __init__(self):
+            self.values = {
+                0x0056E31C: 120,
+                0x0056E320: 121,
+                0x0056865C: 0x100,
+                0x00568604: 118,
+                0x0056A934: 2,
+                0x0056A93C: 0x1800,
+                0x0056A940: 3,
+                0x0056A944: 1,
+                0x0056A948: 0,
+                0x00568810: 0x200,
+                0x005685F4: 2,
+                0x00561C04: 0,
+                0x0056A8E0: 0,
+                0x0056868C: 1,
+                0x00568690: 2,
+                0x00568694: 3,
+            }
+
+        def readable(self, address, size):
+            return size == 4 and address in self.values
+
+        def s32(self, address):
+            return self.values[address]
+
+        def u32(self, address):
+            return self.values[address]
+
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x468B30}),
+        SparseMemory(),
+    )
+    record = camera_timing_record(context)
+    assert record["function"] == "Camera_TimingProducer"
+    assert record["timing"]["simulation_delta_q8"] == 0x100
+    assert record["timing"]["recent_deltas"] == [1, 2, 3]
+    assert record["timing"]["ring_index"] == 2
 
 
 def test_camera_probe_samples_this_pointer_and_writes_trace_event():
