@@ -709,7 +709,11 @@ inline bool build_viewport_projection(
     }
     const std::uint32_t width_delta =
         static_cast<std::uint32_t>(words[0]) - words[2];
-    const std::uint32_t width_shifted = width_delta << 11;
+    // The retail sequence is `(left - right) & 0x1ffffe`, followed by a
+    // 0xb-bit shift. Express the mask before the shift so unusual wrapped
+    // viewport words do not rely on an accidental host shift equivalence.
+    const std::uint32_t width_shifted = wrap_u32(
+        static_cast<std::uint64_t>(width_delta & 0x1ffffeU) << 11);
     const std::int32_t width_numerator = static_cast<std::int32_t>(
         width_shifted & 0xfffff000U);
     words[7] = static_cast<std::uint16_t>(
@@ -733,8 +737,9 @@ inline bool build_viewport_projection(
     const std::uint32_t extent = viewport_extent_token(words[0], words[2]);
     const std::uint32_t x_numerator = wrap_u32(
         static_cast<std::uint64_t>(words[7]) * scale_x);
+    const std::uint32_t extent_half = (extent & 0x1fffffU) >> 1;
     const std::uint32_t x_shifted = wrap_u32(
-        static_cast<std::uint64_t>(extent) << 11);
+        static_cast<std::uint64_t>(extent_half) << 12);
     const std::uint32_t x_divisor = normalized_basis_divisor(
         x_shifted >> 12, x_numerator >> 12);
     if (x_divisor == 0) {
@@ -760,9 +765,11 @@ inline bool build_viewport_projection(
 
     const std::int32_t vertical_half = arithmetic_shift_right_one(
         static_cast<std::int32_t>(static_cast<std::uint32_t>(words[1]) - words[3]));
-    const std::uint32_t vertical_square = wrap_u32(
-        static_cast<std::uint64_t>(words[7]) * words[7]
-        + static_cast<std::int64_t>(vertical_half) * vertical_half);
+    const std::uint32_t vertical_square = static_cast<std::uint32_t>(
+        add_s32(
+            multiply_s32(static_cast<Raw>(words[7]),
+                         static_cast<Raw>(words[7])),
+            multiply_s32(vertical_half, vertical_half)));
     const std::uint32_t vertical_norm = isqrt_u32_x87(vertical_square);
     if (vertical_norm == 0) {
         return false;
@@ -777,9 +784,11 @@ inline bool build_viewport_projection(
 
     const std::int32_t horizontal_half = arithmetic_shift_right_one(
         static_cast<std::int32_t>(static_cast<std::uint32_t>(words[0]) - words[2]));
-    const std::uint32_t horizontal_square = wrap_u32(
-        static_cast<std::uint64_t>(words[7]) * words[7]
-        + static_cast<std::int64_t>(horizontal_half) * horizontal_half);
+    const std::uint32_t horizontal_square = static_cast<std::uint32_t>(
+        add_s32(
+            multiply_s32(static_cast<Raw>(words[7]),
+                         static_cast<Raw>(words[7])),
+            multiply_s32(horizontal_half, horizontal_half)));
     const std::uint32_t horizontal_norm = isqrt_u32_x87(horizontal_square);
     if (horizontal_norm == 0) {
         return false;

@@ -501,6 +501,53 @@ short basis; and the final `0x004a9650` composition occurs before
 also captured by the runtime camera probe so the remaining producer-side
 scale can be compared directly.
 
+The transition state machine is now promoted at the raw-input boundary. The
+static contract is:
+
+```text
+vertical_metric = abs(dot((0, 0x1000, 0), follow_offset))
+near_vertical   = vertical_metric < 0xdf4
+transition      =
+    (near_vertical && (tripod_state == 2 || tripod_state == 8
+                       || camera + 0x418 != 0))
+    || (camera + 0x5d4 != 0 && tripod_state == 1)
+
+if transition:
+    camera + 0x418 = 1
+    preparation_counter (+0x60c) += 1
+    direction/history vector (+0x610) = direction for counts < 4
+    direction/history vector (+0x610) = (0, 0x1000000, 0) at count >= 4
+    camera + 0x5d4 = 1
+    camera + 0x5e8 = 0
+else:
+    if ((abs(direction_dot) & 0xfffff000) < 0x7d0001
+        && direction_state_result > 4):
+        preparation_counter = 0
+        camera + 0x610 = direction
+    else:
+        preparation_counter = 0
+    camera + 0x5d4 = 0
+
+history_b = history_a
+history_a = (anchor_target == mirrored_anchor)
+    ? history_b
+    : (history_b + mode_vector) >> 1
+mode_vector = history_a
+```
+
+The `direction_state_result` value is kept as an injected producer result:
+`0x004ca8f0` also mutates renderer scratch state, so treating it as a camera
+enum would overstate what the disassembly proves. The tripod `+0x2f64` flag
+resets `+0x418`, `+0x5d8`, and `+0x5d4`; `+0x2ddc` gates the transition-side
+tripod notification. The native reference keeps `+0x5d8` separate from the
+follow preparation counter at `+0x60c`.
+
+Evidence ledger for this promotion:
+
+| address | exact behavior | callers/callees | runtime evidence | confidence / falsifier |
+|---|---|---|---|---|
+| `0x00410610` | Computes the two absolute dot thresholds, applies tripod states `1/2/3/8`, updates `+0x418`, `+0x5d4`, `+0x5e8`, `+0x60c`, `+0x610`, then applies the anchor-equality history recurrence. | Called by `0x0040f850`; calls `0x004f5f90`, `0x004c9500`, vector add/shift/equality helpers, and the follow transform tail. | Warehouse probe: 240 mode-1 camera hits, one accepted update per post-startup render tick. Branch-specific producer values were not captured, so transition flags remain static-only. | High for the integer branch contract; runtime mode coverage is high, branch coverage is low. A trace with tripod states `2/8/1` or a producer-reset event could falsify the input mapping, not the observed instruction sequence. |
+
 The recovered native fixture now exercises three independent raw cases: the
 canonical follow basis, a long-history saturating cross product, and a
 negative history value that distinguishes x86 arithmetic `SAR` from
@@ -593,6 +640,39 @@ The native reference exposes the value-level contract as
 history refresh remains an external tripod/gameplay input until its producer
 is promoted.
 
+The orientation smoothing tail is now promoted as well. After its temporary
+effect branches, `0x0040e090` copies `camera +0x458` (target transform) and
+`camera +0x46c` (previous transform) into temporary transform objects, derives
+
+```text
+weight_q12 = SAR((DAT_0056865C * 222), 8)
+current_transform = slerp(previous_transform, target_transform, weight_q12)
+```
+
+using `0x004a9bf0`, then for the first twelve update ticks copies the target
+transform directly into the current transform. The entry copy from current to
+`+0x470..+0x47c` is repeated at the tail only for those startup ticks; on a
+steady-state tick the pre-smoothing transform remains in the previous block
+until the next update enters. The native reference models this exact state
+timing with `smooth_camera_transform_q12` and exposes the raw Q8 delta through
+`CameraUpdateHooks::smoothing_delta_q8`; the default fixture value is the
+observed runtime constant `0x100`.
+
+The normal vertical-effect envelope is separately modeled. In the branch that
+does not enter the special effect-transform path, `+0x5e0` is initialized from
+the distance step and capped at `0x1e`; a squared phase contributes
+
+```text
+DAT_0055F94C += (counter_c * phase * phase * 8000) / 0x1e
+```
+
+with 32-bit multiply wrap and signed division. The alternate steady branch
+uses the equivalent maximum phase constant `0x5fb40 = 49 * 8000` and advances
+`+0x5e4`. The native reference exposes this as
+`advance_camera_effect_ramp`; it reports the special branch rather than
+guessing the unresolved collision/effect transform producer at
+`0x0040c370`.
+
 Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
 `0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
 matrix-row order `1,2,0`. Runtime hit frequency: one position/effect pair per
@@ -655,13 +735,16 @@ not just an alias for the normal mode-1 continuation. The handler:
   camera `+0x5b4`, and writes the target transform at `+0x45c..+0x468`;
 - clears the transition byte at `+0x5d4` before returning.
 
-This is static-only: the bounded Warehouse run never entered mode `2`, and a
-forced-mode probe could not acquire a responsive WineDbg connection before
-the isolated session was stopped. Keep `Camera_Mode2` provisional until a
-runtime trace records the selected offset, `+0x610`, smoothing vectors, and
-target-transform writes together. A runtime mode-2 path that bypasses the
-`+0x5b8/+0x5c4` history or uses a different fallback offset would falsify this
-promotion.
+The native C++ reference now exposes this as `prepare_mode2_target` and keeps
+mode `2` out of the mode-1 history path. Its inputs include the raw view-state
+result from `0x004ca8f0` because that helper also updates renderer scratch
+state. This remains static-only for the retail runtime: the bounded Warehouse
+run never entered mode `2`, and a forced-mode probe could not acquire a
+responsive WineDbg connection before the isolated session was stopped. Keep
+the semantic mode label provisional until a runtime trace records the
+selected offset, `+0x610`, smoothing vectors, and target-transform writes
+together. A runtime mode-2 path that bypasses the `+0x5b8/+0x5c4` history or
+uses a different fallback offset would falsify this promotion.
 
 Promotion audit for these records:
 

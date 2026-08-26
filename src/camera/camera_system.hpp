@@ -32,9 +32,12 @@ struct CameraStateRaw {
     // These fields retain the original integer words. Their producer-side
     // units are not all identical until the effect path is fully classified.
     Q16Vec3 screen_effect_offset{};
-    Q16Vec3 history_a{};
-    Q16Vec3 history_b{};
-    Q16Vec3 mode_vector{};
+    // The names below retain the historical reference API. They correspond
+    // to the three raw vector blocks used by both follow handlers:
+    // +0x5b8, +0x5c4, and +0x610 respectively.
+    Q16Vec3 history_a{};   // smoothing vector at +0x5b8
+    Q16Vec3 history_b{};   // previous smoothing vector at +0x5c4
+    Q16Vec3 mode_vector{}; // camera direction/history vector at +0x610
     Q16Vec3 screen_delta{};
 
     Raw viewport_parameter_raw{};
@@ -44,6 +47,9 @@ struct CameraStateRaw {
     std::uint32_t update_tick{};
     std::uint32_t follow_distance_counter{};
     std::uint32_t follow_preparation_counter{};
+    // Camera +0x5d8. This is an effect-ramp counter, not the follow
+    // preparation counter at +0x60c.
+    Raw effect_ramp_counter_a{};
     // Signed short read at camera +0x5b4 before the mode-1 target transform
     // is composed with the recovered basis.
     std::int16_t follow_rotation_raw{};
@@ -69,6 +75,13 @@ struct CameraTargetRaw {
     std::uint32_t tripod_state{};
     std::uint32_t secondary_state{};
     bool has_secondary{};
+
+    // Raw producer flags read by Camera_FollowTarget from the linked tripod.
+    // They remain here as inputs rather than being assigned camera semantics:
+    // +0x2f64 resets follow state/history counters, while +0x2ddc controls
+    // the transition-side producer notification.
+    std::uint32_t tripod_behavior_flag{};
+    std::uint32_t tripod_effect_gate{};
 };
 
 struct CameraViewportCommitRaw {
@@ -83,8 +96,12 @@ struct CameraFollowSnapshot {
     Q16Vec3 follow_offset{};
     LookAngles look_angles{};
     Q12Vec3 direction_raw{};
+    Raw offset_vertical_metric_raw{};
     Raw axis_dot_raw{};
     Raw offset_dot_raw{};
+    bool transition_branch{};
+    bool direction_seed_branch{};
+    bool tripod_effect_notification{};
 };
 
 // The final tail of Camera_SmoothAndValidate receives these vectors from
@@ -100,6 +117,107 @@ struct CameraPositionStageOutput {
     Q16Vec3 position{};
     Q16Vec3 effect_vector{};
 };
+
+// State consumed by the normal vertical-effect envelope in
+// Camera_SmoothAndValidate. The names follow the recovered offsets; the
+// gameplay/effect producer that decides when the special branch is entered is
+// represented explicitly rather than folded into these counters.
+struct CameraEffectRampStateRaw {
+    bool global_override{};       // DAT_0055FA30 != 0
+    bool transition_active{};     // camera +0x5d4
+    bool tripod_effect_gate{};    // tripod +0x2c68 != 0
+    bool follow_state_flag{};     // camera +0x418
+    Raw tripod_physics_state{};   // tripod +0x30b8
+    Raw distance_step_q4{};       // camera +0x61c
+    Raw counter_a{};               // camera +0x5d8
+    Raw counter_b{};               // camera +0x5dc
+    Raw counter_c{};               // camera +0x5e0
+    Raw counter_d{};               // camera +0x5e4
+    Raw vertical_effect_q16{};     // DAT_0055F94C
+};
+
+struct CameraEffectRampResultRaw {
+    bool special_branch{};
+    Raw vertical_effect_q16{};
+};
+
+inline Raw camera_effect_ramp_delta_q16(Raw strength_q4, Raw phase) {
+    const Raw square = multiply_s32(phase, phase);
+    const Raw scaled = multiply_s32(strength_q4, square);
+    return divide_toward_zero(multiply_s32(scaled, 8000), 0x1e);
+}
+
+// Models the non-special branch at 0x0040e803..0x0040e9f4. The special path
+// at 0x0040ea53 composes a separate effect transform and needs the unresolved
+// gameplay producer, so this function reports it to the caller and leaves the
+// vertical value untouched in that case.
+inline CameraEffectRampResultRaw advance_camera_effect_ramp(
+    CameraEffectRampStateRaw& state) {
+    const bool special = state.global_override
+        || ((!state.transition_active || !state.tripod_effect_gate)
+            && state.counter_a < 1);
+    if (special) {
+        return {true, state.vertical_effect_q16};
+    }
+
+    if (state.counter_a == 0) {
+        state.counter_c = state.distance_step_q4;
+    }
+    if (state.counter_c > 0x1e) {
+        state.counter_c = 0x1e;
+    }
+
+    const bool ramp_down = !state.transition_active
+        || (state.follow_state_flag
+            && state.tripod_physics_state != 1
+            && state.tripod_physics_state != 2);
+    if (ramp_down) {
+        Raw phase = state.counter_a;
+        if (phase < 1) {
+            phase = 0;
+            state.counter_b = 1;
+            state.counter_a = -1;
+            state.counter_d = 0;
+        } else {
+            if (state.counter_b == 0) {
+                if (phase > 7) {
+                    phase = 7;
+                }
+                state.counter_b = add_s32(phase, 1);
+            } else {
+                phase = subtract_s32(state.counter_b, 1);
+            }
+            if (phase == 0) {
+                state.counter_b = 1;
+                state.counter_a = -1;
+                state.counter_d = 0;
+                return {false, state.vertical_effect_q16};
+            }
+        }
+        state.counter_b = subtract_s32(state.counter_b, 1);
+        state.vertical_effect_q16 = add_s32(
+            state.vertical_effect_q16,
+            camera_effect_ramp_delta_q16(state.counter_c, phase));
+    } else {
+        state.counter_b = 0;
+        if (state.counter_a < 7) {
+            if (state.counter_a >= 0) {
+                state.counter_d = 0;
+                state.vertical_effect_q16 = add_s32(
+                    state.vertical_effect_q16,
+                    camera_effect_ramp_delta_q16(
+                        state.counter_c, state.counter_a));
+            }
+        } else {
+            state.vertical_effect_q16 = add_s32(
+                state.vertical_effect_q16,
+                divide_toward_zero(
+                    multiply_s32(state.counter_c, 0x5fb40), 0x1e));
+            state.counter_d = add_s32(state.counter_d, 1);
+        }
+    }
+    return {false, state.vertical_effect_q16};
+}
 
 // Base inputs assembled by Camera_SmoothAndValidate before its
 // collision/effect branches. The distance is the camera +0x5d0 word in Q4
@@ -166,6 +284,33 @@ struct CameraFollowInput {
     bool follow_transition_requested{};
     bool transform_fallback{};
     bool collision_distance_valid{};
+
+    // The old field above is retained for source compatibility with the
+    // early reference fixtures.  The recovered routine's actual history gate
+    // is anchor equality; this explicit override is only for replay inputs
+    // that have already applied an opaque collision/history producer.
+    bool external_history_override{};
+
+    // Result of 0x004ca8f0. That helper also updates renderer scratch state,
+    // so the caller supplies its scalar result instead of hiding it in a
+    // guessed camera enum.
+    std::int32_t direction_state_result{};
+
+    // Mode 2 has a separate target-preparation handler. These two values
+    // expose the raw facts that its static branch consumes without treating
+    // the renderer-dependent 0x004ca8f0 result as a camera enum.
+    bool mode2_tripod_present{true};
+    std::int32_t mode2_view_state{};
+};
+
+struct CameraMode2Snapshot {
+    Q16Vec3 anchor_delta{};
+    Q16Vec3 follow_offset{};
+    LookAngles look_angles{};
+    Q12Vec3 direction_raw{};
+    Raw direction_offset_dot_raw{};
+    bool seeded_direction{};
+    bool anchors_equal{};
 };
 
 struct CameraUpdateHooks {
@@ -192,6 +337,11 @@ struct CameraUpdateHooks {
     // Global DAT_0056a8d4 in the retail update. Keep it configurable until
     // its producer is promoted from the runtime global set.
     std::int32_t shake_phase_multiplier{1};
+
+    // Retail DAT_0056865C is the Q8 simulation delta used by the transform
+    // smoothing tail. The normal game initializes it to 0x100; callers can
+    // provide a replay/runtime value without hiding the fixed-point contract.
+    Raw smoothing_delta_q8{0x100};
 };
 
 inline Q16Vec3 subtract_q16(const Q16Vec3& left, const Q16Vec3& right) {
@@ -247,6 +397,12 @@ inline Q12Vec3 direction_from_angles_raw(const LookAngles& angles, Raw scalar) {
     };
 }
 
+inline Raw absolute_s32(Raw value);
+
+inline Q16Vec3 direction_to_q16(const Q12Vec3& value) {
+    return {value.x, value.y, value.z};
+}
+
 inline CameraFollowSnapshot prepare_follow_target(
     CameraStateRaw& camera,
     const CameraTargetRaw& target,
@@ -261,24 +417,53 @@ inline CameraFollowSnapshot prepare_follow_target(
     const Q16Vec3 zero{};
     snapshot.look_angles = build_look_angles(snapshot.anchor_delta, zero);
     snapshot.direction_raw = direction_from_angles_raw(snapshot.look_angles, kQ12One);
-    snapshot.axis_dot_raw = dot_q12_x87({0, kQ12One, 0},
-                                        {snapshot.follow_offset.x,
-                                         snapshot.follow_offset.y,
-                                         snapshot.follow_offset.z});
+    const Raw vertical_offset_dot_raw = dot_q12_x87(
+        {0, kQ12One, 0},
+        {snapshot.follow_offset.x, snapshot.follow_offset.y,
+         snapshot.follow_offset.z});
+    snapshot.offset_vertical_metric_raw = absolute_s32(
+        vertical_offset_dot_raw);
+    snapshot.axis_dot_raw = vertical_offset_dot_raw;
     snapshot.offset_dot_raw = dot_q12_x87(snapshot.direction_raw,
                                           {snapshot.follow_offset.x,
                                            snapshot.follow_offset.y,
                                            snapshot.follow_offset.z});
 
-    ++camera.follow_distance_counter;
-    if ((input.action_state != 1 && input.action_state != 2 && input.action_state != 3)
-        && !camera.follow_transition_active) {
+    // 0x00410610 returns early from this branch when the linked tripod is in
+    // the producer-reset state.  Preserve the writes visible before the
+    // early state tests, while leaving the actual tripod object untouched.
+    if (target.tripod_behavior_flag != 0) {
+        camera.follow_state_flag = 0;
+        camera.effect_ramp_counter_a = 0;
+        camera.follow_transition_active = 0;
+    }
+
+    camera.follow_distance_counter = add_s32(
+        static_cast<Raw>(camera.follow_distance_counter), 1);
+    if (target.tripod_state != 1 && target.tripod_state != 2
+        && target.tripod_state != 3) {
         camera.follow_state_flag = 0;
     }
-    if (input.follow_transition_requested) {
+
+    const bool prior_transition = camera.follow_transition_active != 0;
+    const bool near_vertical_offset = snapshot.offset_vertical_metric_raw < 0xdf4;
+    const bool follow_transition =
+        (near_vertical_offset
+            && (target.tripod_state == 2 || target.tripod_state == 8
+                || camera.follow_state_flag != 0))
+        || (prior_transition && target.tripod_state == 1)
+        || input.follow_transition_requested;
+
+    if (follow_transition) {
+        snapshot.transition_branch = true;
         camera.follow_state_flag = 1;
-        ++camera.follow_preparation_counter;
+        if (!prior_transition && target.tripod_effect_gate != 0) {
+            snapshot.tripod_effect_notification = true;
+        }
+        camera.follow_preparation_counter = add_s32(
+            static_cast<Raw>(camera.follow_preparation_counter), 1);
         if (camera.follow_preparation_counter < 4) {
+            camera.mode_vector = direction_to_q16(snapshot.direction_raw);
             camera.follow_transition_active = 1;
             camera.follow_distance_counter = 0;
         } else {
@@ -287,10 +472,94 @@ inline CameraFollowSnapshot prepare_follow_target(
             camera.follow_distance_counter = 0;
         }
     } else {
-        camera.follow_preparation_counter = 0;
+        const Raw direction_metric_band = absolute_s32(snapshot.offset_dot_raw)
+            & static_cast<Raw>(0xfffff000U);
+        if (direction_metric_band < 0x7d0001
+            && input.direction_state_result > 4) {
+            snapshot.direction_seed_branch = true;
+            camera.follow_preparation_counter = 0;
+            camera.mode_vector = direction_to_q16(snapshot.direction_raw);
+            if (near_vertical_offset && prior_transition) {
+                camera.follow_distance_counter = 0;
+            }
+        } else {
+            camera.follow_preparation_counter = 0;
+            if (near_vertical_offset && prior_transition) {
+                camera.follow_distance_counter = 0;
+            }
+        }
         camera.follow_transition_active = 0;
     }
     camera.transform_fallback = input.transform_fallback ? 1 : 0;
+    return snapshot;
+}
+
+inline Raw absolute_s32(Raw value) {
+    return value < 0
+        ? wrap_s32(-static_cast<std::int64_t>(value))
+        : value;
+}
+
+inline TransformQ12 build_follow_target_transform_q12(
+    const Q16Vec3& history,
+    const Q16Vec3& follow_offset,
+    std::int16_t follow_rotation_raw);
+
+// 0x004113f0 is the mode-2 target-preparation handler. It shares the final
+// short-basis/transform tail with normal follow, but its input vector is
+// maintained at +0x610 and it uses the tripod's +0x310c offset (or the raw
+// fallback offset when no tripod is linked). The view-state result is passed
+// in because 0x004ca8f0 also updates renderer scratch state, which is outside
+// this value-oriented camera contract.
+inline CameraMode2Snapshot prepare_mode2_target(
+    CameraStateRaw& camera,
+    const CameraTargetRaw& target,
+    const CameraFollowInput& input) {
+    CameraMode2Snapshot snapshot;
+    snapshot.anchor_delta = subtract_q16(
+        camera.anchor_target, camera.mirrored_anchor);
+    snapshot.follow_offset = input.mode2_tripod_present
+        ? target.follow_offset
+        : Q16Vec3{0, -0x1000, 0};
+    snapshot.look_angles = build_look_angles(snapshot.anchor_delta, {});
+    snapshot.direction_raw = direction_from_angles_raw(
+        snapshot.look_angles, kQ12One);
+    snapshot.direction_offset_dot_raw = dot_q12_x87(
+        snapshot.direction_raw,
+        {snapshot.follow_offset.x, snapshot.follow_offset.y,
+         snapshot.follow_offset.z});
+
+    // The retail condition is:
+    //   (abs(dot) & 0xfffff000) < 0x7d0001 && view_state > 4
+    // followed by Camera_BuildDirection into +0x610. Preserve the unusual
+    // mask and strict comparison; this is not a normalized-float distance.
+    const Raw dot_band = absolute_s32(snapshot.direction_offset_dot_raw)
+        & static_cast<Raw>(0xfffff000U);
+    if (dot_band < 0x7d0001 && input.mode2_view_state > 4) {
+        camera.mode_vector = {
+            snapshot.direction_raw.x,
+            snapshot.direction_raw.y,
+            snapshot.direction_raw.z};
+        snapshot.seeded_direction = true;
+    }
+    camera.follow_transition_active = 0;
+
+    camera.history_b = camera.history_a;
+    snapshot.anchors_equal = camera.anchor_target.x == camera.mirrored_anchor.x
+        && camera.anchor_target.y == camera.mirrored_anchor.y
+        && camera.anchor_target.z == camera.mirrored_anchor.z;
+    if (snapshot.anchors_equal) {
+        camera.history_a = camera.history_b;
+    } else {
+        camera.history_a = shift_right_q16(
+            add_q16(camera.history_b, camera.mode_vector), 1);
+    }
+    camera.mode_vector = camera.history_a;
+    camera.target_transform = build_follow_target_transform_q12(
+        camera.mode_vector,
+        snapshot.follow_offset,
+        camera.follow_rotation_raw);
+    camera.follow_transition_active = 0;
     return snapshot;
 }
 
@@ -368,9 +637,9 @@ inline TransformQ12 build_follow_target_transform_q12(
 inline void update_camera_history(
     CameraStateRaw& camera,
     const Q16Vec3& anchor_delta,
-    bool use_external_history) {
+    bool force_history_copy) {
     camera.history_b = camera.history_a;
-    if (use_external_history || camera.transform_fallback != 0) {
+    if (force_history_copy || camera.transform_fallback != 0) {
         camera.history_a = camera.history_b;
     } else {
         // 0x004cabb0 adds history_b and mode_vector; 0x004cacd0 shifts all
@@ -442,6 +711,25 @@ inline void apply_camera_shake(
     camera.shake_z = zero_shake_on_sign_crossing(old_z, decayed_z);
 }
 
+// 0x0040e090 derives its Q12 slerp weight as
+// `SAR((DAT_0056865C * 222), 8)`. The multiply is a 32-bit PE32 operation and
+// the right shift is an arithmetic shift; do not replace this with a float
+// frame-delta or a clamped interpolation coefficient.
+inline Raw camera_transform_smoothing_weight_q12(Raw smoothing_delta_q8) {
+    return arithmetic_shift_right(
+        multiply_s32(smoothing_delta_q8, 222), 8);
+}
+
+inline TransformQ12 smooth_camera_transform_q12(
+    const TransformQ12& previous,
+    const TransformQ12& target,
+    Raw smoothing_delta_q8) {
+    return slerp_transform_q12(
+        previous,
+        target,
+        camera_transform_smoothing_weight_q12(smoothing_delta_q8));
+}
+
 inline void advance_viewport_parameter(CameraStateRaw& camera) {
     const auto timer_low = static_cast<std::uint16_t>(camera.viewport_timer_raw);
     if (timer_low == 0) {
@@ -479,13 +767,24 @@ inline CameraViewportCommitRaw update_camera(
     CameraFollowSnapshot snapshot;
     if (camera.mode == 1 || camera.mode == 25) {
         snapshot = prepare_follow_target(camera, target, follow_input);
+    } else if (camera.mode == 2) {
+        (void)prepare_mode2_target(camera, target, follow_input);
     }
 
     // Camera_FollowTarget updates its history and target transform before
     // Camera_SmoothAndValidate is entered. Keeping this boundary explicit is
     // important: the startup path then consumes the newly prepared target,
     // rather than smoothing one frame behind it.
-    update_camera_history(camera, snapshot.anchor_delta, follow_input.collision_distance_valid);
+    if (camera.mode == 1 || camera.mode == 25) {
+        const bool anchors_equal = camera.anchor_target.x
+                == camera.mirrored_anchor.x
+            && camera.anchor_target.y == camera.mirrored_anchor.y
+            && camera.anchor_target.z == camera.mirrored_anchor.z;
+        update_camera_history(
+            camera, snapshot.anchor_delta,
+            anchors_equal || follow_input.external_history_override
+                || follow_input.collision_distance_valid);
+    }
     if (camera.mode == 1 || camera.mode == 25) {
         if (hooks.apply_follow_transform != nullptr) {
             hooks.apply_follow_transform(camera, snapshot);
@@ -497,10 +796,22 @@ inline CameraViewportCommitRaw update_camera(
         }
     }
     camera.previous_transform = camera.current_transform;
+    const bool startup_transform = camera.update_tick < 12;
     if (hooks.smooth_transform != nullptr) {
         hooks.smooth_transform(camera);
-    } else if (camera.update_tick < 12) {
+    } else if (startup_transform) {
         camera.current_transform = camera.target_transform;
+    } else {
+        camera.current_transform = smooth_camera_transform_q12(
+            camera.previous_transform,
+            camera.target_transform,
+            hooks.smoothing_delta_q8);
+    }
+    // Retail refreshes +0x470..+0x47c alongside the startup target copy. On
+    // steady-state ticks the entry copy remains in place; the next call
+    // refreshes it from the then-current transform before interpolating.
+    if (startup_transform) {
+        camera.previous_transform = camera.current_transform;
     }
     if (hooks.prepare_position_stage != nullptr) {
         CameraPositionStageInput position_input;

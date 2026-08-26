@@ -12,8 +12,8 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
         pytest.skip("g++ is not installed")
     source = tmp_path / "camera_system_smoke.cpp"
     source.write_text(
-        textwrap.dedent(
-            """
+                textwrap.dedent(
+                    """
             #include "src/camera/camera_system.hpp"
 
             int main() {
@@ -47,6 +47,50 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     || static_cast<unsigned>(camera.viewport_timer_raw & 0xffff) != 1
                     || committed.rendered_position.x != 16) {
                     return 1;
+                }
+
+                // Mode 2 has its own handler.  This fixture chooses an
+                // anchor direction orthogonal to the supplied offset so the
+                // retail dot-band/view-state seed branch is exercised.
+                CameraStateRaw mode2;
+                mode2.mode = 2;
+                mode2.mirrored_anchor = {};
+                mode2.anchor_target = {0, 0, 0x10000};
+                const CameraTargetRaw mode2_target{
+                    {}, {0x1000, 0, 0}, {}, 0, 0, false};
+                CameraFollowInput mode2_input{};
+                mode2_input.mode2_view_state = 5;
+                const auto mode2_snapshot = prepare_mode2_target(
+                    mode2, mode2_target, mode2_input);
+                const auto mode2_expected = build_follow_target_transform_q12(
+                    mode2.mode_vector, mode2_target.follow_offset, 0);
+                if (!mode2_snapshot.seeded_direction
+                    || mode2_snapshot.follow_offset.x != 0x1000
+                    || mode2.mode_vector.z
+                        != arithmetic_shift_right(mode2_snapshot.direction_raw.z, 1)
+                    || mode2.history_b.z != 0
+                    || mode2.history_a.z != mode2.mode_vector.z
+                    || mode2.follow_transition_active != 0
+                    || mode2.target_transform.x != mode2_expected.x
+                    || mode2.target_transform.y != mode2_expected.y
+                    || mode2.target_transform.z != mode2_expected.z
+                    || mode2.target_transform.w != mode2_expected.w) {
+                    return 15;
+                }
+
+                CameraStateRaw mode2_fallback;
+                mode2_fallback.mode = 2;
+                mode2_fallback.anchor_target = {};
+                mode2_fallback.mirrored_anchor = {};
+                CameraFollowInput mode2_fallback_input{};
+                mode2_fallback_input.mode2_tripod_present = false;
+                const auto fallback_snapshot = prepare_mode2_target(
+                    mode2_fallback, {}, mode2_fallback_input);
+                if (fallback_snapshot.follow_offset.x != 0
+                    || fallback_snapshot.follow_offset.y != -0x1000
+                    || fallback_snapshot.follow_offset.z != 0
+                    || fallback_snapshot.seeded_direction) {
+                    return 16;
                 }
 
                 camera.history_a = {0x200, 0, 0};
@@ -179,7 +223,10 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                 }
 
                 camera.mode_vector = {0, 0, 0x2000};
-                const auto second = update_camera(camera, target, follow, {}, {});
+                const CameraTargetRaw moved_target{
+                    {0x2000, 0, 0}, follow_offset, {}, 0, 0, false};
+                const auto second = update_camera(
+                    camera, moved_target, follow, {}, {});
                 const auto second_expected = build_follow_target_transform_q12(
                     {0, 0, 0x1000}, follow_offset, 0);
                 if (camera.history_b.z != 0
@@ -227,6 +274,128 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                 if (advance_camera_distance_q4({history, 197, -3})
                     != 7) {
                     return 9;
+                }
+
+                if (camera_transform_smoothing_weight_q12(0x100) != 222) {
+                    return 10;
+                }
+                const TransformQ12 prior_transform{0, 0, 0, 0x1000};
+                const TransformQ12 next_transform{0, 0x1000, 0, 0};
+                const auto expected_smoothed = smooth_camera_transform_q12(
+                    prior_transform, next_transform, 0x100);
+                CameraStateRaw smoothed;
+                smoothed.mode = 1;
+                smoothed.update_tick = 12;
+                smoothed.current_transform = prior_transform;
+                smoothed.target_transform = next_transform;
+                CameraUpdateHooks smoothing_hooks{};
+                smoothing_hooks.smoothing_delta_q8 = 0x100;
+                smoothing_hooks.apply_follow_transform =
+                    [](CameraStateRaw&, const CameraFollowSnapshot&) {};
+                update_camera(smoothed, {}, {}, {}, smoothing_hooks);
+                if (smoothed.current_transform.x != expected_smoothed.x
+                    || smoothed.current_transform.y != expected_smoothed.y
+                    || smoothed.current_transform.z != expected_smoothed.z
+                    || smoothed.current_transform.w != expected_smoothed.w
+                    || smoothed.previous_transform.x != prior_transform.x
+                    || smoothed.previous_transform.w != prior_transform.w) {
+                    return 11;
+                }
+
+                CameraEffectRampStateRaw ramp{
+                    false, true, true, false, 0, 3,
+                    1, 0, 3, 0, 100};
+                const auto ramp_result = advance_camera_effect_ramp(ramp);
+                if (ramp_result.special_branch
+                    || ramp.counter_c != 3
+                    || ramp.vertical_effect_q16 != 900) {
+                    return 12;
+                }
+                ramp.counter_a = 7;
+                ramp.counter_b = 0;
+                const auto max_result = advance_camera_effect_ramp(ramp);
+                if (max_result.special_branch
+                    || ramp.counter_b != 0
+                    || ramp.counter_d != 1
+                    || ramp.vertical_effect_q16
+                        != add_s32(900, divide_toward_zero(
+                            multiply_s32(3, 0x5fb40), 0x1e))) {
+                    return 13;
+                }
+                CameraEffectRampStateRaw special_ramp{
+                    false, false, false, false, 0, 3,
+                    0, 0, 0, 0, 100};
+                if (!advance_camera_effect_ramp(special_ramp).special_branch) {
+                    return 14;
+                }
+
+                // Camera_FollowTarget's transition branch uses the raw
+                // vertical-offset threshold and tripod state, then advances
+                // the separate +0x60c preparation counter.  The first three
+                // entries seed the direction; the fourth uses the retail
+                // fallback vector.
+                CameraStateRaw follow_state;
+                follow_state.mode = 1;
+                const CameraTargetRaw transition_target{
+                    {}, {0, -0x100, 0}, {}, 2, 0, false, 0, 1};
+                CameraFollowInput transition_input{};
+                const auto transition = prepare_follow_target(
+                    follow_state, transition_target, transition_input);
+                if (!transition.transition_branch
+                    || !transition.tripod_effect_notification
+                    || follow_state.follow_state_flag != 1
+                    || follow_state.follow_transition_active != 1
+                    || follow_state.follow_preparation_counter != 1
+                    || follow_state.follow_distance_counter != 0
+                    || follow_state.mode_vector.x
+                        != transition.direction_raw.x
+                    || follow_state.mode_vector.y
+                        != transition.direction_raw.y
+                    || follow_state.mode_vector.z
+                        != transition.direction_raw.z) {
+                    return 15;
+                }
+                follow_state.follow_preparation_counter = 3;
+                follow_state.follow_transition_active = 0;
+                const CameraTargetRaw fourth_transition{
+                    {}, {0, -0x100, 0}, {}, 2, 0, false, 0, 0};
+                const auto fourth = prepare_follow_target(
+                    follow_state, fourth_transition, transition_input);
+                if (!fourth.transition_branch
+                    || follow_state.follow_preparation_counter != 4
+                    || follow_state.mode_vector.x != 0
+                    || follow_state.mode_vector.y != 0x1000000
+                    || follow_state.mode_vector.z != 0) {
+                    return 16;
+                }
+
+                // A producer reset clears +0x5d8 and transition state, while
+                // the normal state-2 branch may immediately re-enter the
+                // transition path.
+                follow_state.effect_ramp_counter_a = 77;
+                const CameraTargetRaw reset_target{
+                    {}, {0, -0x100, 0}, {}, 2, 0, false, 1, 0};
+                prepare_follow_target(
+                    follow_state, reset_target, transition_input);
+                if (follow_state.effect_ramp_counter_a != 0
+                    || follow_state.follow_transition_active != 1) {
+                    return 17;
+                }
+
+                // The alternate direction-seed branch is gated by the
+                // renderer-backed scalar result, not by a guessed enum.
+                CameraStateRaw seeded_state;
+                seeded_state.mode = 1;
+                CameraFollowInput seeded_input{};
+                seeded_input.direction_state_result = 5;
+                const auto seeded = prepare_follow_target(
+                    seeded_state, {}, seeded_input);
+                if (!seeded.direction_seed_branch
+                    || seeded_state.follow_transition_active != 0
+                    || seeded_state.mode_vector.x != seeded.direction_raw.x
+                    || seeded_state.mode_vector.y != seeded.direction_raw.y
+                    || seeded_state.mode_vector.z != seeded.direction_raw.z) {
+                    return 18;
                 }
                 return 0;
             }
