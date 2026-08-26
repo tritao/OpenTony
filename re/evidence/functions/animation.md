@@ -155,9 +155,19 @@ The pose-side fields that complete the object contract are:
 | `+0x140` | model-part descriptor/list | Set from the model resource descriptor. |
 | `+0x144` | attached model/resource descriptor | Set when the model binding is first built. |
 | `+0x14c` | animation-order dirty flag | Set by `SetAnimOrder`. |
-| `+0x150..` | animation-part → model-part order map | `SetAnimOrder(anim_part, model_part)` writes one byte per part. |
+| `+0x150..` | model/render part ID → animation-part order map | `SetAnimOrder(render_id, render_order)` writes one byte per model/render part. |
 
 `0x00480950` combines `+0xf4` and `+0x104` as a 16.16 frame value, adds or subtracts `(+0x108 * DAT_0056865c) >> 8`, writes the fractional part back to `+0x104`, and writes the integer frame back to `+0xf4`. Its mode switch handles stop, loop, ping-pong, and reverse endpoint behavior. This is the reproducible time/frame advancement path.
+
+The recovered debug/source symbol inventory gives the corresponding retail
+member names: `mAnim` (`+0xf6`), `mAnimMode` (`+0xf8`), `mAnimDir`
+(`+0x100`), `mFrame` (`+0xf4`), `mAnimFinished` (`+0x107`),
+`mAnimSpeed` (`+0x108`), `mNumFrames` (`+0x106`), and `mFrameFrac`
+(`+0x104`). The pose-cache names are also present: `mpCalculationOrder`
+(`+0xe8`), `mpDecompressedFrame` (`+0xec`), `mDecompressedAnim`
+(`+0xf2`), `mDecompressedFrame` (`+0xf3`), and `mpPoseBuffer` (`+0x138`).
+These names come from `SKATE2.TAG` and corroborate the field roles; the PC
+offset mapping is established by the decompiled reads/writes above.
 
 The endpoint behavior is now resolved from the decompilation rather than left
 as a transition guess. Before advancing, mode `0`/`2` checks whether the
@@ -190,10 +200,12 @@ Thus the minimal identity is `(object+0x1f model/part set, object+0xf6 animation
 
 ## Per-update and pose boundary
 
-`0x00480fa0` is the object update dispatcher. When the object's update flags
-permit animation, it calls `0x00480950`; it then invokes two object callbacks
-through the vtable. The timing routine is consequently separated from the
-pose/data consumer. The base `CSuper` vtable entries observed at
+`0x00480fa0` is the object update dispatcher. The level loop's per-frame
+`0x00469de0` reaches the active object list through `0x00480ff0`, which calls
+`0x00480fa0` for each object. When an object's update flags permit animation,
+`0x00480fa0` calls `0x00480950`; it then invokes two object callbacks through
+the vtable. The timing routine is consequently separated from the pose/data
+consumer. The base `CSuper` vtable entries observed at
 `PTR_FUN_005193a8 + 0xc/+0x10` are no-op callbacks; the concrete pose work is
 performed by the model-side rebuild path below rather than being inferred
 from those callback slots.
@@ -226,8 +238,28 @@ both begin with the observed PSX resource header (`version=4`, `type=2`) and
 declare 19 parts. Their matching `SK2ANIM.PSH` and `SK2MOD.PSH` files list the
 same part names and parent hierarchy: pelvis/root, thighs, shins, shoes,
 stomach, chest, arms, head, board, and two wheels. The animation and model
-part lists are therefore deliberately name-compatible; `0x00480d90` compares
-those names and calls `SetAnimOrder` for each match.
+part lists are therefore deliberately name-compatible.
+
+The binding direction is now exact. `0x00480d90` iterates model/render part
+names in its outer loop and animation-part names in its inner loop; an exact
+string match calls `SetAnimOrder` (`0x00480cd0`) with
+`(model/render_part_id, animation_part_order)`. `SetAnimOrder` asserts both
+bytes are below `0x13`, stores
+`object+0x150[model/render_part_id] = animation_part_order`, and sets
+`object+0x14c`. The model-side pose/render loops at `0x004604f0` and
+`0x004610f0` then use that byte to select the corresponding animation pose
+record while iterating model parts. This is a model-to-animation lookup, not
+an animation-to-model map; preserving this direction is required for correct
+limb/board correspondence.
+
+`0x00464c00` builds the adjacent model binding state. It points `+0x140` at
+the model descriptor records after the resource's two-byte part count,
+allocates `+0x138` as one `0x18`-byte record per animation part, allocates
+`+0x13c` as one `0x0c`-byte record per model part, clears six shorts in each
+mapping record, and stores the matching model-descriptor index at record
+offset `+0x0a` by comparing descriptor keys. The two mappings serve different
+purposes: `+0x13c` binds model descriptors, while `+0x150` reorders animation
+pose records for model/render consumption.
 
 `SK2ANIM.PSX` SHA-256 is
 `70cf84ac83e86a99815472325fa8ea875e01ef5c50152eff144731152f9ba1e5` and
@@ -399,7 +431,8 @@ retail object layout. The required operations are:
   parents in the cached calculation order. For the extracted skater resource,
   the key-spacing high word is zero, so this is a direct per-frame sample.
 * `bind_parts()`: match animation and model part names and build the
-  animation-part→model-part order map before exposing the pose to rendering.
+  model/render-part→animation-part order map before exposing the pose to
+  rendering; keep the separate `+0x13c` model-descriptor records as well.
 
 The first differential tests should be deterministic unit tests rather than
 visual tests:
@@ -421,3 +454,9 @@ visual tests:
 
 * A gameplay trace can still confirm whether a concrete level ever selects a distinct straight-roll ID, and can identify which derived vtable callbacks are active for a concrete player object. The base `CSuper` callbacks observed statically are no-ops, so this is not a blocker for the pose path already established.
 * If a gameplay trace shows a distinct roll animation ID under straight motion, the “stable ID 0 after push” statement should be narrowed to the tested grounded path; it does not affect the selection/current/time/pose pipeline.
+* The source inventory also exposes adjacent compatibility methods—`FrameReached`,
+  `ApplyPose`, `SetAnimSpeed`, `StoreNewFrame`, `StoreOldFrameAnim`,
+  `M3dUtils_ClearPoseStuff`, `M3dUtils_BuildPose`, and
+  `M3dUtils_GetPartPosition`. Their names establish useful future API seams,
+  but their exact standalone PC entry points are outside this minimal pipeline
+  and should not be mistaken for missing selection or advancement stages.
