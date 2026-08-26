@@ -292,6 +292,7 @@ Promotion audit for these math helpers:
 | `0x004a9650` | called by `0x00410610`; consumes two embedded four-word transform objects and writes a four-word result | not independently counted; statically reached in normal follow preparation | observed; operand convention is exact, while the final matrix row/column interpretation remains a separate question |
 | `0x004a9bf0` | called by `0x0040e090`; normalizes two four-word Q12 records, chooses quaternion sign, blends by a Q12 weight, and renormalizes | statically recovered; Warehouse trace remains mode 1 but did not instrument this helper separately | observed as a normalized quaternion interpolation helper; the angular conversion is `0x004ca0a0` |
 | `0x004f5f90` | x87 dot product of two three-word integer vectors, scaled by `1/4096` and truncated | called twice by `0x00410610` for follow-direction thresholds | observed; earlier “length” wording was corrected, and a non-dot use at an unexamined callsite would falsify the global semantic name |
+| `0x004c9500` | converts two 12-bit look angles and a scalar into the raw follow-direction vector | called by `0x00410610`; exact sine/cosine products are represented in the native reference | observed; the caller’s downstream scale interpretation remains raw/provisional |
 
 ### `0x004e39a0` — Q12 matrix multiply
 
@@ -447,6 +448,19 @@ ending at `0x004a9650`; the resulting four words are written into the target
 transform payload at `+0x45c..+0x468`. It also maintains the transition bytes
 at `+0x418` and `+0x5d4`, the distance/preparation counters at `+0x5e8` and
 `+0x60c`, and the Q12 vector records at `+0x5b8/+0x5c4`.
+
+The direction helper’s raw output is not a conventional normalized float
+vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
+
+```text
+out.x = -((sin(a)*s >> 12) * sin(b))
+out.y =   sin(a)*s
+out.z = -((cos(a)*s >> 12) * cos(b))
+```
+
+All sine/cosine values are Q12 integer results and the caller preserves this
+mixed intermediate scale into the dot/threshold path. The native reference
+keeps that behavior in `direction_from_angles_raw`.
 
 The routine has two important mode/state seams that a faithful C++ camera
 must preserve:

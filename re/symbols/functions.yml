@@ -194,6 +194,12 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/camera-system.md
+  - address: 0x004c9500
+    name: Camera_DirectionFromAnglesRaw
+    description: builds the mixed-scale follow direction record from two 12-bit angles
+    confidence: observed
+    evidence:
+      - re/evidence/functions/camera-system.md
   - address: 0x004103b0
     name: Camera_AngleDelta12
     description: returns the shortest signed difference between two 12-bit turn angles
