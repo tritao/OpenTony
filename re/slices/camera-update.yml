@@ -15,10 +15,12 @@ artifacts:
     - re/evidence/functions/camera-system.md
   native:
     - src/camera/camera_math.hpp
-  tests: []
+    - src/camera/camera_update.hpp
+  tests:
+    - tests/test_camera_update.py
 
 open_questions:
-  - Recover the remaining CCamera fields accessed by the update path.
+  - Confirm helper-owned fields and any mode-specific reinterpretations beyond the direct update-body audit.
   - Separate the update mode and state branches without guessing semantic names.
   - Establish the target, anchor, smoothing, and viewport relationships.
   - Determine which recovered behavior belongs in the existing native camera math boundary.

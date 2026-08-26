@@ -1,5 +1,17 @@
 version: 1
 functions:
+  - address: 0x0040f850
+    name: Camera_Update
+    slice: camera-update
+    status: tested
+    sources:
+      - src/camera/camera_update.hpp
+    tests:
+      - tests/test_camera_update.py
+    evidence:
+      - re/evidence/functions/camera-system.md
+    notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, and normal-follow tick increment; smoothing, effects, and mode semantics remain separate exclusions.
+
   - address: 0x00496060
     name: Skater_PositionWritePath
     slice: player-position-commit

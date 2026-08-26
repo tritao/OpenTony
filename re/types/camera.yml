@@ -14,23 +14,42 @@ types:
       - {offset: 0x000, name: vtable, type: "pointer<void>", confidence: observed}
       - {offset: 0x008, name: position_q16, type: "array<q16_i32,3>", confidence: inferred}
       - {offset: 0x014, name: look_angles, type: "array<i16,3>", confidence: observed}
+      - {offset: 0x0c8, name: field_0c8, type: u16, confidence: observed}
       - {offset: 0x3a4, name: tripod_link, type: "pointer<void>", confidence: observed}
-      - {offset: 0x3ac, name: anchor_update_flag, type: u32, confidence: observed}
+      - {offset: 0x3ac, name: anchor_update_flag, type: u8, confidence: observed}
       - {offset: 0x3b0, name: mirrored_anchor_q16, type: "array<q16_i32,3>", confidence: provisional}
-      - {offset: 0x3bc, name: tripod_anchor_flag, type: u32, confidence: observed}
+      - {offset: 0x3bc, name: tripod_anchor_flag, type: u8, confidence: observed}
       - {offset: 0x3c0, name: anchor_target_q16, type: "array<q16_i32,3>", confidence: inferred}
       - {offset: 0x3dc, name: secondary_target_link, type: "pointer<void>", confidence: observed}
-      - {offset: 0x3e0, name: secondary_target_valid, type: u32, confidence: observed}
+      - {offset: 0x3e0, name: secondary_target_valid, type: u8, confidence: observed}
       - {offset: 0x3e4, name: secondary_anchor_q16, type: "array<q16_i32,3>", confidence: provisional}
       - {offset: 0x3f0, name: look_target_q16, type: "array<q16_i32,3>", confidence: inferred}
       - {offset: 0x40c, name: viewport_parameter_raw, type: u32, confidence: observed}
+      - {offset: 0x410, name: field_410_s16, type: i16, confidence: observed}
+      - {offset: 0x414, name: field_414, type: i32, confidence: observed}
+      - {offset: 0x434, name: field_434_s16, type: i16, confidence: observed}
+      - {offset: 0x436, name: field_436_s16, type: i16, confidence: observed}
+      - {offset: 0x444, name: current_transform_vtable, type: "pointer<void>", confidence: observed}
       - {offset: 0x448, name: current_transform_q12, type: "array<q12_i32,4>", confidence: inferred}
+      - {offset: 0x458, name: target_transform_vtable, type: "pointer<void>", confidence: observed}
       - {offset: 0x45c, name: target_transform_q12, type: "array<q12_i32,4>", confidence: inferred}
+      - {offset: 0x46c, name: previous_transform_vtable, type: "pointer<void>", confidence: observed}
       - {offset: 0x470, name: previous_transform_q12, type: "array<q12_i32,4>", confidence: inferred}
+      - {offset: 0x4a9, name: field_4a9, type: u8, confidence: observed}
+      - {offset: 0x4f2, name: effect_offsets_s16, type: "array<i16,3>", confidence: observed}
+      - {offset: 0x4f8, name: effect_control_bytes, type: "array<u8,3>", confidence: observed}
+      - {offset: 0x4fc, name: effect_phase_s16, type: "array<i16,3>", confidence: observed}
       - {offset: 0x504, name: camera_mode, type: u32, confidence: observed}
       - {offset: 0x510, name: update_tick, type: u32, confidence: observed}
       - {offset: 0x570, name: death_camera_tick, type: u32, confidence: observed}
+      - {offset: 0x5b4, name: field_5b4, type: i32, confidence: observed}
+      - {offset: 0x5b8, name: field_5b8, type: "array<i32,3>", confidence: observed}
+      - {offset: 0x5c4, name: field_5c4, type: "array<i32,3>", confidence: observed}
       - {offset: 0x5d8, name: smoothing_counter_a, type: i32, confidence: observed}
       - {offset: 0x5dc, name: smoothing_counter_b, type: i32, confidence: observed}
       - {offset: 0x5e0, name: smoothing_counter_c, type: i32, confidence: observed}
       - {offset: 0x5e4, name: smoothing_counter_d, type: i32, confidence: observed}
+      - {offset: 0x5ec, name: field_5ec, type: i32, confidence: observed}
+      - {offset: 0x5f0, name: field_5f0, type: i32, confidence: observed}
+      - {offset: 0x610, name: field_610, type: "array<i32,3>", confidence: observed}
+      - {offset: 0x61c, name: field_61c, type: u32, confidence: observed}

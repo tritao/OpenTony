@@ -514,11 +514,20 @@ def verify() -> bool:
             if not signature:
                 continue
             function = program.getFunctionManager().getFunctionAt(address_space.getAddress(int(item["address"])))
-            actual_names = [str(parameter.getName()) for parameter in function.getParameters()]
+            actual_parameters = list(function.getParameters())
+            # Ghidra exposes the implicit object register as a synthetic
+            # `this` parameter for __thiscall functions. It is part of the
+            # ABI, not an explicit source-level parameter in the tracked
+            # signature.
+            if signature["calling_convention"] == "thiscall":
+                actual_parameters = [
+                    parameter for parameter in actual_parameters if str(parameter.getName()) != "this"
+                ]
+            actual_names = [str(parameter.getName()) for parameter in actual_parameters]
             expected_names = [parameter["name"] for parameter in signature["parameters"]]
             if actual_names != expected_names:
                 errors.append(f"{item['name']}: parameters {actual_names!r}, expected {expected_names!r}")
-            actual_types = [str(parameter.getDataType().getDisplayName()) for parameter in function.getParameters()]
+            actual_types = [str(parameter.getDataType().getDisplayName()) for parameter in actual_parameters]
             expected_types = [display(parameter["type"]) for parameter in signature["parameters"]]
             if actual_types != expected_types:
                 errors.append(f"{item['name']}: parameter types {actual_types!r}, expected {expected_types!r}")

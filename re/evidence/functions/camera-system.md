@@ -38,6 +38,69 @@ Game_MainLoop 0x0041c2d0
 
 The camera update is therefore gameplay-object processing, not a renderer helper that happens to be called late in the frame. It runs before the world traversal that consumes the camera state.
 
+## Camera_Update boundary and ABI audit
+
+The reviewed raw body owns `0x0040f850..0x00410376`; `0x00410377` is the
+following alignment byte and the dispatch table begins at `0x00410378`. The
+entry is reached through the camera/object vtable with `ECX` holding the
+camera object. It has no stack parameters, returns `void`, and ends in a plain
+`ret`, so its tracked ABI is `__thiscall void Camera_Update()`.
+
+The static caller is the indirect camera/object hook at `0x00480fa0`: its
+second vtable call is at `0x00480fc4`, with return address `0x00480fc7` in the
+camera update body. Ghidra cannot represent that incoming reference as a
+direct call because the target is selected through a vtable. The runtime
+probe observed the same return address for all 240 accepted Warehouse hits.
+
+The update body directly reads or writes these additional camera fields. The
+names below are storage labels where the instruction sequence does not prove a
+semantic name; widths are taken from the operand encoding.
+
+| Offset | Access/width in `Camera_Update` | Conservative interpretation |
+|---:|---|---|
+| `+0x0c8` | read `u16` | constructor/level-selected raw word |
+| `+0x3a4` | read `u32` | primary tripod/player link |
+| `+0x3ac` | read `u8` | anchor-copy control flag |
+| `+0x3b0..+0x3b8` | read/write 3 `u32` | mirrored anchor words |
+| `+0x3bc` | read `u8` | tripod-position copy control flag |
+| `+0x3c0..+0x3c8` | read/write 3 `u32` | primary anchor/target words |
+| `+0x3dc` | read `u32` | secondary target/tripod link |
+| `+0x3e0` | read `u8` | secondary-target control flag |
+| `+0x3e4..+0x3ec` | read/write 3 `u32` | secondary anchor words |
+| `+0x3f0..+0x3f8` | read 3 `u32` | look-at target words |
+| `+0x40c` | read/write `u32`; publish low `u16` | raw viewport/framing parameter |
+| `+0x410` | read/write `u16` | raw transition/count word |
+| `+0x414` | read `u32` | raw viewport adjustment word |
+| `+0x434`, `+0x436` | read `s16` | camera-dependent raw angle/offset words |
+| `+0x444` | address passed as an embedded vector destination | current transform object header |
+| `+0x448..+0x454` | read/write 4 `u32` | current Q12-like transform words |
+| `+0x45c..+0x468` | read 4 `u32` | target Q12-like transform words |
+| `+0x470..+0x47c` | read/write 4 `u32` | previous Q12-like transform words |
+| `+0x4a9` | read/write `u8` | raw pending/state flag |
+| `+0x4f2..+0x4f6` | read/write 3 `s16` | effect/shake offsets |
+| `+0x4f8..+0x4fa` | read 3 `u8` | effect control bytes |
+| `+0x4fc..+0x500` | read 3 `s16` | effect phase/offset words |
+| `+0x504` | read/write `u32` | raw dispatch mode/state |
+| `+0x510` | read/write `u32` | update/mode tick |
+| `+0x5b4` | read/write `i32` | raw update accumulator |
+| `+0x5b8..+0x5c0` | read/write 3 `u32` | mode-produced vector words |
+| `+0x5c4..+0x5cc` | write 3 `u32` | mode-produced vector words |
+| `+0x5ec`, `+0x5f0` | read/write `i32` | smoothing adjustment accumulators |
+| `+0x610..+0x618` | read/write 3 `u32` | mode-produced vector words |
+| `+0x61c` | read `u32` | smoothing/state-stage counter |
+
+The `+0x444` header is observed separately in the constructor as the
+embedded vector vtable `0x005184d8`; this update body uses its address as the
+destination object for the effect/vector helper. The three vector blocks
+remain raw integer storage in the recovered type because their complete
+object semantics are not established here.
+
+Matching status for this unit is deliberately conservative: the exact body is
+isolated as `match/modules/text/text_0040f850.asm` with manifest status `raw`,
+and its module comparison is byte-identical. No C++ or assembly promotion is
+claimed for the exception-bearing body while the mode-specific semantics and
+helper-owned fields remain incomplete.
+
 ## The real present boundary
 
 Address: `0x004d0ca4`
@@ -137,7 +200,7 @@ Exact observed behavior:
 - Updates global camera/framing values at `DAT_00524a40/44/48`.
 - Adjusts `camera + 0x40c` from camera/input state and writes its low word to the active viewport record at `DAT_00563a38 + 0x0e`.
 - Calls `0x00410610`, `Camera_SmoothAndValidate 0x0040e090`, and `Camera_BuildLookAngles 0x004c9770` for camera/vector preparation.
-- Dispatches through a jump table using `camera + 0x504`; the observed table covers mode values through `0x19`.
+- Dispatches through a jump table using `camera + 0x504`; the bounds check admits raw mode values `1..25`.
 - Handles death-camera mode through `0x00410c90`, applies effect/shake vectors, increments `camera + 0x510`, and performs a final smoothing/position pass.
 
 Static callers/callees:
@@ -164,22 +227,22 @@ Possible falsifiers: a cutscene/death/two-player run could route through a diffe
 
 At `0x0040fed0`, the dispatcher computes `mode - 1`, bounds-checks it against
 `0x18`, indexes byte table `0x00410390`, and jumps through the six-entry
-target table at `0x00410378`. The currently proven mapping is:
+target table at `0x00410378`. The exact address-based mapping is:
 
 | `+0x504` value | dispatch target | observed/static role |
 |---:|---:|---|
 | `1` | `0x0040ff2b` | normal follow continuation; Warehouse runtime mode |
-| `2` | `0x00410006` → `0x004113f0` | separate camera-mode handler; exact semantic label pending |
-| `3..20` | `0x00410027` | unsupported/default diagnostic path in this build’s table |
-| `21` | `0x0041000f` → `0x00410f70` | separate point/sequence-style handler; exact mode name pending |
-| `22` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
-| `23` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
+| `2` | `0x00410006` → `0x004113f0` | separate handler; semantic label pending |
+| `3..22` | `0x00410027` | unsupported/default diagnostic path in this build’s table |
+| `23` | `0x0041000f` → `0x00410f70` | separate handler; semantic label pending |
+| `24` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
+| `25` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
 
-Values `24` and `25` pass the bounds check but index padding bytes after the
-21 meaningful table entries; no runtime evidence shows them as valid modes.
-This is useful for a faithful recreation: preserve the dispatch table and its
-invalid-mode behavior instead of collapsing every non-default state into a
-single enum branch.
+Values `0` and `26+` take the out-of-range default path. This is useful for a
+faithful recreation: preserve the raw table and its default diagnostic entry
+instead of collapsing every non-default state into a semantic enum. The
+special entries at `23..25` are real table bytes, although their runtime mode
+coverage is not yet captured.
 
 ### `0x0040e090` — `Camera_SmoothAndValidate`
 

@@ -206,7 +206,11 @@ def gaps(output: Path | None = None, limit: int = 50, slice_id: str | None = Non
                 reasons.append("missing Ghidra function")
                 score += 100
             else:
-                parameter_types = [str(parameter.getDataType().getDisplayName()) for parameter in function.getParameters()]
+                parameters = list(function.getParameters())
+                tracked_signature = item.get("signature", {})
+                if tracked_signature.get("calling_convention") == "thiscall":
+                    parameters = [parameter for parameter in parameters if str(parameter.getName()) != "this"]
+                parameter_types = [str(parameter.getDataType().getDisplayName()) for parameter in parameters]
                 if any(value == "void *" or value.startswith("undefined") for value in parameter_types):
                     reasons.append("unresolved parameter type")
                     score += 25

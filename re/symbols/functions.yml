@@ -1650,6 +1650,10 @@ functions:
     name: Camera_Update
     gdb_aliases:
       - camera_update
+    signature:
+      calling_convention: thiscall
+      return: void
+      parameters: []
     description: camera vtable per-frame update dispatcher; entry is recovered from the runtime vtable
     confidence: observed
     evidence:
