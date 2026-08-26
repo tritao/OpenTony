@@ -309,7 +309,11 @@ void check_packaged_scene(const char* path) {
     assert(dynamic_replay.query.hit_distance == 29);
     assert(dynamic_replay.query.hit_position ==
            (RawVec3{-4100096, -8710784, 11472896}));
+    const std::array<std::int16_t, 3> expected_dynamic_normal{1, -4093, -160};
+    assert(dynamic_replay.query.hit_normal == expected_dynamic_normal);
     assert(dynamic_replay.query.hit_parameter == 0x7fffffff);
+    assert(dynamic_replay.surface_word == 0x00100028u);
+    assert(dynamic_replay.face_index == 5);
     assert(dynamic_replay.query.hit_face_record != 0);
 }
 
