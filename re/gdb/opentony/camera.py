@@ -1080,6 +1080,188 @@ class CameraModeOverrideProbe(CountingBreakpoint):
         )
 
 
+# Cleanup must happen after view preparation and scene submission.  The common
+# Camera_Update tail is too early: it would restore camera+0x40c before
+# Render_SetViewProjection consumes the frame's camera state.
+# The common present boundary is after camera/view/object work and immediately
+# before IDirectDrawSurface7::Flip.
+VIEWPORT_CONTROL_RESTORE_BOUNDARY = 0x004D0CA4
+VIEWPORT_SETUP_ACTIVE = 0x0056A900
+VIEWPORT_RESTORE_PENDING = 0x0055FA48
+VIEWPORT_SETUP_GATE = 0x0056B0E8
+
+
+class _CameraViewportControlRestore(TonyBreakpoint):
+    """Restore a viewport-control mutation after Camera_Update has consumed it."""
+
+    def __init__(self, owner):
+        super().__init__(VIEWPORT_CONTROL_RESTORE_BOUNDARY, internal=True)
+        self.owner = owner
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.restore(ctx.memory)
+        if self.owner.finished:
+            self.enabled = False
+
+
+class CameraViewportControlProbe(CountingBreakpoint):
+    """Exercise Camera_Update's raw viewport/framing control block.
+
+    The mutation is installed at Camera_Update entry and restored at the
+    common post-dispatch tail.  This keeps the experiment bounded and prevents
+    the control globals from leaking into later unrelated runtime work.
+    """
+
+    def __init__(self, count: int = 8, writer=None, start_frame: int = 0):
+        super().__init__(function_address("camera_update"), count=count, internal=True)
+        self.writer = writer
+        self.start_frame = start_frame
+        self.saved = None
+        self.camera_address = 0
+        self.finished = False
+        self.restore_breakpoint = _CameraViewportControlRestore(self)
+
+    @staticmethod
+    def _u32_addresses():
+        return (
+            VIEWPORT_PARAMETER_GLOBAL,
+            VIEWPORT_PARAMETER_STATE,
+            VIEWPORT_RESTORE_PENDING,
+            VIEWPORT_SETUP_ACTIVE,
+        )
+
+    @staticmethod
+    def _u8_addresses():
+        return (
+            FRAMING_RESTORE_AXES,
+            VIEWPORT_PARAMETER_DECREMENT,
+            VIEWPORT_PARAMETER_INCREMENT,
+            VIEWPORT_PARAMETER_RESET,
+            VIEWPORT_SETUP_GATE,
+            FRAMING_ROTATION_DECREMENT,
+            FRAMING_ROTATION_INCREMENT,
+            FRAMING_X_DECREMENT,
+            FRAMING_X_INCREMENT,
+            FRAMING_Y_DECREMENT,
+            FRAMING_Y_INCREMENT,
+            FRAMING_Z_DECREMENT,
+            FRAMING_Z_INCREMENT,
+            FRAMING_DIRECTION_INPUT,
+        )
+
+    def _save(self, memory, camera: int):
+        return {
+            "u32": {address: memory.u32(address) for address in self._u32_addresses()},
+            "u8": {address: memory.u8(address) for address in self._u8_addresses()},
+            "camera_40c": memory.u32(camera + 0x40C),
+            "camera_410": memory.u32(camera + 0x410),
+            "camera_414": memory.u32(camera + 0x414),
+            "camera_5b4": memory.u16(camera + 0x5B4),
+        }
+
+    def restore(self, memory) -> None:
+        if self.saved is None or not self.camera_address:
+            return
+        for address, value in self.saved["u32"].items():
+            memory.write_u32(address, value)
+        for address, value in self.saved["u8"].items():
+            memory.write_u8(address, value)
+        memory.write_u32(self.camera_address + 0x40C, self.saved["camera_40c"])
+        memory.write_u32(self.camera_address + 0x410, self.saved["camera_410"])
+        memory.write_u32(self.camera_address + 0x414, self.saved["camera_414"])
+        memory.write_u16(self.camera_address + 0x5B4, self.saved["camera_5b4"])
+
+    def _install(self, memory, camera: int, phase: int) -> dict:
+        # The setup guards are held inactive so Camera_Update reaches the
+        # guarded DAT_0055FA30 control block deterministically.
+        for address in self._u8_addresses():
+            memory.write_u8(address, 0)
+        memory.write_u32(VIEWPORT_SETUP_ACTIVE, 0)
+        memory.write_u32(VIEWPORT_RESTORE_PENDING, 0)
+        memory.write_u8(VIEWPORT_SETUP_GATE, 0)
+        memory.write_u32(VIEWPORT_PARAMETER_STATE, 1)
+
+        mutation = {
+            "phase": phase,
+            "global_parameter_raw": None,
+            "restore_axes": 0,
+            "increment": 0,
+            "reset": 0,
+            "timer_raw": None,
+            "delta_raw": None,
+            "rotation_increment": 0,
+            "framing_axis": None,
+        }
+        if phase % 8 == 0:
+            memory.write_u32(VIEWPORT_PARAMETER_GLOBAL, 0x2A0)
+            memory.write_u8(FRAMING_RESTORE_AXES, 1)
+            mutation["global_parameter_raw"] = 0x2A0
+            mutation["restore_axes"] = 1
+        elif phase % 8 == 1:
+            memory.write_u8(VIEWPORT_PARAMETER_INCREMENT, 1)
+            mutation["increment"] = 1
+        elif phase % 8 == 2:
+            memory.write_u8(VIEWPORT_PARAMETER_RESET, 1)
+            mutation["reset"] = 1
+        elif phase % 8 == 3:
+            memory.write_u32(camera + 0x410, 3)
+            memory.write_u32(camera + 0x414, 5)
+            mutation["timer_raw"] = 3
+            mutation["delta_raw"] = 5
+        elif phase % 8 == 4:
+            memory.write_u8(FRAMING_X_INCREMENT, 1)
+            mutation["framing_axis"] = "x+"
+        elif phase % 8 == 5:
+            memory.write_u8(FRAMING_Y_INCREMENT, 1)
+            memory.write_u8(FRAMING_DIRECTION_INPUT, 1)
+            mutation["framing_axis"] = "y+;direction=1"
+        elif phase % 8 == 6:
+            memory.write_u8(FRAMING_ROTATION_INCREMENT, 1)
+            mutation["rotation_increment"] = 1
+        else:
+            memory.write_u8(FRAMING_Z_DECREMENT, 1)
+            mutation["framing_axis"] = "z-"
+        return mutation
+
+    def on_count(self, ctx: Context) -> bool:
+        memory = ctx.memory
+        player = memory.u32(GLOBALS["Player"])
+        level = memory.u32(GLOBALS["CurrentLevel"])
+        if (ctx.frame <= self.start_frame
+                or level > 12
+                or not player
+                or not memory.valid(player)):
+            return False
+        camera = memory.u32(player + PLAYER_CAMERA_OFFSET)
+        if not camera or not memory.valid(camera):
+            return False
+        if self.saved is None:
+            self.camera_address = camera
+            self.saved = self._save(memory, camera)
+        record = camera_record(ctx, camera)
+        mutation = self._install(memory, camera, self.hits)
+        record["viewport_control_mutation"] = {
+            **mutation,
+            "camera": f"0x{camera:08x}",
+            "level": level,
+            "start_frame": self.start_frame,
+            "restored_at": f"0x{VIEWPORT_CONTROL_RESTORE_BOUNDARY:08x}",
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+    def on_complete(self):
+        self.finished = True
+        import gdb
+
+        gdb.write(
+            f"camera viewport-control probe complete: {self.hits} observations\n"
+        )
+
+
 class CameraTimingProbe(CountingBreakpoint):
     """Sample the timing/rate producer after it computes the next rate."""
 

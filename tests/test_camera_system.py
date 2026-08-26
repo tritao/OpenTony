@@ -108,7 +108,7 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                 const auto expected_follow = build_follow_target_transform_q12(
                     {}, {0, -0x1000, 0}, 0);
                 const auto committed = update_camera(
-                    camera, target, follow, {}, {});
+                    camera, target, follow, {}, {}, {}, {}, {}, {}, {true});
                 if (camera.mirrored_anchor.x != 0x10000
                     || camera.anchor_target.x != 0x20000
                     || camera.update_tick != 1
@@ -297,11 +297,22 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     framing,
                     {true, true, {10, 20, 30}, true, true, 1,
                      true, true, true, true, true, true});
-                if (framing.viewport_parameter_raw != 12
+                if (framing.follow_rotation_raw != 100
+                    || framing.framing_globals_raw.x != 10
+                    || framing.framing_globals_raw.y != 20
+                    || framing.framing_globals_raw.z != 30) {
+                    return 51;
+                }
+                framing.framing_globals_raw = {1, 2, 3};
+                apply_camera_framing_input_control(
+                    framing,
+                    {false, true, {10, 20, 30}, true, true, 1,
+                     true, true, true, true, true, true});
+                if (framing.follow_rotation_raw != 100
                     || framing.framing_globals_raw.x != 1
                     || framing.framing_globals_raw.y != 2
                     || framing.framing_globals_raw.z != 3) {
-                    return 51;
+                    return 52;
                 }
 
                 // Mode 2 has its own handler.  This fixture chooses an

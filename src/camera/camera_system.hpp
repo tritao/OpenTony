@@ -1572,7 +1572,10 @@ struct CameraViewportParameterControlRaw {
 // mode table.  The names describe observed operations and addresses, not
 // assumed gameplay meanings.
 struct CameraFramingInputControlRaw {
-    bool global_override{}; // DAT_0055FA30 != 0 skips the control block
+    // DAT_0055FA30 != 0 enables the control block.  The retail branch at
+    // 0x0040fa94 jumps over all viewport/framing controls only when this
+    // value is zero.
+    bool global_override{};
     bool restore_axes_from_globals{}; // DAT_0056B244
     Q16Vec3 restored_axes_raw{}; // x=0055F9A4, y=0055F910, z=0055F978
     bool rotation_decrement{}; // DAT_0056B174, camera +0x5B4 -= 10
@@ -1596,7 +1599,7 @@ inline Raw camera_framing_step_raw(std::uint8_t directional_input_raw) {
 inline void apply_camera_framing_input_control(
     CameraStateRaw& camera,
     const CameraFramingInputControlRaw& control) {
-    if (control.global_override) {
+    if (!control.global_override) {
         return;
     }
     if (control.restore_axes_from_globals) {
@@ -1679,7 +1682,7 @@ inline CameraViewportCommitRaw update_camera(
     // particular, the restore/decrement/increment/reset operations must also
     // occur for modes 2, 23, and 24; placing this at the old common-tail
     // location silently skipped those paths.
-    if (!framing_control.global_override) {
+    if (framing_control.global_override) {
         apply_viewport_parameter_control(camera, viewport_control);
         apply_camera_framing_input_control(camera, framing_control);
     }

@@ -58,6 +58,7 @@ from opentony.camera import (
     CameraPointSelectProbe,
     CameraPositionTransformProbe,
     CameraProbe,
+    CameraViewportControlProbe,
     GeometrySubmissionProbe,
     ViewProjectionProbe,
     ViewProjectionPerturbProbe,
@@ -87,6 +88,45 @@ class FakeInferior:
 
     def write_memory(self, address, data):
         self.data[address:address + len(data)] = data
+
+
+def test_camera_viewport_control_probe_restores_and_respects_byte_guards():
+    class ControlMemory:
+        def __init__(self):
+            self.values = {}
+
+        def u32(self, address):
+            return self.values.get(("u32", address), 0x12345678)
+
+        def u8(self, address):
+            return self.values.get(("u8", address), 0x7A)
+
+        def u16(self, address):
+            return self.values.get(("u16", address), 0x3456)
+
+        def write_u32(self, address, value):
+            self.values[("u32", address)] = value
+
+        def write_u8(self, address, value):
+            self.values[("u8", address)] = value
+
+        def write_u16(self, address, value):
+            self.values[("u16", address)] = value
+
+    memory = ControlMemory()
+    probe = CameraViewportControlProbe(count=1)
+    saved = probe._save(memory, 0x800)
+    probe.saved = saved
+    probe.camera_address = 0x800
+
+    mutation = probe._install(memory, 0x800, 0)
+    assert mutation["restore_axes"] == 1
+    assert memory.values[("u8", 0x0056B0E8)] == 0
+    assert ("u32", 0x0056B0E8) not in memory.values
+
+    probe.restore(memory)
+    assert memory.values[("u8", 0x0056B0E8)] == 0x7A
+    assert memory.values[("u32", 0x0056A900)] == 0x12345678
 
 
 def test_action_mask_sequence_writes_masks_in_order():

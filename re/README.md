@@ -62,6 +62,13 @@ frontend selection helper, then forces the returned main-menu result to
 `PLAY_GAME` at the verified caller result slot. Use it with a short trace when
 the headless frontend cannot be advanced reliably by input alone.
 
+`tony-camera-viewport-probe [COUNT] [AFTER_FRAME]` is a bounded calibration
+probe for the raw `Camera_Update` viewport/framing controls. It varies one
+control family per accepted camera update, records the pre-mutation camera and
+global values, holds them through view preparation, and restores them at the
+present boundary. Use `AFTER_FRAME` to skip startup camera calls; this probe is
+for producer identification, not a gameplay zoom feature.
+
 For ordinary model-path projection capture, `tony-transformed-vertices [COUNT]`
 samples the `0x004d29e0` transform contract at its post-transform return tail
 `0x004d2d9e`, reading the seven-word records at `0x00570878`. It reports raw

@@ -16,6 +16,7 @@ from .camera import (
     CameraCollisionResultProbe,
     CameraEffectProbe,
     CameraModeOverrideProbe,
+    CameraViewportControlProbe,
     CameraPointSelectProbe,
     CameraPointStateProbe,
     CameraTimingProbe,
@@ -914,6 +915,32 @@ class TonyCameraForceMode(gdb.Command):
         )
 
 
+class TonyCameraViewportProbe(gdb.Command):
+    """tony-camera-viewport-probe [COUNT] [AFTER_FRAME] -- exercise raw viewport controls."""
+
+    def __init__(self):
+        super().__init__("tony-camera-viewport-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-camera-viewport-probe [COUNT] [AFTER_FRAME]") if arg.strip() else []
+        if len(values) > 2:
+            raise gdb.GdbError("usage: tony-camera-viewport-probe [COUNT] [AFTER_FRAME]")
+        count = _integer(values[0]) if values else 8
+        start_frame = _integer(values[1]) if len(values) == 2 else 0
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        if start_frame < 0:
+            raise gdb.GdbError("AFTER_FRAME must be non-negative")
+        probe = CameraViewportControlProbe(
+            count, writer=_trace_writer, start_frame=start_frame)
+        _runtime_breakpoints.append(probe)
+        _runtime_breakpoints.append(probe.restore_breakpoint)
+        _write(
+            f"camera viewport-control probe armed for {count} observations "
+            f"after frame {start_frame} at 0x{probe.address:08x}"
+        )
+
+
 class TonyCameraTimingProbe(gdb.Command):
     """tony-camera-timing-probe [COUNT] -- sample the Q8 camera-rate producer."""
 
@@ -1217,6 +1244,7 @@ def register_commands() -> None:
     TonyPhysicsProbe()
     TonyCameraProbe()
     TonyCameraForceMode()
+    TonyCameraViewportProbe()
     TonyCameraTimingProbe()
     TonyCameraPointSelectProbe()
     TonyCameraPointStateProbe()
@@ -1241,6 +1269,7 @@ def register_commands() -> None:
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-camera-probe, tony-camera-force-mode, tony-camera-timing-probe, "
+        "tony-camera-viewport-probe, "
         "tony-camera-point-probe, "
         "tony-camera-point-state-probe, "
         "tony-camera-effects-probe, "
