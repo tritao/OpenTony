@@ -23,7 +23,7 @@ public:
     virtual void on_level_tick(
         std::uint64_t,
         std::uint32_t,
-        const InputState&, 
+        const InputState&,
         const opentony::trg::LevelRuntime&) {}
 };
 

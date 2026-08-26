@@ -8,13 +8,13 @@ The canonical image is SHA256
 debugging uses its six-byte no-CD derivative, as documented in
 `re/evidence/cd-check.md`.
 
-Trace: `build/debug/sessions/physics-states7/ollie.trace.ndjson`  
-Supplemental raw-contact probe: `build/debug/sessions/physics-contact2/air-collision.trace.ndjson`  
+Trace: `build/debug/sessions/physics-states7/ollie.trace.ndjson`
+Supplemental raw-contact probe: `build/debug/sessions/physics-contact2/air-collision.trace.ndjson`
 Zero-mask state-0 baseline: `build/debug/sessions/physics-states6/ollie.trace.ndjson`,
 frames 653–685 (not treated as stationary because its position was still
-changing)  
-Independent frontend probe: `build/debug/sessions/physics-states17/ollie.trace.ndjson`  
-Level: Warehouse, index `12`  
+changing)
+Independent frontend probe: `build/debug/sessions/physics-states17/ollie.trace.ndjson`
+Level: Warehouse, index `12`
 Player: `0x05f39530`
 
 ## Capture method
