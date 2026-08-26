@@ -430,8 +430,8 @@ types:
     size: 0x38
     confidence: strong
     description: >-
-      Partial linked-list view established by the 0x0048001d0 insertion and
-      0x0048001f0 removal primitives. Bytes between the two links are not
+      Partial linked-list view established by the 0x004801d0 insertion and
+      0x004801f0 removal primitives. Bytes between the two links are not
       typed and this is not the complete heap allocation.
     fields:
       - offset: 0x20
