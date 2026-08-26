@@ -18,6 +18,7 @@ PREPARED_VIEW_B = 0x005620E8
 VIEWPORT_POINTER = 0x005620E0
 GEOMETRY_SCRATCH = 0x006A3E80
 GEOMETRY_SUBMISSION = 0x004D11D0
+VIEW_INPUT_VERTICAL_SCALE_OFFSET = 0x0C  # short word 6
 
 
 def _words(memory, address: int, count: int = 3) -> dict[str, list[int | float]]:
@@ -499,6 +500,59 @@ class ViewProjectionProbe(CountingBreakpoint):
         import gdb
 
         gdb.write(f"view projection probe complete: {self.hits} observations\n")
+
+
+class ViewProjectionPerturbProbe(CountingBreakpoint):
+    """Alternate the raw vertical-scale input at view setup entry.
+
+    This is a controlled calibration probe, not a gameplay feature. It waits
+    for a positive word-6 value, then alternates the live record between its
+    observed baseline and half that value. Downstream view/geometry probes can
+    therefore test whether the field changes the prepared basis and packets.
+    """
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(function_address("view_projection"), count=count, internal=True)
+        self.writer = writer
+        self.baseline: int | None = None
+
+    def on_count(self, ctx: Context) -> bool:
+        memory = ctx.memory
+        view_input = ctx.arg(1)
+        address = view_input + VIEW_INPUT_VERTICAL_SCALE_OFFSET
+        if not memory.readable(address, 2):
+            return False
+        before = memory.s16(address)
+        if self.baseline is None:
+            if before <= 0:
+                return False
+            self.baseline = before
+        mutated = self.hits % 2 == 0
+        after = self.baseline // 2 if mutated else self.baseline
+        memory.write_u16(address, after & 0xffff)
+        if self.writer is not None:
+            self.writer.event(
+                {
+                    "type": "view_projection_mutation",
+                    "frame": ctx.frame,
+                    "function": "Render_SetViewProjection",
+                    "eip": f"0x{ctx.eip:08x}",
+                    "caller": f"0x{ctx.caller():08x}",
+                    "view_input": f"0x{view_input:08x}",
+                    "word": 6,
+                    "address": f"0x{address:08x}",
+                    "baseline": self.baseline,
+                    "before": before,
+                    "after": after,
+                    "mutated": mutated,
+                }
+            )
+        return True
+
+    def on_complete(self):
+        import gdb
+
+        gdb.write(f"view projection perturb probe complete: {self.hits} observations\n")
 
 
 class ActorSubmissionProbe(CountingBreakpoint):

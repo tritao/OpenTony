@@ -1055,6 +1055,57 @@ inline void advance_viewport_parameter(CameraStateRaw& camera) {
         | static_cast<std::uint16_t>(timer_low - 1));
 }
 
+// The normal-follow continuation at 0x0040ff2b promotes the camera to mode
+// 25 after its first smoothing pass when the linked tripod has a positive
+// follow-offset Y word above 0x64 and physics state 1.  Keep the producer
+// inputs separate from CameraTargetRaw until the runtime ownership of the
+// tripod block is fully promoted.
+struct CameraMode25ProducerInputRaw {
+    bool tripod_present{};
+    Raw tripod_follow_offset_y_raw{}; // tripod +0x3110
+    Raw tripod_physics_state{};       // tripod +0x30b8
+};
+
+inline bool camera_mode25_condition(
+    const CameraMode25ProducerInputRaw& input) {
+    return input.tripod_present
+        && input.tripod_follow_offset_y_raw > 0x64
+        && input.tripod_physics_state == 1;
+}
+
+// The 0x0040f850 viewport-parameter branch is controlled by globals owned by
+// the camera/effect system.  This value-level adapter preserves the observed
+// operation order without pretending those globals are camera fields:
+// restore from DAT_00524aa4, decrement, increment, reset to 0x100, then apply
+// the signed delta while the low timer is nonzero.
+struct CameraViewportParameterControlRaw {
+    bool restore_from_global{};
+    Raw global_parameter_raw{};
+    bool decrement{};
+    bool increment{};
+    bool reset_to_default{};
+};
+
+inline void apply_viewport_parameter_control(
+    CameraStateRaw& camera,
+    const CameraViewportParameterControlRaw& control) {
+    if (control.restore_from_global) {
+        camera.viewport_parameter_raw = control.global_parameter_raw;
+    }
+    if (control.decrement) {
+        camera.viewport_parameter_raw = subtract_s32(
+            camera.viewport_parameter_raw, 1);
+    }
+    if (control.increment) {
+        camera.viewport_parameter_raw = add_s32(
+            camera.viewport_parameter_raw, 1);
+    }
+    if (control.reset_to_default) {
+        camera.viewport_parameter_raw = 0x100;
+    }
+    advance_viewport_parameter(camera);
+}
+
 // Conservative raw update ordering. It performs every stage whose data
 // contract is established and leaves the gameplay-owned branches behind
 // explicit hooks. That makes replay mismatches localizable instead of hiding
@@ -1193,8 +1244,10 @@ inline CameraViewportCommitRaw update_camera(
     }
     camera.look_angles = build_look_angles(camera.look_target, camera.position);
     apply_camera_shake(camera, hooks.shake_phase_multiplier);
-    const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
+    // Retail updates +0x40c/+0x410 before copying the low word to the active
+    // viewport at +0x0e.  Keep the timer step before the commit boundary.
     advance_viewport_parameter(camera);
+    const auto committed = commit_viewport_effects(camera, look_target_offset, target.tripod_state);
     ++camera.update_tick;
     return committed;
 }

@@ -52,6 +52,7 @@ from opentony.camera import (
     CameraProbe,
     GeometrySubmissionProbe,
     ViewProjectionProbe,
+    ViewProjectionPerturbProbe,
     actor_submission_record,
     camera_position_transform_record,
     camera_record,
@@ -507,6 +508,40 @@ def test_view_projection_probe_preserves_raw_handoff_and_camera_angles():
     assert events[0]["viewport_block"]["raw"].startswith("00010203")
     assert events[0]["camera_angles"]["angle_units"] == [0x123, 0xF80, 0]
     assert events[0]["camera_look_target"]["raw"] == [1, 2, 3]
+
+
+def test_view_projection_perturb_probe_alternates_vertical_scale_input():
+    inferior = FakeInferior()
+    memory = Memory(inferior)
+    view_input = 0xB00
+    inferior.data[view_input:view_input + 0x20] = bytes(range(0x20, 0x40))
+    inferior.data[0x100:0x110] = struct.pack(
+        "<4I", 0x1234, 0xA00, view_input, 0xC00
+    )
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = ViewProjectionPerturbProbe(count=2, writer=Writer())
+    context = Context(
+        CallContext(memory, registers={"esp": 0x100, "eip": 0x360}),
+        memory,
+    )
+    baseline = memory.s16(view_input + 0x0C)
+    probe.on_hit(context)
+    assert probe.hits == 1
+    assert events[0]["word"] == 6
+    assert events[0]["baseline"] == baseline
+    assert events[0]["after"] == baseline // 2
+    assert memory.s16(view_input + 0x0C) == baseline // 2
+
+    probe.on_hit(context)
+    assert probe.hits == 2
+    assert events[1]["mutated"] is False
+    assert events[1]["after"] == baseline
+    assert memory.s16(view_input + 0x0C) == baseline
 
 
 def test_geometry_submission_probe_keeps_transform_and_packet_handoff_raw():

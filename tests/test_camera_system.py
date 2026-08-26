@@ -49,6 +49,32 @@ def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
                     return 1;
                 }
 
+                if (camera_mode25_condition({false, 0x65, 1})
+                    || camera_mode25_condition({true, 0x64, 1})
+                    || camera_mode25_condition({true, 0x65, 0})
+                    || !camera_mode25_condition({true, 0x65, 1})) {
+                    return 36;
+                }
+
+                CameraStateRaw viewport_control;
+                viewport_control.viewport_parameter_raw = 7;
+                viewport_control.viewport_parameter_delta_raw = -2;
+                viewport_control.viewport_timer_raw = 1;
+                apply_viewport_parameter_control(
+                    viewport_control,
+                    {true, 100, true, false, false});
+                if (viewport_control.viewport_parameter_raw != 97
+                    || static_cast<unsigned>(
+                        viewport_control.viewport_timer_raw & 0xffff) != 0) {
+                    return 37;
+                }
+                apply_viewport_parameter_control(
+                    viewport_control,
+                    {false, 0, false, false, true});
+                if (viewport_control.viewport_parameter_raw != 0x100) {
+                    return 38;
+                }
+
                 // Mode 2 has its own handler.  This fixture chooses an
                 // anchor direction orthogonal to the supplied offset so the
                 // retail dot-band/view-state seed branch is exercised.

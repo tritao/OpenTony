@@ -39,7 +39,10 @@ the four movement action-state records alongside the action mask.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw
-`tony-geometry-probe [COUNT]`. The geometry probe accepts only submissions
+`tony-geometry-probe [COUNT]`. For projection calibration,
+`tony-view-perturb [COUNT]` alternates view-input word 6 between its observed
+baseline and half-scale and records the mutation before downstream probes.
+The geometry probe accepts only submissions
 with a live player-owned camera, so frontend/menu geometry does not consume
 the bounded level observation count.
 
