@@ -1,0 +1,39 @@
+version: 1
+id: ground-leave-air
+subsystem: player-physics
+status: active
+
+scope:
+  functions:
+    - 0x0049db80
+  types:
+    - RuntimeSkaterMovementState
+  globals:
+    - AnimationClock
+    - AnimationTimeScale
+
+shared:
+  functions:
+    - 0x00496550
+    - 0x00496060
+
+artifacts:
+  evidence:
+    - re/evidence/functions/physics-states.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/physics_state_machine.cpp
+    - src/physics_state_machine.hpp
+  tests:
+    - tests/physics_state_machine_test.cpp
+
+open_questions:
+  - Confirm the caller-owned slope/recovery producers in a fresh runtime capture.
+  - Identify the animation/sound/speed-table effects inside 0x004904d0.
+  - Determine whether the +0x3204 marker has consumers outside the landing path.
+
+completion:
+  - The case-0 handler order and strict leave-ground predicate are recorded.
+  - The state request, descending-Y clamp, off-ground reset, and marker order have deterministic tests.
+  - Frame-counter sign and equality boundaries are covered without host overflow.
+  - Caller-owned collision, animation, and scripting producers remain explicit.

@@ -122,6 +122,20 @@ inside `FUN_004904d0` remain explicit external seams. It is covered by a
 focused native regression test, but no additional semantic “jump” name is
 assigned to this transition.
 
+The dispatcher fixture is now explicit at the case boundary. Static
+`Skater_PhysicsDispatcher` first runs case 0 as
+`0x0049dad0 → 0x00496550 → 0x00495cc0 → 0x0049d9c0`; only after that sequence
+does it evaluate the leave-ground predicate. The native
+`ground_leave_air_predicate()` preserves the strict comparisons
+`slope > 1000`, `recovery_progress > 0x5000`, and
+`frame - last_landing_frame < (frame_delta * 6) >> 8`. Its transition fixture
+covers slope `1000/1001`, recovery `0x5000/0x5001`, timer equality versus one
+frame inside the window, negative signed ages, and 32-bit frame wrap. The
+stateful test verifies the ordered request records: the case-0 request at
+`0x0049ddcf`, the following same-state request from `0x004904d0` at
+`0x004905ab`, and the final `+0x3204 = 0x28` marker. Collision/slope
+classification and the helper’s animation/sound consumers remain caller-owned.
+
 ### Shared off-ground reset (`0x004904d0`)
 
 The helper is broader than the state-4 label. Its two arguments are the

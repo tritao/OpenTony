@@ -551,6 +551,35 @@ PhysicsStateSemantic classify_physics_state(std::int32_t raw_state) noexcept {
     }
 }
 
+bool ground_leave_air_predicate(
+    const GroundAirTransitionInput& input) noexcept {
+    if (input.slope_metric <= retail::kGroundLeaveAirSlopeThreshold) {
+        return false;
+    }
+
+    // The retail instruction is a signed 32-bit subtraction. Do the
+    // subtraction in unsigned space first so a replay at the frame-counter
+    // wrap boundary retains the original two's-complement result without
+    // invoking signed-overflow undefined behavior in the host compiler.
+    const std::uint32_t age_bits =
+        static_cast<std::uint32_t>(input.current_frame) -
+        static_cast<std::uint32_t>(input.last_landing_frame);
+    const std::int32_t frames_since_landing =
+        age_bits <= static_cast<std::uint32_t>(
+                        std::numeric_limits<std::int32_t>::max())
+            ? static_cast<std::int32_t>(age_bits)
+            : static_cast<std::int32_t>(
+                  static_cast<std::int64_t>(age_bits) - 0x100000000LL);
+    const std::int32_t recent_window = fixed_shift8(
+        static_cast<std::int64_t>(input.frame_delta_fixed) *
+        retail::kGroundLeaveAirFrameWindowMultiplier);
+
+    // Both comparisons are strict in the retail dispatcher:
+    //   +0x3130 > 0x5000 || frame - +0x2d98 < (dt * 6) >> 8.
+    return input.recovery_progress > retail::kGroundLeaveAirRecoveryThreshold ||
+           frames_since_landing < recent_window;
+}
+
 OllieImpulseResult compute_ollie_vertical_impulse(const OllieImpulseInput& input) noexcept {
     const auto& random = input.random;
     const bool high_slope = absolute_value(input.slope_metric) >= 0x9c4;
@@ -1321,20 +1350,7 @@ GroundAirTransitionResult PhysicsStateMachine::try_ground_to_air(
     const GroundAirTransitionInput& input) {
     GroundAirTransitionResult result;
     if (state_.raw_state != retail::kPhysicsOnGround ||
-        input.slope_metric <= 1000) {
-        return result;
-    }
-
-    // The retail comparison is:
-    //   +0x3130 > 0x5000 || frame - +0x2d98 < (dt * 6) >> 8.
-    // Keep the signed frame comparison and SAR conversion visible; the
-    // caller owns the frame-clock units and the values feeding this gate.
-    const std::int32_t recent_window = fixed_shift8(
-        static_cast<std::int64_t>(input.frame_delta_fixed) * 6);
-    const std::int32_t frames_since_landing =
-        input.current_frame - input.last_landing_frame;
-    if (input.recovery_progress <= 0x5000 &&
-        frames_since_landing >= recent_window) {
+        !ground_leave_air_predicate(input)) {
         return result;
     }
 
@@ -1353,7 +1369,7 @@ GroundAirTransitionResult PhysicsStateMachine::try_ground_to_air(
     }
     result.off_ground = apply_off_ground_transition(
         OffGroundTransitionInput{0x14, 0, retail::kGroundLeaveAirOffGroundCallsite});
-    state_.off_ground.marker_3204 = 0x28;
+    state_.off_ground.marker_3204 = retail::kGroundLeaveAirMarker;
     return result;
 }
 

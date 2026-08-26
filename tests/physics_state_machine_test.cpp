@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using namespace opentony::physics;
@@ -333,6 +334,14 @@ void test_ground_to_air_leave_ground_transition() {
     machine.state().raw_state = retail::kPhysicsOnGround;
     machine.state().velocity.y = -1234;
 
+    const auto ground_dispatch = machine.dispatch();
+    assert(ground_dispatch.kind == DispatchKind::Ground);
+    assert(ground_dispatch.handler_count == 4);
+    assert(ground_dispatch.handler_pcs[0] == 0x0049dad0);
+    assert(ground_dispatch.handler_pcs[1] == 0x00496550);
+    assert(ground_dispatch.handler_pcs[2] == 0x00495cc0);
+    assert(ground_dispatch.handler_pcs[3] == 0x0049d9c0);
+
     const auto transitioned = machine.try_ground_to_air(
         GroundAirTransitionInput{100, 0x100, 1001, 0x5001, 0});
     assert(transitioned.eligible);
@@ -355,6 +364,10 @@ void test_ground_to_air_leave_ground_transition() {
     assert(machine.state().off_ground.marker_3204 == 0x28);
     assert(machine.state().phase_state == retail::kPhysicsInAir);
     assert(machine.requests().size() == 2);
+    assert(machine.requests()[0].request_callsite ==
+           retail::kGroundLeaveAirRequestCallsite);
+    assert(machine.requests()[1].request_callsite ==
+           retail::kOffGroundStateRequestCallsite);
     assert(machine.state().velocity.y == 0);
 
     PhysicsStateMachine recent;
@@ -372,6 +385,40 @@ void test_ground_to_air_leave_ground_transition() {
         GroundAirTransitionInput{100, 0x100, 1000, 0x5001, 0});
     assert(!rejected_result.eligible);
     assert(rejected.state().raw_state == retail::kPhysicsOnGround);
+}
+
+void test_ground_to_air_predicate_boundaries() {
+    GroundAirTransitionInput input{
+        100, 0x100, retail::kGroundLeaveAirSlopeThreshold + 1,
+        retail::kGroundLeaveAirRecoveryThreshold, 94};
+
+    // (100 - 94) == ((0x100 * 6) >> 8), so the recent-window comparison is
+    // false at equality. The recovery comparison is also false at 0x5000.
+    assert(!ground_leave_air_predicate(input));
+
+    input.last_landing_frame = 95;
+    assert(ground_leave_air_predicate(input));
+
+    input.last_landing_frame = 94;
+    input.recovery_progress = retail::kGroundLeaveAirRecoveryThreshold + 1;
+    assert(ground_leave_air_predicate(input));
+
+    input.recovery_progress = retail::kGroundLeaveAirRecoveryThreshold;
+    input.slope_metric = retail::kGroundLeaveAirSlopeThreshold;
+    assert(!ground_leave_air_predicate(input));
+    input.slope_metric = retail::kGroundLeaveAirSlopeThreshold + 1;
+
+    // A genuinely negative signed age satisfies the strict '< recent_window'
+    // branch before the frame counter wraps.
+    input.current_frame = 99;
+    input.last_landing_frame = 100;
+    assert(ground_leave_air_predicate(input));
+
+    // This also checks the 32-bit wrap at INT32_MAX -> INT32_MIN without
+    // relying on host signed overflow; the wrapped age is one frame.
+    input.current_frame = std::numeric_limits<std::int32_t>::min();
+    input.last_landing_frame = std::numeric_limits<std::int32_t>::max();
+    assert(ground_leave_air_predicate(input));
 }
 
 void test_off_ground_reset_boundary() {
@@ -1694,6 +1741,7 @@ int main() {
     test_cross_build_physics_state_labels();
     test_observed_state4_transition_path();
     test_ground_to_air_leave_ground_transition();
+    test_ground_to_air_predicate_boundaries();
     test_off_ground_reset_boundary();
     test_landing_cleanup_boundary();
     test_ground_surface_acceleration_contract();

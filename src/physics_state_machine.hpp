@@ -133,6 +133,10 @@ constexpr std::uint32_t kGroundLeaveAirRequestCallsite = 0x0049ddcf;
 constexpr std::uint32_t kGroundLeaveAirOffGroundCallsite = 0x0049dde1;
 constexpr std::uint32_t kOffGroundReset = 0x004904d0;
 constexpr std::uint32_t kOffGroundMarkerWriter = 0x0049dde6;
+constexpr std::int32_t kGroundLeaveAirSlopeThreshold = 1000;
+constexpr std::int32_t kGroundLeaveAirRecoveryThreshold = 0x5000;
+constexpr std::int32_t kGroundLeaveAirFrameWindowMultiplier = 6;
+constexpr std::int32_t kGroundLeaveAirMarker = 0x28;
 constexpr std::uint32_t kLandingRecoveryOffGroundCallsite = 0x004916a9;
 constexpr std::uint32_t kAlternateStateTimeoutRequestCallsite = 0x0049de9e;
 constexpr std::uint32_t kVelocityDamping = 0x0049d480;
@@ -702,6 +706,12 @@ struct GroundAirTransitionResult {
     StateRequest request{};
     OffGroundTransitionResult off_ground{};
 };
+
+// Exact post-case-0 predicate at 0x0049dd6b-0x0049dd91. This is pure so a
+// replay can exercise the strict boundaries without mutating the player. The
+// caller still owns the raw-state gate and the producers of these values.
+bool ground_leave_air_predicate(
+    const GroundAirTransitionInput& input) noexcept;
 
 struct OlliePrePhysicsInput {
     // The outer frame supplies these values. They are kept separate from the
