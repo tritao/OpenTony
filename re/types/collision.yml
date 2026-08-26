@@ -348,7 +348,9 @@ types:
     confidence: strong
     description: >-
       Collision-facing prefix of the heap-linked object record traversed by
-      0x004628f0. The complete allocation may contain additional fields.
+      0x004628f0. The cull admission test uses only the low flag byte; the
+      full-word 0x0400 bit is consumed later when selecting the alternate
+      transform path. The complete allocation may contain additional fields.
     fields:
       - offset: 0x04
         name: flags

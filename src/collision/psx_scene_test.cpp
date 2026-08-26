@@ -119,6 +119,11 @@ void check_synthetic_scene() {
     assert(with_metadata.base_flags == 0x10);
     assert(with_metadata.surface_flags == 0x10);
     assert(with_metadata.surface_word == 0x00100000u);
+    const auto decoded_flags = with_metadata.decoded_flags();
+    assert(decoded_flags.is_triangle);
+    assert(decoded_flags.surface_wallrideable);
+    assert(decoded_flags.inverse_bit_23);
+    assert(decoded_flags.inverse_bit_24);
 
     const std::array<std::int16_t, 9> identity{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
@@ -139,10 +144,64 @@ void check_synthetic_scene() {
     assert(dynamic_result.hit());
     assert(dynamic_result.query.hit_body == 1);
     assert(dynamic_result.query.hit_distance == 10);
-    assert(dynamic_result.query.hit_position.at(2) == 163800);
+    assert(dynamic_result.query.hit_position.at(2) == 40900);
     assert(dynamic_result.query.hit_normal == expected_normal);
     assert(dynamic_result.object_index == 0);
     assert(dynamic_result.face_index == 0);
+
+    PsxLinkedCollisionObject linked_object;
+    linked_object.body_id = 0xfeed1234;
+    linked_object.flags = 0x0110;
+    linked_object.position = {0, 0, 0};
+    linked_object.model_index = 0;
+    const std::array<PsxLinkedCollisionObject, 1> linked_objects{
+        linked_object};
+    const auto linked_result = scene->query_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, linked_objects, 7);
+    assert(linked_result.hit());
+    assert(linked_result.query.hit_body == 0xfeed1234);
+    assert(linked_result.query.hit_distance == 1);
+    assert(linked_result.query.hit_position.at(2) == 0);
+    assert(linked_result.query.hit_normal == expected_normal);
+    assert(linked_result.object_index == 0);
+    assert(linked_result.face_index == 0);
+
+    const auto aggregate_result = scene->query_with_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, linked_objects, 7);
+    assert(aggregate_result.hit());
+    assert(aggregate_result.query.hit_body == 1);
+    assert(aggregate_result.query.hit_distance == 1);
+    const auto static_aggregate_result = scene->query_with_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, {}, 7);
+    assert(static_aggregate_result.hit());
+    assert(static_aggregate_result.query.hit_body == 1);
+
+    auto farther_object = linked_object;
+    farther_object.body_id = 0xabcd;
+    farther_object.position = {0, 0, -4096};
+    const std::array<PsxLinkedCollisionObject, 2> ordered_objects{
+        farther_object, linked_object};
+    const auto nearest_linked_result = scene->query_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, ordered_objects, 8);
+    assert(nearest_linked_result.hit());
+    assert(nearest_linked_result.query.hit_body == 0xfeed1234);
+    assert(nearest_linked_result.query.hit_distance == 1);
+
+    linked_object.flags = 0x0130;
+    const std::array<PsxLinkedCollisionObject, 1> rejected_objects{
+        linked_object};
+    const auto rejected_result = scene->query_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, rejected_objects, 8);
+    assert(!rejected_result.hit());
+
+    linked_object.flags = 0x0110;
+    linked_object.body_id = 0xbeef;
+    linked_object.position = {409600, 409600, 409600};
+    const std::array<PsxLinkedCollisionObject, 1> distant_objects{
+        linked_object};
+    const auto distant_result = scene->query_linked_objects(
+        {4096, 4096, 4096}, {4096, 4096, -4096}, distant_objects, 9);
+    assert(!distant_result.hit());
 
     const auto dynamic = PsxScene::transform_dynamic_model(
         scene->models()[0], {0, 0, 0}, identity, 4096);

@@ -60,6 +60,19 @@ struct PsxObject {
     std::size_t source_index = 0;
 };
 
+// Collision-facing view of the heap node walked by 0x004628f0.  This is
+// intentionally separate from PsxObject: the PC node is a live linked-list
+// element with a 0x24-byte collision prefix, while the PSX scene object table
+// has a different on-disk record and no recovered angle fields.
+struct PsxLinkedCollisionObject {
+    std::uint32_t body_id = 0;
+    std::uint16_t flags = 0;
+    RawVec3 position{};
+    std::array<std::int16_t, 3> angles{};
+    std::uint16_t model_index = 0;  // caller-resolved scene model index
+    std::uint8_t model_kind = 0;    // original type-table selector, retained as metadata
+};
+
 struct PsxBlockmapCell {
     std::uint32_t unknown_1 = 0;
     std::uint32_t unknown_2 = 0;
@@ -85,6 +98,13 @@ struct PsxCollisionResult {
     std::uint32_t surface_word = 0;
 
     bool hit() const { return query.hit_body != 0; }
+
+    // Keep the executable's raw face words authoritative while exposing the
+    // currently evidence-backed bit view for callers that need to classify a
+    // ground/wall result. The names in FaceFlagView remain provisional.
+    reference::FaceFlagView decoded_flags() const {
+        return reference::decode_face_flags(base_flags, surface_word);
+    }
 };
 
 struct PsxDynamicModelVertices {
@@ -400,11 +420,171 @@ public:
         if (object.model_index >= models_.size()) {
             return result;
         }
-        const auto& model = models_[object.model_index];
-        if (transformed_vertices.vertices.size() < model.vertices.size()) {
+        return query_dynamic_model(
+            models_[object.model_index], start, end, object_index,
+            static_cast<std::uint32_t>(object_index + 1), object.model_index,
+            transformed_vertices, query_object_basis, final_object_basis,
+            query_stamp, filter);
+    }
+
+    PsxCollisionResult query_dynamic_object(
+        RawVec3 start, RawVec3 end, std::size_t object_index,
+        const PsxDynamicObjectPreprocess& preprocess,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        return query_dynamic_object(
+            start, end, object_index, preprocess.vertices,
+            preprocess.query_object_basis, preprocess.final_object_basis,
+            query_stamp, filter);
+    }
+
+    // Run the recovered linked-object branch over caller-owned node data.
+    // The caller supplies a native view of the live PC list; no PC pointer is
+    // fabricated. Objects are first admitted by 0x004f43e0's flag gate and
+    // object-space broad phase, then the exact transformed-vertex/face pass
+    // is run. The returned query uses q+0x40 distance ordering, matching the
+    // dynamic routine rather than the static q+0x8c parameter ordering.
+    PsxCollisionResult query_linked_objects(
+        RawVec3 start, RawVec3 end,
+        std::span<const PsxLinkedCollisionObject> linked_objects,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        PsxCollisionResult best;
+        best.query.start = start;
+        best.query.end = end;
+        reference::prepare(best.query, query_stamp);
+
+        const RawVec3 relative_start{0, 0, 0};
+        RawVec3 relative_end{};
+        for (std::size_t axis = 0; axis < relative_end.size(); ++axis) {
+            relative_end[axis] = reference::arithmetic_shift_right_12(
+                reference::wrapping_sub(end[axis], start[axis]));
+        }
+
+        RawVec3 ordered_start = relative_start;
+        RawVec3 ordered_end = relative_end;
+        std::uint8_t reflection_mask = 0;
+        for (std::size_t axis = 0; axis < ordered_start.size(); ++axis) {
+            if (ordered_start[axis] > ordered_end[axis]) {
+                std::swap(ordered_start[axis], ordered_end[axis]);
+                reflection_mask = static_cast<std::uint8_t>(
+                    reflection_mask | (1u << axis));
+            }
+        }
+
+        for (std::size_t object_index = 0; object_index < linked_objects.size();
+             ++object_index) {
+            const auto& object = linked_objects[object_index];
+            if (!reference::linked_object_flag_gate(object.flags) ||
+                object.model_index >= models_.size()) {
+                continue;
+            }
+            const auto& model = models_[object.model_index];
+            const auto model_header = collision_model_header(model);
+            const auto object_offset = relative_position(
+                object.position, start);
+            const auto bounds = reference::build_object_bounds(
+                model_header, ordered_start, ordered_end, object_offset,
+                reflection_mask);
+            if (!reference::object_broadphase_test(
+                    ordered_start, ordered_end, bounds)) {
+                continue;
+            }
+
+            const auto preprocess = preprocess_dynamic_object(
+                model, best.query, object.position, object.angles,
+                (object.flags & 0x0400u) != 0);
+            const auto body_id = object.body_id != 0
+                                     ? object.body_id
+                                     : static_cast<std::uint32_t>(object_index + 1);
+            const auto candidate = query_dynamic_model(
+                model, start, end, object_index, body_id, object.model_index,
+                preprocess.vertices, preprocess.query_object_basis,
+                preprocess.final_object_basis, query_stamp, filter);
+            if (candidate.hit() &&
+                candidate.query.hit_distance < best.query.hit_distance) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    // Compose the two branches reached by 0x004660b0. The executable runs
+    // linked objects and zone candidates through different nearest fields,
+    // but both paths leave the comparable traveled distance at q+0x40. A
+    // strict comparison preserves the static result on an exact tie, which
+    // matches the dynamic-before-static traversal order plus the original
+    // strict-nearer updates.
+    PsxCollisionResult query_with_linked_objects(
+        RawVec3 start, RawVec3 end,
+        std::span<const PsxLinkedCollisionObject> linked_objects,
+        std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        const auto static_result = query_with_metadata(
+            start, end, query_stamp, filter);
+        const auto linked_result = query_linked_objects(
+            start, end, linked_objects, query_stamp, filter);
+        if (!linked_result.hit() ||
+            (static_result.hit() &&
+             static_result.query.hit_distance <=
+                 linked_result.query.hit_distance)) {
+            return static_result;
+        }
+        return linked_result;
+    }
+
+    bool query(QueryRecord& query_record,
+               CollisionFaceFilter filter = {}) const {
+        return query(query_record, filter, nullptr);
+    }
+
+private:
+    static reference::CollisionModelHeader collision_model_header(
+        const PsxModel& model) {
+        return reference::CollisionModelHeader{
+            .unknown_flags = model.flags,
+            .vertex_count = model.vertex_count,
+            .normal_count = model.normal_count,
+            .face_count = model.face_count,
+            .radius = model.radius,
+            .x_max = model.bounds[0],
+            .x_min = model.bounds[1],
+            .y_max = model.bounds[2],
+            .y_min = model.bounds[3],
+            .z_max = model.bounds[4],
+            .z_min = model.bounds[5],
+            .unknown_value = 0,
+        };
+    }
+
+    static RawVec3 relative_position(const RawVec3& position,
+                                     const RawVec3& query_start) {
+        RawVec3 result{};
+        for (std::size_t axis = 0; axis < result.size(); ++axis) {
+            result[axis] = reference::arithmetic_shift_right_12(
+                reference::wrapping_sub(position[axis], query_start[axis]));
+        }
+        return result;
+    }
+
+    static PsxCollisionResult query_dynamic_model(
+        const PsxModel& model, RawVec3 start, RawVec3 end,
+        std::size_t object_index, std::uint32_t body_id,
+        std::uint16_t model_index,
+        const PsxDynamicModelVertices& transformed_vertices,
+        const std::array<std::int16_t, 9>& query_object_basis,
+        const std::array<std::int16_t, 9>& final_object_basis,
+        std::uint16_t query_stamp, CollisionFaceFilter filter) {
+        PsxCollisionResult result;
+        result.query.start = start;
+        result.query.end = end;
+        reference::prepare(result.query, query_stamp);
+        if ((transformed_vertices.clip_mask & 0x60fu) != 0 ||
+            transformed_vertices.vertices.size() < model.vertices.size()) {
             return result;
         }
-        for (std::size_t face_index = 0; face_index < model.faces.size(); ++face_index) {
+        for (std::size_t face_index = 0; face_index < model.faces.size();
+             ++face_index) {
             const auto& face = model.faces[face_index];
             const auto surface_word =
                 (static_cast<std::uint32_t>(face.surface_flags) << 16u) |
@@ -434,10 +614,9 @@ public:
                 model.normals[face.normal_index], query_object_basis,
                 result.query.line_length);
             if (!candidate || !reference::record_nearest_dynamic_candidate(
-                                   result.query, *candidate,
-                                   static_cast<std::uint32_t>(object_index + 1),
+                                   result.query, *candidate, body_id,
                                    static_cast<std::uint32_t>(face.source_offset),
-                                   object.model_index)) {
+                                   model_index)) {
                 continue;
             }
             result.query.hit_normal = reference::transform_normal_q12(
@@ -457,23 +636,6 @@ public:
         return result;
     }
 
-    PsxCollisionResult query_dynamic_object(
-        RawVec3 start, RawVec3 end, std::size_t object_index,
-        const PsxDynamicObjectPreprocess& preprocess,
-        std::uint16_t query_stamp = 0,
-        CollisionFaceFilter filter = {}) const {
-        return query_dynamic_object(
-            start, end, object_index, preprocess.vertices,
-            preprocess.query_object_basis, preprocess.final_object_basis,
-            query_stamp, filter);
-    }
-
-    bool query(QueryRecord& query_record,
-               CollisionFaceFilter filter = {}) const {
-        return query(query_record, filter, nullptr);
-    }
-
-private:
     bool query(QueryRecord& query_record, CollisionFaceFilter filter,
                PsxCollisionResult* metadata) const {
         const auto candidates = candidate_objects(query_record);
