@@ -568,6 +568,48 @@ inline Q12Vec3 multiply_matrix_q12(
     };
 }
 
+struct ViewPreparationRecordsRaw {
+    // Render_SetViewProjection writes fifteen signed shorts to each of these
+    // two scratch records at 0x005620c0 and 0x005620e8.  They are five
+    // independent three-word products, not a conventional 4x4 matrix.
+    std::array<std::int16_t, 15> record_005620c0{};
+    std::array<std::int16_t, 15> record_005620e8{};
+};
+
+// Exact five-iteration handoff inside 0x0045e8e0.  The retail loop starts at
+// basis word 1, advances four words per iteration, and multiplies the two
+// cyclic three-word slices by the row-ordered view matrix.  Keeping the raw
+// basis indexing here makes the object-submission contract testable without
+// assigning the scratch arrays a graphics-API meaning.
+inline ViewPreparationRecordsRaw prepare_view_records_q12(
+    const MatrixQ12& view_matrix,
+    const ProjectionBasisQ12& basis) {
+    std::array<std::int16_t, 40> flat{};
+    for (std::size_t block = 0; block < basis.blocks.size(); ++block) {
+        for (std::size_t word = 0; word < basis.blocks[block].size(); ++word) {
+            flat[block * 8 + word] = basis.blocks[block][word];
+        }
+    }
+
+    ViewPreparationRecordsRaw records{};
+    for (std::size_t iteration = 0; iteration < 5; ++iteration) {
+        const std::size_t start = 1 + iteration * 4;
+        const std::array<Raw, 3> first_vector{
+            flat[start - 1], flat[start], flat[start + 1]};
+        const std::array<Raw, 3> second_vector{
+            flat[start + 11], flat[start + 12], flat[start + 13]};
+        const Q12Vec3 first = multiply_matrix_q12(view_matrix, first_vector);
+        const Q12Vec3 second = multiply_matrix_q12(view_matrix, second_vector);
+        records.record_005620e8[iteration * 3 + 0] = low_s16_raw(first.x);
+        records.record_005620e8[iteration * 3 + 1] = low_s16_raw(first.y);
+        records.record_005620e8[iteration * 3 + 2] = low_s16_raw(first.z);
+        records.record_005620c0[iteration * 3 + 0] = low_s16_raw(second.x);
+        records.record_005620c0[iteration * 3 + 1] = low_s16_raw(second.y);
+        records.record_005620c0[iteration * 3 + 2] = low_s16_raw(second.z);
+    }
+    return records;
+}
+
 // 0x004e85a0's row-ordered integer form. The binary performs each dot product
 // through x87, multiplies by 1/4096, and converts with the shared
 // round-toward-zero helper. This intentionally differs from

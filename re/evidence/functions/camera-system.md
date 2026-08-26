@@ -1061,6 +1061,17 @@ matrix scratch into the second view-record block. This fixes the engine’s
 internal matrix ordering even though the eventual renderer API should still
 keep handedness and clip-space naming as explicit contracts.
 
+The five-iteration view-to-object handoff is now represented by
+`prepare_view_records_q12` in `src/camera/camera_math.hpp`. Starting at basis
+word `1`, each iteration advances four words and sends the slices
+`[base-1..base+1]` and `[base+11..base+13]` through
+`Fixed_MatrixMultiplyQ12 0x004e39a0`. The first result is written to the
+fifteen-short record at `DAT_005620e8`; the second is written to
+`DAT_005620c0`. An identity-matrix fixture checks all five triplets and keeps
+the signed-short narrowing visible. This closes the camera-to-prepared-object
+record contract, while material/object traversal and the later geometry packet
+remain separate boundaries.
+
 ### Dynamic matrix-convention validation
 
 The paired `camera-input-motion2.jsonl` trace closes the previously open

@@ -159,6 +159,27 @@ def test_camera_math_reference_compiles_and_preserves_fixed_contract(tmp_path):
                 if (odd_projection.basis.blocks[1][2] != 4102) {
                     return 23;
                 }
+                ProjectionBasisQ12 handoff_basis;
+                for (std::size_t block = 0; block < 5; ++block) {
+                    for (std::size_t word = 0; word < 8; ++word) {
+                        handoff_basis.blocks[block][word] =
+                            static_cast<std::int16_t>(block * 8 + word + 1);
+                    }
+                }
+                const MatrixQ12 identity_view{
+                    0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
+                const auto handoff = prepare_view_records_q12(
+                    identity_view, handoff_basis);
+                if (handoff.record_005620e8
+                        != std::array<std::int16_t, 15>{
+                            1, 2, 3, 5, 6, 7, 9, 10, 11,
+                            13, 14, 15, 17, 18, 19}
+                    || handoff.record_005620c0
+                        != std::array<std::int16_t, 15>{
+                            13, 14, 15, 17, 18, 19, 21, 22, 23,
+                            25, 26, 27, 29, 30, 31}) {
+                    return 25;
+                }
                 return 0;
             }
             """
