@@ -285,11 +285,11 @@ that cursor. In the type-192 dispatch table, the proven command IDs are:
 ```text
 0x2123  consume one u8 -> object +0x16e
 0x2124  consume one u16 model index -> object +0x1a; mirror model-header bit 0x10 to flags bit 0x20
-0x2127  align to 4, consume one u32 checksum -> 0x004b1de0(checksum, region); store returned model index at +0x1a
+0x2127  consume three u16 values -> object +0x70/+0x72/+0x74
 0x2128  consume three resolved u16 values -> object +0x4c/+0x50/+0x54 after << 12
-0x212f  consume three u16 values -> object +0x14/+0x16/+0x18
-0x2133  consume three u16 values -> object +0x70/+0x72/+0x74
-0x2137  consume three u16 values -> object +0x76/+0x78/+0x7a
+0x212f  align to 4, consume one u32 checksum -> 0x004b1de0(checksum, region); store returned model index at +0x1a
+0x2133  consume three u16 values -> object +0x14/+0x16/+0x18
+0x2136  consume three u16 values -> object +0x76/+0x78/+0x7a
 ```
 
 The checksum case also clears object flag bit `0x1`, while both model cases
@@ -312,6 +312,27 @@ The remaining byte count is node-specific; the stable result is the relative
 cursor location. It is obtained from the same absolute-alignment rule used by
 the retail constructor, so it remains meaningful even when the node’s
 file-table offset changes.
+
+The live Hangar probe `tony-trg-type192-probe 128` confirms the command-table
+interpretation on the normal object-update path. After dismissing the level
+summary, it recorded 90 type-192 runner entries and 38 completed calls to
+`0x004a1060`; all 38 handler calls were raw command `0x212f`. The calls covered
+38 distinct region-4 objects. Their model indices changed from constructor
+default `0` to region-local values `7`, `9`, or `10` (with one each of `1`,
+`2`, `3`, and `4`), and their flags changed from `0x0110/0x0111` to
+`0x0110/0x0130` according to the selected model header bit. The handler
+returned through `0x004a114e` or `0x004a1169`, exactly the two model-header
+branches, and advanced the saved cursor by 4 bytes when already aligned or 6
+bytes when it first skipped two bytes to reach the aligned checksum word.
+This is a runtime confirmation of `0x212f` as checksum/model selection and of
+the cursor being a live command-stream pointer. The raw trace is retained as
+`build/debug/trg-type192-hangar3.trace.ndjson`; its footer is intentionally
+incomplete because the debugger was stopped after the bounded capture.
+
+The selector table does not provide a supported semantic mapping for `0x2137`:
+its byte is `0x90`, which does not point at one of the handler entries. The
+proven three-vector cases are therefore `0x2127`, `0x2128`, `0x2133`, and
+`0x2136`; `0x2137` should remain unclaimed until a real stream exercises it.
 
 The adjacent `0x004a12d0` consumer scans `DAT_0056af40` through each object's
 `+0x20` link, requires object flag `0x0100` and object state bit

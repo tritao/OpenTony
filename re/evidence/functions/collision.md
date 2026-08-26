@@ -413,16 +413,16 @@ the wrapper; the query does not parse a file on each call.
     offset without claiming the full object allocation size.
   - The type-192 object vtable at `0x005194f8` has a model-update handler at
     `0x004a1060`. Its dispatch table identifies `0x2124` as the numeric-model
-    case and `0x2127` as the checksum-model case. The former writes a
+    case and `0x212f` as the checksum-model case. The former writes a
     region-local `u16` directly to `+0x1a`; the latter aligns the command
     cursor, calls `0x004b1de0(checksum, +0x1f)`, and writes that returned model
     index to `+0x1a`. Both cases resolve
     `DAT_0056d43c[+0x1f * 0x11][+0x1a]` and mirror the selected model header
-    bit `0x10` into object flag `+0x04` bit `0x20`; `0x2127` additionally
+    bit `0x10` into object flag `+0x04` bit `0x20`; `0x212f` additionally
     clears flag bit `0x1`. The same table proves `0x2128` writes a resolved
-    three-component vector at `+0x4c/+0x50/+0x54`, while `0x212f`, `0x2133`,
-    and `0x2137` write three-u16 fields at `+0x14/+0x16/+0x18`,
-    `+0x70/+0x72/+0x74`, and `+0x76/+0x78/+0x7a`, respectively. This explains
+    three-component vector at `+0x4c/+0x50/+0x54`, while `0x2127`, `0x2133`,
+    and `0x2136` write three-u16 fields at `+0x70/+0x72/+0x74`,
+    `+0x14/+0x16/+0x18`, and `+0x76/+0x78/+0x7a`, respectively. This explains
     why `model_kind`/`model_index` are mutable runtime products rather than a
     sufficient PSX object identity. The separate `0x004a12d0` consumer scans
     `DAT_0056af40`, performs model-bound overlap against the player's AABB,

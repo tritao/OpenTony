@@ -53,6 +53,7 @@ from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProb
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
+from .trg import Type192CommandProbe
 from .watchpoint import watchpoints
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
@@ -1804,6 +1805,26 @@ class TonyCollisionDynamicTransformProbe(gdb.Command):
         _write(f"collision transform probe armed for {count} completed calls")
 
 
+class TonyType192CommandProbe(gdb.Command):
+    """tony-trg-type192-probe [COUNT] -- trace type-192 command effects."""
+
+    DEFAULT_COUNT = 32
+
+    def __init__(self):
+        super().__init__("tony-trg-type192-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-trg-type192-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-trg-type192-probe [COUNT]")
+        count = _integer(values[0]) if values else self.DEFAULT_COUNT
+        if count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = Type192CommandProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(f"TRG type-192 command probe armed for {count} completed calls")
+
+
 _registered = False
 
 
@@ -1868,6 +1889,7 @@ def register_commands() -> None:
     TonyCollisionDynamicProbe()
     TonyCollisionDynamicCullProbe()
     TonyCollisionDynamicTransformProbe()
+    TonyType192CommandProbe()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
@@ -1893,5 +1915,5 @@ def register_commands() -> None:
         "tony-collision-loader-probe, tony-collision-model-kind-probe, "
         "tony-collision-flags-probe, "
         "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
-        "tony-collision-transform-probe"
+        "tony-collision-transform-probe, tony-trg-type192-probe"
     )

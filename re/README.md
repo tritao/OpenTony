@@ -122,6 +122,8 @@ passes. `tony-collision-transform-probe [COUNT]` captures the object tail and
 temporary matrix around the `0x0200` matrix-transform branch.
 `tony-collision-model-kind-probe [COUNT]` captures the object selector and
 kind-strided model/cache slot initialization at the loader boundary.
+`tony-trg-type192-probe [COUNT]` captures the type-192 command word, the
+post-constructor cursor movement, and collision-facing object fields.
 
 Camera/render traces can additionally use `tony-camera-probe`,
 `tony-view-probe`, `tony-actor-probe`, and the deliberately raw
