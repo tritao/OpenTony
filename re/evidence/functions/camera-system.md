@@ -4,7 +4,7 @@ Status: camera update ownership, fixed-point camera math, shake composition, and
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
-Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), and `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff)
+Primary runtime captures: `build/debug/camera-live.jsonl` (`camera-live`, 240 camera observations), `build/debug/camera-present-validation2.jsonl` (present-clock/effect validation), `build/debug/camera-render-handoff.jsonl` (live world/view/object handoff), and `build/debug/camera-turn-calibration.jsonl` (present-clocked controlled motion)
 
 ## Result
 
@@ -828,6 +828,36 @@ row/column/handedness convention after `Render_SetViewProjection`; the live
 handoff confirms consumption and ordering, not a conventional FOV or clip
 matrix name.
 
+The follow-up `camera-turn-calibration` capture used the same present callsite
+as its frame clock while holding a Warehouse level and sending a controlled
+left/right turn-and-move sequence. It recorded 8,301 contiguous
+`render_present` events (the trace was stopped deliberately, so its footer is
+`complete:false`), 700 camera observations at frames `1605..2294`, and 4,824
+world view/projection observations at frames `1605..6428`. All 690 distinct
+camera frames had a same-frame `0x00467d0c` world-view record. Across the
+camera observations, position changed on all 700 records, anchor changed on
+692, and orientation changed on 561; all remained in mode `1` with raw
+viewport value `12`. The corresponding world matrix pair had 4,731 distinct
+signatures while the steady view-input record remained
+`640x480`, depth `20512`, vertical scale `3413`, and viewport value `12`.
+
+This promotes the dynamic relationship
+
+```text
+Camera_Update 0x0040f850
+    -> camera position/anchor/orientation changes
+    -> Render_SetViewProjection 0x0045e8e0 via 0x00467d0c
+    -> changing Q12 matrix payload
+    -> Render_SubmitActor 0x0045f530
+    -> Render_Present 0x004d0ca4
+```
+
+to high confidence for normal Warehouse gameplay. It does not yet identify
+which camera input or gameplay producer caused each turn phase, because this
+capture did not arm an input-state probe. The controlled motion therefore
+validates camera-to-render propagation, not the complete input-to-camera
+contract.
+
 The direction helper’s raw output is not a conventional normalized float
 vector. For angles `a=first`, `b=second` and scalar `s`, it writes:
 
@@ -1103,7 +1133,7 @@ The camera boundary is now usable, but these items still matter for pixel/behavi
 2. Isolate the projection parameter represented by viewport record `+0x0e` / camera `+0x40c`; do not call it FOV until a controlled zoom/camera-input experiment proves that.
 3. Enumerate the `+0x504` mode values and transitions in normal follow, camera-point, death, replay, menu, and two-player paths.
 4. Reproduce the original fixed-point multiply, divide, shift, saturation, and trigonometric lookup behavior. Ordinary floating-point math will drift in camera smoothing and orientation.
-5. Capture a controlled turn/move trace with the present clock enabled, then compare camera target, position, orientation, and viewport fields against the same frame IDs.
+5. Add input/player-state fields to the controlled turn/move trace, then compare the exact input-to-camera latency and target/position/orientation changes against the same present frame IDs. The first motion trace already confirmed the camera-to-view half of this chain; it did not identify the input producer.
 6. Recover the remaining scene/object transform handoff only far enough to validate one visible object; leave asset disk-format ownership to the asset-runtime session.
 7. Validate viewport selection and present behavior in split-screen or alternate modes, where one gameplay update may feed multiple viewport renders.
 
@@ -1158,12 +1188,11 @@ The remaining engineering gates are therefore:
    a confidence level, and a falsifier; screenshots alone cannot identify
    whether a mismatch came from timing, camera state, or rasterization.
 
-The next highest-value probe is now a two-phase trace using `render_present`
-as the clock: stationary Warehouse, then controlled left/right camera
-movement. The stationary phase has already validated camera-to-world
-consumption; the movement phase should isolate the remaining matrix
-row/column, scale, and projection questions without expanding into the full
-DirectDraw backend.
+The next highest-value probe is now a paired input/player/camera trace using
+`render_present` as the clock: record raw input, player pose/physics state,
+camera fields, viewport records, and one actor packet during stationary,
+turning, and moving phases. The camera-to-world half is already validated;
+the missing evidence is the producer and latency chain before camera update.
 
 ## Open questions and falsifiers
 
