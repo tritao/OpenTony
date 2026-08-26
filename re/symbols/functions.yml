@@ -166,6 +166,12 @@ functions:
     confidence: inferred
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x0046d6e0
+    name: Skater_InputProfilePrep
+    description: immediate pre-physics transfer of profile analog/lean fields
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/physics.md
   - address: 0x004ca9f0
     name: Math_Vector3Add
     description: three-component fixed-point vector addition helper
@@ -193,3 +199,111 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/startup-runtime.md
+  - address: 0x004c5130
+    name: Trig_LoadTRG
+    description: load and relocate a level TRG file
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8050
+    name: Trig_RunAutoexec
+    description: find and execute the level autoexec node
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8130
+    name: Trig_BuildLevelNodes
+    description: create runtime objects and command links from TRG nodes
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c84d0
+    name: Trig_CreateCommandPoint
+    description: allocate a command-point runtime record
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c58b0
+    name: Trig_SendPulseToNode
+    description: dispatch a pulse to a trigger node
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5dc0
+    name: Trig_CommandDispatch
+    description: central trigger command/opcode dispatcher
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c77f0
+    name: Trig_SendVisible
+    description: apply a visible-state command to linked level objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5ac0
+    name: Trig_FindCommandPoint
+    description: find a command-point runtime record by source node index
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8550
+    name: Trig_GetLinks
+    description: obtain a trigger node's linked-node list
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4e30
+    name: Trig_ExecuteRestart
+    description: reset players and execute a restart-node command stream
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c4c50
+    name: Trig_FindRestartByName
+    description: resolve a restart node by its embedded name
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5460
+    name: Trig_CreateObject
+    description: create an object or pickup from a trigger node
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5b00
+    name: Trig_SendPulseToLinks
+    description: iterate a link list and send pulses to its target nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5b60
+    name: Trig_SendSignal
+    description: send a signal through linked object nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c5c70
+    name: Trig_SendSuspendActivate
+    description: suspend or activate linked gameplay objects
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c7a00
+    name: Trig_SendKill
+    description: apply a kill command to linked nodes
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c7c50
+    name: Trig_SkipCommandBlock
+    description: advance over one trigger command for conditional execution
+    confidence: observed
+    evidence:
+      - re/evidence/functions/scripting.md
+  - address: 0x004c8650
+    name: Trig_GetNodePosition
+    description: decode a trigger node position and return its remaining payload
+    confidence: inferred
+    evidence:
+      - re/evidence/functions/scripting.md

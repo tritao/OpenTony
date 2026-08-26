@@ -38,3 +38,13 @@ The conservative current names are `FrontEnd_Main`, `Front_LaunchGameLevel`, `Ga
 - Trace `DAT_0056a858` and its `-0x30` owner/header relationship across loop iterations and compare it with the player-state layout candidates.
 - Determine whether `0x0041c2d0` is the main gameplay loop or a broader shell/session loop invoked for a different mode.
 - Resolve the meanings of `DAT_0056a8d0`, `DAT_0056a898`, and the callback object at `DAT_0056a858` with GDB observations.
+
+## Native reconstruction boundary
+
+`src/runtime/level_frame.*` now represents the confirmed inner ordering at a
+portable boundary: an externally supplied elapsed interval and action mask are
+recorded by `InputState`, then `LevelRuntime::tick()` advances trigger timers
+and scene state, then a downstream observer receives the frame for player,
+camera, renderer, and audio work. This does not claim to replace the Windows
+message pump, DirectInput device polling, timing source, or virtual gameplay
+callback; those remain the next application-layer services.
