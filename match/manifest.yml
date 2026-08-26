@@ -91,12 +91,49 @@ modules:
 - id: text_00461000
   section: .text
   start_va: 4591616
-  end_va: 4657152
+  end_va: 4596944
   file_offset: 397312
-  size: 65536
+  size: 5328
   status: raw
   source: match/modules/text/text_00461000.asm
-  sha256: 1cb00ee73fafd9664ed6e7102e85f41b34be36f5c4332db8485af23fa56d7f17
+  sha256: 12bd4132103174bb9fb7cfeb9b269d713cb40145eaa7bdff67f16e03357d620a
+- id: text_004624d0
+  section: .text
+  start_va: 4596944
+  end_va: 4597990
+  file_offset: 402640
+  size: 1046
+  status: hybrid
+  reconstructed_size: 120
+  source: match/modules/text/text_004624d0.asm
+  sha256: 3245f63b5dca3577b4cd74257a0f21c1a3911b8b771ae886778bbb6835e2d6f4
+- id: text_004628e6
+  section: .text
+  start_va: 4597990
+  end_va: 4612240
+  file_offset: 403686
+  size: 14250
+  status: raw
+  source: match/modules/text/text_004628e6.asm
+  sha256: fd485a3f9266d1452f747c3b6bca207dba0397e46c9fbc4dc712e871147a92f0
+- id: text_00466090
+  section: .text
+  start_va: 4612240
+  end_va: 4612261
+  file_offset: 417936
+  size: 21
+  status: asm
+  source: match/modules/text/text_00466090.asm
+  sha256: dade7ae6e88bbce31034da810a8f5ffa20bbb4ee1c4797ac7b3da506f66ba0ff
+- id: text_004660a5
+  section: .text
+  start_va: 4612261
+  end_va: 4657152
+  file_offset: 417957
+  size: 44891
+  status: raw
+  source: match/modules/text/text_004660a5.asm
+  sha256: 6b3d182445938a5741792ec3944e3859c5b9d54a4c55f33ad3c3c5ef4150caa3
 - id: text_00471000
   section: .text
   start_va: 4657152
