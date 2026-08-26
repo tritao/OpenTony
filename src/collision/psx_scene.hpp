@@ -1,0 +1,724 @@
+#pragma once
+
+// Native collision scene boundary.
+//
+// The original PC executable receives a heap-built zone/cache graph.  The
+// packaged PSX scene is the stable source asset available to the
+// reconstruction, so this module decodes its model/object/blockmap records
+// and feeds the evidence-backed query primitive.  Native handles are scene
+// IDs or source offsets; they are intentionally not fake PC pointers.
+
+#include "../../re/evidence/collision_reference.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace opentony::collision {
+
+namespace reference = collision_reference;
+
+using Raw = reference::Raw;
+using RawVec3 = reference::RawVec3;
+using QueryRecord = reference::QueryRecord;
+using CollisionFaceAabbRecord = reference::CollisionFaceAabbRecord;
+using CollisionFaceFilter = reference::CollisionFaceFilter;
+
+struct PsxFace {
+    std::uint16_t base_flags = 0;
+    std::uint16_t length_bytes = 0;
+    std::array<std::uint8_t, 4> vertex_indices{};
+    std::uint16_t normal_index = 0;
+    std::uint16_t surface_flags = 0;
+    std::size_t source_offset = 0;
+};
+
+struct PsxModel {
+    std::uint16_t flags = 0;
+    std::uint16_t vertex_count = 0;
+    std::uint16_t normal_count = 0;
+    std::uint16_t face_count = 0;
+    std::uint32_t radius = 0;
+    std::array<std::int16_t, 6> bounds{};
+    std::size_t source_offset = 0;
+    std::vector<RawVec3> vertices;
+    std::vector<std::array<std::int16_t, 3>> normals;
+    std::vector<PsxFace> faces;
+};
+
+struct PsxObject {
+    std::uint32_t flags = 0;
+    RawVec3 position{};
+    std::uint16_t model_index = 0;
+    std::size_t source_index = 0;
+};
+
+struct PsxBlockmapCell {
+    std::uint32_t unknown_1 = 0;
+    std::uint32_t unknown_2 = 0;
+    std::vector<std::uint32_t> object_indices;
+};
+
+struct PsxBlockmap {
+    Raw min_x = 0;
+    Raw min_z = 0;
+    Raw max_x = 0;
+    Raw max_z = 0;
+    std::uint16_t cell_count_x = 0;
+    std::uint16_t cell_count_z = 0;
+    std::vector<PsxBlockmapCell> cells;
+};
+
+struct PsxCollisionResult {
+    QueryRecord query{};
+    std::size_t object_index = std::numeric_limits<std::size_t>::max();
+    std::size_t face_index = std::numeric_limits<std::size_t>::max();
+    std::uint16_t base_flags = 0;
+    std::uint16_t surface_flags = 0;
+    std::uint32_t surface_word = 0;
+
+    bool hit() const { return query.hit_body != 0; }
+};
+
+struct PsxDynamicModelVertices {
+    std::vector<reference::DynamicVertexRecord> vertices;
+    std::uint16_t clip_mask = 0x60f;
+};
+
+class PsxScene {
+public:
+    // Parse a version-4 PSX scene.  The reader intentionally accepts only
+    // fields needed by collision and leaves texture/tag payloads opaque.
+    static std::optional<PsxScene> parse(std::span<const std::uint8_t> bytes,
+                                          std::string* error = nullptr) {
+        PsxScene scene;
+        Reader reader(bytes, error);
+        const auto version = reader.u16("version");
+        const auto marker = reader.u16("marker");
+        const auto tag_offset = reader.u32("tag offset");
+        const auto object_count = reader.u32("object count");
+        if (!version || !marker || !tag_offset || !object_count) {
+            return std::nullopt;
+        }
+        if (*version != 4 || *marker != 2) {
+            reader.fail("only PSX version 4 / marker 2 is supported");
+            return std::nullopt;
+        }
+        if (*tag_offset > bytes.size()) {
+            reader.fail("tag offset is outside the scene");
+            return std::nullopt;
+        }
+        if (*object_count > bytes.size() / 36u) {
+            reader.fail("object table is unreasonably large");
+            return std::nullopt;
+        }
+
+        scene.objects_.reserve(*object_count);
+        for (std::uint32_t index = 0; index < *object_count; ++index) {
+            PsxObject object;
+            const auto flags = reader.u32("object flags");
+            const auto x = reader.i32("object x");
+            const auto y = reader.i32("object y");
+            const auto z = reader.i32("object z");
+            const auto unknown_1 = reader.u32("object unknown 1");
+            const auto unknown_2 = reader.u16("object unknown 2");
+            const auto model_index = reader.u16("object model index");
+            const auto unknown_x = reader.i16("object unknown x");
+            const auto unknown_y = reader.i16("object unknown y");
+            const auto unknown_3 = reader.u32("object unknown 3");
+            const auto unknown_rgbx = reader.u32("object unknown rgbx");
+            if (!flags || !x || !y || !z || !unknown_1 || !unknown_2 ||
+                !model_index || !unknown_x || !unknown_y || !unknown_3 ||
+                !unknown_rgbx) {
+                return std::nullopt;
+            }
+            object.flags = *flags;
+            object.position = {*x, *y, *z};
+            object.model_index = *model_index;
+            object.source_index = index;
+            scene.objects_.push_back(object);
+        }
+
+        const auto model_count = reader.u32("model count");
+        if (!model_count || *model_count > bytes.size() / 4u) {
+            reader.fail("model table is unreasonably large");
+            return std::nullopt;
+        }
+        std::vector<std::uint32_t> model_offsets;
+        model_offsets.reserve(*model_count);
+        for (std::uint32_t index = 0; index < *model_count; ++index) {
+            const auto offset = reader.u32("model offset");
+            if (!offset) {
+                return std::nullopt;
+            }
+            model_offsets.push_back(*offset);
+        }
+        if (!std::is_sorted(model_offsets.begin(), model_offsets.end()) ||
+            std::adjacent_find(model_offsets.begin(), model_offsets.end()) !=
+                model_offsets.end()) {
+            reader.fail("model offsets are not strictly increasing");
+            return std::nullopt;
+        }
+        for (const auto& object : scene.objects_) {
+            if (object.model_index >= *model_count) {
+                reader.fail("object references a missing model");
+                return std::nullopt;
+            }
+        }
+
+        scene.models_.reserve(*model_count);
+        for (std::size_t index = 0; index < model_offsets.size(); ++index) {
+            const auto model_start = static_cast<std::size_t>(model_offsets[index]);
+            const auto model_end = index + 1 < model_offsets.size()
+                                       ? static_cast<std::size_t>(model_offsets[index + 1])
+                                       : static_cast<std::size_t>(*tag_offset);
+            if (model_start < reader.position() || model_end <= model_start ||
+                model_end > bytes.size()) {
+                reader.fail("model boundary is invalid");
+                return std::nullopt;
+            }
+            Reader model_reader(bytes.subspan(model_start, model_end - model_start), error);
+            PsxModel model;
+            model.source_offset = model_start;
+            const auto flags = model_reader.u16("model flags");
+            const auto vertex_count = model_reader.u16("vertex count");
+            const auto normal_count = model_reader.u16("normal count");
+            const auto face_count = model_reader.u16("face count");
+            const auto radius = model_reader.u32("model radius");
+            if (!flags || !vertex_count || !normal_count || !face_count || !radius) {
+                return std::nullopt;
+            }
+            model.flags = *flags;
+            model.vertex_count = *vertex_count;
+            model.normal_count = *normal_count;
+            model.face_count = *face_count;
+            model.radius = *radius;
+            for (auto& bound : model.bounds) {
+                const auto value = model_reader.i16("model bound");
+                if (!value) {
+                    return std::nullopt;
+                }
+                bound = *value;
+            }
+            if (!model_reader.u32("model unknown header")) {
+                return std::nullopt;
+            }
+
+            model.vertices.reserve(model.vertex_count);
+            for (std::uint16_t vertex_index = 0; vertex_index < model.vertex_count;
+                 ++vertex_index) {
+                const auto x = model_reader.i16("vertex x");
+                const auto y = model_reader.i16("vertex y");
+                const auto z = model_reader.i16("vertex z");
+                if (!x || !y || !z || !model_reader.skip(2, "vertex padding")) {
+                    return std::nullopt;
+                }
+                model.vertices.push_back({*x, *y, *z});
+            }
+            model.normals.reserve(model.normal_count);
+            for (std::uint16_t normal_index = 0; normal_index < model.normal_count;
+                 ++normal_index) {
+                const auto x = model_reader.i16("normal x");
+                const auto y = model_reader.i16("normal y");
+                const auto z = model_reader.i16("normal z");
+                if (!x || !y || !z || !model_reader.skip(2, "normal padding")) {
+                    return std::nullopt;
+                }
+                model.normals.push_back({*x, *y, *z});
+            }
+
+            model.faces.reserve(model.face_count);
+            for (std::uint16_t face_index = 0; face_index < model.face_count;
+                 ++face_index) {
+                const auto face_start = model_reader.position();
+                const auto base_flags = model_reader.u16("face flags");
+                const auto length_bytes = model_reader.u16("face length");
+                if (!base_flags || !length_bytes || *length_bytes < 0x10u ||
+                    face_start + *length_bytes > model_reader.size()) {
+                    model_reader.fail("face record is invalid");
+                    return std::nullopt;
+                }
+                PsxFace face;
+                face.base_flags = *base_flags;
+                face.length_bytes = *length_bytes;
+                face.source_offset = model_start + face_start;
+                for (auto& vertex_index : face.vertex_indices) {
+                    const auto value = model_reader.u8("face vertex index");
+                    if (!value || *value >= model.vertex_count) {
+                        model_reader.fail("face references a missing vertex");
+                        return std::nullopt;
+                    }
+                    vertex_index = *value;
+                }
+                if (!model_reader.skip(4, "face render payload")) {
+                    return std::nullopt;
+                }
+                const auto normal_index = model_reader.u16("face normal index");
+                const auto surface_flags = model_reader.u16("face surface flags");
+                if (!normal_index || !surface_flags || *normal_index >= model.normal_count) {
+                    model_reader.fail("face references a missing normal");
+                    return std::nullopt;
+                }
+                face.normal_index = *normal_index;
+                face.surface_flags = *surface_flags;
+                if (!model_reader.seek(face_start + *length_bytes, "face end")) {
+                    return std::nullopt;
+                }
+                model.faces.push_back(face);
+            }
+            scene.models_.push_back(std::move(model));
+        }
+
+        if (!scene.read_tags(reader, *tag_offset)) {
+            return std::nullopt;
+        }
+        return scene;
+    }
+
+    const std::vector<PsxObject>& objects() const { return objects_; }
+    const std::vector<PsxModel>& models() const { return models_; }
+    const std::vector<PsxBlockmap>& blockmaps() const { return blockmaps_; }
+
+    // Query using the recovered static level path.  QueryRecord fields are
+    // prepared here so this is the native equivalent of InitLineInfo plus
+    // the scene wrapper; hit_body is object_index+1 and hit_face_record is
+    // the source offset of the winning PSX face.
+    QueryRecord query(RawVec3 start, RawVec3 end,
+                      std::uint16_t query_stamp = 0,
+                      CollisionFaceFilter filter = {}) const {
+        QueryRecord result;
+        result.start = start;
+        result.end = end;
+        reference::prepare(result, query_stamp);
+        query(result, filter);
+        return result;
+    }
+
+    PsxCollisionResult query_with_metadata(
+        RawVec3 start, RawVec3 end, std::uint16_t query_stamp = 0,
+        CollisionFaceFilter filter = {}) const {
+        PsxCollisionResult result;
+        result.query.start = start;
+        result.query.end = end;
+        reference::prepare(result.query, query_stamp);
+        query(result.query, filter, &result);
+        return result;
+    }
+
+    // Native boundary for the recovered 0x004f4b00 dynamic preprocessing
+    // pass.  The caller supplies the already-composed query/object Q12
+    // basis.  For an unrotated object, model_origin_units is the object
+    // origin minus query start after the original >>12 conversion.
+    static PsxDynamicModelVertices transform_dynamic_model(
+        const PsxModel& model, const RawVec3& model_origin_units,
+        const std::array<std::int16_t, 9>& query_basis, Raw line_length) {
+        PsxDynamicModelVertices result;
+        result.vertices.resize(model.vertices.size());
+        for (std::size_t index = 0; index < model.vertices.size(); ++index) {
+            const auto& vertex = model.vertices[index];
+            const Raw x = reference::wrapping_add(vertex[0], model_origin_units[0]);
+            const Raw y = reference::wrapping_add(vertex[1], model_origin_units[1]);
+            const Raw z = reference::wrapping_add(vertex[2], model_origin_units[2]);
+            const Raw transformed_x = reference::q12_transform_component_raw(
+                query_basis, 0, x, y, z);
+            const Raw transformed_y = reference::q12_transform_component_raw(
+                query_basis, 1, x, y, z);
+            const Raw transformed_z = reference::q12_transform_component_raw(
+                query_basis, 2, x, y, z);
+            auto& output = result.vertices[index];
+            output.x = static_cast<std::int16_t>(transformed_x);
+            output.y = static_cast<std::int16_t>(transformed_y);
+            output.z = static_cast<std::int16_t>(transformed_z);
+            output.clip_mask = reference::dynamic_clip_mask(
+                transformed_x, transformed_y, transformed_z, line_length);
+            result.clip_mask = static_cast<std::uint16_t>(
+                result.clip_mask & output.clip_mask);
+        }
+        return result;
+    }
+
+    bool query(QueryRecord& query_record,
+               CollisionFaceFilter filter = {}) const {
+        return query(query_record, filter, nullptr);
+    }
+
+private:
+    bool query(QueryRecord& query_record, CollisionFaceFilter filter,
+               PsxCollisionResult* metadata) const {
+        const auto candidates = candidate_objects(query_record);
+        for (const auto object_index : candidates) {
+            if (object_index >= objects_.size()) {
+                continue;
+            }
+            const auto& object = objects_[object_index];
+            if (object.model_index >= models_.size()) {
+                continue;
+            }
+            const auto& model = models_[object.model_index];
+            for (std::size_t face_index = 0; face_index < model.faces.size(); ++face_index) {
+                const auto& face = model.faces[face_index];
+                const auto surface_word =
+                    (static_cast<std::uint32_t>(face.surface_flags) << 16u) |
+                    (static_cast<std::uint32_t>(face.normal_index) << 3u);
+                if (!filter.accepts(surface_word)) {
+                    continue;
+                }
+                const auto geometry = face_geometry(model, face);
+                if (!geometry) {
+                    continue;
+                }
+                if (!reference::face_aabb_overlaps_query(
+                        face_aabb(model, face, object.position), query_record)) {
+                    continue;
+                }
+                const auto old_parameter = query_record.hit_parameter;
+                if (reference::record_nearest_face_candidate(
+                        query_record, *geometry, object.position,
+                        static_cast<std::uint32_t>(object_index + 1),
+                        static_cast<std::uint32_t>(face.source_offset),
+                        object.model_index) &&
+                    query_record.hit_parameter != old_parameter) {
+                    query_record.hit_normal = model.normals[face.normal_index];
+                    if (metadata != nullptr) {
+                        metadata->object_index = object_index;
+                        metadata->face_index = face_index;
+                        metadata->base_flags = face.base_flags;
+                        metadata->surface_flags = face.surface_flags;
+                        metadata->surface_word = surface_word;
+                    }
+                }
+            }
+        }
+        return query_record.hit_body != 0;
+    }
+
+    class Reader {
+    public:
+        Reader(std::span<const std::uint8_t> bytes, std::string* error)
+            : bytes_(bytes), error_(error) {}
+
+        std::size_t position() const { return position_; }
+        std::size_t size() const { return bytes_.size(); }
+        std::span<const std::uint8_t> bytes() const { return bytes_; }
+        std::string* error() const { return error_; }
+
+        std::optional<std::uint8_t> u8(const char* label) {
+            if (!require(1, label)) {
+                return std::nullopt;
+            }
+            return bytes_[position_++];
+        }
+
+        std::optional<std::uint16_t> u16(const char* label) {
+            if (!require(2, label)) {
+                return std::nullopt;
+            }
+            const auto value = static_cast<std::uint16_t>(bytes_[position_]) |
+                               (static_cast<std::uint16_t>(bytes_[position_ + 1]) << 8u);
+            position_ += 2;
+            return value;
+        }
+
+        std::optional<std::uint32_t> u32(const char* label) {
+            if (!require(4, label)) {
+                return std::nullopt;
+            }
+            const auto value = static_cast<std::uint32_t>(bytes_[position_]) |
+                               (static_cast<std::uint32_t>(bytes_[position_ + 1]) << 8u) |
+                               (static_cast<std::uint32_t>(bytes_[position_ + 2]) << 16u) |
+                               (static_cast<std::uint32_t>(bytes_[position_ + 3]) << 24u);
+            position_ += 4;
+            return value;
+        }
+
+        std::optional<std::int16_t> i16(const char* label) {
+            const auto value = u16(label);
+            return value ? std::optional<std::int16_t>(static_cast<std::int16_t>(*value))
+                         : std::nullopt;
+        }
+
+        std::optional<std::int32_t> i32(const char* label) {
+            const auto value = u32(label);
+            return value ? std::optional<std::int32_t>(static_cast<std::int32_t>(*value))
+                         : std::nullopt;
+        }
+
+        bool skip(std::size_t count, const char* label) {
+            return require(count, label) ? ((position_ += count), true) : false;
+        }
+
+        bool seek(std::size_t position, const char* label) {
+            if (position > bytes_.size()) {
+                fail(label);
+                return false;
+            }
+            position_ = position;
+            return true;
+        }
+
+        void fail(const char* message) {
+            if (error_ && error_->empty()) {
+                *error_ = std::string(message) + " at 0x" +
+                          to_hex(position_);
+            }
+        }
+
+    private:
+        bool require(std::size_t count, const char* label) {
+            if (count <= bytes_.size() - std::min(position_, bytes_.size())) {
+                return true;
+            }
+            fail(label);
+            return false;
+        }
+
+        static std::string to_hex(std::size_t value) {
+            constexpr char digits[] = "0123456789abcdef";
+            std::string result(2 * sizeof(std::size_t), '0');
+            for (std::size_t index = result.size(); index != 0; --index) {
+                result[index - 1] = digits[value & 0xfu];
+                value >>= 4u;
+            }
+            return result;
+        }
+
+        std::span<const std::uint8_t> bytes_;
+        std::string* error_ = nullptr;
+        std::size_t position_ = 0;
+    };
+
+    static std::optional<reference::FaceGeometry> face_geometry(
+        const PsxModel& model, const PsxFace& face) {
+        const auto vertex = [&model](std::uint8_t index) -> std::optional<RawVec3> {
+            if (index >= model.vertices.size()) {
+                return std::nullopt;
+            }
+            return model.vertices[index];
+        };
+        const auto v0 = vertex(face.vertex_indices[0]);
+        const auto v1 = vertex(face.vertex_indices[1]);
+        const auto v2 = vertex(face.vertex_indices[2]);
+        const auto v3 = vertex(face.vertex_indices[3]);
+        if (!v0 || !v1 || !v2 || !v3 || face.normal_index >= model.normals.size()) {
+            return std::nullopt;
+        }
+        return reference::FaceGeometry{
+            .vertex0 = *v0,
+            .vertex1 = *v1,
+            .vertex2 = *v2,
+            .vertex3 = *v3,
+            .plane_normal = model.normals[face.normal_index],
+            .is_triangle = (face.base_flags & 0x10u) != 0,
+        };
+    }
+
+    static CollisionFaceAabbRecord face_aabb(const PsxModel& model,
+                                             const PsxFace& face,
+                                             const RawVec3& origin) {
+        const auto geometry = face_geometry(model, face);
+        const auto world = [&origin](const RawVec3& vertex) {
+            return RawVec3{
+                reference::wrapping_add(origin[0], reference::x86_shift_left(vertex[0], 12)),
+                reference::wrapping_add(origin[1], reference::x86_shift_left(vertex[1], 12)),
+                reference::wrapping_add(origin[2], reference::x86_shift_left(vertex[2], 12)),
+            };
+        };
+        const auto first = world(geometry->vertex0);
+        RawVec3 min_corner = first;
+        RawVec3 max_corner = first;
+        const std::array<RawVec3, 3> remaining{
+            world(geometry->vertex1), world(geometry->vertex2), world(geometry->vertex3)};
+        const auto count = geometry->is_triangle ? 2u : 3u;
+        for (std::size_t index = 0; index < count; ++index) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                min_corner[axis] = std::min(min_corner[axis], remaining[index][axis]);
+                max_corner[axis] = std::max(max_corner[axis], remaining[index][axis]);
+            }
+        }
+        return CollisionFaceAabbRecord{
+            .base_flags = face.base_flags,
+            .min_x = min_corner[0],
+            .min_y = min_corner[1],
+            .min_z = min_corner[2],
+            .max_x = max_corner[0],
+            .max_y = max_corner[1],
+            .max_z = max_corner[2],
+        };
+    }
+
+    std::vector<std::size_t> candidate_objects(const QueryRecord& query_record) const {
+        std::vector<std::size_t> result;
+        std::vector<bool> seen(objects_.size(), false);
+        const auto add = [&result, &seen, this](std::uint32_t object_index) {
+            if (object_index < seen.size() && !seen[object_index]) {
+                seen[object_index] = true;
+                result.push_back(object_index);
+            }
+        };
+        if (blockmaps_.empty()) {
+            for (std::size_t index = 0; index < objects_.size(); ++index) {
+                add(static_cast<std::uint32_t>(index));
+            }
+            return result;
+        }
+        for (const auto& blockmap : blockmaps_) {
+            if (!((blockmap.min_x <= query_record.start[0] ||
+                   blockmap.min_x <= query_record.end[0]) &&
+                  (query_record.start[0] <= blockmap.max_x ||
+                   query_record.end[0] <= blockmap.max_x) &&
+                  (blockmap.min_z <= query_record.start[2] ||
+                   blockmap.min_z <= query_record.end[2]) &&
+                  (query_record.start[2] <= blockmap.max_z ||
+                   query_record.end[2] <= blockmap.max_z))) {
+                continue;
+            }
+            const auto width = blockmap.cell_count_x == 0
+                                   ? 0
+                                   : (blockmap.max_x - blockmap.min_x) /
+                                         blockmap.cell_count_x;
+            const auto depth = blockmap.cell_count_z == 0
+                                   ? 0
+                                   : (blockmap.max_z - blockmap.min_z) /
+                                         blockmap.cell_count_z;
+            if (width <= 0 || depth <= 0) {
+                continue;
+            }
+            const auto clamp_cell = [](Raw value, Raw minimum, Raw,
+                                       Raw cell_size, std::uint16_t count) {
+                const auto raw = (value - minimum) / cell_size;
+                return std::min<std::int32_t>(std::max<std::int32_t>(raw, 0), count - 1);
+            };
+            const auto min_x = std::min(query_record.start[0], query_record.end[0]);
+            const auto max_x = std::max(query_record.start[0], query_record.end[0]);
+            const auto min_z = std::min(query_record.start[2], query_record.end[2]);
+            const auto max_z = std::max(query_record.start[2], query_record.end[2]);
+            const auto cell_x0 = clamp_cell(min_x, blockmap.min_x, blockmap.max_x,
+                                            width, blockmap.cell_count_x);
+            const auto cell_x1 = clamp_cell(max_x, blockmap.min_x, blockmap.max_x,
+                                            width, blockmap.cell_count_x);
+            const auto cell_z0 = clamp_cell(min_z, blockmap.min_z, blockmap.max_z,
+                                            depth, blockmap.cell_count_z);
+            const auto cell_z1 = clamp_cell(max_z, blockmap.min_z, blockmap.max_z,
+                                            depth, blockmap.cell_count_z);
+            for (auto cell_x = cell_x0; cell_x <= cell_x1; ++cell_x) {
+                for (auto cell_z = cell_z0; cell_z <= cell_z1; ++cell_z) {
+                    // The PSX reader indexes cells as x + z*cell_count_x
+                    // (x is the fast-changing coordinate).
+                    const auto index = static_cast<std::size_t>(cell_x) +
+                                       static_cast<std::size_t>(cell_z) *
+                                           blockmap.cell_count_x;
+                    if (index < blockmap.cells.size()) {
+                        for (const auto object_index : blockmap.cells[index].object_indices) {
+                            add(object_index);
+                        }
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    bool read_tags(Reader& reader, std::size_t tag_offset) {
+        if (!reader.seek(tag_offset, "tag table")) {
+            return false;
+        }
+        while (reader.position() < reader.size()) {
+            const auto type = reader.u32("tag type");
+            if (!type) {
+                return false;
+            }
+            if (*type == 0xffffffffu) {
+                return true;
+            }
+            const auto size = reader.u32("tag size");
+            const auto payload_start = reader.position();
+            if (!size || payload_start > reader.size() ||
+                *size > reader.size() - payload_start) {
+                reader.fail("tag payload");
+                return false;
+            }
+            const auto payload = reader.bytes().subspan(payload_start, *size);
+            if (!reader.skip(*size, "tag payload")) {
+                return false;
+            }
+            if (*type == 0x0000000au &&
+                !read_blockmap(payload, reader.error())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool read_blockmap(std::span<const std::uint8_t> payload,
+                       std::string* error) {
+        Reader reader(payload, error);
+        PsxBlockmap blockmap;
+        const auto min_x = reader.i32("blockmap min x");
+        const auto min_z = reader.i32("blockmap min z");
+        const auto max_x = reader.i32("blockmap max x");
+        const auto max_z = reader.i32("blockmap max z");
+        const auto cell_count_x = reader.u16("blockmap cell count x");
+        const auto cell_count_z = reader.u16("blockmap cell count z");
+        if (!min_x || !min_z || !max_x || !max_z || !cell_count_x ||
+            !cell_count_z || *cell_count_x == 0 || *cell_count_z == 0) {
+            return false;
+        }
+        blockmap.min_x = *min_x;
+        blockmap.min_z = *min_z;
+        blockmap.max_x = *max_x;
+        blockmap.max_z = *max_z;
+        blockmap.cell_count_x = *cell_count_x;
+        blockmap.cell_count_z = *cell_count_z;
+        const auto cell_count = static_cast<std::size_t>(*cell_count_x) *
+                                *cell_count_z;
+        blockmap.cells.reserve(cell_count);
+        for (std::size_t index = 0; index < cell_count; ++index) {
+            PsxBlockmapCell cell;
+            const auto unknown_1 = reader.u32("blockmap cell unknown 1");
+            const auto unknown_2 = reader.u32("blockmap cell unknown 2");
+            const auto reference_count = reader.u32("blockmap cell reference count");
+            if (!unknown_1 || !unknown_2 || !reference_count ||
+                *reference_count > reader.size() / 4u) {
+                reader.fail("blockmap cell");
+                return false;
+            }
+            cell.unknown_1 = *unknown_1;
+            cell.unknown_2 = *unknown_2;
+            cell.object_indices.reserve(*reference_count);
+            for (std::uint32_t reference = 0; reference < *reference_count;
+                 ++reference) {
+                const auto object_index = reader.u32("blockmap object index");
+                if (!object_index || *object_index >= objects_.size()) {
+                    reader.fail("blockmap references a missing object");
+                    return false;
+                }
+                cell.object_indices.push_back(*object_index);
+            }
+            const auto terminator = reader.u32("blockmap cell terminator");
+            if (!terminator || *terminator != 0) {
+                reader.fail("blockmap cell terminator");
+                return false;
+            }
+            blockmap.cells.push_back(std::move(cell));
+        }
+        if (reader.position() != reader.size()) {
+            reader.fail("blockmap trailing bytes");
+            return false;
+        }
+        blockmaps_.push_back(std::move(blockmap));
+        return true;
+    }
+
+    std::vector<PsxObject> objects_;
+    std::vector<PsxModel> models_;
+    std::vector<PsxBlockmap> blockmaps_;
+};
+
+}  // namespace opentony::collision

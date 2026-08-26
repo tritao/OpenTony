@@ -48,7 +48,7 @@ int main() {
     // This is the airborne runtime hit recorded in collision-air4.trace.ndjson.
     assert(query.line_length == 71);
     assert(query.query_stamp == 0x1234);
-    assert(record_nearest_plane_candidate(query, -14283, 2101, 0x05f2dcfc,
+    assert(record_nearest_plane_candidate(query, 2101, -14283, 0x05f2dcfc,
                                           0x05db3534, 132));
     assert(query.hit_parameter == 2101);
     assert(query.hit_distance == 9);
@@ -198,6 +198,21 @@ int main() {
                                      transformed_vertices[1],
                                      transformed_vertices[2],
                                      transformed_vertices[3]));
+    const auto projected_triangle = dynamic_projected_face(
+        transformed_vertices[0], transformed_vertices[1],
+        transformed_vertices[2], transformed_vertices[3], true);
+    assert(!projected_triangle.accepted);
+    std::array<DynamicVertexRecord, 4> quad_vertices{
+        DynamicVertexRecord{0, 0, 0, 0},
+        DynamicVertexRecord{10, 0, 0, 0},
+        DynamicVertexRecord{0, 10, 0, 0},
+        DynamicVertexRecord{10, 10, 0, 0},
+    };
+    const auto projected_quad = dynamic_projected_face(
+        quad_vertices[0], quad_vertices[1], quad_vertices[2],
+        quad_vertices[3], false);
+    assert(projected_quad.accepted);
+    assert(projected_quad.first_vertex == 0);
 
     QueryRecord translated_query;
     translated_query.start = {8192, 8192, 4096};
@@ -266,8 +281,8 @@ int main() {
     assert(!finalize_hit(no_hit, airborne_normal));
 
     // q+0x8c is the nearest-candidate comparator, not just a last-hit field.
-    assert(!record_nearest_plane_candidate(query, 0, 4202, 1, 2, 3));
-    assert(record_nearest_plane_candidate(query, -15384, 1000, 4, 5, 6));
+    assert(!record_nearest_plane_candidate(query, 4202, 0, 1, 2, 3));
+    assert(record_nearest_plane_candidate(query, 1000, -15384, 4, 5, 6));
     assert(query.hit_parameter == 1000);
 
     const auto flags = decode_face_flags(0x80, 0x04200008);

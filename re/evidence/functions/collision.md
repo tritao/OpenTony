@@ -1,7 +1,8 @@
 # Collision/query subsystem
 
-Status: confirmed interface and hit-parameter arithmetic; field names remain
-partly provisional
+Status: confirmed interface and static hit arithmetic; native PSX scene replay
+matches one live PC result; dynamic projected-face quantization remains partly
+open
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -242,7 +243,7 @@ the wrapper; the query does not parse a file on each call.
   ```text
   plane_start = dot(start - face_vertex, face_normal)
   plane_end   = dot(end   - face_vertex, face_normal)
-  t = trunc(plane_end * 0x4000 / (plane_end - plane_start))
+  t = trunc(plane_start * 0x4000 / (plane_start - plane_end))
   q+0x8c = t                         // line parameter, 0..0x4000
   hit = start + trunc((end-start) * t / 0x4000)
   q+0x40 = trunc(q+0x44 * t / 0x4000) // distance from start
@@ -320,6 +321,17 @@ the wrapper; the query does not parse a file on each call.
     not itself assign `q+0x6c..0x74`; those contact words are assigned by the
     static tester and by the dynamic routine's no-face fallback, so dynamic
     contact ownership remains a targeted runtime question.
+  - The dynamic helpers are now algebraically constrained at the machine-code
+    level. `0x004e2f80` computes the three 2-D determinants from the
+    transformed X/Y vertex pairs. For a triangle, a negative determinant for
+    the `(v1,v2)` pair rejects the face; for a quad, the walker retries with
+    `v3` in the first-vertex slot and negates the other two determinants.
+    `0x004e24b0` applies the query/object Q12 basis to the model normal, and
+    `0x004e2930` combines that result with the selected vertex before the
+    candidate distance is compared against `q+0x40`. `0x004e2070` is the
+    shared floating-point-to-short clamp between these integer operations;
+    its exact precision behavior is intentionally kept as an explicit gap
+    until a dynamic-object runtime sample is available.
   - `0x00463d50` finalizes a winning normal by building a Q12 rotation basis
     from the object rotation at `body+0x14`, applying it to the cached model
     normal at `DAT_00564390/94/98`, and writing the three signed shorts at
@@ -444,6 +456,23 @@ such as `61` are small fractions of a `0x4000`-scaled segment, while
 The grounded trace therefore independently agrees with the recovered
 parameter/distance relationship.
 
+The native C++ scene boundary provides an independent asset-to-query replay in
+[`src/collision/psx_scene_test.cpp`](../../src/collision/psx_scene_test.cpp).
+Parsing the packaged `SKHAN.PSX` scene (470 objects, 471 models, one 20×20
+blockmap) and querying the same signed endpoints as the PC `collision-face2`
+trace produces:
+
+```text
+model=171 body=171 face=0x15cf4 parameter=61 distance=29
+contact=-4100096,-8700784,11472896 normal=1,-3867,-1351
+```
+
+The native metadata result identifies object index `170`, model-face index `4`,
+PSX base flags `0x1003`, and surface flags `0x0010`; its body handle is the
+scene convention `object_index + 1`, while its face handle is the PSX source
+offset. This is an exact replay of the corresponding PC result fields while
+keeping host pointers out of the native API.
+
 An independent replay of all 608 hit records in `collision-air4.trace.ndjson`
 recomputed the signed endpoint interpolation and distance formulas. All 608
 contact vectors matched exactly, all 608 traveled distances matched exactly,
@@ -499,7 +528,17 @@ of that API without fabricating the unresolved zone/model format. It provides:
 - the `0x4000` segment parameter, interpolated contact, and traveled-distance
   calculations;
 - nearest-candidate record updates after a caller-provided triangle predicate;
-- raw face-word flag decoding using the exact expressions from `0x0048ea80`.
+- raw face-word flag decoding using the exact expressions from `0x0048ea80`;
+- the `0x004f4b00` dynamic transformed-vertex stream, six-bit clip mask, and
+  Q12 object-normal helpers.
+
+The asset-facing native layer at
+[`src/collision/psx_scene.hpp`](../../src/collision/psx_scene.hpp) adds the
+version-4 PSX model/object/blockmap decoder, a conservative blockmap broad
+phase, the static scene query, stable scene handles, raw base/surface metadata,
+and a direct wrapper for the dynamic transformed-vertex preprocessing. It
+deliberately does not claim that the unresolved PC heap linked-list
+serialization or the dynamic `0x004e2070` precision helper has been reproduced.
 
 `collision_reference_test.cpp` compiles with C++20 and checks the captured
 airborne hit (`line_length = 71`, `t = 2101`, distance `9`, and the exact

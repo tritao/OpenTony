@@ -745,6 +745,56 @@ inline bool dynamic_face_clip_accepts(const DynamicVertexRecord& vertex0,
             vertex3.clip_mask & 0x60fu) == 0;
 }
 
+struct DynamicProjectedFace {
+    // 0x004f4c50 uses v0 for the first triangle, or v3 for the alternate
+    // quad triangle when the v1/v2 determinant has the opposite winding.
+    std::uint8_t first_vertex = 0;
+    std::array<Raw, 3> determinants{};
+    bool accepted = false;
+};
+
+inline Raw dynamic_projected_determinant(const DynamicVertexRecord& lhs,
+                                         const DynamicVertexRecord& rhs) {
+    // The dynamic walker works in the transformed X/Y projection.  Products
+    // of signed 16-bit records fit in a signed 32-bit result, but widen the
+    // C++ expression before reproducing the original subtraction.
+    return wrapping_from_i64(
+        static_cast<std::int64_t>(lhs.x) * rhs.y -
+        static_cast<std::int64_t>(lhs.y) * rhs.x);
+}
+
+inline DynamicProjectedFace dynamic_projected_face(
+    const DynamicVertexRecord& vertex0,
+    const DynamicVertexRecord& vertex1,
+    const DynamicVertexRecord& vertex2,
+    const DynamicVertexRecord& vertex3,
+    bool is_triangle) {
+    DynamicProjectedFace result;
+    result.determinants = {
+        dynamic_projected_determinant(vertex1, vertex2),
+        dynamic_projected_determinant(vertex2, vertex0),
+        dynamic_projected_determinant(vertex0, vertex1),
+    };
+    if (result.determinants[0] < 0) {
+        if (is_triangle) {
+            return result;
+        }
+        result.first_vertex = 3;
+        result.determinants[1] = wrapping_from_i64(
+            -static_cast<std::int64_t>(
+                dynamic_projected_determinant(vertex2, vertex3)));
+        result.determinants[2] = wrapping_from_i64(
+            -static_cast<std::int64_t>(
+                dynamic_projected_determinant(vertex3, vertex1)));
+    }
+    // The original condition is `-1 < (det2 | det1)`, not two independent
+    // signed comparisons. Preserve that bitwise behavior at the boundary.
+    const auto combined = static_cast<std::uint32_t>(result.determinants[1]) |
+                          static_cast<std::uint32_t>(result.determinants[2]);
+    result.accepted = (combined & 0x80000000u) == 0;
+    return result;
+}
+
 inline Raw q12_transform_component_raw(const std::array<std::int16_t, 9>& basis,
                                        std::size_t row,
                                        Raw x,
@@ -1071,11 +1121,12 @@ inline void prepare(QueryRecord& query, std::uint16_t query_stamp = 0) {
 }
 
 inline std::optional<Raw> segment_parameter(Raw plane_start, Raw plane_end) {
-    // 0x00462a20 evaluates plane_start at q+0 and plane_end at q+0xc, then
-    // uses plane_end/(plane_end-plane_start) for the q+0 -> q+0xc sweep.
-    return trunc_div_checked(static_cast<std::int64_t>(plane_end) *
+    // 0x00462a20 calls 0x004f5f10(plane_start, 0x4000,
+    // plane_start-plane_end).  The first endpoint is therefore the numerator
+    // for the q+0 -> q+0xc sweep.
+    return trunc_div_checked(static_cast<std::int64_t>(plane_start) *
                                  kParameterScale,
-                             static_cast<std::int64_t>(plane_end) - plane_start);
+                             static_cast<std::int64_t>(plane_start) - plane_end);
 }
 
 inline std::optional<Raw> interpolate_component(Raw start, Raw end, Raw parameter) {
