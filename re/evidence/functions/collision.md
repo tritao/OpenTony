@@ -507,11 +507,12 @@ short basis values at `q+0x48`, and the query-record mode bytes. The two later
 phase attempts were stopped before level physics settled and are not used as
 evidence. When the linked root is non-null, the probe additionally captures at
 most 32 node prefixes (`+0x04..+0x23`) and reports null, cycle, limit, or
-unreadable termination. On a hit it also snapshots one node at `q+0x68`, the
-pointer consumed by `0x00463d50`, so the result pointer can be compared with
-the linked-node ABI without an unbounded memory walk.
+unreadable termination. On a hit it also snapshots a bounded 16-node chain
+from `q+0x68`, the pointer consumed by `0x00463d50`, so the result pointer and
+its neighbors can be compared with the linked-node ABI without an unbounded
+memory walk.
 
-The `collision-node3` Hangar capture armed 20 completed wrapper calls after
+The `collision-chain` Hangar capture armed 20 completed wrapper calls after
 the frontend was advanced into `PLAY_GAME`. It produced 8 hits, all from mode
 1 and all for model kind 6/index 171. Every hit had the same direct result
 pointer and the node-shaped prefix decoded consistently:
@@ -524,6 +525,13 @@ position               = [-4100096, -6782976, 9408512]  (signed fixed32)
 angles                 = [0, 0, 0]
 model index/kind        = 171 / 6
 next                   = 0x05f2e890
+
+The next 15 records were contiguous at a 0x4c-byte link-to-link stride, with
+model indices 172 through 186 and the same model kind 6. The observed flags
+were `0`, `0x41`, and `0x8041`; all three angle shorts remained zero in this
+static Hangar object chain. This is evidence for a compact runtime collision
+object list, but not a claim that the complete allocation is only 0x4c bytes:
+the recovered collision ABI consumes only the prefix through `+0x23`.
 ```
 
 The first hit also exposed model data at `0x05db86b4`, through the kind-6

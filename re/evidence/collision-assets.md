@@ -73,7 +73,7 @@ runtime traces.
 
 ## Runtime linked-object confirmation
 
-The `collision-node3` Hangar trace captured the pointer stored at `q+0x68`
+The `collision-chain` Hangar trace captured the pointer stored at `q+0x68`
 after the shared wrapper returned. On all 8 hits in the 20-query bounded run,
 the pointer was `0x05f2e844`; its collision-facing fields were:
 
@@ -84,6 +84,10 @@ angles      = (0, 0, 0)
 model       = index 171, kind 6
 next        = 0x05f2e890
 ```
+
+The next 15 linked records were contiguous at a 0x4c-byte stride and carried
+model indices 172 through 186, all with model kind 6. This gives a concrete
+runtime list shape while keeping the complete record size open.
 
 The query result independently reported model index 171/kind 6. The same
 record resolved through the live kind-6 table at `0x05da6d18` to model data
