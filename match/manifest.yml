@@ -4069,12 +4069,84 @@ modules:
 - id: text_004e7c51
   section: .text
   start_va: 5143633
-  end_va: 5145568
+  end_va: 5144800
   file_offset: 949329
-  size: 1935
+  size: 1167
   status: raw
   source: match/modules/text/text_004e7c51.asm
-  sha256: d4a93ed43abba1ab49934738402f09f95acd21160ce826452d38d6339b2476e3
+  sha256: ddd29fffbeda5a4ea1fea3762cdba77bde59dbc99bc3e1d4d21109025066f0dc
+- id: text_004e80e0
+  section: .text
+  start_va: 5144800
+  end_va: 5144885
+  file_offset: 950496
+  size: 85
+  status: cpp
+  source: match/modules/text/text_004e80e0.asm
+  cpp_source: match/cpp/FUN_004e80e0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 67bd4471d951179450454592400c452345933dca2a14fb8b7a0ea60facc5354e
+- id: text_004e8135
+  section: .text
+  start_va: 5144885
+  end_va: 5144896
+  file_offset: 950581
+  size: 11
+  status: raw
+  source: match/modules/text/text_004e8135.asm
+  sha256: 19f3c2045194c5d2e45451e3dfe6a203b5e240aec5a2400a92cdb425c3331137
+- id: text_004e8140
+  section: .text
+  start_va: 5144896
+  end_va: 5144981
+  file_offset: 950592
+  size: 85
+  status: cpp
+  source: match/modules/text/text_004e8140.asm
+  cpp_source: match/cpp/FUN_004e8140.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: 189baea6df2e3a679dbfc2eeaf1c82106ea2363e55ca4bec79c8d6da2e4f29e8
+- id: text_004e8195
+  section: .text
+  start_va: 5144981
+  end_va: 5144992
+  file_offset: 950677
+  size: 11
+  status: raw
+  source: match/modules/text/text_004e8195.asm
+  sha256: 19f3c2045194c5d2e45451e3dfe6a203b5e240aec5a2400a92cdb425c3331137
+- id: text_004e81a0
+  section: .text
+  start_va: 5144992
+  end_va: 5145077
+  file_offset: 950688
+  size: 85
+  status: cpp
+  source: match/modules/text/text_004e81a0.asm
+  cpp_source: match/cpp/FUN_004e81a0.cpp
+  cpp_flags:
+  - /O2
+  - /GX-
+  - /GR-
+  matching_strategy: vc6-coff-text
+  sha256: bb2396438794e8c895060980747afe58ad02f801506bd0b3458928039a234902
+- id: text_004e81f5
+  section: .text
+  start_va: 5145077
+  end_va: 5145568
+  file_offset: 950773
+  size: 491
+  status: raw
+  source: match/modules/text/text_004e81f5.asm
+  sha256: 7380eab83a682044892a275d261d14ffc59220c6d9aed38c3a421c105691f336
 - id: text_004e83e0
   section: .text
   start_va: 5145568
