@@ -903,8 +903,8 @@ The command-stream payloads around the link consumer are also recoverable:
 ```text
 u16 command 0x0002  -> read NUL-terminated cheat strings; store up to 20
 u16 command 0x0003  -> execute the source node's counted command list
-u16 command 0x0004  -> activate/suspend the source node's link targets
-u16 command 0x0005  -> activate/suspend the source node's link targets
+u16 command 0x0004  -> read a count and node-index list; activate/suspend those targets
+u16 command 0x0005  -> read a count and node-index list; activate/suspend those targets
 u16 command 0x000a  -> u16 count followed by that many node indices;
                        0x004c5b60 signals linked type-1/type-6 nodes
 u16 command 0x000b  -> send kill/pulse command with mode 0
@@ -967,7 +967,7 @@ consumer.
 | `0x00ad` | none | copy front-object field `+0x3a4` to `+0x3dc` |
 | `0x00b1` | one `u16` | if `DAT_0056a960` is live, write its field `+0x319c` |
 | `0x00c8` | three `u16` | combine the first two operands into `DAT_00563a60` as high/low halves |
-| `0x00c9` | aligned `u32` checksum plus one `u16` | match the checksum against the runtime gap table at `+0x2f74`; on a valid entry, update the skater gap state and execute the source node's counted list |
+| `0x00c9` | aligned `u32` checksum plus one `u16` | admit only a checksum matching the source command point, then match the divider against the runtime gap table; valid immediate entries complete and pulse the source links, while flagged entries defer to the player path |
 | `0x00ca` | two `u16` | combine the operands into `DAT_0056114c` and call `0x0042fc70` |
 | `0x00cb` | one `u16` flag below 8 | set the corresponding character-config bit when the career/level condition allows it |
 | `0x00cc` | one `u16` flag below 8 | conditionally execute the following stream until `0x0095` based on the character-config flag |
@@ -980,10 +980,11 @@ aligned 10-byte payload for `0x00ab`, and the aligned 6-byte payload for
 shared by conditional skipping and execution, not just an artifact of one
 decompilation path.
 
-The command interpreter advances by the payload-specific amount: ordinary
-node/list commands consume no inline words, command `0x000a` consumes its
-counted node-index list, command `0x000d` consumes one word, and resource
-commands consume the aligned end of their NUL-terminated string. The `0x000a`
+The command interpreter advances by the payload-specific amount: `0x0004`,
+`0x0005`, and `0x000a` consume their counted node-index lists, ordinary
+opcode-only commands consume no inline words, command `0x000d` consumes one
+word, and resource commands consume the aligned end of their NUL-terminated
+string. The `0x000a`
 signal helper dispatches each referenced type-1/type-6 node through both the
 traffic and baddy object lists. This identifies the link payload as a runtime
 command stream with direct object-manager effects, rather than a passive

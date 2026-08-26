@@ -202,6 +202,69 @@ def test_decode_trg_command_point_c9_uses_retail_alignment(tmp_path: Path):
     assert result["scripts"][0]["terminated"] is True
 
 
+def test_decode_trg_counted_link_commands_and_boundaries(tmp_path: Path):
+    source = tmp_path / "LINK_COMMANDS_T.TRG"
+    node_offset = 20
+    stream = struct.pack(
+        "<7H",
+        0x0004,
+        2,
+        1,
+        2,
+        0x000A,
+        1,
+        2,
+    ) + struct.pack("<H", 0xFFFF)
+    node = bytearray(struct.pack("<HHI", 6, 0, 0))
+    node.extend(stream)
+    terminator_offset = node_offset + len(node)
+    source.write_bytes(
+        struct.pack("<4sII", b"_TRG", 2, 2)
+        + struct.pack("<II", node_offset, terminator_offset)
+        + node
+        + struct.pack("<H", 0xFF)
+    )
+
+    result = inspect_trg(source, include_scripts=True)
+    assert result["scripts"][0]["commands"][:2] == [
+        {
+            "offset": node_offset + 8,
+            "opcode": 0x0004,
+            "name": "send_suspend",
+            "size": 8,
+            "raw": "0400020001000200",
+            "count": 2,
+            "node_indices": [1, 2],
+            "arguments": [2, 1, 2],
+        },
+        {
+            "offset": node_offset + 16,
+            "opcode": 0x000A,
+            "name": "send_signal",
+            "size": 6,
+            "raw": "0a0001000200",
+            "count": 1,
+            "node_indices": [2],
+            "arguments": [1, 2],
+        },
+    ]
+    assert result["scripts"][0]["terminated"] is True
+
+    truncated = tmp_path / "TRUNCATED_LINK_COMMAND_T.TRG"
+    truncated_node = bytearray(struct.pack("<HHI", 6, 0, 0))
+    truncated_node.extend(struct.pack("<3H", 0x0005, 2, 1))
+    truncated_end = node_offset + len(truncated_node)
+    truncated.write_bytes(
+        struct.pack("<4sII", b"_TRG", 2, 2)
+        + struct.pack("<II", node_offset, truncated_end)
+        + truncated_node
+        + struct.pack("<H", 0xFF)
+    )
+    truncated_result = inspect_trg(truncated, include_scripts=True)
+    assert truncated_result["scripts"][0]["terminated"] is False
+    assert "command operand extends beyond node" in truncated_result["scripts"][0]["decode_error"]
+
+
 def _write_psx(path: Path) -> None:
     data = bytearray(b"\0" * 12)
     data.extend(struct.pack("<IiiiIHHhhII", 0, 4096, -8192, 12288, 0, 0, 0, 0, 0, 0, 0))

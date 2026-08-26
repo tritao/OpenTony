@@ -1,0 +1,35 @@
+version: 1
+id: trg-gap-completion
+subsystem: scripting
+status: active
+
+scope:
+  functions:
+    - 0x0048f690
+    - 0x00414c50
+  types:
+    - RuntimeGapDefinition
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/gap-runtime.md
+    - re/evidence/functions/trg-runtime.md
+  native:
+    - src/trg/gap_table.hpp
+    - src/trg/gap_table.cpp
+    - src/trg/level_trigger_state.hpp
+    - src/trg/level_trigger_state.cpp
+  tests:
+    - src/trg/trg_runtime_test.cpp
+    - src/trg/level_trigger_state_test.cpp
+
+open_questions:
+  - Connect the two deferred definition flags to the player-position/checklist owner without naming the unresolved score service.
+  - Confirm the runtime-selected gap table variants for career, editor, and custom-park modes.
+
+completion:
+  - The executable gap record layout and divider lookup are evidence-backed.
+  - Native state distinguishes checksum admission, immediate completion, and both deferred flag paths.
+  - Immediate completion records the source-correlated event and exposes a one-shot source pulse.
+  - Malformed aligned payloads and checksum mismatches have deterministic regression coverage.

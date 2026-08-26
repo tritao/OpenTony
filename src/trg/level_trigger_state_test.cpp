@@ -145,6 +145,52 @@ void test_stateful_dispatch() {
     assert(state.events().size() == 3);
 }
 
+void test_counted_link_commands_update_only_inline_targets() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x0004);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0x000a);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0x0005);
+    u16(stream, 1);
+    u16(stream, 1);
+    u16(stream, 0xffff);
+
+    std::vector<std::byte> object;
+    u16(object, 1);
+    u16(object, 0);
+    u16(object, 0);
+    u16(object, 0);
+    object.push_back(std::byte{2});
+    object.push_back(std::byte{4});
+    object.push_back(std::byte{0xff});
+    object.insert(object.end(), 24, std::byte{0});
+
+    LevelTriggerState state;
+    TriggerRuntime runtime(TrgFile::parse(make_file({
+        // There are no serialized type-6 links. Every target below must
+        // come from the command payload itself.
+        type6_node({}, 0, stream),
+        object,
+        {std::byte{0xff}, std::byte{0}},
+    })), state);
+    runtime.build();
+    runtime.pulse_node(0);
+
+    const TriggerObjectState* target = state.object(1);
+    assert(target != nullptr);
+    assert(target->signals == 1);
+    assert(target->suspend_activate_calls == 2);
+    assert(!target->suspended);
+    assert(target->active);
+    assert(state.events().size() == 3);
+    assert(state.events()[0].target_node == 1);
+    assert(state.events()[1].target_node == 1);
+    assert(state.events()[2].target_node == 1);
+}
+
 void test_retail_link_target_filters() {
     LevelTriggerState state;
     state.on_spawn_node(1, 1, 0xcb, {0, 0, 0}, {});
@@ -469,6 +515,7 @@ void test_objectives_and_timers() {
     const GapTable table = GapTable::from_definitions({
         TriggerGapDefinition{0x0013, 1001, 200, "[TRANSFER]"},
         TriggerGapDefinition{0x0040, 1002, 500, "[DEFERRED]"},
+        TriggerGapDefinition{0x0008, 1003, 750, "[STATE4-DEFERRED]"},
     });
     state.set_gap_table(&table);
     state.on_timer(100);
@@ -496,6 +543,10 @@ void test_objectives_and_timers() {
     assert(state.gaps()[0].score == 200);
     assert(state.gaps()[0].completed);
     assert(state.gaps()[0].awarded);
+    assert(state.events().back().kind == TriggerEvent::Kind::GapCompleted);
+    assert(state.events().back().source_node == 4);
+    assert(state.events().back().value == 1001);
+    assert(state.events().back().checksum == 0x1234);
     assert(state.take_gap_pulse(0x1234, 1001));
     assert(!state.take_gap_pulse(0x1234, 1001));
     state.on_gap(4, 0x1234, 1001);
@@ -513,6 +564,12 @@ void test_objectives_and_timers() {
     assert(state.gaps()[1].awarded);
     assert(state.take_gap_pulse(0x5678, 1002));
     assert(state.events().back().kind == TriggerEvent::Kind::GapCompleted);
+
+    state.on_gap(4, 0x9abc, 1003);
+    assert(state.gaps()[2].definition_found);
+    assert(state.gaps()[2].deferred);
+    assert(!state.gaps()[2].completed);
+    assert(!state.take_gap_pulse(0x9abc, 1003));
 
     state.on_spawn_node(10, 1, 0x00cb, {1, 2, 3}, {});
     assert(state.object(10)->spawn_family == TriggerSpawnFamily::ObjectCb);
@@ -658,6 +715,7 @@ void test_scene_registry() {
 
 int main() {
     test_stateful_dispatch();
+    test_counted_link_commands_update_only_inline_targets();
     test_retail_link_target_filters();
     test_script_object_state();
     test_type10_type11_pulse_and_kill_state();

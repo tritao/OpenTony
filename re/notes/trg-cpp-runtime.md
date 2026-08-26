@@ -99,7 +99,11 @@ The command table must encode operand shape, not just an opcode-to-function map.
 
 ```text
 0x02                 NUL-separated string list
-0x03..0x0c           opcode-only commands, except 0x0d + u16
+0x03                 opcode-only pulse command; it uses the source node links
+0x04/0x05/0x0a       u16 count followed by that many u16 target node indices
+0x06..0x0c           opcode-only commands, except 0x0a
+                     (0x0b/0x0c are kill variants)
+0x0d                 one u16 visibility value
 0x68                 three u16 values; fog update occurs after the stream
 0x69/0x6a            one u16 music/sound value
 0x7e/0x7f/0x80       NUL-terminated resource string
@@ -127,9 +131,9 @@ The strongest first implementation mapping is:
 
 ```text
 0x03 -> send linked pulses while the command-point budget is nonzero; decrement finite budgets
-0x04 -> send_suspend(source_node)
-0x05 -> send_activate(source_node)
-0x0a -> send_signal(source_node)
+0x04 -> send_suspend(read_counted_target_list())
+0x05 -> send_activate(read_counted_target_list())
+0x0a -> send_signal(read_counted_target_list())
 0x0b/0x0c -> send_kill(source_node, variant)
 0x0d -> send_visible(source_node, read_u16())
 0x83/0x84 -> clear/set object flag by the following object id
