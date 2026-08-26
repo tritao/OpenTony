@@ -139,6 +139,7 @@ def test_collision_probe_reads_bounded_linked_object_prefix():
     assert snapshot["nodes"][0]["position_s32"] == [4096, -8192, 12288]
     assert snapshot["nodes"][0]["angles_s16"] == [0x100, -0x100, 0x200]
     assert snapshot["nodes"][0]["model_index"] == 171
+    assert snapshot["nodes"][0]["previous"] is None
     assert snapshot["nodes"][1]["next"] is None
 
 

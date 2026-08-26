@@ -206,6 +206,34 @@ inline constexpr std::size_t kZoneRecordStrideBytes = 0x660;
 inline constexpr std::size_t kZoneCandidateGroupStride = 0x198;
 inline constexpr std::size_t kZoneCandidateCellXStride = 0x14;
 
+// The value selected from the per-cell table is not itself an object node.
+// 0x004638d0 treats it as a null-terminated array of 32-bit pointers, with
+// each non-null entry naming the head of one linked object list.  Keep this
+// as an address-level view: resolving the game pointers is loader/heap work.
+#pragma pack(push, 1)
+struct CollisionCandidateHeadArrayEntry {
+    std::uint32_t object_head = 0;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(CollisionCandidateHeadArrayEntry) == 0x04);
+
+inline constexpr std::size_t kCandidateHeadArrayEntryStride = 0x04;
+inline constexpr std::size_t kLinkedCollisionObjectElementStride = 0x4c;
+inline constexpr std::size_t kLinkedCollisionObjectArrayHeaderBytes = 0x04;
+
+inline std::optional<std::size_t> linked_collision_object_array_bytes(
+    std::size_t element_count) {
+    if (element_count >
+        (std::numeric_limits<std::size_t>::max() -
+         kLinkedCollisionObjectArrayHeaderBytes) /
+            kLinkedCollisionObjectElementStride) {
+        return std::nullopt;
+    }
+    return kLinkedCollisionObjectArrayHeaderBytes +
+           element_count * kLinkedCollisionObjectElementStride;
+}
+
 struct CollisionZoneGrid {
     Raw min_x = 0;             // zone +0x84
     Raw min_z = 0;             // zone +0x88
@@ -725,6 +753,36 @@ inline std::optional<Raw> read_le_i32(std::span<const std::uint8_t> bytes,
                  : std::nullopt;
 }
 
+struct CandidateHeadArrayRead {
+    std::size_t count = 0;
+    bool terminated = false;
+};
+
+// Visit non-null head pointers in a bounded memory snapshot.  A false
+// `terminated` result means the supplied span ended before the null sentinel;
+// this avoids silently treating a truncated runtime capture as a complete
+// array.
+template <typename Visitor>
+inline CandidateHeadArrayRead visit_candidate_head_array(
+    std::span<const std::uint8_t> bytes, Visitor&& visitor) {
+    CandidateHeadArrayRead result{};
+    for (std::size_t offset = 0;
+         offset <= bytes.size() && bytes.size() - offset >= sizeof(std::uint32_t);
+         offset += kCandidateHeadArrayEntryStride) {
+        const auto head = read_le_u32(bytes, offset);
+        if (!head) {
+            break;
+        }
+        if (*head == 0) {
+            result.terminated = true;
+            return result;
+        }
+        visitor(result.count, *head);
+        ++result.count;
+    }
+    return result;
+}
+
 // Minimum linked-object prefix consumed by 0x004f43e0 and 0x00463e50. The
 // first word and the three bytes before model_kind are deliberately opaque;
 // the executable only establishes that the collision fields below exist at
@@ -751,6 +809,72 @@ static_assert(offsetof(LinkedCollisionObjectLayout, angles) == 0x14);
 static_assert(offsetof(LinkedCollisionObjectLayout, model_index) == 0x1a);
 static_assert(offsetof(LinkedCollisionObjectLayout, model_kind) == 0x1f);
 static_assert(offsetof(LinkedCollisionObjectLayout, next) == 0x20);
+
+// The list insertion/removal primitive at 0x0048001d0/0x0048001f0 writes
+// the reciprocal link at +0x34.  The bytes between the collision prefix and
+// that link are not recovered, so this is a partial link view rather than a
+// claim about the complete object type or allocation size.
+#pragma pack(push, 1)
+struct LinkedCollisionObjectListLinksLayout {
+    std::uint8_t unknown_00[0x20]{};
+    std::uint32_t next = 0;          // +0x20
+    std::uint8_t unknown_24[0x10]{};
+    std::uint32_t previous = 0;      // +0x34
+};
+#pragma pack(pop)
+
+static_assert(sizeof(LinkedCollisionObjectListLinksLayout) == 0x38);
+static_assert(offsetof(LinkedCollisionObjectListLinksLayout, next) == 0x20);
+static_assert(offsetof(LinkedCollisionObjectListLinksLayout, previous) == 0x34);
+
+// The level-building path around 0x0043d88e allocates
+// `element_count * 0x4c + 4`, stores the count in the leading word, and
+// constructs elements beginning at allocation+4.  Its copy loop advances by
+// 0x4c and writes through +0x4a.  The collision fields in the first 0x24
+// bytes are the same fields used by the query; the remaining values are
+// intentionally opaque until their consumers are identified.
+#pragma pack(push, 1)
+struct LinkedCollisionObjectElementLayout {
+    LinkedCollisionObjectLayout collision{};  // +0x00..+0x23
+    std::uint32_t unknown_24 = 0;              // +0x24
+    std::uint32_t unknown_28 = 0;              // +0x28
+    std::uint16_t unknown_2c = 0;              // +0x2c
+    std::uint8_t unknown_2e[2]{};              // +0x2e
+    std::uint32_t unknown_30 = 0;              // +0x30
+    std::uint32_t previous = 0;                // +0x34
+    std::uint32_t unknown_38 = 0;              // +0x38
+    std::uint16_t unknown_3c = 0;              // +0x3c
+    std::uint8_t unknown_3e[2]{};              // +0x3e
+    std::uint32_t unknown_40 = 0;              // +0x40
+    std::uint16_t unknown_44 = 0;              // +0x44
+    std::uint16_t unknown_46 = 0;              // +0x46
+    std::uint16_t unknown_48 = 0;              // +0x48
+    std::uint16_t unknown_4a = 0;              // +0x4a
+};
+#pragma pack(pop)
+
+static_assert(sizeof(LinkedCollisionObjectElementLayout) ==
+              kLinkedCollisionObjectElementStride);
+static_assert(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
+static_assert(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
+
+struct LinkedCollisionObjectListLinks {
+    std::uint32_t next = 0;
+    std::uint32_t previous = 0;
+};
+
+inline std::optional<LinkedCollisionObjectListLinks>
+read_linked_collision_list_links(std::span<const std::uint8_t> bytes) {
+    if (bytes.size() < sizeof(LinkedCollisionObjectListLinksLayout)) {
+        return std::nullopt;
+    }
+    const auto next = read_le_u32(bytes, 0x20);
+    const auto previous = read_le_u32(bytes, 0x34);
+    if (!next || !previous) {
+        return std::nullopt;
+    }
+    return LinkedCollisionObjectListLinks{.next = *next, .previous = *previous};
+}
 
 struct LinkedCollisionObjectRecord {
     std::uint16_t flags = 0;

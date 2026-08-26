@@ -76,6 +76,12 @@ def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
                 "model_index": memory.u16(address + 0x1A),
                 "model_kind": memory.u8(address + 0x1F),
                 "next": f"0x{next_address:08x}" if next_address else None,
+                "previous": (
+                    f"0x{memory.u32(address + 0x34):08x}"
+                    if memory.readable(address + 0x34, 4)
+                    and memory.u32(address + 0x34)
+                    else None
+                ),
             }
         )
         address = next_address

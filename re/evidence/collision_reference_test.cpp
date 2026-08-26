@@ -51,6 +51,57 @@ int main() {
     assert(linked->model_kind == 6);
     assert(linked->next == 0x12345678);
 
+    std::array<std::uint8_t, sizeof(LinkedCollisionObjectListLinksLayout)>
+        linked_links_bytes{};
+    const auto put_linked_links32 =
+        [&linked_links_bytes](std::size_t offset, std::uint32_t value) {
+            linked_links_bytes[offset] = static_cast<std::uint8_t>(value);
+            linked_links_bytes[offset + 1] =
+                static_cast<std::uint8_t>(value >> 8u);
+            linked_links_bytes[offset + 2] =
+                static_cast<std::uint8_t>(value >> 16u);
+            linked_links_bytes[offset + 3] =
+                static_cast<std::uint8_t>(value >> 24u);
+        };
+    put_linked_links32(0x20, 0x11111111);
+    put_linked_links32(0x34, 0x22222222);
+    const auto linked_links = read_linked_collision_list_links(linked_links_bytes);
+    assert(linked_links);
+    assert(linked_links->next == 0x11111111);
+    assert(linked_links->previous == 0x22222222);
+    assert(sizeof(LinkedCollisionObjectElementLayout) == 0x4c);
+    assert(offsetof(LinkedCollisionObjectElementLayout, previous) == 0x34);
+    assert(offsetof(LinkedCollisionObjectElementLayout, unknown_4a) == 0x4a);
+    assert(linked_collision_object_array_bytes(3) == 0xe8);
+
+    std::array<std::uint8_t, 12> candidate_heads{};
+    const auto put_candidate32 =
+        [&candidate_heads](std::size_t offset, std::uint32_t value) {
+            candidate_heads[offset] = static_cast<std::uint8_t>(value);
+            candidate_heads[offset + 1] = static_cast<std::uint8_t>(value >> 8u);
+            candidate_heads[offset + 2] =
+                static_cast<std::uint8_t>(value >> 16u);
+            candidate_heads[offset + 3] =
+                static_cast<std::uint8_t>(value >> 24u);
+        };
+    put_candidate32(0x00, 0xaaaa0001);
+    put_candidate32(0x04, 0xbbbb0002);
+    // Entry +0x08 is the null array terminator.
+    std::vector<std::uint32_t> captured_heads;
+    const auto candidate_read = visit_candidate_head_array(
+        candidate_heads,
+        [&captured_heads](std::size_t, std::uint32_t head) {
+            captured_heads.push_back(head);
+        });
+    assert(candidate_read.terminated);
+    assert(candidate_read.count == 2);
+    assert((captured_heads == std::vector<std::uint32_t>{0xaaaa0001,
+                                                          0xbbbb0002}));
+    assert(!visit_candidate_head_array(
+                 std::span<const std::uint8_t>(candidate_heads).first(8),
+                 [](std::size_t, std::uint32_t) {})
+                .terminated);
+
     assert(face_record_stride_bytes(0x001c1083) == 0x1c);
     assert(face_record_stride_bytes(0x00205823) == 0x20);
 

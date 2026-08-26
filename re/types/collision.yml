@@ -343,3 +343,86 @@ types:
         type: pointer
         confidence: observed
         evidence: [re/evidence/functions/collision.md]
+
+  - name: CollisionCandidateHeadArrayEntry
+    size: 0x04
+    confidence: strong
+    description: >-
+      One 32-bit entry in the null-terminated per-cell array walked by
+      0x004638d0; the pointer names the head of a linked collision-object
+      list. The array allocation and pointed-to heap ownership remain open.
+    fields:
+      - offset: 0x00
+        name: object_head
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+
+  - name: LinkedCollisionObjectListLinks
+    size: 0x38
+    confidence: strong
+    description: >-
+      Partial linked-list view established by the 0x0048001d0 insertion and
+      0x0048001f0 removal primitives. Bytes between the two links are not
+      typed and this is not the complete heap allocation.
+    fields:
+      - offset: 0x20
+        name: next
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x34
+        name: previous
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+
+  - name: LinkedCollisionObjectElement
+    size: 0x4c
+    confidence: strong
+    description: >-
+      Full element stride emitted by the level-building allocation path:
+      count*0x4c+4 bytes with the element array beginning after the leading
+      count word. The collision prefix and list links are typed; tail fields
+      remain opaque because their consumers are outside this query path.
+    fields:
+      - offset: 0x04
+        name: flags
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x06
+        name: query_stamp
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x08
+        name: position
+        type: fixed32[3]
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x14
+        name: angles
+        type: int16[3]
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x1a
+        name: model_index
+        type: uint16
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x1f
+        name: model_kind
+        type: uint8
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x20
+        name: next
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x34
+        name: previous
+        type: pointer
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]

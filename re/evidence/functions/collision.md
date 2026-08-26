@@ -10,7 +10,8 @@ Addresses: `0x0049db80`, `0x00497f40`, `0x00496550`, `0x00494210`,
 `0x00499710`, `0x004993f0`, `0x004624d0`, `0x00466090`, `0x004660b0`,
 `0x004628f0`, `0x004638d0`, `0x00462a20`, `0x00463d50`, `0x0048ea80`,
 `0x004f43e0`, `0x004f4940`, `0x004f4b00`, `0x004f4c50`, `0x004f4130`,
-`0x004f4240`
+`0x004f4240`, `0x004667e0`, `0x00420fa0`, `0x0043d88e`, `0x0048001d0`,
+`0x0048001f0`
 
 ## Result
 
@@ -152,6 +153,22 @@ the wrapper; the query does not parse a file on each call.
   load. Thus `0x198` is a stride in 32-bit candidate-pointer entries, and the
   resulting address stride is also `0x660` bytes. It is not a 0x198-byte
   zone-record stride and should not be described as `51*8` bytes.
+- The first loader-side writer that can be identified statically is
+  `0x004667e0`, called from the level setup path at `0x0043e03c`. Its embedded
+  diagnostics are `H:\\TonyHawk\\Pc2\\m3dzone.cpp`, `ZONE HEIGHT TOO LARGE`,
+  `ZONE WIDTH TOO LARGE`, and `EnvIndex not zero`. It copies the active zone
+  bounds/divisor/count fields into `DAT_00567f80`'s zone record, sets the zone
+  presence flag, and populates the corresponding `DAT_00567fa0` candidate
+  entries. This is the strongest recovered zone/candidate-table ownership
+  boundary; it still does not expose the file serialization or allocator
+  interface.
+- Model-kind table population is a separate loader stage. The routine
+  `0x00420fa0` reads a kind/index field from its object, stores the returned
+  model pointer at the kind-strided table rooted at `DAT_0056d43c`, advances
+  to the model-data pointer, and initializes the associated collision-cache
+  entry. This explains why the query can resolve `model_kind`/`model_index`
+  without consulting the zone candidate table, and keeps the two loader
+  responsibilities separate in the reconstruction.
 - `0x004638d0` indexes model/face data through `DAT_0056d43c`, builds cached
   face AABBs in the `DAT_005643b0` area, and then calls `0x00462a20` for each
   candidate face. Its reusable model-cache entries at `DAT_00567a70` are
@@ -322,6 +339,22 @@ the wrapper; the query does not parse a file on each call.
     position words, X/Y/Z angle shorts, model index, model kind, and the
     32-bit next pointer. This is an in-memory ABI view only; it does not
     claim that heap nodes are serialized in a level file.
+  - The list primitive at `0x0048001d0` inserts a node at a caller-supplied
+    root: it writes `node+0x20 = old_head`, `node+0x34 = 0`, updates the root,
+    and writes `old_head+0x34 = node` when a successor exists.
+    `0x0048001f0` is the reciprocal unlink path. Construction paths around
+    `0x0049f265` and `0x0049f360` call the object initializer and insert into
+    `DAT_0056af40`; this establishes list ownership and a backward-link
+    offset without claiming the full object allocation size.
+  - A separate level-building path around `0x0043d88e` (with the embedded
+    source path `H:\\TonyHawk\\Pc2\\LevelGen.cpp`) computes an object
+    allocation size of `count*0x4c + 4`, stores the element count in the
+    leading word, and constructs `0x4c`-byte elements after that header. Its
+    copy loop advances by `0x4c` and writes the element through `+0x4a`,
+    including the collision prefix and the `+0x34` backlink. Together with
+    the runtime chain spacing, this establishes the full element stride and
+    allocation shape for this loader product; the tail field meanings remain
+    opaque.
   - `0x004f4050` orders the two query endpoints independently on X/Y/Z and
     returns a three-bit reflection mask. `0x004f4130` expands the selected
     model bounds by two units and reflects them around the endpoint sum for
@@ -522,7 +555,8 @@ short basis values at `q+0x48`, and the query-record mode bytes. The two later
 phase attempts were stopped before level physics settled and are not used as
 evidence. When the linked root is non-null, the probe additionally captures at
 most 32 node prefixes (`+0x04..+0x23`) and reports null, cycle, limit, or
-unreadable termination. On a hit it also snapshots a bounded 16-node chain
+unreadable termination. Each readable node also gets a bounded backlink read
+at `+0x34`. On a hit it also snapshots a bounded 16-node chain
 from `q+0x68`, the pointer consumed by `0x00463d50`, so the result pointer and
 its neighbors can be compared with the linked-node ABI without an unbounded
 memory walk.
@@ -544,9 +578,10 @@ next                   = 0x05f2e890
 The next 15 records were contiguous at a 0x4c-byte link-to-link stride, with
 model indices 172 through 186 and the same model kind 6. The observed flags
 were `0`, `0x41`, and `0x8041`; all three angle shorts remained zero in this
-static Hangar object chain. This is evidence for a compact runtime collision
-object list, but not a claim that the complete allocation is only 0x4c bytes:
-the recovered collision ABI consumes only the prefix through `+0x23`.
+static Hangar object chain. The level-building path independently allocates
+`count*0x4c + 4` bytes and writes through element offset `+0x4a`, so this is
+now a strong full-element/array-shape identification. The tail fields are
+still kept opaque in the native view.
 
 The follow-up `collision-root` capture sampled both engine roots at query
 entry. The `DAT_0056af40` value was `0x05f26c84` and began a different chain

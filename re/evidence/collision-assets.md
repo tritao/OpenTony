@@ -86,8 +86,11 @@ next        = 0x05f2e890
 ```
 
 The next 15 linked records were contiguous at a 0x4c-byte stride and carried
-model indices 172 through 186, all with model kind 6. This gives a concrete
-runtime list shape while keeping the complete record size open.
+model indices 172 through 186, all with model kind 6. The level-building path
+also computes `count*0x4c + 4`, stores the count in the leading word, and
+writes each element through `+0x4a`. The runtime and static evidence therefore
+identify the full element stride and count-prefixed array shape, while the
+tail field meanings remain open.
 
 The query result independently reported model index 171/kind 6. The same
 record resolved through the live kind-6 table at `0x05da6d18` to model data
@@ -105,6 +108,16 @@ q+0x68 linked node
 The heap addresses are allocation-specific. The stable result is the field
 layout and the agreement between the node, model table, face geometry and
 query result.
+
+Static loader ownership is now partly separated as well. `0x004667e0`, called
+from `0x0043e03c` and carrying `m3dzone.cpp` diagnostics, initializes the live
+zone record and fills the per-cell candidate-pointer table. The
+`LevelGen.cpp` path around `0x0043d88e` builds the count-prefixed `0x4c`-byte
+linked-object array. `0x00420fa0`
+populates the kind-strided model table and its collision-cache entry. The
+collision query therefore consumes two loader products: a spatial array of
+object-list heads and a model-kind/index table; neither product is itself the
+serialized PSX blockmap.
 
 The `collision-root` capture also sampled the two nearby engine roots. The
 global root used by `0x004628f0` was `0x05f26c84` and had a different model-kind
