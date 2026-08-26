@@ -64,3 +64,9 @@ Five scalar/shift out-of-place operators occupy the next aligned ranges:
 The first, second, fourth, and fifth modules are 48 bytes; the divide module is
 64 bytes. Each range includes its original NOP padding and matches the retail
 bytes exactly.
+
+The safe Ghidra proposal at `0x004cad30–0x004cad53` identifies a distinct
+out-of-place unary operator. It negates each signed component from the `ECX`
+input vector and writes the results through the stack-supplied output pointer.
+Padding begins at `0x004cad53` and remains a separate raw fragment. The
+35-byte matching-assembly function reproduces the retail bytes exactly.

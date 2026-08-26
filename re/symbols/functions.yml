@@ -262,6 +262,12 @@ functions:
     confidence: observed
     evidence:
       - re/evidence/functions/vector-math.md
+  - address: 0x004cad30
+    name: Math_Vector3NegateOut
+    description: negate a vector into a separate output vector
+    confidence: observed
+    evidence:
+      - re/evidence/functions/vector-math.md
   - address: 0x004e4690
     name: PCInput_Initialize
     confidence: inferred
