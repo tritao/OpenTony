@@ -938,6 +938,52 @@ private:
             if (width <= 0 || depth <= 0) {
                 continue;
             }
+            if (blockmap.cell_count_x <=
+                    static_cast<std::uint16_t>(
+                        std::numeric_limits<std::int16_t>::max()) &&
+                blockmap.cell_count_z <=
+                    static_cast<std::uint16_t>(
+                        std::numeric_limits<std::int16_t>::max())) {
+                // The PC table walk is a hand-written line/grid traversal,
+                // not a rectangular scan of every cell in the query AABB.
+                // Reuse the recovered DDA so cell visitation order (and
+                // therefore strict equal-distance tie behavior) matches the
+                // original. PSX blockmap storage is row-major x + z*width;
+                // the PC candidate table uses a different address stride,
+                // so only the emitted coordinates are used here.
+                const reference::CollisionZoneGrid zone{
+                    .min_x = blockmap.min_x,
+                    .min_z = blockmap.min_z,
+                    .max_x = blockmap.max_x,
+                    .max_z = blockmap.max_z,
+                    .cell_divisor = width,
+                    .cell_count_x = static_cast<std::int16_t>(
+                        blockmap.cell_count_x),
+                    .cell_count_z = static_cast<std::int16_t>(
+                        blockmap.cell_count_z),
+                };
+                reference::visit_zone_cells(
+                    query_record, 0, zone,
+                    [&add, &blockmap](std::size_t, std::int32_t cell_x,
+                                      std::int32_t cell_z) {
+                        if (cell_x < 0 || cell_z < 0 ||
+                            cell_x >= blockmap.cell_count_x ||
+                            cell_z >= blockmap.cell_count_z) {
+                            return;
+                        }
+                        const auto index = static_cast<std::size_t>(cell_x) +
+                                           static_cast<std::size_t>(cell_z) *
+                                               blockmap.cell_count_x;
+                        if (index >= blockmap.cells.size()) {
+                            return;
+                        }
+                        for (const auto object_index :
+                             blockmap.cells[index].object_indices) {
+                            add(object_index);
+                        }
+                    });
+                continue;
+            }
             const auto clamp_cell = [](Raw value, Raw minimum, Raw,
                                        Raw cell_size, std::uint16_t count) {
                 const auto raw = reference::wrapping_sub(value, minimum) /
