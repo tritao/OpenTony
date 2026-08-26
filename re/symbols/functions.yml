@@ -114,7 +114,7 @@ functions:
     name: Camera_SmoothAndValidate
     gdb_aliases:
       - camera_smooth
-    description: camera target/position smoothing and final position write helper
+    description: camera target/position smoothing, base distance/effect-vector production, and final position write helper
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md
@@ -130,7 +130,7 @@ functions:
     name: Camera_ApplyEffects
     gdb_aliases:
       - camera_effects
-    description: camera follow/death/effect and smoothing state helper
+    description: camera follow/death/effect and smoothing state helper; can modify the shared vertical effect input before the final camera tail
     confidence: inferred
     evidence:
       - re/evidence/functions/camera-system.md

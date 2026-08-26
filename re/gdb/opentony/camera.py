@@ -281,6 +281,26 @@ def camera_position_transform_record(ctx: Context) -> dict | None:
         "output_before": _words(ctx.memory, output, 3)
         if ctx.memory.readable(output, 0x0C)
         else None,
+        "camera_position_producer": {
+            "distance_q4": ctx.memory.s32(camera + 0x5D0)
+            if ctx.memory.readable(camera + 0x5D0, 4)
+            else None,
+            "transition_counter": ctx.memory.u32(camera + 0x60C)
+            if ctx.memory.readable(camera + 0x60C, 4)
+            else None,
+            "effect_counter_a": ctx.memory.u32(camera + 0x5D8)
+            if ctx.memory.readable(camera + 0x5D8, 4)
+            else None,
+            "effect_counter_b": ctx.memory.u32(camera + 0x5E0)
+            if ctx.memory.readable(camera + 0x5E0, 4)
+            else None,
+            "effect_global_vertical_q4": ctx.memory.s32(0x00524A48)
+            if ctx.memory.readable(0x00524A48, 4)
+            else None,
+            "effect_vector_global_q16": _words(ctx.memory, 0x0055F948, 3)
+            if ctx.memory.readable(0x0055F948, 0x0C)
+            else None,
+        },
     }
 
 

@@ -101,6 +101,62 @@ struct CameraPositionStageOutput {
     Q16Vec3 effect_vector{};
 };
 
+// Base inputs assembled by Camera_SmoothAndValidate before its
+// collision/effect branches. The distance is the camera +0x5d0 word in Q4
+// world units; the vertical effect is the camera-update DAT_00524a48 word in
+// the same source scale. Both are shifted into the Q16 words consumed by
+// 0x004e85a0. Branches later in 0x0040e090 may add transition terms to the
+// local Z word or replace the effect magnitude.
+struct CameraPositionProducerRaw {
+    Raw distance_q4{};
+    Raw vertical_effect_q4{};
+};
+
+// The normal path keeps six raw history words at camera +0x620..+0x634.
+// 0x0040e090 turns their sum into the +0x61c step with a compiler-optimized
+// integer expression equivalent to:
+//
+//   ((((sum / 0xcc) * 0x3c) / 2) * 0xe10) / 0x149e >> 12
+//
+// Keep every multiply at PE32 width and keep the final shift as SAR. The
+// history producer is still gameplay/tripod-owned, so this stage accepts the
+// six words rather than guessing how they are refreshed.
+struct CameraDistanceSmoothingRaw {
+    std::array<Raw, 6> history{};
+    Raw distance_q4{};
+    Raw bias_q4{};
+};
+
+inline Raw camera_distance_smoothing_step_q4(
+    const std::array<Raw, 6>& history) {
+    Raw sum = 0;
+    for (const Raw value : history) {
+        sum = add_s32(sum, value);
+    }
+    Raw scaled = divide_toward_zero(sum, 0xcc);
+    scaled = divide_toward_zero(multiply_s32(scaled, 0x3c), 2);
+    scaled = divide_toward_zero(multiply_s32(scaled, 0xe10), 0x149e);
+    return arithmetic_shift_right(scaled, 12);
+}
+
+inline Raw advance_camera_distance_q4(
+    const CameraDistanceSmoothingRaw& smoothing) {
+    const Raw step = camera_distance_smoothing_step_q4(smoothing.history);
+    return arithmetic_shift_right(
+        add_s32(add_s32(smoothing.distance_q4, multiply_s32(step, 4)),
+                smoothing.bias_q4),
+        1);
+}
+
+inline CameraPositionStageInput build_base_position_stage_input(
+    const CameraPositionProducerRaw& producer) {
+    return {
+        {0, 0, shift_left_12(subtract_s32(0, producer.distance_q4))},
+        {0, shift_left_12(producer.vertical_effect_q4), 0},
+        true,
+    };
+}
+
 // The fields below correspond to the operations that are visible in
 // Camera_FollowTarget 0x00410610.  Collision/action-state producers are passed
 // in by the caller because they belong to gameplay, not camera semantics.

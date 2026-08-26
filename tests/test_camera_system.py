@@ -204,6 +204,30 @@ def test_follow_basis_fixture_covers_raw_history_and_s16_saturation(tmp_path):
                     || positioned.screen_effect_offset.z != 0x4000) {
                     return 6;
                 }
+
+                const auto base_position = build_base_position_stage_input(
+                    {197, -140});
+                if (base_position.local_offset.x != 0
+                    || base_position.local_offset.y != 0
+                    || base_position.local_offset.z != -197 * 0x1000
+                    || base_position.effect_vector.x != 0
+                    || base_position.effect_vector.y != -140 * 0x1000
+                    || base_position.effect_vector.z != 0
+                    || !base_position.valid) {
+                    return 7;
+                }
+
+                const std::array<Raw, 6> history = {
+                    0x100000, 0x100000, 0x100000,
+                    0x100000, 0x100000, 0x100000};
+                const Raw step = camera_distance_smoothing_step_q4(history);
+                if (step != -45) {
+                    return 8;
+                }
+                if (advance_camera_distance_q4({history, 197, -3})
+                    != 7) {
+                    return 9;
+                }
                 return 0;
             }
             """

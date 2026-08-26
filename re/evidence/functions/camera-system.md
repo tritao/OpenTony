@@ -533,6 +533,21 @@ the main remaining normal-mode camera gap after the follow basis recovery:
 the transform and normal-path input shapes are recovered, but the exact
 collision/effect producer logic is still outside the camera contract.
 
+The base producer is now statically identified. Before the later branch logic,
+`0x0040e090` derives the first input as:
+
+```text
+local_offset = (0, 0, -(camera + 0x5d0)) << 12
+effect_input = (0, DAT_00524A48 << 12, 0)
+```
+
+`0x0040f850` updates `DAT_00524A48` and then seeds the shared effect globals
+`DAT_0055F948/4C/50` as `(0, DAT_00524A48 << 12, 0)`. The smoothing helper
+can add transition/collision terms to the local Z word and can modify the
+effect magnitude, so this is a verified base stage rather than the complete
+branching producer. The native reference exposes it as
+`CameraPositionProducerRaw` → `build_base_position_stage_input`.
+
 The live tail probe closes the transform-side part of that gap. In a headless
 Warehouse run, a raw breakpoint at `0x004e85a0` filtered to the two
 `Camera_SmoothAndValidate` return sites produced a repeated pair on each
@@ -551,6 +566,32 @@ word, while the first vector's Z word changed continuously as the camera
 distance changed. The nine matrix words were signed 16-bit Q12 values and
 changed with camera rotation, confirming that this is a live camera transform
 tail rather than a one-time setup conversion.
+
+A bounded capture made the base relation explicit. The eight observed
+position/effect pairs had `camera +0x60c`, `+0x5d8`, and `+0x5e0` all zero;
+`camera +0x5d0` took the sequence
+`197, 299, 354, 386, 406, 420, 427, 430`; and every first vector was exactly
+`(0, 0, -distance * 0x1000)`. `DAT_00524a48` remained `-140`, and every
+second vector was exactly `(0, -573440, 0)`. This validates the base producer
+in a live mode-1 level-entry path while also showing that the transition
+additions were inactive in that capture.
+
+The non-startup distance recurrence is also recovered statically. When the
+tripod physics state is `0` or `4`, the function refreshes the six-word history
+at `+0x620..+0x634`; otherwise it consumes the existing history. It sums those
+words, computes
+
+```text
+step = ((((sum / 0xcc) * 0x3c) / 2) * 0xe10) / 0x149e >> 12
+distance = (distance + step * 4 + DAT_00524A98) >> 1
+```
+
+with signed integer division, 32-bit multiply/add behavior, and arithmetic
+right shifts. The result is stored at `+0x61c` and `+0x5d0`, respectively.
+The native reference exposes the value-level contract as
+`camera_distance_smoothing_step_q4` and `advance_camera_distance_q4`; the
+history refresh remains an external tripod/gameplay input until its producer
+is promoted.
 
 Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
 `0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
@@ -594,6 +635,33 @@ The current Warehouse runtime stayed on mode `1`, so these branches are
 static evidence only. A falsifier would be a mode-1 trace where the target
 transform changes without this routine or where the mode-25 branch is reached
 with a different offset.
+
+### `0x004113f0` — `Camera_Mode2`
+
+Static recovery gives mode `2` a separate target-preparation contract; it is
+not just an alias for the normal mode-1 continuation. The handler:
+
+- derives an anchor delta from camera `+0x3c0` and `+0x3b0`;
+- selects the tripod offset at `tripod + 0x310c..+0x3114`, or the fallback
+  `(0,-0x1000,0)` when the tripod link is null;
+- builds look angles and a raw direction vector, then conditionally seeds
+  camera `+0x610` from that direction when the dot/length threshold branch is
+  satisfied;
+- copies smoothing vector `+0x5b8` to `+0x5c4`, applies the same external-
+  history gate and vector interpolation family used by the follow path, and
+  copies the resulting vector back to `+0x610`;
+- converts that vector and the selected offset into the signed-short basis,
+  converts the basis to a Q12 transform, composes the Y half-angle from
+  camera `+0x5b4`, and writes the target transform at `+0x45c..+0x468`;
+- clears the transition byte at `+0x5d4` before returning.
+
+This is static-only: the bounded Warehouse run never entered mode `2`, and a
+forced-mode probe could not acquire a responsive WineDbg connection before
+the isolated session was stopped. Keep `Camera_Mode2` provisional until a
+runtime trace records the selected offset, `+0x610`, smoothing vectors, and
+target-transform writes together. A runtime mode-2 path that bypasses the
+`+0x5b8/+0x5c4` history or uses a different fallback offset would falsify this
+promotion.
 
 Promotion audit for these records:
 

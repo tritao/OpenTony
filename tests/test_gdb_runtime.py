@@ -350,6 +350,7 @@ def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inp
     )
     inferior.data[vector:vector + 0x0C] = struct.pack("<3I", 0x1000, 0x2000, 0x3000)
     inferior.data[output:output + 0x0C] = struct.pack("<3I", 0xAA, 0xBB, 0xCC)
+    inferior.data[camera + 0x5D0:camera + 0x5D4] = struct.pack("<i", 197)
     inferior.data[0x100:0x110] = struct.pack(
         "<4I", 0x0040ECB8, matrix, vector, output
     )
@@ -376,6 +377,7 @@ def test_camera_position_transform_probe_filters_tail_calls_and_captures_raw_inp
     assert events[0]["matrix_s16"][-1]["signed_s16"] == 9
     assert events[0]["vector_q16"]["raw"] == [0x1000, 0x2000, 0x3000]
     assert events[0]["output_before"]["raw"] == [0xAA, 0xBB, 0xCC]
+    assert events[0]["camera_position_producer"]["distance_q4"] == 197
 
     inferior.data[0x100:0x104] = struct.pack("<I", 0x0040E705)
     ignored = camera_position_transform_record(context)

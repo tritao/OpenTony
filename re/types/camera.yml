@@ -143,6 +143,16 @@ fields:
     name: camera_history_vector_a
     type: q16_16_vector3_candidate
     confidence: provisional
+  - offset: 0x61c
+    name: distance_smoothing_step_q4
+    type: s32_raw
+    confidence: inferred
+    description: six-word history smoothing result used by Camera_SmoothAndValidate when updating +0x5d0
+  - offset: 0x620
+    name: distance_history_q4_words
+    type: q4_raw_history6_candidate
+    confidence: provisional
+    description: six contiguous raw words summed by Camera_SmoothAndValidate; the tripod/gameplay producer remains unresolved
   - offset: 0x63c
     name: screen_offset_q12
     type: q12_vector3_candidate
@@ -178,6 +188,11 @@ fields:
     type: s16
     confidence: observed
     description: signed angle consumed by the Y half-angle constructor in the normal-follow target-transform tail
+  - offset: 0x5d0
+    name: camera_distance_q4
+    type: s32_raw
+    confidence: inferred
+    description: base camera-local distance word; Camera_SmoothAndValidate negates it and shifts left 12 before the 0x004e85a0 position conversion
   - offset: 0x570
     name: death_camera_tick
     type: u32
