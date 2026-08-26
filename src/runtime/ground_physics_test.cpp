@@ -69,7 +69,7 @@ int main() {
     assert(state7_surface.action == GroundPhysicsAction::ResetToIdleMode);
 
     const auto high_speed = update_ground_physics(GroundPhysicsInput{
-        FixedPosition{0x20000, 0, 0},
+        FixedPosition{0x80000, 0, 0},
         0,
         0,
         -0x1000,
@@ -83,14 +83,14 @@ int main() {
         false,
         false,
     });
-    assert(high_speed.response == FixedPosition({0x1e000, 0, 0}));
+    assert(high_speed.response == FixedPosition({0x78000, 0, 0}));
     assert(high_speed.ground_update_state == 1);
     assert(high_speed.action == GroundPhysicsAction::EnterHighSpeedMode);
     assert(high_speed.cooldown_written);
     assert(high_speed.cooldown_value == 2);
 
     const auto low_speed = update_ground_physics(GroundPhysicsInput{
-        FixedPosition{0x400, 0, 0},
+        FixedPosition{0x10000, 0, 0},
         0,
         0,
         -0x1000,

@@ -137,6 +137,36 @@ void append_record(
         });
 }
 
+[[nodiscard]] std::optional<std::size_t> static_combo_index(
+    std::span<const std::uint16_t> actions) noexcept {
+    for (std::size_t index = 0; index < kStaticCombos.size(); ++index) {
+        const StaticCombo& combo = kStaticCombos[index];
+        if (combo.length == actions.size()
+            && same_actions(
+                actions,
+                std::span<const std::uint16_t>(
+                    combo.actions.data(), combo.length))) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::size_t> static_mapping_index(
+    std::span<const std::uint16_t> actions) noexcept {
+    for (std::size_t index = 0; index < kStaticMappings.size(); ++index) {
+        const StaticMapping& mapping = kStaticMappings[index];
+        if (mapping.length == actions.size()
+            && same_actions(
+                actions,
+                std::span<const std::uint16_t>(
+                    mapping.actions.data(), mapping.length))) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] const RetailActionResourceRecord* resource_at(
     std::span<const RetailActionResourceRecord> resources,
     std::uint8_t resource_id) noexcept {
@@ -198,6 +228,22 @@ void append_record(
 
 } // namespace
 
+bool RetailActionResourceSelection::update_direct_resource(
+    std::int32_t direct_index,
+    std::int32_t resource_id) noexcept {
+    if (direct_index < 0
+        || direct_index >= static_cast<std::int32_t>(direct_resource_ids.size())) {
+        return false;
+    }
+    if ((resource_id < 0 && resource_id != 0xff)
+        || (resource_id >= 0x80 && resource_id != 0xff)) {
+        return false;
+    }
+    direct_resource_ids[static_cast<std::size_t>(direct_index)] =
+        static_cast<std::uint8_t>(resource_id);
+    return true;
+}
+
 std::optional<std::uint8_t>
 RetailActionResourceSelection::mapping_index_for_resource(
     std::uint8_t resource_id) const noexcept {
@@ -258,6 +304,62 @@ bool RetailActionResourceSelection::update_mapped_resource(
         }
     }
     return false;
+}
+
+std::optional<RetailActionResourceSelection>
+build_retail_action_resource_selection(
+    std::span<const std::uint8_t> player_input_table,
+    std::span<const RetailActionResourceRecord> resources,
+    std::size_t max_input_records) noexcept {
+    RetailActionResourceSelection selection{};
+    std::size_t cursor = 0;
+    for (std::size_t record_number = 0;
+         record_number < max_input_records;
+         ++record_number) {
+        const auto input = read_action_sequence_record(
+            player_input_table,
+            cursor);
+        if (!input.has_value()) {
+            return std::nullopt;
+        }
+        if (input->length == 0) {
+            return selection;
+        }
+
+        const auto resource = std::find_if(
+            resources.begin(),
+            resources.end(),
+            [&input](const RetailActionResourceRecord& candidate) {
+                return candidate.stream_relative == input->stream_relative;
+            });
+        if (resource != resources.end()) {
+            const std::size_t resource_id = static_cast<std::size_t>(
+                std::distance(resources.begin(), resource));
+            const auto actions = std::span<const std::uint16_t>(
+                input->actions.data(), input->length);
+            if ((input->flags & 0x8000U) != 0) {
+                const auto mapping = static_mapping_index(actions);
+                if (mapping.has_value()) {
+                    // FUN_004bbf00 calls FUN_00416380 with the static mapping
+                    // ordinal first and the constructor-record index second.
+                    static_cast<void>(selection.update_mapped_resource(
+                        static_cast<std::int32_t>(resource_id),
+                        static_cast<std::int32_t>(*mapping)));
+                }
+            } else {
+                const auto combo = static_combo_index(actions);
+                if (combo.has_value()) {
+                    // FUN_004bbf00 calls FUN_00416230 with the
+                    // DAT_00540cb8 ordinal as the direct slot.
+                    static_cast<void>(selection.update_direct_resource(
+                        static_cast<std::int32_t>(*combo),
+                        static_cast<std::int32_t>(resource_id)));
+                }
+            }
+        }
+        cursor += (static_cast<std::size_t>(input->length) + 3U) * 2U;
+    }
+    return std::nullopt;
 }
 
 std::uint16_t retail_action_resource_type_mask(
@@ -357,6 +459,9 @@ parse_retail_action_resources(
     std::span<const std::uint8_t> source_table,
     std::span<const std::uint8_t> image,
     std::size_t max_records) noexcept {
+    // Keep the image parameter for the established API: the recovered
+    // constructor does not use its 0x51 stream metadata for +0x24.
+    static_cast<void>(image);
     std::vector<RetailActionResourceRecord> result;
     std::size_t cursor = 0;
     for (std::size_t record_number = 0; record_number < max_records; ++record_number) {
@@ -442,14 +547,17 @@ build_retail_action_sequence_table(
             ++result.ordinary_record_count;
         }
 
-        for (const StaticCombo& combo : kStaticCombos) {
+        for (std::size_t combo_index = 0;
+             combo_index < kStaticCombos.size();
+             ++combo_index) {
+            const StaticCombo& combo = kStaticCombos[combo_index];
             if ((combo.filter_mask & mask) == 0
-                || combo.resource_group >= selection.direct_resource_ids.size()) {
+                || combo_index >= selection.direct_resource_ids.size()) {
                 continue;
             }
             const RetailActionResourceRecord* resource = resource_at(
                 input.resources,
-                selection.direct_resource_ids[combo.resource_group]);
+                selection.direct_resource_ids[combo_index]);
             if (resource == nullptr) {
                 continue;
             }

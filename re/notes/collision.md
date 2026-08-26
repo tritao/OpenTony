@@ -41,6 +41,17 @@ the inverse predicates for surface-word bits `7` and `8`, bits `9..12` as a
 four-bit raw value, and face flag `0x80`. These are carried through the native
 hit record without naming them as ground, rail, trigger, or platform types.
 
+The global face-word masks are now executable without inventing their
+meanings. Retail initialization around `FUN_004660b0` (`0x00466109`) starts
+`DAT_00567a60` at zero, assigns `0x400000` when `DAT_00567c84` is set, toggles
+that bit when `DAT_00567c7c` is set, and toggles `0x200000` when
+`DAT_00567c78` is clear. It starts `DAT_00567a68` at `0xffffffff`, changes it
+to `0xffefffff` when `DAT_00567c74` is set, and toggles `0x20000` when
+`DAT_00567c80` is set. `make_retail_collision_query_options` preserves those
+offset-named inputs and the native face predicate applies the resulting masks;
+the unresolved startup producers and the separate per-query trigger-face bit
+remain caller-owned.
+
 The native frame boundary now also has a metadata-producing query form. It
 reuses the query for each `FUN_00496060` axis-fallback candidate, records the
 first hit, widens the PSX Q12 normal into the runtime fixed-point type, and can

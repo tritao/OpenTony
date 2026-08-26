@@ -31,6 +31,17 @@ int main() {
     using namespace opentony::runtime;
 
     RetailActionResourceSelection selection{};
+    assert(selection.direct_resource_ids.size()
+        == kRetailDirectSelectionSlotCount);
+    assert(selection.update_direct_resource(0, 0));
+    assert(selection.direct_resource_ids[0] == 0);
+    assert(selection.update_direct_resource(0x2a, 0x7f));
+    assert(selection.direct_resource_ids[0x2a] == 0x7f);
+    assert(selection.update_direct_resource(0x2a, 0xff));
+    assert(selection.direct_resource_ids[0x2a] == 0xff);
+    assert(!selection.update_direct_resource(-1, 0));
+    assert(!selection.update_direct_resource(0x2b, 0));
+    assert(!selection.update_direct_resource(0, 0x80));
     assert(!selection.mapping_index_for_resource(3).has_value());
     assert(!selection.mapping_index_for_resource(0xff).has_value());
     assert(selection.update_mapped_resource(3, 7));
@@ -127,22 +138,32 @@ int main() {
         RetailActionResourceRecord{0x111, 0x4000, 0xaaaa},
         RetailActionResourceRecord{0x222, 0x4000, 0xbbbb},
     };
-    RetailActionSequenceBuilderInput builder_input{
-        input,
-        resources,
-        {0, 0xff, 0xff, 0xff},
-        {1, 0xff, 0xff, 0xff, 0xff},
-        {0, 0xff, 0xff, 0xff, 0xff},
-    };
+
+    std::vector<std::uint8_t> selection_input;
+    put_record(selection_input, {1, 12}, 0x111, 0);
+    put_record(selection_input, {1, 4, 12}, 0x222, 0x8000);
+    put_u16(selection_input, 0);
+    const auto automatic_selection =
+        build_retail_action_resource_selection(
+            selection_input,
+            resources);
+    assert(automatic_selection.has_value());
+    assert(automatic_selection->direct_resource_ids[0] == 0);
+    assert(automatic_selection->mapped_resource_ids[0] == 1);
+    assert(automatic_selection->mapped_mapping_indices[0] == 0);
+
+    RetailActionSequenceBuilderInput builder_input{input, resources};
+    builder_input.direct_resource_ids[0] = 0;
+    builder_input.mapped_resource_ids[0] = 1;
+    builder_input.mapped_mapping_indices[0] = 0;
     const auto built = build_retail_action_sequence_table(builder_input);
     assert(built.has_value());
     assert(built->input_record_count == 2);
     // The first input is a static 0x4000 combo and is emitted by the static
-    // pass. The second is an ordinary record; the four static 0x4000 group
-    // entries and the mapping pass are then appended. The mapped pass uses
-    // resource 1 with mapping index 0, exercising the two independent retail
-    // arrays rather than treating the resource ID as the mapping index.
-    assert(built->static_record_count == 6);
+    // pass. The second is an ordinary record; the mapped pass is then
+    // appended. Direct selection is indexed by combo ordinal, while the
+    // mapped pass uses resource 1 with mapping index 0.
+    assert(built->static_record_count == 1);
     assert(built->ordinary_record_count == 1);
     assert(built->mapped_record_count == 1);
 
@@ -181,7 +202,7 @@ int main() {
     const auto parsed_resources = parse_retail_action_resources(
         built->table);
     assert(parsed_resources.has_value());
-    assert(parsed_resources->size() == 8);
+    assert(parsed_resources->size() == 3);
 
     std::vector<std::uint8_t> source_table;
     put_record(source_table, {1}, 0x10, 0x0800);
@@ -202,9 +223,10 @@ int main() {
         image);
     assert(exact_resources.has_value());
     assert(exact_resources->size() == 2);
-    // 0x51 replaces the provisional value, then raw 0x0800 is promoted.
-    assert((*exact_resources)[0].filter_flags == 0x1a34);
-    // Raw 0x4000 removes a provisional 0x0800 and promotes 0x4000.
-    assert((*exact_resources)[1].filter_flags == 0x4000);
+    // The final action supplies the initial class (action 1/2 -> 0x2000),
+    // then the raw record flags are promoted into the processed mask. The
+    // neighboring 0x51 stream metadata is deliberately irrelevant here.
+    assert((*exact_resources)[0].filter_flags == 0x2800);
+    assert((*exact_resources)[1].filter_flags == 0x6000);
     return 0;
 }

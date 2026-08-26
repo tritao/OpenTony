@@ -164,7 +164,7 @@ int main() {
 
     PlayerState stateful_ground_player;
     stateful_ground_player.set_physics_state(0);
-    stateful_ground_player.set_collision_response({0x20000, 0, 0});
+    stateful_ground_player.set_collision_response({0x80000, 0, 0});
     InputState stateful_ground_input;
     stateful_ground_input.begin_frame(0);
     PlayerPhysicsFrameHooks stateful_ground_hooks{};
@@ -199,7 +199,7 @@ int main() {
     assert(stateful_ground_frame.ground_physics->ground_update_state == 1);
     assert(stateful_ground_player.ground_physics_mode() == 1);
     assert(stateful_ground_player.collision_response()
-        == FixedPosition({0x1e000, 0, 0}));
+        == FixedPosition({0x78000, 0, 0}));
     assert(stateful_ground_player.ground_motion_cooldown() == 2);
 
     PlayerState wide_player;

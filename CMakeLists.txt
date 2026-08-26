@@ -4,6 +4,13 @@ project(OpenTonyNative LANGUAGES CXX)
 
 option(OPENTONY_BUILD_TESTS "Build native reconstruction tests" ON)
 
+add_library(opentony_camera STATIC
+    src/camera/camera_runtime.cpp
+)
+target_compile_features(opentony_camera PUBLIC cxx_std_20)
+target_include_directories(opentony_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(opentony_camera PRIVATE -Wall -Wextra -Wpedantic)
+
 add_library(opentony_assets STATIC
     src/assets/pre_catalog.cpp
     src/assets/pre_asset.cpp
@@ -20,6 +27,7 @@ add_library(opentony_trg STATIC
     src/trg/trg_runtime.cpp
     src/trg/gap_table.cpp
     src/trg/retail_gap_table.cpp
+    src/trg/pickup_runtime.cpp
     src/trg/level_trigger_state.cpp
     src/trg/level_scene_registry.cpp
     src/trg/level_render_snapshot.cpp
@@ -37,6 +45,7 @@ add_library(opentony_runtime STATIC
     src/runtime/fixed_math.cpp
     src/runtime/fixed_step_driver.cpp
     src/runtime/gameplay_frame.cpp
+    src/runtime/gameplay_presentation.cpp
     src/runtime/gameplay_session.cpp
     src/runtime/ground_brake.cpp
     src/runtime/ground_physics.cpp
@@ -66,10 +75,19 @@ add_library(opentony_runtime STATIC
 target_compile_features(opentony_runtime PUBLIC cxx_std_20)
 target_include_directories(opentony_runtime PUBLIC src/runtime)
 target_compile_options(opentony_runtime PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(opentony_runtime PUBLIC opentony_trg)
+target_link_libraries(opentony_runtime PUBLIC opentony_trg opentony_camera)
 
 if(OPENTONY_BUILD_TESTS)
     enable_testing()
+
+    add_executable(opentony_camera_runtime_test
+        src/camera/camera_runtime_test.cpp
+    )
+    target_link_libraries(opentony_camera_runtime_test PRIVATE opentony_camera)
+    target_compile_features(opentony_camera_runtime_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_camera_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_camera_runtime_test COMMAND opentony_camera_runtime_test)
+
     add_executable(opentony_trg_test
         src/trg/trg_runtime_test.cpp
     )

@@ -174,6 +174,14 @@ public:
         std::uint16_t,
         std::uint16_t,
         std::array<std::int32_t, 3>) {}
+    virtual void on_special_node_links(
+        std::size_t,
+        std::span<const std::uint16_t>) {}
+    virtual void on_special_node_aliases_complete() {}
+    virtual void on_special_runtime_links(
+        std::size_t,
+        std::uint16_t,
+        std::span<const std::uint16_t>) {}
     virtual void on_unhandled_node(
         std::size_t,
         std::uint16_t,
@@ -186,6 +194,12 @@ public:
     virtual void on_restart_node(std::size_t, std::string_view, std::array<std::int32_t, 3>) {}
     virtual void on_restart_node_data(std::size_t, std::uint32_t, std::uint16_t) {}
     virtual void on_node_pulse(std::size_t) {}
+    // FUN_004bdbd0 traverses a type-12/type-14 record's links only when its
+    // game-mode/policy gate is open. The runtime owns the traversal and asks
+    // the level service for that recovered policy.
+    [[nodiscard]] virtual bool should_traverse_special_runtime_links(std::size_t) const {
+        return false;
+    }
 
     virtual void on_suspend_activate(
         std::size_t,
@@ -286,6 +300,7 @@ private:
     std::size_t selected_restart_{CommandPointRuntime::npos};
     std::array<std::size_t, 256> bucket_heads_{};
     bool two_player_mode_{};
+    bool special_runtime_pulse_guard_{};
 
     void create_command_point(std::size_t node_index, std::span<const std::byte> stream);
     void dispatch(

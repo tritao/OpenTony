@@ -1,4 +1,5 @@
 #include "gameplay_session.hpp"
+#include "gameplay_presentation.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -27,6 +28,10 @@ int main() {
     opentony::runtime::GameplaySessionConfig config{};
     config.fixed_step.max_catch_up_steps = 2;
     config.fixed_step.frame_scale_q8 = 0x80;
+    // This probe intentionally crosses the first cached face in both
+    // directions. Use the broad compatibility policy here; ordinary session
+    // defaults exercise the recovered retail face masks and plane test.
+    config.collision_query_options = {};
     opentony::runtime::GameplaySession session(
         trg,
         psx,
@@ -46,6 +51,52 @@ int main() {
     assert(session.level().scene().static_entity_count() == 252);
     assert(session.physics_hooks().collision_query);
     assert(session.physics_hooks().air_gravity_input);
+    assert(session.physics_hooks().on_air_contact);
+
+    // The trigger service owns the raw 0xa3/0xb1 writes. A session pulse is
+    // the boundary that publishes those writes to the live player without
+    // assigning their still-unresolved retail meanings.
+    session.level().state().on_current_skater_word(141, 0x00a3, 0x1234);
+    session.pulse_node(141);
+    assert(session.player().script_skater_fields().has_3198);
+    assert(session.player().script_skater_fields().field_3198 == 0x1234);
+    assert(!session.player().script_skater_fields().has_319c);
+
+    session.level().state().on_current_skater_word(141, 0x00b1, 0xabcd);
+    session.pulse_node(141);
+    assert(session.player().script_skater_fields().field_3198 == 0x1234);
+    assert(session.player().script_skater_fields().has_319c);
+    assert(session.player().script_skater_fields().field_319c == 0xabcd);
+
+    // Exercise the recovered B010 correction through the real Warehouse
+    // level/session boundary. The profile-table value is supplied explicitly
+    // because its retail source is a character/profile configuration record,
+    // not the directional action-table result.
+    opentony::runtime::GameplaySessionConfig motion_config = config;
+    motion_config.apply_ground_motion = true;
+    opentony::runtime::GroundMotionProfileRecords profile_records{};
+    profile_records.primary_field_10[0] = 1;
+    motion_config.ground_motion_profile_records = profile_records;
+    motion_config.apply_ground_motion_control = true;
+    motion_config.ground_motion_rearm_random_available = true;
+    motion_config.ground_motion_rearm_random_roll = 0;
+    opentony::runtime::GameplaySession motion_session(
+        trg,
+        psx,
+        asset_path(""),
+        opentony::runtime::PlayerState{},
+        motion_config);
+    assert(motion_session.physics_hooks().ground_motion_input);
+    motion_session.initialize();
+    motion_session.player().set_collision_response({0x1000, 0, 0});
+    const auto motion_step = motion_session.advance(16, 0, 0, 0);
+    assert(motion_step.steps == 1);
+    assert(motion_step.last.physics.ground_motion.has_value());
+    assert(motion_step.last.physics.ground_motion->applied);
+    assert(motion_step.last.physics.ground_motion->branch ==
+        opentony::runtime::GroundMotionBranch::Ordinary);
+    assert(motion_step.last.physics.ground_motion->cooldown_written);
+    assert(motion_session.player().ground_motion_cooldown() == 0x14);
 
     opentony::runtime::GameplaySessionConfig tricks_config{};
     tricks_config.tricks_path = asset_path("TRICKS.BIN");
@@ -73,11 +124,12 @@ int main() {
     assert(trick_step.last.physics.action_sequence->match.matched);
     assert(trick_step.last.physics.action_sequence->stream_resolved);
 
-    // Exercise the mapped/static pass against the real Warehouse-era archive.
-    // Resource ID 0 is a real section-5 record and mapping index 0 is the
-    // first DAT_00540e30 entry; the pair is deliberately supplied through the
-    // same selection-view arrays used by the retail builder.
+    // Exercise the explicit mapped/static pass against the real Warehouse-era
+    // archive. Resource ID 0 is a real section-5 record and mapping index 0
+    // is the first DAT_00540e30 entry; the pair is deliberately supplied
+    // through the same selection-view arrays used by the retail builder.
     opentony::runtime::GameplaySessionConfig mapped_tricks_config = tricks_config;
+    mapped_tricks_config.auto_select_tricks_retail_resources = false;
     mapped_tricks_config.tricks_mapped_resource_ids[0] = 0;
     mapped_tricks_config.tricks_mapped_mapping_indices[0] = 0;
     opentony::runtime::GameplaySession mapped_tricks_session(
@@ -87,14 +139,38 @@ int main() {
         opentony::runtime::PlayerState{},
         mapped_tricks_config);
     assert(mapped_tricks_session.physics_hooks().action_sequence_source.has_value());
-    assert(mapped_tricks_session.physics_hooks().action_sequence_source
+    assert(!mapped_tricks_session.physics_hooks().action_sequence_source
+        ->sequence_table.empty());
+    // The default session above used the recovered automatic selection pass;
+    // it should include the real static-combo resources discovered from the
+    // section-0 records rather than only the explicit mapped fixture.
+    assert(tricks_session.physics_hooks().action_sequence_source
         ->sequence_table.size()
-        > tricks_session.physics_hooks().action_sequence_source
+        > mapped_tricks_session.physics_hooks().action_sequence_source
             ->sequence_table.size());
 
     const auto snapshot = session.render_snapshot();
     assert(snapshot.entities().size() == session.level().scene().entities().size());
     assert(!snapshot.faces().empty());
+
+    // The presentation boundary consumes the live session without reaching
+    // back into TRG/PSX internals. Camera preparation is intentionally raw;
+    // renderer scale and backend policy remain outside this test.
+    opentony::runtime::GameplayPresentation presentation(session);
+    opentony::camera::CameraRuntimeUpdateInput camera_input{};
+    camera_input.target = opentony::runtime::make_camera_target(
+        session.player(),
+        {0, -0x1000, 0});
+    const auto camera_commit = presentation.update_camera(camera_input);
+    assert(presentation.camera().has_commit());
+    assert(camera_commit.viewport_parameter_low_raw == 0);
+    const auto presentation_snapshot = presentation.snapshot();
+    assert(presentation_snapshot.frame_index == session.observation().frame.frame_index);
+    assert(presentation_snapshot.player.position == session.player().position());
+    assert(presentation_snapshot.player.script_skater_fields
+        == session.player().script_skater_fields());
+    assert(presentation_snapshot.level.entities().size() == snapshot.entities().size());
+    assert(presentation_snapshot.has_camera_commit);
 
     const auto& first_face = session.level().collision().faces().front();
     const opentony::runtime::FixedPosition face_center{
@@ -151,6 +227,8 @@ int main() {
     assert(observation.action_stream_active == session.player().action_stream_active());
     assert(observation.action_stream_relative == session.player().action_stream_relative());
     assert(observation.action_stream_cursor == session.player().action_stream_cursor());
+    assert(observation.script_skater_fields
+        == session.player().script_skater_fields());
 
     const std::size_t events_before_pulse = session.level().state().events().size();
     session.pulse_node(141);

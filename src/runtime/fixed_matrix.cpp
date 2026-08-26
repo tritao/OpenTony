@@ -1,4 +1,5 @@
 #include "fixed_matrix.hpp"
+#include "fixed_math.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -17,6 +18,13 @@ constexpr double kRetailQ12Scale = 4096.0;
         return static_cast<std::int32_t>(value / 4096);
     }
     return static_cast<std::int32_t>(-(((-value) + 4095) / 4096));
+}
+
+[[nodiscard]] std::int32_t truncating_shift_q12(std::int64_t value) noexcept {
+    // FUN_004e85a0 performs the matrix-vector products through x87 and the
+    // shared round-toward-zero conversion helper, unlike FUN_004e3130's SAR
+    // based matrix-matrix multiply.
+    return static_cast<std::int32_t>(value / 4096);
 }
 
 [[nodiscard]] std::int16_t angle_table_value(double value) noexcept {
@@ -104,6 +112,61 @@ Q12Matrix3 q12_apply_yaw(
     return q12_matrix_multiply(q12_yaw_matrix(angle12), current);
 }
 
+Q12Matrix3 q12_ground_yaw_matrix(std::int32_t angle12) noexcept {
+    // The grounded writer's matrix is the transposed sign/order variant of
+    // the generic helper above. Expressing it through the same trig table
+    // keeps the signed 12-bit angle and truncating sine/cosine behavior in one
+    // place.
+    return q12_yaw_matrix(-angle12);
+}
+
+Q12Matrix3 q12_apply_ground_yaw(
+    const Q12Matrix3& current,
+    std::int32_t angle12) noexcept {
+    // Retail 0x0049b500 computes M * R_y for this grounded path.
+    return q12_matrix_multiply(
+        current,
+        q12_ground_yaw_matrix(angle12));
+}
+
+FixedPosition q12_rotate_ground_velocity(
+    const FixedPosition& velocity,
+    const Q12Matrix3& saved_old_matrix,
+    std::int32_t angle12,
+    std::int16_t offset12) noexcept {
+    // Retail 0x004f5f90/0x004f53b0 return the magnitude used by this phase;
+    // the later helper scales both old and new values by 0x40 and shifts by
+    // eight before the ratio is applied.
+    const std::int32_t old_ratio =
+        retail_vector_speed_metric(velocity) >> 8;
+    const Q12Matrix3 phase = q12_ground_yaw_matrix(
+        angle12 - static_cast<std::int32_t>(offset12));
+    Q12Matrix3 transposed{};
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t column = 0; column < 3; ++column) {
+            transposed.at(row, column) = saved_old_matrix.at(column, row);
+        }
+    }
+    const Q12Matrix3 local_phase = q12_matrix_multiply(
+        transposed,
+        phase);
+    const Q12Matrix3 effective = q12_matrix_multiply(
+        saved_old_matrix,
+        local_phase);
+    FixedPosition rotated = q12_transform_vector(effective, velocity);
+    const std::int32_t new_ratio =
+        retail_vector_speed_metric(rotated) >> 8;
+    if (new_ratio <= 0) {
+        return rotated;
+    }
+    for (std::size_t index = 0; index < rotated.size(); ++index) {
+        rotated[index] = static_cast<std::int32_t>(
+            (static_cast<std::int64_t>(rotated[index]) * old_ratio)
+            / new_ratio);
+    }
+    return rotated;
+}
+
 FixedPosition q12_transform_vector(
     const Q12Matrix3& matrix,
     const FixedPosition& vector) noexcept {
@@ -113,7 +176,7 @@ FixedPosition q12_transform_vector(
             static_cast<std::int64_t>(matrix.at(row, 0)) * vector[0]
             + static_cast<std::int64_t>(matrix.at(row, 1)) * vector[1]
             + static_cast<std::int64_t>(matrix.at(row, 2)) * vector[2];
-        result[row] = arithmetic_shift_q12(sum);
+        result[row] = truncating_shift_q12(sum);
     }
     return result;
 }

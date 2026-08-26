@@ -32,12 +32,38 @@ GameplaySession::GameplaySession(
                     *source_table,
                     tricks_view_->bytes);
                 if (resources.has_value()) {
+                    RetailActionResourceSelection selection{
+                        config_.tricks_direct_resource_ids,
+                        config_.tricks_mapped_resource_ids,
+                        config_.tricks_mapped_mapping_indices};
+                    const bool explicit_selection = std::any_of(
+                        selection.direct_resource_ids.begin(),
+                        selection.direct_resource_ids.end(),
+                        [](std::uint8_t id) { return id != 0xff; })
+                        || std::any_of(
+                            selection.mapped_resource_ids.begin(),
+                            selection.mapped_resource_ids.end(),
+                            [](std::uint8_t id) { return id != 0xff; })
+                        || std::any_of(
+                            selection.mapped_mapping_indices.begin(),
+                            selection.mapped_mapping_indices.end(),
+                            [](std::uint8_t id) { return id != 0xff; });
+                    if (config_.auto_select_tricks_retail_resources
+                        && !explicit_selection) {
+                        const auto automatic_selection =
+                            build_retail_action_resource_selection(
+                                *input_table,
+                                *resources);
+                        if (automatic_selection.has_value()) {
+                            selection = *automatic_selection;
+                        }
+                    }
                     const RetailActionSequenceBuilderInput builder_input{
                         *input_table,
                         *resources,
-                        config_.tricks_direct_resource_ids,
-                        config_.tricks_mapped_resource_ids,
-                        config_.tricks_mapped_mapping_indices,
+                        selection.direct_resource_ids,
+                        selection.mapped_resource_ids,
+                        selection.mapped_mapping_indices,
                     };
                     const auto built = build_retail_action_sequence_table(
                         builder_input);
@@ -76,6 +102,50 @@ GameplaySession::GameplaySession(
         };
     }
 
+    if (config_.apply_ground_motion) {
+        hooks_.ground_motion_input = [this](
+            const PlayerState&,
+            const InputState&,
+            const ActionProfileState&) {
+            GroundMotionInput input{};
+            input.producer_enabled = true;
+            if (config_.ground_motion_profile_records.has_value()) {
+                const GroundMotionProfileTable table =
+                    materialize_ground_motion_profile_table(
+                        *config_.ground_motion_profile_records);
+                input.profile_table_value_nonzero =
+                    table.selected_value_nonzero();
+            } else {
+                input.profile_table_value_nonzero =
+                    config_.ground_motion_profile_table_value_nonzero ||
+                    config_.ground_motion_profile_table.selected_value_nonzero();
+            }
+            input.apply_control_side_effects =
+                config_.apply_ground_motion_control;
+            input.surface_response_metric =
+                config_.ground_motion_surface_response_metric;
+            input.rearm_random_available =
+                config_.ground_motion_rearm_random_available;
+            input.rearm_random_roll = config_.ground_motion_rearm_random_roll;
+            input.animation_event_enabled =
+                config_.ground_motion_animation_event_enabled;
+            // Negative values request the frame to fill the verified live
+            // response metric and threshold from PlayerState.
+            input.response_speed_metric = -1;
+            input.response_speed_threshold = -1;
+            return std::optional<GroundMotionInput>{input};
+        };
+    }
+
+    if (config_.classify_retail_air_contacts) {
+        hooks_.on_air_contact = [](
+            PlayerState&,
+            const PositionCollisionHit& hit,
+            const PositionCommitResult&) {
+            return accepts_retail_ground_contact(hit);
+        };
+    }
+
     if (config_.apply_collision_response_bias) {
         hooks_.collision_response_bias_q12 = [this](
             const PlayerState&,
@@ -89,6 +159,10 @@ GameplaySession::GameplaySession(
 void GameplaySession::initialize(
     bool two_player,
     const trg::GapTable* gap_table) {
+    // Configure this before LevelRuntime's reset/autoexec/build sequence so
+    // an autoexec pulse observes the same mode gate as retail.
+    level_.state().set_special_runtime_game_mode(
+        config_.special_runtime_game_mode);
     level_.initialize(two_player, gap_table);
     // Front_LoadGame calls FUN_004c4e30 after the TRG autoexec/object pass.
     // That routine applies the restart selected by 0x8c/0xb0, including its
@@ -105,6 +179,7 @@ void GameplaySession::initialize(
                 restart.auxiliary_word);
         }
     }
+    sync_script_skater_fields();
     driver_.reset();
     last_frame_ = {};
 }
@@ -123,6 +198,7 @@ void GameplaySession::execute_restart(std::size_t node) {
         restart.position,
         restart.auxiliary,
         restart.auxiliary_word);
+    sync_script_skater_fields();
     driver_.reset();
 }
 
@@ -144,6 +220,7 @@ void GameplaySession::pulse_node(std::size_t node) {
     const std::size_t event_start = level_.state().events().size();
     level_.pulse_node(node);
     apply_restart_events(event_start);
+    sync_script_skater_fields();
 }
 
 void GameplaySession::pulse_checksum(std::uint32_t checksum) {
@@ -153,6 +230,7 @@ void GameplaySession::pulse_checksum(std::uint32_t checksum) {
     const std::size_t event_start = level_.state().events().size();
     level_.pulse_checksum(checksum);
     apply_restart_events(event_start);
+    sync_script_skater_fields();
 }
 
 void GameplaySession::apply_restart_events(std::size_t event_start) {
@@ -222,7 +300,8 @@ trg::LevelRenderSnapshot GameplaySession::render_snapshot() const {
     }
     return trg::LevelRenderSnapshot::build(
         level_.scene(),
-        level_.scene_asset());
+        level_.scene_asset(),
+        level_.asset_catalog());
 }
 
 const GameplaySessionObservation GameplaySession::observation() const noexcept {
@@ -253,7 +332,23 @@ const GameplaySessionObservation GameplaySession::observation() const noexcept {
     result.action_stream_cursor = player_.action_stream_cursor();
     result.restart_auxiliary = player_.restart_auxiliary();
     result.restart_auxiliary_word = player_.restart_auxiliary_word();
+    result.script_skater_fields = player_.script_skater_fields();
     return result;
+}
+
+void GameplaySession::sync_script_skater_fields() noexcept {
+    const trg::TriggerCurrentSkaterFields& source =
+        level_.state().current_skater_fields();
+    PlayerScriptSkaterFields fields = player_.script_skater_fields();
+    if (source.has_3198) {
+        fields.has_3198 = true;
+        fields.field_3198 = source.field_3198;
+    }
+    if (source.has_319c) {
+        fields.has_319c = true;
+        fields.field_319c = source.field_319c;
+    }
+    player_.set_script_skater_fields(fields);
 }
 
 } // namespace opentony::runtime

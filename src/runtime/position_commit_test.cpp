@@ -6,6 +6,21 @@
 int main() {
     const opentony::runtime::FixedPosition current{0, 0, 0};
     const opentony::runtime::FixedPosition desired{200, 300, 400};
+    const opentony::runtime::PositionCollisionHit floor_hit{
+        0, 0, 0, 0, 0, {}, {0, 0x1000, 0}, 0, 0};
+    const opentony::runtime::PositionCollisionHit slope_limit_hit{
+        0,
+        0,
+        0,
+        0,
+        0,
+        {},
+        {0, opentony::runtime::kRetailGroundContactNormalYQ12, 0},
+        0,
+        0,
+    };
+    assert(opentony::runtime::accepts_retail_ground_contact(floor_hit));
+    assert(!opentony::runtime::accepts_retail_ground_contact(slope_limit_hit));
     const auto slide = opentony::runtime::PositionCommitter::commit(
         current,
         desired,

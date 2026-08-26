@@ -1,5 +1,7 @@
 #include "velocity_damping.hpp"
 
+#include "fixed_math.hpp"
+
 #include <algorithm>
 #include <limits>
 
@@ -26,32 +28,6 @@ namespace {
     return -static_cast<std::int32_t>(magnitude >> shift);
 }
 
-[[nodiscard]] std::int32_t magnitude_q12(
-    const FixedPosition& vector) noexcept {
-    const std::int64_t squared =
-        static_cast<std::int64_t>(vector[0]) * vector[0]
-        + static_cast<std::int64_t>(vector[1]) * vector[1]
-        + static_cast<std::int64_t>(vector[2]) * vector[2];
-    // The retail vector dot helper returns a Q12 scalar before the sqrt.
-    const std::uint64_t q12_squared = squared > 0
-        ? static_cast<std::uint64_t>(squared / 0x1000)
-        : 0;
-    const std::uint64_t root_target = q12_squared * 0x1000ULL;
-    std::uint64_t low = 0;
-    std::uint64_t high = std::min<std::uint64_t>(
-        root_target + 1,
-        static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1ULL);
-    while (low + 1 < high) {
-        const std::uint64_t middle = low + (high - low) / 2;
-        if (middle <= root_target / middle) {
-            low = middle;
-        } else {
-            high = middle;
-        }
-    }
-    return saturating_i32(static_cast<std::int64_t>(low));
-}
-
 [[nodiscard]] std::int32_t speed_metric(
     std::int32_t magnitude) noexcept {
     return saturating_i32(static_cast<std::int64_t>(magnitude) * 0x40);
@@ -72,7 +48,7 @@ VelocityDampingResult VelocityDamping::apply(
     result.velocity = input.velocity;
     result.magnitude_q12 = input.magnitude_q12 >= 0
         ? input.magnitude_q12
-        : magnitude_q12(result.velocity);
+        : retail_vector_magnitude_q12(result.velocity);
     result.speed_metric = speed_metric(result.magnitude_q12);
 
     const std::int32_t rescale_limit =
@@ -88,7 +64,7 @@ VelocityDampingResult VelocityDamping::apply(
                     / denominator);
             }
             result.rescaled = true;
-            result.magnitude_q12 = magnitude_q12(result.velocity);
+            result.magnitude_q12 = retail_vector_magnitude_q12(result.velocity);
             result.speed_metric = speed_metric(result.magnitude_q12);
         }
     }

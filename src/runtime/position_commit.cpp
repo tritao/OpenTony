@@ -4,6 +4,11 @@
 
 namespace opentony::runtime {
 
+bool accepts_retail_ground_contact(
+    const PositionCollisionHit& hit) noexcept {
+    return hit.normal[1] > kRetailGroundContactNormalYQ12;
+}
+
 PositionCommitResult PositionCommitter::commit(
     FixedPosition current,
     FixedPosition desired,

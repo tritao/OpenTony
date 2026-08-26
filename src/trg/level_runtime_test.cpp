@@ -99,7 +99,62 @@ int main() {
     assert(runtime.resources().size() == 2);
     for (const auto& resource : runtime.resources()) {
         assert(resource.asset_available);
+        assert(resource.asset_loaded);
+        if (resource.request.name == "SkWare_O") {
+            assert(resource.asset_object_count == 25);
+            assert(resource.asset_model_count == 25);
+        } else {
+            // SKWARE_L.PSX is a valid empty level-side resource in this
+            // build; successful parsing is the contract, not nonzero counts.
+            assert(resource.asset_object_count == 0);
+            assert(resource.asset_model_count == 0);
+        }
     }
+    assert(runtime.asset_catalog()->contains("ITEMS"));
+    assert(runtime.asset_catalog()->contains("SKMEDALS"));
+    const auto* warehouse_pickup = runtime.state().object(17);
+    assert(warehouse_pickup != nullptr);
+    assert(warehouse_pickup->node_type == 5);
+    assert(warehouse_pickup->subtype == 6);
+    assert(warehouse_pickup->pickup_resource == "items");
+    assert(warehouse_pickup->pickup_model_checksum == 0x2ebf22ca);
+    assert(warehouse_pickup->pickup_model_resolved);
+    assert(warehouse_pickup->pickup_model_index == 5);
+    assert(warehouse_pickup->pickup_visual_state_d1 == 1);
+    assert(warehouse_pickup->pickup_motion_state_d2 == 0);
+    assert(warehouse_pickup->pickup_motion_substate_d3 == 0);
+    assert(!warehouse_pickup->pickup_glow_present);
+    assert(warehouse_pickup->pickup_update_calls == 0);
+    assert(warehouse_pickup->position[0] == 7673 * 4096);
+    assert(warehouse_pickup->position[1] == -427 * 4096);
+    assert(warehouse_pickup->position[2] == 12132 * 4096);
+    const auto* pickup_binding = runtime.scene().binding(17);
+    assert(pickup_binding != nullptr);
+    assert(!pickup_binding->bound_to_psx);
+    const auto* pickup_entity = runtime.scene().entity(pickup_binding->entities.front());
+    assert(pickup_entity != nullptr);
+    assert(pickup_entity->kind == opentony::trg::LevelSceneEntityKind::Pickup);
+    assert(pickup_entity->pickup_resource == "items");
+    assert(pickup_entity->pickup_model_checksum == 0x2ebf22ca);
+    assert(pickup_entity->pickup_model_resolved);
+    assert(pickup_entity->pickup_model_index == 5);
+    assert(pickup_entity->factory_asset_loaded);
+    assert(pickup_entity->factory_asset_model_count == 13);
+    std::size_t pickup_count = 0;
+    std::size_t resolved_pickup_count = 0;
+    for (const auto& object : runtime.state().objects()) {
+        if (object.spawn_family != opentony::trg::TriggerSpawnFamily::Pickup) {
+            continue;
+        }
+        ++pickup_count;
+        if (object.pickup_model_resolved) {
+            ++resolved_pickup_count;
+        }
+    }
+    assert(pickup_count == 12);
+    // The recovered retail table is intentionally partial: unclassified
+    // Warehouse subtypes remain source-visible rather than receiving a guess.
+    assert(resolved_pickup_count > 0);
     std::size_t loaded_factory_assets = 0;
     for (const auto& entity : runtime.scene().entities()) {
         if (!entity.factory_resource.empty()) {
@@ -118,6 +173,10 @@ int main() {
     const auto* warehouse_special = runtime.state().object(120);
     assert(warehouse_special != nullptr);
     assert(warehouse_special->has_special_runtime);
+    assert(warehouse_special->special_runtime_allocation_size == 0x18);
+    assert(warehouse_special->special_runtime_vtable == 0x0051982c);
+    assert(warehouse_special->special_runtime_list
+        == opentony::trg::TriggerSpecialRuntimeList::Type12Type14);
     const auto* warehouse_binding = runtime.scene().binding(120);
     assert(warehouse_binding != nullptr);
     assert(warehouse_binding->bound_to_psx);
@@ -131,7 +190,31 @@ int main() {
     assert(runtime.scene().entity(warehouse_binding->entities.front())
         ->has_special_runtime);
     assert(runtime.scene().entity(warehouse_binding->entities.front())
+        ->special_runtime_allocation_size == 0x18);
+    assert(runtime.scene().entity(warehouse_binding->entities.front())
+        ->special_runtime_vtable == 0x0051982c);
+    assert(runtime.scene().entity(warehouse_binding->entities.front())
         ->special_runtime_active);
+
+    // SKWARE node 2 is a recovered subtype-0xcb factory bridge. Node 0xcf
+    // in the visible sample is a separate type-2 linked scene object.
+    const auto* warehouse_object = runtime.state().object(2);
+    assert(warehouse_object != nullptr);
+    assert(warehouse_object->spawn_family
+        == opentony::trg::TriggerSpawnFamily::ObjectCb);
+    assert(warehouse_object->factory_allocation_size == 0x1f4);
+    assert(warehouse_object->factory_vtable == 0x005183b0);
+    assert(warehouse_object->factory_list
+        == opentony::trg::TriggerFactoryList::CommonObject);
+    assert(warehouse_object->has_factory_initial_activation_byte);
+    assert(warehouse_object->factory_initial_activation_byte == 1);
+    const auto* warehouse_object_binding = runtime.scene().binding(2);
+    assert(warehouse_object_binding != nullptr);
+    const auto* warehouse_object_entity = runtime.scene().entity(
+        warehouse_object_binding->entities.front());
+    assert(warehouse_object_entity != nullptr);
+    assert(warehouse_object_entity->factory_allocation_size == 0x1f4);
+    assert(warehouse_object_entity->factory_vtable == 0x005183b0);
 
     const std::string special_trg = asset_path("SKPH_T.TRG");
     const std::string special_psx = asset_path("SKPH.PSX");
@@ -154,6 +237,24 @@ int main() {
 
     runtime.tick(16);
     assert(runtime.state().time_ms() == 16);
+    warehouse_pickup = runtime.state().object(17);
+    assert(warehouse_pickup->pickup_update_calls == 1);
+    assert(warehouse_pickup->pickup_glow_present);
+    assert(runtime.scene().entity(pickup_binding->entities.front())
+        ->pickup_update_calls == 1);
+
+    // The retail type-12 update writes the live asset's +0x24 color field;
+    // exercise the explicit palette-mode service and verify the scene bridge
+    // receives that asset-side mutation.
+    runtime.state().set_special_runtime_palette_mask(120, 0);
+    runtime.state().set_special_runtime_animation_mode(
+        opentony::trg::TriggerSpecialAnimationMode::PaletteTriangle);
+    runtime.tick(0);
+    const auto* animated_special_entity = runtime.scene().entity(
+        warehouse_binding->entities.front());
+    assert(animated_special_entity != nullptr);
+    assert(animated_special_entity->special_asset_marker
+        == runtime.state().object(120)->special_asset_marker);
 
     opentony::runtime::LevelFrameScheduler scheduler(runtime);
     Observer observer;

@@ -1,4 +1,5 @@
 #include "level_trigger_state.hpp"
+#include "pickup_runtime.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -31,6 +32,22 @@ namespace {
         || node_type >= 500;
 }
 
+constexpr std::array<std::uint32_t, 8> kSpecialPaletteMasks{
+    0x00000000U,
+    0x000000ffU,
+    0x0000ff00U,
+    0x0000ffffU,
+    0x00ff0000U,
+    0x00ff00ffU,
+    0x00ffff00U,
+    0x00ffff00U,
+};
+
+[[nodiscard]] std::uint32_t q12_integer_floor(std::int32_t value) noexcept {
+    // Match the retail arithmetic right shift for negative fixed-point values.
+    return static_cast<std::uint32_t>(value >> 12);
+}
+
 } // namespace
 
 void LevelTriggerState::reset() {
@@ -38,10 +55,19 @@ void LevelTriggerState::reset() {
     const GapTable* configured_gap_table = gap_table_;
     const TriggerSpecialRuntimeContext configured_special_runtime_context =
         special_runtime_context_;
+    const TriggerSpecialAnimationMode configured_special_animation_mode =
+        special_runtime_animation_mode_;
+    const std::uint32_t configured_special_runtime_game_mode =
+        special_runtime_game_mode_;
+    const std::uint32_t configured_special_alias_mode_mask =
+        special_alias_mode_mask_;
     *this = LevelTriggerState{};
     visible_mask_ = configured_visible_mask;
     gap_table_ = configured_gap_table;
     special_runtime_context_ = configured_special_runtime_context;
+    special_runtime_animation_mode_ = configured_special_animation_mode;
+    special_runtime_game_mode_ = configured_special_runtime_game_mode;
+    special_alias_mode_mask_ = configured_special_alias_mode_mask;
 }
 
 void LevelTriggerState::set_object_identifier(std::size_t node, std::uint16_t identifier) {
@@ -97,6 +123,75 @@ void LevelTriggerState::bind_psx_models(const assets::PsxArchive& archive) {
     }
 }
 
+void LevelTriggerState::resolve_pickup_assets(const assets::PsxAssetCatalog& catalog) {
+    for (TriggerObjectState& current : objects_) {
+        if (current.spawn_family != TriggerSpawnFamily::Pickup
+            || current.pickup_resource.empty()
+            || current.pickup_model_checksum == 0) {
+            continue;
+        }
+        current.pickup_model_index = CommandPointRuntime::npos;
+        current.pickup_model_resolved = false;
+        if (catalog.path_for(current.pickup_resource) == nullptr) {
+            continue;
+        }
+        const assets::PsxArchive& archive = catalog.load(current.pickup_resource);
+        const std::size_t model_index = pickup_model_index(
+            archive,
+            current.pickup_model_checksum);
+        if (model_index == CommandPointRuntime::npos) {
+            continue;
+        }
+        current.pickup_model_index = model_index;
+        current.pickup_model_resolved = true;
+    }
+}
+
+void LevelTriggerState::set_special_runtime_palette_mask(
+    std::size_t node,
+    std::uint32_t mask) {
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr
+        || (current->node_type != 12 && current->node_type != 14)) {
+        throw FormatError(
+            "cannot assign a special-runtime palette mask to this node");
+    }
+    current->special_asset_palette_mask = mask;
+    current->has_special_asset_palette_mask = true;
+}
+
+void LevelTriggerState::set_pickup_motion_inputs(
+    std::size_t node,
+    std::array<std::int16_t, 3> words_14_18,
+    std::array<std::int16_t, 3> words_70_74,
+    std::int32_t speed_scale_q8) {
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr || current->spawn_family != TriggerSpawnFamily::Pickup) {
+        throw FormatError("cannot assign pickup motion inputs to this node");
+    }
+    current->pickup_motion_words_14_18 = words_14_18;
+    current->pickup_motion_words_70_74 = words_70_74;
+    current->pickup_motion_speed_scale_q8 = speed_scale_q8;
+    current->has_pickup_motion_inputs = true;
+}
+
+void LevelTriggerState::set_pickup_lifecycle_inputs(
+    std::size_t node,
+    std::uint16_t timer_f0,
+    std::uint16_t phase_ea,
+    std::uint16_t phase_ec,
+    std::uint8_t global_fade_flags) {
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr || current->spawn_family != TriggerSpawnFamily::Pickup) {
+        throw FormatError("cannot assign pickup lifecycle inputs to this node");
+    }
+    current->pickup_timer_f0 = timer_f0;
+    current->pickup_phase_ea = phase_ea;
+    current->pickup_phase_ec = phase_ec;
+    current->pickup_global_fade_flags = global_fade_flags;
+    current->has_pickup_lifecycle_inputs = true;
+}
+
 void LevelTriggerState::mark_gap_complete(std::uint32_t checksum) {
     const auto found = std::find_if(
         gaps_.begin(),
@@ -146,6 +241,129 @@ void LevelTriggerState::advance_time(std::uint32_t milliseconds) {
                 0,
                 timer.duration_ms,
             });
+        }
+    }
+    for (TriggerObjectState& current : objects_) {
+        if (current.spawn_family != TriggerSpawnFamily::Pickup
+            || !current.alive) {
+            continue;
+        }
+        // FUN_004a8ac0 is the powerup virtual-update boundary. When the
+        // caller supplies the raw constructor words, FUN_004a8620's verified
+        // lifecycle update runs first, followed by FUN_004a8300's motion
+        // update. The random/collection branches remain separate seams.
+        bool pickup_destroyed = false;
+        if (current.has_pickup_lifecycle_inputs) {
+            PickupRawLifecycleState lifecycle{
+                current.pickup_timer_f0,
+                current.pickup_phase_ea,
+                current.pickup_phase_ec,
+                static_cast<std::uint32_t>(current.pickup_update_calls),
+                current.flags};
+            const PickupLifecycleUpdate update = advance_pickup_lifecycle(
+                lifecycle,
+                current.pickup_global_fade_flags);
+            current.pickup_timer_f0 = lifecycle.timer_f0;
+            current.pickup_phase_ea = lifecycle.phase_ea;
+            current.pickup_phase_ec = lifecycle.phase_ec;
+            current.flags = lifecycle.object_flags;
+            current.pickup_update_calls = lifecycle.update_calls;
+            if (update.cleared_active) {
+                current.active = false;
+            }
+            if (update.requested_glow && current.pickup_visual_state_d1 != 0) {
+                current.pickup_glow_present = true;
+            }
+            pickup_destroyed = update.destroyed;
+            if (pickup_destroyed) {
+                current.alive = false;
+                current.active = false;
+            }
+        } else {
+            ++current.pickup_update_calls;
+        }
+        if (pickup_destroyed) {
+            continue;
+        }
+        if (current.has_pickup_motion_inputs) {
+            PickupRawMotionState motion{
+                current.pickup_motion_words_14_18,
+                current.pickup_motion_words_70_74};
+            advance_pickup_raw_motion(
+                motion,
+                current.pickup_motion_speed_scale_q8);
+            current.pickup_motion_words_14_18 = motion.words_14_18;
+        }
+        if (current.active && current.pickup_visual_state_d1 != 0) {
+            current.pickup_glow_present = true;
+        }
+    }
+
+    if (special_runtime_animation_mode_
+        == TriggerSpecialAnimationMode::Disabled) {
+        return;
+    }
+
+    // FUN_004bdd00 walks DAT_0056db90 once per frame. The retail clock at
+    // DAT_0056e320 is produced by elapsed milliseconds * 0.001 * 60 and
+    // converted to an integer, which is floor(time_ms * 3 / 50) here.
+    const std::uint32_t clock = special_runtime_clock();
+    for (TriggerObjectState& current : objects_) {
+        if ((current.node_type != 12 && current.node_type != 14)
+            || !current.has_special_runtime
+            || !current.has_asset_scene_position
+            || !current.has_special_asset_state) {
+            continue;
+        }
+        if (special_runtime_animation_mode_
+                == TriggerSpecialAnimationMode::CompactTriangle
+            && !current.special_runtime_active) {
+            continue;
+        }
+
+        if (special_runtime_animation_mode_
+            == TriggerSpecialAnimationMode::PaletteTriangle) {
+            // The source uses the live asset position at +0x08, not the TRG
+            // node position. The native PSX join preserves that field.
+            const std::uint32_t phase_input =
+                q12_integer_floor(current.asset_scene_position[0]) + clock;
+            const std::uint32_t remainder = (phase_input * 4U) % 200U;
+            const std::uint32_t phase = remainder > 100U
+                ? 200U - remainder
+                : remainder;
+            const std::uint32_t palette_mask =
+                current.has_special_asset_palette_mask
+                ? current.special_asset_palette_mask
+                : kSpecialPaletteMasks[0];
+            const std::uint32_t color = phase * 0x0010101U;
+            current.special_asset_marker =
+                (color & ~palette_mask)
+                | ((palette_mask | 0xff000000U)
+                    & current.special_asset_marker);
+            continue;
+        }
+
+        // Game-mode 8 uses the record's raw +0x0c control and +0x0b owner
+        // fields to produce a compact triangle wave.
+        const std::uint32_t control = current.special_runtime_control;
+        const std::uint32_t span = control > 0x7d0U
+            ? 0x40U
+            : (control * 0x40U) / 0x7d0U;
+        const std::uint32_t period = span * 2U + 2U;
+        const std::uint32_t remainder = (clock * 4U) % period;
+        const std::uint32_t threshold = span + 1U;
+        const std::uint32_t phase = remainder > threshold
+            ? period - remainder
+            : remainder;
+        const std::uint32_t value = phase + 0x40U;
+        if (current.special_runtime_owner == 1) {
+            current.special_asset_marker =
+                (current.special_asset_marker & 0xff00ffffU)
+                | (value << 16);
+        } else {
+            current.special_asset_marker =
+                (current.special_asset_marker & 0xffffff00U)
+                | value;
         }
     }
 }
@@ -210,10 +428,56 @@ void LevelTriggerState::on_spawn_node(
     current.subtype = subtype;
     current.position = position;
     current.has_position = true;
+    current.factory_allocation_size = 0;
+    current.factory_vtable = 0;
+    current.factory_list = TriggerFactoryList::None;
+    current.factory_initial_activation_byte = 0;
+    current.has_factory_initial_activation_byte = false;
+    current.factory_resource.clear();
+    current.factory_model_selector = 0;
+    current.has_factory_model_selector = false;
+    current.flags = 0;
+    current.pickup_resource.clear();
+    current.pickup_model_checksum = 0;
+    current.pickup_model_index = CommandPointRuntime::npos;
+    current.pickup_model_resolved = false;
+    current.pickup_visual_state_d1 = 0;
+    current.pickup_motion_state_d2 = 0;
+    current.pickup_motion_substate_d3 = 0;
+    current.pickup_motion_words_14_18 = {};
+    current.pickup_motion_words_70_74 = {};
+    current.pickup_motion_speed_scale_q8 = 0;
+    current.has_pickup_motion_inputs = false;
+    current.pickup_timer_f0 = 0xffff;
+    current.pickup_phase_ea = 0x0032;
+    current.pickup_phase_ec = 0x0032;
+    current.pickup_global_fade_flags = 0;
+    current.has_pickup_lifecycle_inputs = false;
+    current.pickup_glow_present = false;
+    current.pickup_update_calls = 0;
     if (type == 5) {
         current.spawn_family = TriggerSpawnFamily::Pickup;
+        // FUN_004a8e50 allocates 0x100 bytes before entering
+        // FUN_004a7c50. The constructor installs vtable 0x519684 and
+        // registers the object on DAT_0056b830. Keep these as semantic
+        // factory facts; the native object is not a retail heap overlay.
+        current.factory_allocation_size = 0x100;
+        current.factory_vtable = 0x00519684;
+        current.factory_list = TriggerFactoryList::Pickup;
+        if (const auto definition = pickup_model_definition(subtype);
+            definition.has_value()) {
+            current.pickup_resource = std::string(definition->resource);
+            current.pickup_model_checksum = definition->model_name;
+            // The constructor writes +0xd1=1 on each recovered model branch.
+            current.pickup_visual_state_d1 = 1;
+        }
     } else if (subtype == 0x00cb) {
         current.spawn_family = TriggerSpawnFamily::ObjectCb;
+        current.factory_allocation_size = 0x1f4;
+        current.factory_vtable = 0x005183b0;
+        current.factory_list = TriggerFactoryList::CommonObject;
+        current.factory_initial_activation_byte = 1;
+        current.has_factory_initial_activation_byte = true;
         // FUN_00403000 starts the common object flag word at zero and ORs
         // 0x41 into object +0x04 before the factory returns.  Keep this in
         // the same mutable word used by SendVisible/SendKill so later
@@ -221,11 +485,19 @@ void LevelTriggerState::on_spawn_node(
         current.flags = static_cast<std::uint16_t>(current.flags | 0x0041U);
     } else if (subtype == 0x0192) {
         current.spawn_family = TriggerSpawnFamily::Object192;
+        current.factory_allocation_size = 0x218;
+        current.factory_vtable = 0x005194f8;
+        current.factory_list = TriggerFactoryList::Object192;
+        current.factory_initial_activation_byte = 1;
+        current.has_factory_initial_activation_byte = true;
         // FUN_0049f250 applies (flags & ~2) | 0x111 to object +0x04.
         current.flags = static_cast<std::uint16_t>(
             (current.flags & static_cast<std::uint16_t>(~0x0002U)) | 0x0111U);
     } else if (subtype >= 0x00d5 && subtype <= 0x00dc) {
         current.spawn_family = TriggerSpawnFamily::SpecialVehicle;
+        current.factory_allocation_size = 0x1e8;
+        current.factory_vtable = 0x005184e0;
+        current.factory_list = TriggerFactoryList::CommonObject;
         switch (subtype) {
         case 0x00d5:
             current.factory_resource = "c_taxi";
@@ -286,6 +558,14 @@ void LevelTriggerState::on_spawn_node_options(
     // bit 1. Type-7 creation additionally sets bit 2 through bVar2.
     current.factory_clears_object_flag_2 = current.has_spawn_option_4;
     current.factory_sets_object_flag_4 = type == 7;
+    if (type == 1 || type == 7) {
+        if (current.has_spawn_option_4) {
+            current.flags = static_cast<std::uint16_t>(current.flags & ~0x0002U);
+        }
+        if (type == 7) {
+            current.flags = static_cast<std::uint16_t>(current.flags | 0x0004U);
+        }
+    }
     // Without option 2, the retail path expects the new object to be one of
     // the environment/baddy lists and registers it there after construction.
     current.factory_requires_environment_registration = !current.has_spawn_option_2;
@@ -304,7 +584,15 @@ void LevelTriggerState::on_special_node(
     std::size_t node,
     std::uint16_t type,
     std::span<const std::byte>) {
-    (void)ensure_object(node, type, TriggerObjectKind::Special);
+    TriggerObjectState& current = ensure_object(
+        node,
+        type,
+        TriggerObjectKind::Special);
+    if (type == 10 || type == 11) {
+        current.special_runtime_allocation_size = 0x28;
+        current.special_runtime_vtable = 0x005196a4;
+        current.special_runtime_list = TriggerSpecialRuntimeList::Type10Type11;
+    }
 }
 
 void LevelTriggerState::on_special_node_state(
@@ -319,7 +607,147 @@ void LevelTriggerState::on_special_node_state(
     current.trigger_mode = static_cast<std::uint8_t>(flags & 0x000fU);
     current.trigger_state = (flags & 0x0040U) != 0 ? 0 : 1;
     current.has_trigger_runtime = true;
+    // FUN_004aa8c0 seeds the six bounds with INT_MAX/INT_MIN and folds in
+    // the source node's position through FUN_004c8650 before it resolves
+    // aliases.  Preserve the source contribution exactly; alias expansion
+    // remains a separate, evidence-driven step.
+    current.trigger_bounds.minimum = position;
+    current.trigger_bounds.maximum = position;
+    current.trigger_bounds.valid = true;
+    current.special_runtime_allocation_size = 0x28;
+    current.special_runtime_vtable = 0x005196a4;
+    current.special_runtime_list = TriggerSpecialRuntimeList::Type10Type11;
     current.active = current.trigger_state != 0;
+}
+
+void LevelTriggerState::on_special_node_links(
+    std::size_t node,
+    std::span<const std::uint16_t> links) {
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr
+        || (current->node_type != 10 && current->node_type != 11)) {
+        throw FormatError(
+            "cannot assign type-10/type-11 alias links to this node");
+    }
+    current->trigger_links.assign(links.begin(), links.end());
+}
+
+void LevelTriggerState::on_special_node_aliases_complete() {
+    // FUN_004aa220 selects the last eligible type-10/type-11 link.  The
+    // target's position is then folded into the source object's spatial
+    // record by FUN_004aa8c0.  The retail function returns zero for "none",
+    // so node zero is intentionally treated as the sentinel here too.
+    std::vector<TriggerObjectState*> eligible;
+    for (TriggerObjectState& current : objects_) {
+        if ((current.node_type == 10 || current.node_type == 11)
+            && (current.trigger_mode == 0
+                || (special_alias_mode_mask_ & current.trigger_mode) != 0)) {
+            eligible.push_back(&current);
+        }
+    }
+    // The retail allocation reserves table entry zero as a sentinel; the
+    // first eligible node is therefore entry one.
+    std::vector<std::uint16_t> group_values(eligible.size() + 1, 0);
+
+    for (TriggerObjectState& current : objects_) {
+        if (current.node_type != 10 && current.node_type != 11) {
+            continue;
+        }
+        current.trigger_alias_nodes.clear();
+        current.trigger_alias_group = 0;
+        current.has_trigger_alias_group = false;
+
+        std::size_t selected = CommandPointRuntime::npos;
+        for (const std::uint16_t target_node : current.trigger_links) {
+            if (target_node == 0) {
+                continue;
+            }
+            const TriggerObjectState* target = find_object(target_node);
+            if (target == nullptr
+                || (target->node_type != 10 && target->node_type != 11)) {
+                continue;
+            }
+            const std::uint32_t target_mode =
+                (static_cast<std::uint32_t>(target->trigger_flags) >> 4) & 3U;
+            if (target_mode != 0
+                && (special_alias_mode_mask_ & target_mode) == 0) {
+                continue;
+            }
+            if ((target->trigger_flags & 0x8000U) != 0) {
+                continue;
+            }
+            selected = target->node;
+        }
+
+        if (selected == CommandPointRuntime::npos) {
+            continue;
+        }
+
+        // FUN_004aa4b0's table is ordered by the original node table. Its
+        // entry zero is a sentinel; for each entry i, the selected alias is
+        // looked up and that target entry receives group value i. Preserve
+        // the resulting table field on the target object.
+        const auto target_entry = std::find_if(
+            eligible.begin(),
+            eligible.end(),
+            [selected](const TriggerObjectState* candidate) {
+                return candidate->node == selected;
+            });
+        const auto source_entry = std::find(
+            eligible.begin(), eligible.end(), &current);
+        if (target_entry != eligible.end() && source_entry != eligible.end()) {
+            const std::size_t target_index = static_cast<std::size_t>(
+                std::distance(eligible.begin(), target_entry)) + 1;
+            const std::size_t source_index = static_cast<std::size_t>(
+                std::distance(eligible.begin(), source_entry)) + 1;
+            if (source_index <= std::numeric_limits<std::uint16_t>::max()) {
+                group_values[target_index] = static_cast<std::uint16_t>(source_index);
+            }
+        }
+
+        const TriggerObjectState* target = find_object(selected);
+        if (target == nullptr || !target->has_position) {
+            continue;
+        }
+        current.trigger_alias_nodes.push_back(selected);
+        for (std::size_t axis = 0; axis < current.position.size(); ++axis) {
+            current.trigger_bounds.minimum[axis] = std::min(
+                current.trigger_bounds.minimum[axis], target->position[axis]);
+            current.trigger_bounds.maximum[axis] = std::max(
+                current.trigger_bounds.maximum[axis], target->position[axis]);
+        }
+        current.trigger_bounds.valid = true;
+    }
+
+    for (std::size_t index = 0; index < eligible.size(); ++index) {
+        eligible[index]->trigger_alias_group = group_values[index + 1];
+        eligible[index]->has_trigger_alias_group = true;
+    }
+}
+
+void LevelTriggerState::on_special_runtime_links(
+    std::size_t node,
+    std::uint16_t type,
+    std::span<const std::uint16_t> links) {
+    if (type != 12 && type != 14) {
+        throw FormatError(
+            "cannot assign type-12/type-14 runtime links to this node type");
+    }
+    TriggerObjectState* current = find_object(node);
+    if (current == nullptr
+        || (current->node_type != 12 && current->node_type != 14)) {
+        throw FormatError(
+            "cannot assign type-12/type-14 runtime links to this node");
+    }
+    current->special_runtime_links.assign(links.begin(), links.end());
+}
+
+bool LevelTriggerState::should_traverse_special_runtime_links(
+    std::size_t node) const {
+    const TriggerObjectState* current = find_object(node);
+    return current != nullptr
+        && (current->node_type == 12 || current->node_type == 14)
+        && special_runtime_game_mode_ == 8;
 }
 
 void LevelTriggerState::on_linked_node(
@@ -337,6 +765,9 @@ void LevelTriggerState::on_linked_node(
     if (type == 12 || type == 14) {
         current.has_special_runtime = true;
         current.special_runtime_active = false;
+        current.special_runtime_allocation_size = 0x18;
+        current.special_runtime_vtable = 0x0051982c;
+        current.special_runtime_list = TriggerSpecialRuntimeList::Type12Type14;
     }
 }
 

@@ -80,6 +80,18 @@ still uncertain.
   explicit random/mode-table seams and low-speed quantization.
 - The grounded `0x0049df00` slope threshold/brake/stop producer, including
   raw state-7 request reason `0x2c56`, with surface eligibility still injected.
+- The skater's initial B010 speed threshold (`+0x2dc8 = 0x2e9b6` from
+  `0x0046c98c`), with the later random/stat update still injectable.
+- A `GameplaySessionConfig::apply_ground_motion` opt-in that installs the
+  recovered B010 correction path in the real level/session frame order while
+  keeping the profile-table eligibility value explicit.
+- A native eight-entry `GroundMotionProfileTable` with the retail mode-7
+  selector XOR, plus B010's cooldown `0x14`, threshold rearm, pending event,
+  and animation-speed writes. The session can exercise these with explicit
+  collision-surface and RNG inputs; no host-time/random fallback is hidden.
+- The retail Q12 magnitude/speed metric shared by braking and damping:
+  dot-scale `1/4096`, integer square root, then caller `<< 6`. The native
+  helper is shared by both consumers and covered by threshold regressions.
 - The stateful non-animation `0x0049df00` ground-mode producer: separate
   `+0x2df8` mode storage, modes `0/1/3/4/5/6`, cooldown `2`, and state-7 reset
   reasons `0x2c0f`/`0x2c21`, exposed as an opt-in `GroundPhysics` frame hook.
@@ -96,13 +108,19 @@ still uncertain.
   `0x0049e680` `+0x2dac` stat/mode writer is also available through
   `compute_air_speed_scalar()`; only the state-two RNG result and mode flags
   remain service inputs.
+- The first airborne ground-contact classifier: strict `normal.y > 0xccd`
+  (Q12), installed by default in `GameplaySession` while face/material policy
+  remains owned by the collision query.
 - A `GameplayFrame` coordinator that carries one input snapshot through the
   level/TRG tick and the player physics boundary in the recovered outer order,
   while passing the caller's fixed-point frame scale to both timing domains.
 - A renderer-independent `LevelRenderSnapshot` at the recovered object/model
   submission boundary: scene entity state, PSX model faces, raw local vertices,
   normals, UVs, texture references, and object placement are available to a
-  backend without coupling it to TRG offsets.
+  backend without coupling it to TRG offsets. Pickup visual/motion bytes and
+  the raw lifecycle timer/phase/fade inputs now cross this boundary too, so a
+  renderer can reproduce the confirmed glow/fade state without reaching back
+  into the trigger state service.
 - A configurable deterministic `FixedStepDriver` around `GameplayFrame`, with
   partial-time accumulation, bounded catch-up, reported dropped time, and the
   keyboard-buffer input path. Its step interval and frame scale remain
@@ -111,6 +129,13 @@ still uncertain.
   `GameplayFrame`, and `FixedStepDriver`; its default physics hook queries the
   loaded PSX collision world and exposes the recovered scalar air-gravity and
   optional collision-response stages through one native entry point.
+- `GameplaySessionConfig` defaults ordinary movement to the recovered retail
+  collision masks and oriented plane test (`reject_mask = 0x200000`,
+  `accept_mask = 0xffffffff` for the all-false startup inputs); special
+  queries may still provide their own `PsxCollisionQueryOptions`.
+- The ordinary session also enables the recovered `FUN_0049bad0` inward
+  response stage with bias `0xcd`; state-specific frames retain the ability to
+  disable or replace that hook.
 - `GameplayFrameResult` now carries the exact trigger-event delta appended by
   the level tick, preserving source node, target, opcode, value, and checksum
   at the fixed frame where a script effect occurs. This is the join needed for
@@ -139,18 +164,26 @@ The work is now separated into three kinds of missing behavior:
 
 1. **Required for a faithful first playable level:**
 
-   - the remaining animation/local-profile/stat writers feeding the
-     now-recovered `0x0049b010` ground-motion producer (the sixteen raw
-     `+0x2ccc` action-profile slots, analog thresholds, turn flags, and
-     transient response-normalization boundary are now represented natively);
+   - the remaining profile/stat setup behind the now-recovered
+     `0x0049b010` ground-motion producer, plus the first downstream writer
+     that turns the materialized controller/profile values into persistent
+     horizontal velocity. The sixteen raw `+0x2ccc` action-profile slots,
+     analog thresholds, turn flags, and transient response-normalization
+     boundary are represented natively; the separate
+     `DAT_0056a3d8[+0x2cc4]` profile-table gate is an explicit native input;
+     `0x00489a10 -> 0x00489930` input-profile materialization is no longer an
+     open seam.
    - complete contact filtering and response policy, including the remaining
      back-face/trigger rules, sweep/radius behavior, slope classification,
      rails, platforms, bounce, and landing/wall transitions;
    - the remaining state handlers for grounded rolling, airborne control and
      upright orientation, braking, launch velocity, facing, animation
      eligibility, and rail/special transitions; and
-   - a camera and renderer backend, because a native physics/trigger slice is
-     not a playable recreation until the level and player can be presented.
+   - a renderer backend, because a native physics/trigger slice is not a
+     playable recreation until the level and player can be presented. The raw
+     camera state/update and `GameplayPresentation` handoff now exist; the
+     platform window, view/projection conversion, model submission, textures,
+     depth/transparency, fog, and present path remain open.
 
 2. **Required for behavioral completeness after that slice:**
 
@@ -211,17 +244,20 @@ sections. Static recovery now pins
 that bridge to the `0x140c` heap object from `0x004bb4f0`, its count at
 `+0x1404`, `0x28`-byte records beginning at `+0x04`, and stream/flag metadata
 at record `+0x20/+0x26`. The deterministic ordinary/static/mapped passes are
-now native in `runtime/action_sequence_builder.*`, including the `0x51`
-stream-metadata filter and raw-flag post-pass. The remaining resource
-selection inputs are the runtime selection view at player record `+0xcc` and
-the alternate versus resource path; its mapped fields are view-relative
-`+0x2b/+0x30`, i.e. physical normal-slot offsets `+0xf7/+0xfc`. Static setup
-fixes the slot stride at `0x104`, with independent `DAT_00540e30` mapping
-indices. Native
-`RetailActionResourceSelection` now mirrors the mapped pair lookup/update
-boundary, but the live loaded-resource name/index mapping in the
-trick-selection path at `0x004c36d0` still needs to feed it; that path is not
-the TRG level loader.
+now native in `runtime/action_sequence_builder.*`, including final-action
+type classification and the raw-flag post-pass. The neighboring `0x51`
+stream metadata is retained separately and is not the selection filter. The
+native selection pass now also reproduces `FUN_004bbf00`: it resolves
+section-0 trailing stream keys to source-record IDs, fills the 0x2b direct
+static-combo slots, and fills the five mapped resource/index pairs. The
+selection view is at player record `+0xcc`; its mapped fields are
+view-relative `+0x2b/+0x30`, i.e. physical normal-slot offsets `+0xf7/+0xfc`.
+Static setup fixes the slot stride at `0x104`, with independent
+`DAT_00540e30` mapping indices. Native `RetailActionResourceSelection` now
+mirrors both the direct-slot writer and mapped pair lookup/update boundary;
+the live loaded-resource name/index mapping in the trick-selection path at
+`0x004c36d0` still needs to feed it, and that path is not the TRG level
+loader.
 The catalog side of that seam is now pinned further: `0x004c2a10` creates the
 36 mapped catalog records from `DAT_00540e30`, storing their ordinal as the
 runtime key, while `0x004c2c10` creates the direct catalog records from
@@ -230,13 +266,11 @@ is the 0x60-entry array at object `+0x9fc`; its child `+0x08` key is compared
 against the active catalog key, and mapped types then call the selection pair
 helpers at `0x00416340`/`0x00416380` through the selection view at `+0x2154`.
 The native trace preserves those catalog and pair semantics. Automatic
-TRICKS.BIN selection still needs the runtime source-key/pointer handoff and
-the direct-slot population path captured or represented by an explicit game
-data table; no resource IDs are being inferred from coincidental file offsets.
-`GameplaySessionConfig::tricks_path` now loads the real archive into the
-session and can run the generated-table path; its Warehouse test supplies no
-guessed direct/mapped IDs and therefore validates the ordinary path while
-keeping those unresolved groups explicit.
+TRICKS.BIN selection now covers the section-0/source-key and direct-slot
+population path without deriving IDs from coincidental file offsets.
+`GameplaySessionConfig::tricks_path` loads the real archive and runs this
+automatic pass by default; explicit arrays remain available for fixtures and
+for the still-unresolved live catalog/special-resource paths.
 
 ## Priority 1: player state and collision response
 
@@ -256,9 +290,19 @@ This is the critical path to a playable level.
    `0x0049b010` writes the basis-scaled temporary correction that is integrated
    into the persistent response before `0x00496550`; its stateful
    `0x00492f20` animation writer and exact `0x00492ed0` easing are now
-   represented in `ground_animation.*`, while animation asset/event dispatch,
-   local-profile selection and B010's random/cooldown rearm side effects
-   still need their real writers. The post-dispatch `+0x2dc8` threshold
+   represented in `ground_animation.*`, while animation asset/event dispatch
+   and the real profile/stat writer behind local-profile selection still need
+   their native owners. B010's profile source boundary is now represented by
+   `GroundMotionProfileRecords`: the retail `0x00487c30` path reads the `+0x10`
+   fields of the objects at `+0x244/+0x248`, applies the exact `==1`
+   conversion into `0x0055fc2c/0x0055fc34`, and `0x00413c10` copies those
+   eight entries to the runtime `0x0056a3d8/0x0056a3e0` arrays. The owner
+   setup around `0x00487490` creates the four `0x54`-byte and two `0x104`-byte
+   records behind the skater's `+0x244/+0x248` pointer fields; `0x00488160`
+   mutates their `+0x10` values and `0x004882e1` resets them through
+   `0x00413f30`. The upstream profile/stat or save-data reader is still not
+   identified. B010's cooldown and random rearm side effects are now
+   represented as explicit services. The post-dispatch `+0x2dc8` threshold
    decay/reseed and the retail dot/sqrt speed metric are now native services;
    the RNG roll and special-state predicate remain injected. The grounded
    `0x0049f0e5`
@@ -268,6 +312,17 @@ This is the critical path to a playable level.
    and the remaining stat-driven damping mode selection plus the rest of the
    `0x0049df00` brake-mode state machine;
    `PlayerPhysicsFrame` now provides the call boundary for those producers.
+   The earlier B010 animation-event branch is also represented: callers can
+   supply the raw `+0x107` enable flag and receive the observed `0x2537`/
+   `0x2531` event reason, parameter, and state-1 `+0x108` speed write without
+   confusing that event service with the correction producer.
+   The complete Warehouse trace `build/debug/sessions/ground-motion-final4/ground.trace.ndjson`
+   observed source initializers and runtime primary-table values of `1` at
+   startup and later frames `123`, `2528`, and `4249`, with no source-table
+   rewrite during that run. The startup writer is `0x004e4690`, the
+   `InitDirectInput()` path that calls `0x00413f30`, so this is an input-system
+   default fixture rather than an identified TRG/profile asset. Do not turn it
+   into a universal stat default.
 3. Extend the new hit-aware query into full response inputs: exact face filtering,
    back-face/trigger-zone rules, normal orientation, slope/ground tests,
    player sweep/radius, caller-specific use of velocity projection, and the
@@ -311,11 +366,13 @@ never parse TRG offsets directly.
 ## Priority 4: gameplay/content completeness
 
 The level runtime currently covers the verified subset of script behavior.
-Remaining content work is to classify unknown opcodes from retail traces,
-complete object factories and special vehicles, resolve goal/career/two-player
-state transitions, and bind level events to visible/audio/gameplay services.
-Each addition should have one source record, one native state mutation, and
-one replay fixture before it is generalized.
+Raw `0xa3/0xb1` skater writes now cross the complete native boundary:
+dispatcher -> `LevelTriggerState` -> `GameplaySession` -> `PlayerState` and
+the presentation snapshot. Remaining content work is to classify unknown
+opcodes from retail traces, complete object factories and special vehicles,
+resolve goal/career/two-player state transitions, and bind level events to
+visible/audio/gameplay services. Each addition should have one source record,
+one native state mutation, and one replay fixture before it is generalized.
 
 ## Priority 5: parity harness
 

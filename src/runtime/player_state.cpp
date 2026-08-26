@@ -32,8 +32,14 @@ void PlayerState::apply_restart(
     action_stream_relative_ = 0;
     action_stream_cursor_ = 0;
     ground_physics_mode_ = 0;
+    ground_motion_event_pending_ = false;
+    ground_motion_event_reason_ = 0;
+    ground_motion_animation_speed_ = 0;
     orientation_ = q12_restart_matrix(auxiliary);
     retail_basis_ = retail_basis_from_matrix(orientation_);
+    ground_turn_saved_orientation_ = orientation_;
+    ground_turn_angle12_ = 0;
+    ground_turn_saved_orientation_valid_ = false;
     restart_auxiliary_ = auxiliary;
     restart_auxiliary_word_ = auxiliary_word;
 }
@@ -616,6 +622,8 @@ FixedPosition PlayerState::integrated_position(
 GroundTurnResult PlayerState::update_ground_turn(
     const InputState& input,
     GroundTurnConfig config) noexcept {
+    ground_turn_saved_orientation_ = orientation_;
+    ground_turn_saved_orientation_valid_ = true;
     const GroundTurnResult result = GroundTurn::update(
         turn_accumulator_,
         input.held(movement_bit(MovementAction::Left)),
@@ -646,19 +654,52 @@ GroundTurnResult PlayerState::update_ground_turn(
     turn_mirror_ = resolved.mirror;
     ground_turn_wide_profile_ = resolved.wide_profile;
     ground_turn_policy_changed_ = resolved.policy_changed;
-    orientation_ = q12_apply_yaw(
+    ground_turn_angle12_ = GroundTurn::angle12(
+        resolved.accumulator,
+        config.frame_scale_q8);
+    orientation_ = q12_apply_ground_yaw(
         orientation_,
-        GroundTurn::angle12(resolved.accumulator, config.frame_scale_q8));
+        ground_turn_angle12_);
     retail_basis_ = retail_basis_from_matrix(orientation_);
     return resolved;
 }
 
+void PlayerState::apply_ground_turn_velocity_phase() noexcept {
+    if (!ground_turn_saved_orientation_valid_) {
+        return;
+    }
+    collision_response_ = q12_rotate_ground_velocity(
+        collision_response_,
+        ground_turn_saved_orientation_,
+        ground_turn_angle12_);
+    ground_turn_saved_orientation_valid_ = false;
+}
+
 GroundMotionResult PlayerState::apply_ground_motion(
     const GroundMotionInput& input) noexcept {
-    return opentony::runtime::apply_ground_motion(
+    const GroundMotionResult result = opentony::runtime::apply_ground_motion(
         motion_correction_,
         retail_basis_,
         input);
+    if (result.cooldown_written) {
+        ground_motion_cooldown_ = result.cooldown_value;
+    }
+    if (result.threshold_written) {
+        ground_motion_threshold_ = result.threshold_value;
+    }
+    if (result.pending_animation_event_written) {
+        ground_motion_event_pending_ = result.pending_animation_event;
+    }
+    if (result.event_reason != 0) {
+        ground_motion_event_reason_ = result.event_reason;
+    }
+    if (result.animation_event_written) {
+        ground_motion_event_parameter_ = result.animation_event_parameter;
+    }
+    if (result.animation_speed != 0) {
+        ground_motion_animation_speed_ = result.animation_speed;
+    }
+    return result;
 }
 
 GroundAnimationResult PlayerState::update_ground_animation(

@@ -86,7 +86,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 resolved.strong_profile = resolved.strong_profile ||
                     result.action_profile.slot_at_offset(0x10);
                 resolved.producer_enabled = resolved.producer_enabled ||
-                    resolved.strong_profile;
+                    resolved.strong_profile ||
+                    resolved.profile_table_value_nonzero;
                 resolved.ordinary_ground_state =
                     player.physics_state() == 0;
                 resolved.correction_gate_open =
@@ -95,6 +96,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 resolved.cooldown_active =
                     resolved.cooldown_active ||
                     player.ground_motion_cooldown() > 0;
+                resolved.pending_animation_event =
+                    resolved.pending_animation_event ||
+                    player.ground_motion_event_pending();
                 resolved.animation_state =
                     static_cast<std::int16_t>(player.animation_state());
                 resolved.animation_frame = player.animation_frame();
@@ -256,6 +260,13 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 desired,
                 probe,
                 hooks.bypass_collision);
+            // Retail grounded state 0 calls FUN_0049b500 with param_3=1
+            // after the candidate position add. Its response rotation is
+            // consequently visible to the next frame's integration.
+            if (stage == PhysicsDispatchStage::GroundCollision_96550
+                && current_player.physics_state() == 0) {
+                current_player.apply_ground_turn_velocity_phase();
+            }
             if (hooks.collision_query) {
                 result.collision_hit = queried_hit;
             }

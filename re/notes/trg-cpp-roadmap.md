@@ -44,8 +44,44 @@ the dispatcher and to connect them to the other level systems.
    The factory family is now explicit:
    `0xcb -> FUN_00403000`, `0x192 -> FUN_0049f250`, `0xd5..0xdc ->
    FUN_00412640`, and type-5 -> `FUN_004a8e50` pickup construction. Factory
-   PSX resources are now lazily parsed and expose object/model counts; the
-   remaining work is constructor payload wiring and live object behavior.
+   PSX resources are now lazily parsed and expose object/model counts.
+   Type-5 pickup records also resolve the recovered subtype -> resource ->
+   model-name table (`SKWARE_T.TRG` node 17, subtype 6 -> `ITEMS.PSX` model
+   5). The native lifecycle now preserves the confirmed `0x100`-byte
+   allocation, vtable `0x519684`, and pickup-list ownership at
+   `DAT_0056b830`, together with visual byte `+0xd1`, raw motion bytes
+   `+0xd2/+0xd3`, the verified per-tick 16-bit update of `+0x14/+0x16/+0x18`
+   from `+0x70/+0x72/+0x74`, update-call count, and lazy glow transition at
+   the `0x004a8ac0` tick boundary. The render snapshot carries the
+   alternate resource/model namespace and geometry. Remaining pickup work is
+   the frame/random producer, collection caller, and gameplay effects. The
+   verified `FUN_004a8620` lifecycle is now represented when its raw
+   constructor words are supplied: countdown sentinel/decrement, final-60
+   phase, global fade gates, and zero-timer destruction are explicit; the
+   constructor-side producer of `+0xf0` remains unresolved. Generic
+   factory runtime metadata is now also
+   retained: `0xcb` is `0x1f4`/vtable `0x5183b0` on the common list,
+   `0x192` is `0x218`/vtable `0x5194f8` on its separate list, and
+   `0xd5..0xdc` is `0x1e8`/vtable `0x5184e0` on the common list. The remaining
+   object work is constructor payload ownership, baddy/vehicle update and
+   destruction behavior, collision/AI integration, and final name/id wiring.
+   The compact type-10/11 and type-12/14 records now retain their confirmed
+   allocation/vtable/list boundaries (`0x28`/`0x5196a4` and
+   `0x18`/`0x51982c` respectively); type-12/14 raw runtime link lists are now
+   retained and traversed by the runtime when the explicit game-mode-8 policy
+   is enabled, with the retail recursion guard. The remaining type-10/11
+   update and type-12/14 live-asset policies remain separate services.
+   Type-10/11 source-node Q12 bounds are
+   also retained in `TriggerSpatialBounds`; the second pass now preserves raw
+   alias links, applies the recovered mode-mask/high-bit filters, selects the
+   last eligible target, and folds its Q12 position into those bounds. The
+   `FUN_004aa4b0` alias-group table is also represented: eligible nodes retain
+   the ordered 16-bit group field written to the selected target entry. The
+   later geometry/update behavior still needs retail correlation.
+   Type-12/14 `FUN_004bdd00` palette and compact color-wave arithmetic is now
+   available through an explicit animation mode and is synchronized into scene
+   entities; the live heap-object/player selection policy and palette-mask
+   producer remain caller-owned seams.
 
 2. **Connect event state to the game loop.** `LevelTriggerState` now records
    deterministic event order and retail timer-reset trace, and `LevelRuntime` supplies the
@@ -63,18 +99,20 @@ the dispatcher and to connect them to the other level systems.
 4. **Level services.** Connect resource loading, music/sound, fog, reverb,
    path records, and level-event state to the native asset/resource managers.
    `LevelRuntime` now exposes catalog-backed bindings for TRG resource
-   requests, the native PSX catalog resolves factory resource names such as
-   `c_taxi`, and the native PRE catalog loads `LEVEL.PRE` and player/UI
-   packages. Still connect resource lifetime, streaming/flush semantics, and
-   renderer/audio ownership; Warehouse autoexec and `Ho_SkWare_HPGap` are the
-   first acceptance cases.
+   requests, parses each resolved PSX request through the catalog cache, and
+   retains object/model counts. The native PSX catalog resolves factory
+   resource names such as `c_taxi`, and the native PRE catalog loads
+   `LEVEL.PRE` and player/UI packages. Still connect resource lifetime,
+   streaming/flush semantics, and renderer/audio ownership; Warehouse
+   autoexec and `Ho_SkWare_HPGap` are the first acceptance cases.
 
 5. **Asset-backed scene/object creation.** Feed the native PSX object/model
    data into the object registry and renderer. The type-12/type-14 path now
-   joins Warehouse node 120 through its PSX model-name key and preserves the
+   joins Warehouse node 120 through its PSX model-name key, preserves the
    verified asset flag/marker writes plus the raw owner/control context when
-   supplied by the player service; the actual live asset pointer, player
-   selection policy, and final object behavior remain. Keep trigger node IDs
+   supplied by the player service, and reproduces the recovered color-wave
+   update. The actual live asset pointer, player selection policy, palette-mask
+   producer, and final object behavior remain. Keep trigger node IDs
    as the stable join key between TRG, PSX, and runtime objects.
 
 6. **Player/restart integration.** Apply the recovered fixed-point restart

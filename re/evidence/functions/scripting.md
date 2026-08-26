@@ -108,6 +108,25 @@ Native `LevelTriggerState` exposes those offset-named fields and retains each
 source/opcode/operand record; it does not assume which live object the retail
 global current-object pointer selects.
 
+The two skater writes now have an explicit native handoff as well:
+
+```
+TRG command stream 0xa3/u16 or 0xb1/u16
+    -> TriggerRuntime::dispatch_command
+    -> LevelTriggerState::on_current_skater_word
+       (raw +0x3198/+0x319c value and presence bit)
+    -> GameplaySession::sync_script_skater_fields
+    -> PlayerState::script_skater_fields()
+       (same offset-named raw values)
+    -> GameplaySessionObservation / GameplayPresentationSnapshot
+```
+
+The session copies only fields whose trigger-side presence bit is set. This
+matches the observed partial-write shape: a command for one offset does not
+clear the other offset. The native player boundary intentionally does not
+call these values animation, movement, or stat fields; their consumers still
+need a retail owner/use trace.
+
 `0xa2` is a bounded unsupported branch rather than an unknown command. Retail
 consumes its aligned NUL-terminated string, calls the diagnostic helper with
 the embedded message `LoadAI command not supported`, and continues dispatch.
@@ -167,7 +186,16 @@ type-10/type-11 position and raw flag word, initializes the same derived mode
 and state, sets the state on pulse, and clears it on kill. The extracted
 corpus contains 9,732 type-10 and 394 type-11 nodes; these are no longer
 discarded as unhandled nodes, although the larger factory/list behavior still
-needs parity work.
+needs parity work. The constructor's alias resolver is bounded too:
+`FUN_004aa220` scans the source link list, accepts only type-10/type-11 targets
+whose mode nibble passes `DAT_00533f3c`, rejects target flags with bit `0x8000`,
+and returns the last eligible target. Native state retains the raw links and
+selected alias node, and folds that target's Q12 position into the source
+`TriggerSpatialBounds`. `FUN_004aa4b0` then builds an ordered table of eligible
+type-10/type-11 nodes; each source's selected target receives the source entry
+index in the table's 16-bit group field. Native state retains that semantic
+group value alongside the source/target mapping. The later geometry/list
+update remains separate.
 
 The type-1/type-7 object factory also consumes a bounded option-byte list before
 the fixed-point position. `FUN_004c5460` scans it with `FUN_004c5420`: option
@@ -189,15 +217,68 @@ those constructor values before the SendVisible/SendKill mutations, while the
 separate option-4/type-7 bits remain factory-side fields rather than being
 incorrectly merged into `+0x04`.
 
+The constructor-to-runtime allocation boundary is now retained as semantic
+metadata. In `FUN_004c5460`, subtype `0xcb` allocates `0x1f4` bytes, enters
+`FUN_00403000`, installs vtable `0x005183b0`, and inserts into the common
+object list at retail head `0x0055f6bc`. Subtype `0x192` allocates `0x218`,
+enters `FUN_0049f250`, installs vtable `0x005194f8`, and inserts into the
+separate list at `0x0056af40`. The `0xd5` through `0xdc` vehicle path allocates
+`0x1e8`, enters `FUN_00412640`, installs vtable `0x005184e0`, and uses the
+common list. Native `TriggerObjectState` and `LevelSceneEntity` preserve the
+allocation size, vtable family, list family, and confirmed initial activation
+byte where known; the list is represented symbolically because the retail
+heads are process-local pointers. Warehouse node 2 is the concrete native
+`0xcb` factory fixture. This is a runtime-object handoff, not yet a recreation
+of the baddy/vehicle AI update, collision, or destruction loops.
+
 Type-12/type-14 construction has a parallel bounded record. `FUN_004bd760`
 registers the node's resolved link key at `+0x04`, source node at `+0x08`,
 active byte at `+0x0a`, next record at `+0x10`, and the resolved live asset
 pointer at `+0x14`. `FUN_004bdc40` resolves that key, installs the live asset,
-sets its object flag, and writes the record active byte. Native
-`LevelTriggerState` now records registration, marks the record active when the
-type-12/type-14 node is pulsed, and preserves the verified asset-side writes as
+sets its object flag, and writes the record active byte. `FUN_004bdbd0` then
+walks the source record's raw node-ID links: type-12/type-14 targets receive
+the asset activation helper directly, while other targets enter the guarded
+generic pulse path. Native `TriggerRuntime` now preserves and executes this
+traversal when the caller supplies the recovered `DAT_00533f38 == 8` policy;
+the recursion guard prevents a directly activated special target from
+traversing its own links. `LevelTriggerState` retains the raw link list and
+exposes the mode gate explicitly. It records registration, marks the record
+active when the type-12/type-14 node is pulsed, and preserves the verified
+asset-side writes as
 `flags_or = 0x04` and marker `0x202020`; the actual `+0x14` heap pointer and
 player-owner fields remain explicit seams.
+
+The type-12/type-14 per-frame updater is now bounded as well. `FUN_004bdd00`
+walks `DAT_0056db90`, skips records without a live `+0x14` asset, and in the
+`DAT_0056db8c != 0` branch computes a triangle wave from the live asset's
+`+0x08` X coordinate plus `DAT_0056e320`, scaled by four over a 200-tick
+period. It multiplies that phase by `0x10101`, preserves the palette-selected
+channels from the old asset `+0x24`, and writes the new color. The game-mode-8
+branch instead derives a compact triangle wave from record `+0x0c` and writes
+the result according to record `+0x0b`. Native
+`TriggerSpecialAnimationMode`, `special_runtime_clock()`, and scene sync now
+reproduce both arithmetic branches when the caller supplies the recovered mode
+and, for the palette path, the heap-derived channel mask. The mask remains an
+explicit input because its retail source is the process-local record address,
+not a stable TRG node field.
+
+The compact registration records have now also been separated from the larger
+factory objects. The type-10/type-11 path allocates `0x28` bytes before
+`FUN_004aa8c0`, installs vtable `0x005196a4`, and links the record through
+`DAT_0056b860`; its source node is stored at `+0x06`, state at `+0x04`, and
+next link at `+0x24`. The type-12/type-14 path allocates `0x18` bytes before
+`FUN_004bd760`, installs vtable `0x0051982c`, and links through
+`DAT_0056db90`; its source node, active byte, and next link are at the offsets
+listed above. Native trigger and scene state retain these sizes, vtable
+families, and symbolic list families. This establishes registration ownership
+while leaving the type-12/14 player/live-asset policy as an explicit runtime
+service. The type-10/11 constructor also initializes three lower bounds to
+`INT_MAX` and three upper bounds to `INT_MIN`, then folds in the source node's
+three Q12 coordinates through `FUN_004c8650`. Native `TriggerSpatialBounds`
+stores that source contribution, resolves the last eligible alias in the
+second pass, and carries the resulting bounds into the scene entity; the
+later geometry/update behavior remains explicit follow-up work rather than
+guessed extents.
 The extracted corpus contains 3,886 type-12 nodes and 6 type-14 nodes; the
 Warehouse TRG contributes the first family and node 120 is used as the native
 end-to-end join fixture.
@@ -236,6 +317,13 @@ The bounded script decoder in `tony.assets._trg_decode_script` was checked again
 - type-6 command-point keys use the original conditional 2-byte alignment;
 - `0xab` and `0xc9` align `(command + 5)` down to a 4-byte boundary before reading their u32 payload; and
 - `0x85`/`0x8d` contain repeated six-word fixed-point records followed by a byte `0xff` table marker.
+
+The conditional walker also has to distinguish operand widths that look similar
+in the jump table. Retail `0xa7` (`0x004c703f`), `0xae` (`0x004c729d`),
+`0xc8` (`0x004c64bc`), and `0xca` (`0x004c64dd`) each consume exactly two
+u16 operands; the ordinary three-u16 cases are separate. Native
+`skip_to_endif` preserves that distinction, with a regression stream covering
+all four commands before an `0x95` terminator.
 
 The most useful command counts are:
 
@@ -366,41 +454,51 @@ heap record array whose count is at `object+0x1404`, whose first record begins
 at `object+0x04`, and whose stride is `0x28`. The recovered fields are the
 stream-relative key at `+0x20`, source/type data at `+0x22/+0x24`, and copied
 source flags at `+0x26`; `0x004bd170(index)` returns
-`object + 0x04 + index*0x28`. The constructor's post-pass promotes raw flag
-bits `0x0800`, `0x1000`, `0x2000`, and `0x8000` into the filter word at
-`+0x24`; raw `0x4000` clears the provisional `0x0800` bit and promotes
-`0x4000`. Before that post-pass, `FUN_004bb7e0` starts the filter at `0x7b`,
-walks the direct stream with `FUN_004bf6c0`, and replaces it when opcode
-`0x51` reads a signed little-endian 16-bit value. The native exact resource
-parser now reproduces this stream metadata walk when the loaded image is
-available; the image-free overload retains the conservative raw-flags
-fallback for isolated fixtures.
+`object + 0x04 + index*0x28`. The constructor seeds the classification at
+`+0x24` from the final action through the action-class table, then its
+post-pass promotes raw flag bits `0x0800`, `0x1000`, `0x2000`, and `0x8000`;
+raw `0x4000` clears the provisional `0x0800` bit and promotes `0x4000`. The
+neighboring `+0x22` field is populated separately: `FUN_004bb7e0` starts it
+at `0x7b`, walks the direct stream with `FUN_004bf6c0`, and replaces it when
+opcode `0x51` reads a signed little-endian 16-bit value. The native resource
+parser now preserves the confirmed `+0x24` classification from final action
+plus raw flags; its image overload retains the established API, but the
+image/`0x51` metadata is not used as the selection filter.
 
 The runtime selection bytes are not part of the TRICKS.BIN source tables. The
 normal builder obtains a player slot through `FUN_004416050(index)`, whose base
 is `0x568a6c + index*0x104`, and passes `slot + 0xcc` to the four direct-group
-builder calls. The selection view stores mapped resource IDs at view-relative
-`+0x2b` and independent mapping indices at view-relative `+0x30`; for the
-normal slot these are physical `slot + 0xf7` and `slot + 0xfc`. The
-`FUN_004c36d0` path reads and updates those pairs through `FUN_00416340` and
-`FUN_00416380` while processing a loaded resource. Native configuration now
-keeps these arrays separate, and `RetailActionResourceSelection` models the
-confirmed lookup/update behavior: `0xff` empty resource slots, mapping-index
-replacement, duplicate-resource rejection, first-empty-slot insertion, and
-the `-1/0xff` resource-removal sentinel. `FUN_00416380` stores the mapping
-byte verbatim, including `0xff`; the trick-selection caller at
+builder calls. The selection view stores 0x2b direct resource IDs at view
+bytes `+0..+0x2a`; these are indexed by `DAT_00540cb8` static-combo ordinal.
+The four builder calls are group filters, not a four-byte storage width.
+Mapped resource IDs remain at view-relative `+0x2b` and independent mapping
+indices at view-relative `+0x30`; for the normal slot these are physical
+`slot + 0xf7` and `slot + 0xfc`. `FUN_004bbf00` now has a bounded native
+equivalent: each section-0 input record resolves its trailing stream key
+through the source records, ordinary records write `FUN_004bc7e0`'s
+static-combo ordinal through `FUN_00416230`, and high-bit records write
+`FUN_004bc900`'s mapping ordinal and source ID through `FUN_00416380`. The
+native session runs this derivation automatically when no explicit selection
+bytes are supplied.
+
+The `FUN_004c36d0` path separately reads and updates mapped pairs through
+`FUN_00416340` and `FUN_00416380` while processing a loaded resource. Native
+configuration keeps these arrays separate, and `RetailActionResourceSelection`
+models the confirmed lookup/update behavior: `0xff` empty resource slots,
+mapping-index replacement, duplicate-resource rejection, first-empty-slot
+insertion, and the `-1/0xff` resource-removal sentinel. `FUN_00416380` stores
+the mapping byte verbatim, including `0xff`; the trick-selection caller at
 `0x004c36d0` validates its resource-derived mapping value to `0..0x2a`
-before the update. These are selection-view offsets, not direct
-player-slot offsets: the normal setup passes `FUN_004416050(index)+0xcc`, so
-the mapped fields are physically slot `+0xf7/+0xfc`; the helper sees them as
-view-relative `+0x2b/+0x30`. The unresolved work is to connect the actual
-selection/config setup caller to this native object at the correct lifecycle
-point, rather than invent values from the archive. The lifecycle seam is now
-narrower: the setup constructor at `0x004c04de` selects either the special
-`0x0056a690` array or `FUN_004416050(mode)+0xcc` at object `+0x2154`, and the
-resource-processing path at `0x004c3bbd` enters `FUN_004c36d0` after validating
-the loaded resource. The remaining native equivalent is the loaded-resource
-name/index mapping, not a TRG loader.
+before the update. These are selection-view offsets, not direct player-slot
+offsets: the normal setup passes `FUN_004416050(index)+0xcc`, so the mapped
+fields are physically slot `+0xf7/+0xfc`; the helper sees them as
+view-relative `+0x2b/+0x30`. The remaining native equivalent is the
+loaded-resource name/index mapping and its lifecycle handoff, not the
+section-0 selection pass or a TRG loader. The setup constructor at
+`0x004c04de` still selects either the special `0x0056a690` array or
+`FUN_004416050(mode)+0xcc` at object `+0x2154`, and the resource-processing
+path at `0x004c3bbd` enters `FUN_004c36d0` after validating the loaded
+resource.
 
 The remaining live-selection bridge is now source-correlated. During the
 resource setup path, `0x004c3bbd` obtains a source-record index from
@@ -410,8 +508,9 @@ resource list, validates its type mask through `FUN_004c3350`, and uses the
 loaded record's `+0x08` value as the mapping candidate. When the source ID is
 not already installed, it calls `FUN_00416380` with the semantic pair
 `(resource_id = source-record index, mapping_index = loaded-resource +0x08)`.
-This is the concrete native bridge still needed for automatic mapped-action
-population; it is not a TRG record field or a level-script opcode.
+This is the concrete native bridge still needed for the live loaded-resource
+catalog path; it is not a TRG record field or a level-script opcode. The
+section-0/source-key selection pass is now separate and native.
 
 The native builder now exposes this bridge explicitly. `retail_action_resource_id_for_filter`
 implements the first-match `FUN_004bc330` scan over constructor `+0x24` filter
@@ -432,23 +531,27 @@ record, emits ordinary records for masks `0x1000`, `0x0800`, `0x2000`,
 five-entry mapping pass. `0x004bcdd0` emits the static player-combo map at
 `0x540e30`, copying the selected source record's `+0x20` and `+0x26` into the
 final stream-relative/flags pair; `0x004bcb70` handles ordinary filtering and
-`0x004bcc90` applies the four mask-selected groups. The remaining unresolved
-inputs are the runtime selection view at player record `+0xcc` and its mapped
-fields at view-relative `+0x2b`,
-plus the special alternate-resource path selected in versus mode. Static setup
-identifies the player record stride as `0x104`, the direct selection view as
-`slot + 0xcc`, the five mapped resource IDs as view `+0x2b` (physical slot
-`+0xf7`), and their independent mapping indices as view `+0x30` (physical
-slot `+0xfc`). They are explicit native inputs rather than guessed constants;
-the builder materializes them through the native selection object before applying the retail passes. The Warehouse session tests now exercise the real
-archive through this builder both with the optional groups unset (ordinary
-records) and with source resource ID `0` plus mapping index `0` (the mapped
-static pass), proving both generated-table branches before the matcher and
-stream resolver.
+`0x004bcc90` applies the four mask-selected groups. Static setup identifies
+the player record stride as `0x104`, the selection view as `slot + 0xcc`, the
+0x2b direct combo slots, the five mapped resource IDs as view `+0x2b`
+(physical slot `+0xf7`), and their independent mapping indices as view `+0x30`
+(physical slot `+0xfc`). The native selection builder now fills these bytes
+from the real section-0/source-record keys; explicit arrays remain available
+as a test/configuration override. The Warehouse session tests exercise the
+real archive through both automatic selection and an explicit mapped pair
+before the matcher and stream resolver. The alternate/special resource path
+and live catalog handoff remain open.
 
 ## Native C++ replay validation
 
 The portable implementation in `src/trg/trg_runtime.*` keeps the same relative offsets and node indices while replacing retail pointers with bounded spans and list indices. `src/trg/level_trigger_state.*` now supplies a deterministic renderer-independent state service for linked nodes, object flags, event ordering, retail timer-reset traces, restarts, and objective state. `src/trg/level_runtime.*` composes that service with PSX binding, scene entities, frame ticks, pulses, restarts, and catalog-backed resource requests. `src/assets/psx_asset.*` parses the scene-side fixed-point object/model tables, geometry, texture metadata/palettes, tags, and blockmaps. Running the TRG inspector against Warehouse alone reports:
+
+For each catalog-resolved resource request, `LevelRuntime::refresh_resource_bindings`
+now asks `PsxAssetCatalog` to parse the archive through its existing cache and
+retains the resulting object/model counts in `LevelResourceBinding`. This
+establishes the concrete `0x7e/0x7f/0x80` request -> resource parser edge;
+`0x81` and the implicit flushes still record lifecycle boundaries without
+pretending that native cache eviction is retail-equivalent.
 
 `GameplaySession::pulse_node()` and `pulse_checksum()` now expose that same
 dispatcher boundary to gameplay code: a node/checksum event executes the TRG
@@ -458,20 +561,21 @@ therefore exercised end to end in the session test (`node 141` -> `0x0d` ->
 linked-object visibility state), alongside the named restart path.
 
 ```text
-nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=0 scene_instances=0 scene_positioned=0 scene_entities=0 scene_static=0 scene_trigger=0 scene_bound=0 scene_unresolved=0 legacy=0 diagnostics=0
+nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=0 scene_instances=0 scene_positioned=0 scene_entities=0 scene_static=0 scene_trigger=0 scene_bound=0 scene_unresolved=0 legacy=0 diagnostics=37
 ```
 
 With `SKWARE.PSX` supplied, type-2/type-12 link keys bind to PSX model-name
 hashes and scene instances. The scene registry composes the 252 PSX static
-entities with 67 trigger-created entities:
+entities with 132 trigger-created entities:
 
 ```text
-nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=95 scene_instances=95 scene_positioned=95 scene_entities=384 scene_static=252 scene_trigger=132 scene_bound=95 scene_unresolved=132 legacy=0 diagnostics=2
+nodes=313 command_points=109 objects=53 pickups=12 positioned=130 oriented=65 restarts=9 resources=2 bound_models=95 scene_instances=95 scene_positioned=95 scene_entities=384 scene_static=252 scene_trigger=132 scene_bound=95 scene_unresolved=132 legacy=0 diagnostics=39
 ```
 
-The two diagnostics are type-2 keys `0xbd7ce256` and `0x3be890f8`; they do not
-occur in the Warehouse PSX model-name table and remain unresolved rather than
-being assigned a guessed model. The native PSX inspector parses all 282
+The PSX binding adds two diagnostics for type-2 keys `0xbd7ce256` and
+`0x3be890f8`; they do not occur in the Warehouse PSX model-name table and
+remain unresolved rather than being assigned a guessed model. The native PSX
+inspector parses all 282
 extracted PSX files successfully, including texture tables where present (for
 example `SKB1.PSX`: 186 objects, 186 models, 649 faces, 51 textures, 39 4bpp
 palettes, and 10 8bpp palettes). The optional `--warehouse-gaps` mode binds
@@ -484,8 +588,50 @@ The native spawn state also records the retail object-factory family selected
 by type-1/type-5/type-7 subtype: `0xcb` enters `FUN_00403000`, `0x192` enters
 `FUN_0049f250`, `0xd5` through `0xdc` enter the special-vehicle path at
 `FUN_00412640`, and type-5 records enter pickup construction at
-`FUN_004a8e50`. This is a class/factory correlation, not yet a claim that the
-native renderer has created the final object.
+`FUN_004a8e50`. The type-5 path is now asset-backed in C++ for the recovered
+unambiguous cases. Its subtype table records the retail resource region and
+model-name checksum; the catalog then resolves that checksum to the model
+index in `ITEMS.PSX` or `SKMEDALS.PSX` before scene entities are exposed.
+
+Warehouse node 17 is the concrete bridge:
+
+```text
+SKWARE_T.TRG +0x758, type 5, subtype 6
+  -> position (7673, -427, 12132), stored Q12 at the runtime object
+  -> FUN_004a8e50 -> FUN_004a7c50
+  -> resource "items", model-name 0x2ebf22ca
+  -> ITEMS.PSX model index 5
+```
+
+The native `TriggerObjectState` preserves the source node, subtype, Q12
+position, selected resource, checksum, and resolved catalog model index;
+`LevelSceneEntity` carries the same join into the renderer-independent scene
+registry, and `LevelRenderSnapshot` now loads the alternate model archive and
+emits its faces under the explicit resource/model namespace. The retail pickup
+factory boundary is now explicit: `FUN_004a8e50` allocates `0x100` bytes,
+`FUN_004a7c50` installs vtable `0x00519684`, and the constructor registers the
+object on `DAT_0056b830`. The native state records those facts as semantic
+factory metadata rather than treating a C++ object as a retail heap overlay.
+   On each `FUN_004a8ac0` update, `FUN_004a8300` first adds signed
+   `(+0x70/+0x72/+0x74) * DAT_0056865c >> 8` into wrapping 16-bit words at
+   `+0x14/+0x16/+0x18`; native state exposes that raw update through explicit
+   caller-supplied motion inputs. Intrusive list links, glow object, and
+   collection side effects remain bounded as follows: native state preserves
+   constructor visual byte `+0xd1` for known models, raw motion bytes `+0xd2/+0xd3`,
+   counts each `0x004a8ac0` update at the level tick boundary, and records the
+   confirmed lazy `+0xc8` glow transition. The frame/random producer, collision/
+   collection caller, and final renderer behavior remain explicit seams. The
+   raw motion and lifecycle words are now copied through `LevelSceneEntity` into
+   `LevelRenderSnapshot`, preserving the confirmed presentation inputs without
+   making the backend parse TRG or retail heap offsets.
+
+   The raw lifecycle path is now bounded separately. `FUN_004a8620` increments
+   `+0xfc`, decrements the `+0xf0` WORD except for sentinel `0xffff`, writes
+   `+0xec = update_count + (+0xf0 * +0xea) / 60` while the timer is below 60,
+   applies the global fade gates at `DAT_0056a8d4` bits 1 and 0, and calls the
+   pickup destructor when the timer reaches zero. C++ exposes these words and
+   the global fade byte through an explicit lifecycle-input setter; the
+   constructor-side producer of `+0xf0` is not inferred from a TRG subtype.
 
 For type-12/type-14 activation, `FUN_004bd760` allocates the compact runtime
 record with source node at `+0x08`, active byte at `+0x0a`, owner byte at
@@ -530,6 +676,14 @@ This is enough to name the central dispatcher Trig_CommandDispatch provisionally
 - The live Warehouse launch already confirms the command-point allocation, +0x00 stream pointer, and +0x07 pulse increment; repeat this capture only when validating a replacement executable identity.
 - Determine the precise meaning of target-object +0x04 bits 0x01 and 0x40; a flag watch around the linked type-2 objects would strengthen “visible/active.”
 - Correlate the remaining command-point opcode families, especially the deferred gap/player-position services and the live event callers for 0xcd goal filtering.
-- Recover the object factory and linked-object field meanings behind the type-1/5/7/12/14 node branches; the trigger dispatcher and static type-2/type-12 PSX join are now bounded, but their gameplay helpers still need their own evidence.
-- Type-10/type-11 state transitions are now mapped through FUN_004aa8c0/FUN_004aa420/FUN_004aa410; the remaining question is the larger factory/list behavior around those records and the separate type-12/type-14 FUN_004bdbd0 path.
+- Recover the remaining object factory and linked-object field meanings behind the type-1/5/7/12/14 node branches; allocation/list ownership, the Warehouse pickup join, and the static type-2/type-12 PSX join are now bounded, but their gameplay helpers still need their own evidence.
+- Type-10/type-11 state transitions, compact registration, and the source-node
+  contribution to the constructor's Q12 bounds are now mapped through
+  `FUN_004aa8c0`/`FUN_004aa420`/`FUN_004aa410`; direct alias selection and bound
+  expansion through `FUN_004aa220` are also represented. The remaining work is
+  the larger update/list behavior around those records.
+- Type-12/type-14 asset color updates are now arithmetic-mapped through
+  `FUN_004bdd00`; the remaining work is the live heap-object/player selection
+  policy in `FUN_004bdbd0` and the caller that supplies the process-local
+  palette mask/index.
 - The current evidence is for the retail PC build above. Do not reuse these addresses for the separate game/thps2-demo.exe build (3b39fd23...) without a new identity record.

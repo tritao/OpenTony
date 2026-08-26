@@ -37,6 +37,15 @@ struct PositionCollisionHit {
         const PositionCollisionHit&) = default;
 };
 
+// FUN_00497f40's first ground-vs-non-ground contact split compares the
+// collision normal's Y short against 0xccd (strictly greater). Keep this
+// predicate independent from trigger/material policy, which is owned by the
+// collision query and its face-mask options.
+inline constexpr std::int32_t kRetailGroundContactNormalYQ12 = 0xccd;
+
+[[nodiscard]] bool accepts_retail_ground_contact(
+    const PositionCollisionHit& hit) noexcept;
+
 using PositionCollisionQuery = std::function<std::optional<PositionCollisionHit>(
     const FixedPosition& start,
     const FixedPosition& end)>;

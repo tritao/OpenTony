@@ -60,19 +60,30 @@ std::int32_t fixed_dot_q12(
 
 std::int32_t retail_vector_speed_metric(
     const FixedPosition& vector) noexcept {
-    const std::int64_t sum =
-        static_cast<std::int64_t>(vector[0]) * vector[0]
-        + static_cast<std::int64_t>(vector[1]) * vector[1]
-        + static_cast<std::int64_t>(vector[2]) * vector[2];
-    const std::uint64_t scaled = sum > 0
-        ? static_cast<std::uint64_t>(sum) / kFixedOne
-        : 0;
-    const std::uint64_t magnitude = integer_sqrt(scaled);
+    const std::uint64_t magnitude =
+        static_cast<std::uint64_t>(retail_vector_magnitude_q12(vector));
     const std::uint64_t metric = magnitude * 0x40U;
     return metric > static_cast<std::uint64_t>(
         std::numeric_limits<std::int32_t>::max())
         ? std::numeric_limits<std::int32_t>::max()
         : static_cast<std::int32_t>(metric);
+}
+
+std::int32_t retail_vector_magnitude_q12(
+    const FixedPosition& vector) noexcept {
+    const auto square = [](std::int32_t value) noexcept {
+        const std::int64_t wide = value;
+        return static_cast<std::uint64_t>(wide * wide);
+    };
+    const std::uint64_t sum = square(vector[0])
+        + square(vector[1])
+        + square(vector[2]);
+    const std::uint64_t scaled = sum / kFixedOne;
+    const std::uint64_t magnitude = integer_sqrt(scaled);
+    return magnitude > static_cast<std::uint64_t>(
+        std::numeric_limits<std::int32_t>::max())
+        ? std::numeric_limits<std::int32_t>::max()
+        : static_cast<std::int32_t>(magnitude);
 }
 
 std::int32_t remove_normal_component(

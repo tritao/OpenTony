@@ -90,9 +90,14 @@ remain caller-owned until their writers are identified.
 `FUN_0049b500` masks the accumulated turn to a signed 12-bit angle, applies a
 Q12 yaw transform to the existing nine-short matrix, and `FUN_0049c7d0` copies
 its columns into the three basis groups at `+30f4`, `+3100`, and `+310c`.
-`PlayerState::update_ground_turn()` mirrors that orientation/basis handoff;
-`PlayerState::prepare_ground_basis_correction()` and
-`integrate_motion_correction()` then expose the confirmed basis-to-motion
+`PlayerState::update_ground_turn()` mirrors that orientation/basis handoff and
+retains the saved pre-frame matrix. For ordinary grounded state 0, the same
+retail call's nonzero response phase now transforms `+0x4c/+0x50/+0x54` after
+the candidate position add and restores its integer speed metric; the native
+regression is the Warehouse sample `(-2066, 0, 192364)`. The matrix-vector
+stage preserves retail truncation toward zero separately from the
+matrix-matrix arithmetic shift. `PlayerState::prepare_ground_basis_correction()`
+and `integrate_motion_correction()` then expose the confirmed basis-to-motion
 boundary. `integrate_position()` now implements the shared ground/air
 `velocity*dt + correction*dt^2/2` position producer. The actual acceleration,
 gravity, horizontal launch response, and state-specific collision branches

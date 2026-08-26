@@ -27,6 +27,26 @@ struct GameplaySessionConfig {
     FixedStepConfig fixed_step{};
     AirGravityConfig air_gravity{};
     bool apply_air_gravity{true};
+    // The grounded B010 correction producer is complete at its fixed-point
+    // boundary, but its profile-record source is still a caller-owned setup
+    // service. Enable it explicitly when that service is available.
+    bool apply_ground_motion{false};
+    std::optional<GroundMotionProfileRecords>
+        ground_motion_profile_records{};
+    GroundMotionProfileTable ground_motion_profile_table{};
+    // Compatibility override for callers that have only recovered the
+    // selected table value. The structured table above takes precedence in
+    // the normal path but this remains useful for isolated probes.
+    bool ground_motion_profile_table_value_nonzero{false};
+    // Enable B010's cooldown/rearm writes. Surface-response and RNG values
+    // are explicit because their collision/stat producers are not yet owned
+    // by GameplaySession.
+    bool apply_ground_motion_control{false};
+    std::int32_t ground_motion_surface_response_metric{0};
+    bool ground_motion_rearm_random_available{false};
+    std::int32_t ground_motion_rearm_random_roll{0};
+    // Explicit skater +0x107 input for B010's early animation-event write.
+    bool ground_motion_animation_event_enabled{false};
     // Optional PC TRICKS.BIN image. When set, the session exposes the
     // archive-backed action source to PlayerPhysicsFrame. The source-table
     // fallback is intentionally opt-in because the retail per-player table
@@ -37,19 +57,41 @@ struct GameplaySessionConfig {
     // table and section-5 resource database are available. The normal player
     // slot supplies the selection view at +0xcc; its mapped ID/index pairs
     // are view-relative +0x2b/+0x30 (physical slot +0xf7/+0xfc). These bytes
-    // are populated by the retail skater/resource setup path, so they remain
-    // explicit until that path is connected.
+    // are populated automatically from the selected section-0 table unless
+    // an explicit selection array is supplied below.
     bool use_tricks_retail_builder{false};
+    // Reproduce FUN_004bbf00 from the selected section-0 table when no
+    // explicit selection bytes are supplied. This fills the 0x2b direct
+    // static-combo slots and five mapped resource/index pairs from the real
+    // source-record keys.
+    bool auto_select_tricks_retail_resources{true};
     std::size_t tricks_player_index{0};
-    std::array<std::uint8_t, 4> tricks_direct_resource_ids{
-        0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> tricks_mapped_resource_ids{
+    std::array<std::uint8_t, kRetailDirectSelectionSlotCount>
+        tricks_direct_resource_ids = retail_empty_resource_ids<
+            kRetailDirectSelectionSlotCount>();
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        tricks_mapped_resource_ids{
         0xff, 0xff, 0xff, 0xff, 0xff};
-    std::array<std::uint8_t, 5> tricks_mapped_mapping_indices{
+    std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
+        tricks_mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
-    assets::PsxCollisionQueryOptions collision_query_options{};
-    bool apply_collision_response_bias{false};
+    // Ordinary player movement uses the masks and oriented plane test built
+    // by retail FUN_004660b0/FUN_00462a20. Special raycasts can still replace
+    // this with an explicitly constructed query policy.
+    assets::PsxCollisionQueryOptions collision_query_options =
+        assets::make_retail_collision_query_options({}, true);
+    // Enable the recovered strict normal-Y floor split for airborne hits.
+    // Face/material filtering remains controlled by collision_query_options.
+    bool classify_retail_air_contacts{true};
+    // Ordinary ground collision enters FUN_0049bad0 after a hit; enable its
+    // confirmed inward-response stage by default. Special state callers can
+    // disable this or provide a different hook at PlayerPhysicsFrame.
+    bool apply_collision_response_bias{true};
     std::int32_t collision_response_bias_q12{0xcd};
+    // DAT_00533f38 selects the type-12/type-14 linked traversal policy.
+    // Zero keeps the conservative default; mode 8 enables the recovered
+    // FUN_004bdbd0 link walk before the first autoexec pulse.
+    std::uint32_t special_runtime_game_mode{};
 };
 
 // Stable end-to-end observation for parity traces. It deliberately contains
@@ -81,6 +123,9 @@ struct GameplaySessionObservation {
     std::size_t action_stream_cursor{};
     std::uint32_t restart_auxiliary{};
     std::uint16_t restart_auxiliary_word{};
+    // Raw level-script writes to the live skater object (+0x3198/+0x319c).
+    // These are copied without interpreting the retail field meanings.
+    PlayerScriptSkaterFields script_skater_fields{};
 };
 
 // Owns the level, player, recovered frame ordering, and fixed-step clock in
@@ -175,6 +220,7 @@ private:
     GameplayFrameResult last_frame_{};
 
     void apply_restart_events(std::size_t event_start);
+    void sync_script_skater_fields() noexcept;
 };
 
 } // namespace opentony::runtime

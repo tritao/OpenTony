@@ -155,6 +155,23 @@ int main() {
     assert(opentony::assets::accepts_retail_collision_face(
         0x12340001U,
         retail_filter));
+    const auto default_retail_masks =
+        opentony::assets::make_retail_collision_query_options({});
+    assert(default_retail_masks.apply_retail_face_filter);
+    assert(!default_retail_masks.apply_retail_plane_test);
+    assert(default_retail_masks.reject_mask == 0x00200000U);
+    assert(default_retail_masks.accept_mask == 0xffffffffU);
+    const auto populated_retail_masks =
+        opentony::assets::make_retail_collision_query_options({
+            true,
+            true,
+            true,
+            true,
+            true,
+        }, true);
+    assert(populated_retail_masks.apply_retail_plane_test);
+    assert(populated_retail_masks.reject_mask == 0);
+    assert(populated_retail_masks.accept_mask == 0xffedffffU);
     assert(!world.trace_segment(
         {0, 4096, 0},
         {0, -4096, 0},

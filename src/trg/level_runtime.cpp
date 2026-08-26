@@ -23,6 +23,9 @@ void LevelRuntime::initialize(bool two_player, const GapTable* gap_table) {
     state_.set_gap_table(gap_table);
     runtime_.initialize(two_player);
     state_.bind_psx_models(archive_);
+    if (catalog_.has_value()) {
+        state_.resolve_pickup_assets(*catalog_);
+    }
     scene_.build(state_, archive_);
     if (catalog_.has_value()) {
         scene_.resolve_factory_assets(*catalog_);
@@ -97,6 +100,14 @@ void LevelRuntime::refresh_resource_bindings() {
                 path != nullptr) {
                 binding.asset_path = *path;
                 binding.asset_available = true;
+                // Keep the trigger resource boundary lazy at the catalog
+                // level, but make a requested resource's parse observable at
+                // the level-runtime boundary. PsxAssetCatalog owns the cache,
+                // so repeated script requests do not duplicate the archive.
+                const assets::PsxArchive& archive = catalog_->load(request.name);
+                binding.asset_loaded = true;
+                binding.asset_object_count = archive.objects().size();
+                binding.asset_model_count = archive.model_names().size();
             }
         }
         resources_.push_back(std::move(binding));

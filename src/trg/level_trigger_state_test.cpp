@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 using namespace opentony::trg;
@@ -148,6 +149,10 @@ void test_retail_link_target_filters() {
     LevelTriggerState state;
     state.on_spawn_node(1, 1, 0xcb, {0, 0, 0}, {});
     assert(state.object(1)->flags == 0x0041);
+    assert(state.object(1)->factory_allocation_size == 0x1f4);
+    assert(state.object(1)->factory_vtable == 0x005183b0);
+    assert(state.object(1)->factory_list == TriggerFactoryList::CommonObject);
+    assert(state.object(1)->factory_initial_activation_byte == 1);
     state.on_spawn_node(2, 5, 0, {0, 0, 0}, {});
     state.on_linked_node(3, 2, 0x1234, {});
     state.on_special_node(4, 12, {});
@@ -198,8 +203,14 @@ void test_type10_type11_pulse_and_kill_state() {
     assert(object->trigger_flags == 0x0042);
     assert(object->trigger_mode == 2);
     assert(object->trigger_state == 0);
+    assert(object->special_runtime_allocation_size == 0x28);
+    assert(object->special_runtime_vtable == 0x005196a4);
+    assert(object->special_runtime_list == TriggerSpecialRuntimeList::Type10Type11);
     assert(!object->active);
     assert(object->position == position);
+    assert(object->trigger_bounds.valid);
+    assert(object->trigger_bounds.minimum == position);
+    assert(object->trigger_bounds.maximum == position);
 
     state.on_node_pulse(4);
     assert(state.object(4)->trigger_state == 1);
@@ -212,6 +223,58 @@ void test_type10_type11_pulse_and_kill_state() {
     assert(!state.object(4)->killed);
 }
 
+void test_type10_type11_alias_bounds() {
+    std::vector<std::byte> source;
+    u16(source, 10);
+    u16(source, 1);
+    u16(source, 1);
+    u16(source, 0);
+    u32(source, 1);
+    u32(source, 2);
+    u32(source, 3);
+    u16(source, 0);
+
+    std::vector<std::byte> alias;
+    u16(alias, 11);
+    u16(alias, 0);
+    // With the source node above ending at absolute offset 46, the
+    // type-10/type-11 position rule aligns this node's coordinates to 52.
+    alias.insert(alias.end(), 2, std::byte{0});
+    u32(alias, static_cast<std::uint32_t>(-4));
+    u32(alias, static_cast<std::uint32_t>(-5));
+    u32(alias, static_cast<std::uint32_t>(-6));
+    u16(alias, 0);
+
+    LevelTriggerState state;
+    TriggerRuntime runtime(TrgFile::parse(make_file({
+        source,
+        alias,
+        {std::byte{0xff}, std::byte{0}},
+    })), state);
+    runtime.build();
+
+    const TriggerObjectState* object = state.object(0);
+    assert(object != nullptr);
+    assert(object->trigger_links == std::vector<std::uint16_t>{1});
+    assert(object->trigger_alias_nodes == std::vector<std::size_t>{1});
+    assert(object->has_trigger_alias_group);
+    assert(object->trigger_alias_group == 0);
+    assert(state.object(1)->has_trigger_alias_group);
+    assert(state.object(1)->trigger_alias_group == 1);
+    const std::array<std::int32_t, 3> expected_min{
+        -4 * 0x1000,
+        -5 * 0x1000,
+        -6 * 0x1000,
+    };
+    const std::array<std::int32_t, 3> expected_max{
+        1 << 12,
+        2 << 12,
+        3 << 12,
+    };
+    assert(object->trigger_bounds.minimum == expected_min);
+    assert(object->trigger_bounds.maximum == expected_max);
+}
+
 void test_type12_type14_runtime_activation() {
     LevelTriggerState state;
     state.set_special_runtime_context(2, 0x13579bdf);
@@ -220,6 +283,9 @@ void test_type12_type14_runtime_activation() {
     assert(object != nullptr);
     assert(object->has_special_runtime);
     assert(!object->special_runtime_active);
+    assert(object->special_runtime_allocation_size == 0x18);
+    assert(object->special_runtime_vtable == 0x0051982c);
+    assert(object->special_runtime_list == TriggerSpecialRuntimeList::Type12Type14);
     assert(object->link_key == 0xfeedcafe);
     state.on_node_pulse(8);
     assert(state.object(8)->special_runtime_active);
@@ -230,6 +296,96 @@ void test_type12_type14_runtime_activation() {
     assert(state.object(8)->special_asset_flags_or == 4);
     assert(state.object(8)->special_asset_marker == 0x202020);
     assert(state.object(8)->active);
+}
+
+void test_type12_type14_runtime_links() {
+    LevelTriggerState state;
+    state.on_linked_node(8, 12, 0xfeedcafe, {});
+    const std::array<std::uint16_t, 3> links{12, 14, 21};
+    state.on_special_runtime_links(8, 12, links);
+    assert(state.object(8)->special_runtime_links
+        == std::vector<std::uint16_t>({12, 14, 21}));
+}
+
+void test_type12_type14_runtime_link_policy() {
+    std::vector<std::byte> special_root;
+    u16(special_root, 12);
+    u16(special_root, 1);
+    u16(special_root, 1);
+    u16(special_root, 0);
+    u32(special_root, 0x11111111);
+    u16(special_root, 0xffff);
+
+    std::vector<std::byte> special_target;
+    u16(special_target, 12);
+    u16(special_target, 1);
+    u16(special_target, 2);
+    u32(special_target, 0x22222222);
+    u16(special_target, 0xffff);
+
+    std::vector<std::byte> object;
+    u16(object, 1);
+    u16(object, 0);
+    u16(object, 0);
+    u16(object, 0);
+    object.push_back(std::byte{2});
+    object.push_back(std::byte{4});
+    object.push_back(std::byte{0xff});
+    object.insert(object.end(), 24, std::byte{0});
+
+    LevelTriggerState state;
+    TriggerRuntime runtime(TrgFile::parse(make_file({
+        special_root,
+        special_target,
+        object,
+        {std::byte{0xff}, std::byte{0}},
+    })), state);
+    runtime.build();
+
+    runtime.pulse_node(0);
+    assert(state.object(0)->pulses == 1);
+    assert(state.object(1)->pulses == 0);
+    assert(state.object(2)->pulses == 0);
+
+    state.set_special_runtime_game_mode(8);
+    runtime.pulse_node(0);
+    assert(state.object(0)->pulses == 2);
+    // The root sends the direct special target through its activation helper;
+    // the guard prevents that target's own links from recursively traversing.
+    assert(state.object(1)->pulses == 1);
+    assert(state.object(2)->pulses == 0);
+}
+
+void test_type12_type14_animation_modes() {
+    const opentony::assets::PsxArchive archive =
+        opentony::assets::PsxArchive::parse(synthetic_psx(), "animation.psx");
+
+    LevelTriggerState palette_state;
+    palette_state.on_linked_node(8, 12, 0x1111, {});
+    palette_state.bind_psx_models(archive);
+    assert(palette_state.object(8)->has_asset_scene_position);
+    palette_state.set_special_runtime_palette_mask(8, 0x000000ffU);
+    palette_state.set_special_runtime_animation_mode(
+        TriggerSpecialAnimationMode::PaletteTriangle);
+    palette_state.on_node_pulse(8);
+    palette_state.advance_time(1000);
+    assert(palette_state.special_runtime_clock() == 60);
+    // x=10 raw PSX units floor to zero Q12 units; clock=60 produces phase 40.
+    // The low byte is preserved by the
+    // supplied 0xff mask, matching FUN_004bdd00's masked asset write.
+    assert(palette_state.object(8)->special_asset_marker == 0x00282820U);
+
+    LevelTriggerState compact_state;
+    compact_state.on_linked_node(8, 12, 0x1111, {});
+    compact_state.bind_psx_models(archive);
+    compact_state.set_special_runtime_context(1, 2000);
+    compact_state.set_special_runtime_animation_mode(
+        TriggerSpecialAnimationMode::CompactTriangle);
+    compact_state.on_node_pulse(8);
+    compact_state.advance_time(1000);
+    // control=2000 gives span=64, phase=20 at clock=60, then owner 1 writes
+    // the compact value into the asset's high color byte.
+    assert(compact_state.object(8)->special_asset_marker == 0x00542020U);
 }
 
 void test_dispatcher_field_writes() {
@@ -359,17 +515,72 @@ void test_objectives_and_timers() {
     assert(state.object(10)->factory_clears_object_flag_2);
     state.on_spawn_node(11, 5, 4, {4, 5, 6}, {});
     assert(state.object(11)->spawn_family == TriggerSpawnFamily::Pickup);
+    assert(state.object(11)->factory_allocation_size == 0x100);
+    assert(state.object(11)->factory_vtable == 0x00519684);
+    assert(state.object(11)->factory_list == TriggerFactoryList::Pickup);
+    assert(state.object(11)->pickup_resource == "items");
+    assert(state.object(11)->pickup_model_checksum == 0x2328a71c);
+    state.set_pickup_motion_inputs(
+        11,
+        {std::numeric_limits<std::int16_t>::max(),
+         std::numeric_limits<std::int16_t>::min(),
+         0},
+        {1, -2, 0x100},
+        0x100);
+    state.advance_time(16);
+    const std::array<std::int16_t, 3> expected_pickup_motion{
+        std::numeric_limits<std::int16_t>::min(),
+        32766,
+        0x100};
+    assert(state.object(11)->pickup_motion_words_14_18
+        == expected_pickup_motion);
+    state.set_pickup_lifecycle_inputs(11, 0x003c, 0x0032, 0x0032, 0);
+    state.advance_time(16);
+    assert(state.object(11)->pickup_timer_f0 == 0x003b);
+    assert(state.object(11)->pickup_phase_ec == 51);
+    assert(state.object(11)->pickup_update_calls == 2);
+    assert(state.object(11)->pickup_glow_present);
+    assert((state.object(11)->flags & 0x0041U) == 0x0041U);
+    state.set_pickup_lifecycle_inputs(11, 1, 0x0032, 0x0032, 0);
+    state.advance_time(16);
+    assert(state.object(11)->pickup_timer_f0 == 0);
+    assert(state.object(11)->pickup_update_calls == 3);
+    assert(!state.object(11)->alive);
+    assert(!state.object(11)->active);
+    state.on_spawn_node(14, 5, 0x664, {0, 0, 0}, {});
+    assert(state.object(14)->pickup_resource == "skmedals");
+    assert(state.object(14)->pickup_model_checksum == 0x54636518);
+    state.set_pickup_lifecycle_inputs(14, 0x003c, 0x0032, 0x0032, 0x02);
+    state.advance_time(16);
+    assert(state.object(14)->pickup_timer_f0 == 0x003b);
+    assert(state.object(14)->pickup_phase_ec == 50);
+    assert(!state.object(14)->active);
+    assert((state.object(14)->flags & 1U) == 0);
+    assert(!state.object(14)->pickup_glow_present);
+    state.on_spawn_node(15, 5, 33, {0, 0, 0}, {});
+    assert(state.object(15)->pickup_resource.empty());
+    assert(state.object(15)->pickup_model_checksum == 0);
     state.on_spawn_node(12, 1, 0x00d7, {7, 8, 9}, {});
     assert(state.object(12)->factory_resource == "c_bus");
     assert(state.object(12)->has_factory_model_selector);
     assert(state.object(12)->factory_model_selector == 0x121);
+    assert(state.object(12)->factory_allocation_size == 0x1e8);
+    assert(state.object(12)->factory_vtable == 0x005184e0);
+    assert(state.object(12)->factory_list == TriggerFactoryList::CommonObject);
     state.on_spawn_node_options(12, 7, {});
     assert(state.object(12)->factory_requires_environment_registration);
     assert(state.object(12)->factory_sets_object_flag_4);
 
     state.on_spawn_node(13, 1, 0x0192, {0, 0, 0}, {});
     assert(state.object(13)->spawn_family == TriggerSpawnFamily::Object192);
+    assert(state.object(13)->factory_allocation_size == 0x218);
+    assert(state.object(13)->factory_vtable == 0x005194f8);
+    assert(state.object(13)->factory_list == TriggerFactoryList::Object192);
     assert(state.object(13)->flags == 0x0111);
+
+    state.on_spawn_node(16, 7, 0x00cb, {0, 0, 0}, {});
+    state.on_spawn_node_options(16, 7, {});
+    assert((state.object(16)->flags & 0x0004U) != 0);
 
     state.set_career_flag(3);
     state.mark_goal_complete(5);
@@ -381,6 +592,7 @@ void test_scene_registry() {
     LevelTriggerState state;
     state.on_linked_node(7, 2, 0x1111, {});
     state.on_spawn_node(8, 1, 0x00cb, {100, 200, 300}, {});
+    state.on_special_node_state(9, 10, 0x0042, {400, 500, 600});
     const std::array<std::uint8_t, 2> scene_options{2, 4};
     state.on_spawn_node_options(8, 1, scene_options);
     const opentony::assets::PsxArchive archive =
@@ -390,9 +602,9 @@ void test_scene_registry() {
     LevelSceneRegistry scene;
     scene.build(state, archive);
     assert(scene.static_entity_count() == 2);
-    assert(scene.entities().size() == 3);
+    assert(scene.entities().size() == 4);
     assert(scene.bound_trigger_count() == 1);
-    assert(scene.unresolved_trigger_count() == 1);
+    assert(scene.unresolved_trigger_count() == 2);
     const LevelSceneBinding* linked = scene.binding(7);
     assert(linked != nullptr);
     assert(linked->bound_to_psx);
@@ -405,6 +617,15 @@ void test_scene_registry() {
         == std::vector<std::uint8_t>({2, 4}));
     assert(scene.entity(spawned->entities[0])->factory_clears_object_flag_2);
     assert(scene.entity(spawned->entities[0])->has_spawn_option_2);
+    const LevelSceneBinding* special = scene.binding(9);
+    assert(special != nullptr);
+    assert(!special->bound_to_psx);
+    const LevelSceneEntity* special_entity = scene.entity(special->entities[0]);
+    assert(special_entity != nullptr);
+    assert(special_entity->trigger_bounds.valid);
+    const std::array<std::int32_t, 3> special_bounds{400, 500, 600};
+    assert(special_entity->trigger_bounds.minimum == special_bounds);
+    assert(special_entity->trigger_bounds.maximum == special_bounds);
 
     const std::array<std::uint16_t, 1> links{7};
     state.on_visible(0, 1, links);
@@ -419,7 +640,11 @@ int main() {
     test_retail_link_target_filters();
     test_script_object_state();
     test_type10_type11_pulse_and_kill_state();
+    test_type10_type11_alias_bounds();
     test_type12_type14_runtime_activation();
+    test_type12_type14_runtime_links();
+    test_type12_type14_runtime_link_policy();
+    test_type12_type14_animation_modes();
     test_dispatcher_field_writes();
     test_objectives_and_timers();
     test_scene_registry();
