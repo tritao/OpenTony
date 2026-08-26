@@ -143,11 +143,11 @@ the wrapper; the query does not parse a file on each call.
   head. This is the source path for the per-cell object record that can be
   written to `q+0x68`; it is not interchangeable with the global
   `DAT_0056af40` root.
-- `DAT_00567f80` is used as the zone-table presence/base check by
-  `0x004660b0`; the loop index is multiplied by `0x660` before indexing this
-  table. Per-zone bounds are read from `entry+0x84`, `+0x88`, `+0x8c`, and
-  `+0x90`; `entry+0x94` is used as the grid-cell divisor and signed values at
-  `+0x9c/+0x9e` adjust cell coordinates. The candidate-list table at
+- `DAT_00567f80` is the base of the zone table used by `0x004660b0`; the loop
+  index is multiplied by `0x660` before indexing it. In each zone record the
+  presence word is at `+0x00`, bounds are at `+0x04/+0x08/+0x0c/+0x10`, the
+  grid-cell divisor is at `+0x14`, and signed cell counts are at
+  `+0x1c/+0x1e`. The candidate-list table at
   `DAT_00567fa0` is addressed with the exact index expression
   `zone*0x198 + cell_x*0x14 + cell_z`, then multiplied by four for a pointer
   load. Thus `0x198` is a stride in 32-bit candidate-pointer entries, and the
@@ -160,15 +160,33 @@ the wrapper; the query does not parse a file on each call.
   bounds/divisor/count fields into `DAT_00567f80`'s zone record, sets the zone
   presence flag, and populates the corresponding `DAT_00567fa0` candidate
   entries. Its per-cell input blocks have a recoverable intermediate shape:
-  `0x004667e0` reads a count at source `+0x08`, publishes a candidate-table
-  pointer to source `+0x0c`, converts that many raw entries in place, and then
-  skips one trailing zero word before advancing to the next cell. The raw
+  `0x004667e0` receives a serialized-zone buffer whose five-word header is
+  bounds at `+0x00..+0x0c` and packed cell counts at `+0x10`; cell blocks start
+  at `+0x14`. For each block it reads a count at block `+0x08`, publishes a
+  candidate-table pointer to block `+0x0c`, converts that many raw entries in
+  place, and then advances past one trailing zero word before the next cell.
+  The raw
   entry values are resolved through the kind-strided model table rooted at
   `DAT_0056d438`; after conversion they are the linked-object pointers later
   consumed by `0x004638d0`. The first two words of each source block remain
   unknown. This is the strongest recovered zone/candidate-table ownership
   boundary; it still does not expose the file serialization or allocator
   interface.
+- A targeted runtime probe confirmed that boundary in the Hangar load. The
+  call from `0x004b29e6` returned at `0x004b29eb` with source buffer
+  `0x05dd2dfc`; after the loader's diagnostic/argument setup, `ESI=0` and
+  `EBX=0x05dd2dfc`. The source prefix was
+  `fe3ca000, fd669000, 045cf00c, 0386e00c, 00140014`, i.e. signed bounds
+  `[-29581312,-43610112]..[73199628,59170828]` and packed `20x20` cell
+  counts. The live zone prefix changed from absent to present and contained
+  those bounds, divisor `5139047`, and counts `20,20`. The candidate table
+  changed from null entries to populated pointers; entry zero was
+  `source+0x20`, and the first three cell-block cursors were
+  `source+0x14`, `source+0x24`, and `source+0x3c`, demonstrating the
+  count-dependent block size. The first published candidate view began with
+  `[0,0,0,2,46,47,0,0]`, so this probe also confirms that the published
+  pointer is an array view over the source cell's trailing/succeeding words,
+  not a separately allocated object header.
 - Model-kind table population is a separate loader stage. The routine
   `0x00420fa0` reads a kind/index field from its object, stores the returned
   model pointer at the kind-strided table rooted at `DAT_0056d43c`, advances
@@ -581,6 +599,7 @@ position               = [-4100096, -6782976, 9408512]  (signed fixed32)
 angles                 = [0, 0, 0]
 model index/kind        = 171 / 6
 next                   = 0x05f2e890
+```
 
 The next 15 records were contiguous at a 0x4c-byte link-to-link stride, with
 model indices 172 through 186 and the same model kind 6. The observed flags
@@ -596,7 +615,6 @@ whose first 32 records were mostly model kind 4; `DAT_0056af44` was null. The
 winning `q+0x68` value was `0x05f2e844`, outside that root chain, and matched
 the per-cell candidate-list object chain above. This runtime separation keeps
 the two linked-list owners distinct in the native reconstruction.
-```
 
 The first hit also exposed model data at `0x05db86b4`, through the kind-6
 table at `0x05da6d18`, with 14 vertices, 6 normals, 6 faces and normal
@@ -688,8 +706,9 @@ basis used by normal finalization is covered by `build_object_rotation_basis`.
   run that deliberately holds a jump and moves across multiple surfaces.
 - Resolve the face-record flag bits before assigning material names, and map
   the PC globals onto the original `COLRESULT_*` concepts where possible.
-- Capture the loader call that creates/populates the linked records and map its
-  model-kind table ownership; the collision query itself now has a concrete
-  runtime-backed node ABI.
-- Keep the level-zone globals and cache labels provisional until a loader-side
-  experiment ties them to a specific in-memory level object.
+- Map the complete caller-specific stack protocol around the two loader
+  callsites if a drop-in PC loader is required; the collision-facing source
+  prefix and table handoff are now runtime-confirmed.
+- Keep the unresolved tail of each 0x660-byte zone record and the allocator
+  interface provisional; the runtime loader experiment now ties the active
+  zone/table globals to a specific serialized-zone buffer.

@@ -157,6 +157,48 @@ types:
         type: fixed32
         confidence: observed
 
+  - name: CollisionZoneGridRecord
+    size: 0x20
+    confidence: strong
+    description: >-
+      Collision-facing prefix of one 0x660-byte zone-table record at
+      DAT_00567f80 + zone_index*0x660. The remaining bytes in the stride are
+      not typed here.
+    fields:
+      - offset: 0x00
+        name: present
+        type: uint32
+        confidence: observed
+        evidence: [re/evidence/functions/collision.md]
+      - offset: 0x04
+        name: min_x
+        type: fixed32
+        confidence: observed
+      - offset: 0x08
+        name: min_z
+        type: fixed32
+        confidence: observed
+      - offset: 0x0c
+        name: max_x
+        type: fixed32
+        confidence: observed
+      - offset: 0x10
+        name: max_z
+        type: fixed32
+        confidence: observed
+      - offset: 0x14
+        name: cell_divisor
+        type: fixed32
+        confidence: observed
+      - offset: 0x1c
+        name: cell_count_x
+        type: int16
+        confidence: observed
+      - offset: 0x1e
+        name: cell_count_z
+        type: int16
+        confidence: observed
+
   - name: SLineInfo
     aliases:
       - CollisionLineQuery

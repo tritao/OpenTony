@@ -38,7 +38,11 @@ sys.modules["knowledge"] = generated_knowledge
 
 from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
-from opentony.collision import _linked_object_snapshots
+from opentony.collision import (
+    _candidate_source_snapshot,
+    _linked_object_snapshots,
+    _zone_entry_snapshot,
+)
 from opentony.frame import FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -141,6 +145,52 @@ def test_collision_probe_reads_bounded_linked_object_prefix():
     assert snapshot["nodes"][0]["model_index"] == 171
     assert snapshot["nodes"][0]["previous"] is None
     assert snapshot["nodes"][1]["next"] is None
+
+
+def test_collision_loader_source_snapshot_reads_counted_entries_and_terminator():
+    inferior = FakeInferior()
+    source = 0x700
+    struct.pack_into("<3I", inferior.data, source, 0x10, 0x20, 2)
+    struct.pack_into("<3I", inferior.data, source + 0x0C, 0x1111, 0x2222, 0)
+
+    snapshot = _candidate_source_snapshot(source, Memory(inferior))
+
+    assert snapshot is not None
+    assert snapshot["entry_count"] == 2
+    assert snapshot["entries"] == [0x1111, 0x2222]
+    assert snapshot["terminator"] == 0
+
+
+def test_collision_loader_zone_snapshot_uses_live_prefix_offsets():
+    inferior = FakeInferior()
+    zone = 0x1000
+    struct.pack_into(
+        "<I4iI4x2h",
+        inferior.data,
+        zone,
+        1,
+        -10,
+        -20,
+        30,
+        40,
+        5,
+        20,
+        20,
+    )
+
+    snapshot = _zone_entry_snapshot(zone, Memory(inferior))
+
+    assert snapshot == {
+        "address": "0x00001000",
+        "present_word": 1,
+        "min_x": -10,
+        "min_z": -20,
+        "max_x": 30,
+        "max_z": 40,
+        "cell_divisor": 5,
+        "cell_count_x": 20,
+        "cell_count_z": 20,
+    }
 
 
 def test_entry_call_context_reads_stack_arguments_and_this_pointer():

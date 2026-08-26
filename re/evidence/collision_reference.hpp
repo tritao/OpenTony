@@ -261,13 +261,13 @@ inline std::optional<std::size_t> linked_collision_object_array_bytes(
 }
 
 struct CollisionZoneGrid {
-    Raw min_x = 0;             // zone +0x84
-    Raw min_z = 0;             // zone +0x88
-    Raw max_x = 0;             // zone +0x8c
-    Raw max_z = 0;             // zone +0x90
-    Raw cell_divisor = 0;      // zone +0x94
-    std::int16_t cell_count_x = 0;  // zone +0x9c
-    std::int16_t cell_count_z = 0;  // zone +0x9e
+    Raw min_x = 0;             // zone table +0x04
+    Raw min_z = 0;             // zone table +0x08
+    Raw max_x = 0;             // zone table +0x0c
+    Raw max_z = 0;             // zone table +0x10
+    Raw cell_divisor = 0;      // zone table +0x14
+    std::int16_t cell_count_x = 0;  // zone table +0x1c
+    std::int16_t cell_count_z = 0;  // zone table +0x1e
 };
 
 inline bool zone_overlaps_query(const CollisionZoneGrid& zone,

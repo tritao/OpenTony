@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gdb
+
 from .breakpoint import Context, TonyBreakpoint
 from .knowledge import function_name_at
 from .player import PlayerView
@@ -15,6 +17,10 @@ COLLISION_ZONE_TABLE = 0x00567F80
 COLLISION_CANDIDATE_TABLE = 0x00567FA0
 COLLISION_FACE_CACHE = 0x005643B0
 COLLISION_MODEL_CACHE = 0x00567A70
+ZONE_LOADER = 0x004667E0
+ZONE_LOADER_AFTER_ARGS = 0x0046682E
+ZONE_LOADER_FIRST_CELL = 0x0046697A
+ZONE_LOADER_RETURN_SITES = (0x0043E041, 0x004B29EB)
 
 
 def _signed16(value: int) -> int:
@@ -95,18 +101,18 @@ def _linked_object_snapshots(root: int | None, memory, limit: int = 32) -> dict:
 
 
 def _zone_entry_snapshot(address: int, memory) -> dict | None:
-    if not memory.valid(address + 0x9F):
+    if not memory.valid(address + 0x1F):
         return None
     return {
         "address": f"0x{address:08x}",
         "present_word": memory.u32(address),
-        "min_x": memory.u32(address + 0x84),
-        "min_z": memory.u32(address + 0x88),
-        "max_x": memory.u32(address + 0x8C),
-        "max_z": memory.u32(address + 0x90),
-        "cell_divisor": memory.u32(address + 0x94),
-        "cell_count_x": memory.u16(address + 0x9C),
-        "cell_count_z": memory.u16(address + 0x9E),
+        "min_x": _signed32(memory.u32(address + 0x04)),
+        "min_z": _signed32(memory.u32(address + 0x08)),
+        "max_x": _signed32(memory.u32(address + 0x0C)),
+        "max_z": _signed32(memory.u32(address + 0x10)),
+        "cell_divisor": _signed32(memory.u32(address + 0x14)),
+        "cell_count_x": _signed16(memory.u16(address + 0x1C)),
+        "cell_count_z": _signed16(memory.u16(address + 0x1E)),
     }
 
 
@@ -129,6 +135,84 @@ def _scene_roots(memory) -> dict:
         "face_cache_base": f"0x{COLLISION_FACE_CACHE:08x}",
         "model_cache_base": f"0x{COLLISION_MODEL_CACHE:08x}",
     }
+
+
+def _safe_entry_args(ctx: Context, count: int = 3) -> list[int | None]:
+    values: list[int | None] = []
+    for index in range(count):
+        try:
+            values.append(ctx.arg(index))
+        except (gdb.error, gdb.GdbError):  # GDB may reject a partial entry stack.
+            values.append(None)
+    return values
+
+
+def _candidate_source_snapshot(address: int | None, memory, preview: int = 8) -> dict | None:
+    """Read a bounded view of one loader source-cell block."""
+
+    if not address or not memory.readable(address, 0x0C):
+        return None
+    count = memory.u32(address + 0x08)
+    result = {
+        "address": f"0x{address:08x}",
+        "header_words": _u32_words(address, 3, memory),
+        "entry_count": count,
+        "entries": [],
+        "entries_truncated": count > preview,
+        "terminator": None,
+    }
+    readable_count = min(count, preview)
+    if readable_count and not memory.readable(address + 0x0C, readable_count * 4):
+        result["entries_unreadable"] = True
+        return result
+    result["entries"] = [memory.u32(address + 0x0C + index * 4)
+                          for index in range(readable_count)]
+    terminator_address = address + 0x0C + count * 4
+    if count <= 0x1000 and memory.readable(terminator_address, 4):
+        result["terminator"] = memory.u32(terminator_address)
+    return result
+
+
+def _loader_input_snapshot(ctx: Context) -> dict | None:
+    """Capture the bounded serialized-zone prefix passed to 0x004667e0."""
+
+    args = _safe_entry_args(ctx)
+    if len(args) < 2 or not args[1]:
+        return None
+    address = args[1]
+    return {
+        "address": f"0x{address:08x}",
+        "header_words": _u32_words(address, 5, ctx.memory),
+        "first_cell_base": f"0x{address + 0x14:08x}",
+        "first_cell_words": _u32_words(address + 0x14, 8, ctx.memory),
+        "first_candidate_base": f"0x{address + 0x20:08x}",
+        "first_candidate_words": _u32_words(address + 0x20, 8, ctx.memory),
+    }
+
+
+def _candidate_table_snapshot(memory, count: int = 8) -> dict:
+    entries = []
+    for index in range(count):
+        address = COLLISION_CANDIDATE_TABLE + index * 4
+        if not memory.readable(address, 4):
+            break
+        pointer = memory.u32(address)
+        item = {"index": index, "pointer": f"0x{pointer:08x}" if pointer else None}
+        if pointer:
+            item["heads"] = _u32_words(pointer, 8, memory)
+        entries.append(item)
+    return {"address": f"0x{COLLISION_CANDIDATE_TABLE:08x}", "entries": entries}
+
+
+def _zone_table_snapshot(memory, indexes=(0, 1, 6)) -> list[dict]:
+    result = []
+    for index in indexes:
+        address = COLLISION_ZONE_TABLE + index * 0x660
+        snapshot = _zone_entry_snapshot(address, memory)
+        if snapshot is not None:
+            snapshot["index"] = index
+            result.append(snapshot)
+    return result
 
 
 def _collision_model_geometry(model: int, face: int, model_index: int, memory) -> dict | None:
@@ -327,3 +411,119 @@ class _CollisionQueryReturn(TonyBreakpoint):
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx)
+
+
+class CollisionLoaderProbe:
+    """Capture the bounded level-loader handoff into zone/candidate globals."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self._entry = _CollisionLoaderEntry(self)
+        self._stages = [
+            _CollisionLoaderStage(self, ZONE_LOADER_AFTER_ARGS, "after_args"),
+            _CollisionLoaderStage(self, ZONE_LOADER_FIRST_CELL, "first_cell"),
+        ]
+        self._returns = [_CollisionLoaderReturn(self, address)
+                         for address in ZONE_LOADER_RETURN_SITES]
+        self._pending: list[dict] = []
+
+    @property
+    def breakpoints(self):
+        return (self._entry, *self._stages, *self._returns)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        self._pending.append(
+            {
+                "caller": ctx.caller(),
+                "caller_function": function_name_at(ctx.caller()),
+                "this": f"0x{ctx.this_ptr():08x}" if ctx.this_ptr() else None,
+                "args": _safe_entry_args(ctx),
+                "registers": {
+                    name: ctx.register(name)
+                    for name in ("eax", "ebx", "ecx", "edx", "esi", "edi", "ebp")
+                },
+                "entry_stack_words": _u32_words(ctx.esp, 16, ctx.memory),
+                "loader_input": _loader_input_snapshot(ctx),
+                "zone_before": _zone_entry_snapshot(COLLISION_ZONE_TABLE, ctx.memory),
+                "zone_table_before": _zone_table_snapshot(ctx.memory),
+                "candidate_before": _candidate_table_snapshot(ctx.memory),
+            }
+        )
+
+    def stage(self, ctx: Context, name: str) -> None:
+        if not self._pending:
+            return
+        stages = self._pending[-1].setdefault("stages", [])
+        if name == "first_cell" and sum(stage["name"] == name for stage in stages) >= 3:
+            return
+        stages.append(
+            {
+                "name": name,
+                "eip": ctx.register("eip"),
+                "registers": {
+                    register: ctx.register(register)
+                    for register in ("eax", "ebx", "ecx", "edx", "esi", "edi", "ebp")
+                },
+                "stack_words": _u32_words(ctx.esp, 20, ctx.memory),
+                "esi_words": _u32_words(ctx.register("esi"), 16, ctx.memory),
+                "ebx_words": _u32_words(ctx.register("ebx"), 16, ctx.memory),
+            }
+        )
+
+    def finish(self, ctx: Context, return_site: int) -> None:
+        if not self._pending:
+            return
+        active = self._pending.pop(0)
+        record = {
+            "type": "collision_loader",
+            "function": "Collision_ZoneLoader",
+            "address": f"0x{ZONE_LOADER:08x}",
+            "return_site": f"0x{return_site:08x}",
+            **active,
+            "zone_after": _zone_entry_snapshot(COLLISION_ZONE_TABLE, ctx.memory),
+            "zone_table_after": _zone_table_snapshot(ctx.memory),
+            "candidate_after": _candidate_table_snapshot(ctx.memory),
+            "model_table_kind0": _global_u32(COLLISION_MODEL_TABLE, ctx.memory),
+        }
+        self._emit(record)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                for breakpoint in self.breakpoints:
+                    breakpoint.enabled = False
+
+
+class _CollisionLoaderEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionLoaderProbe):
+        self.owner = owner
+        super().__init__(ZONE_LOADER, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionLoaderStage(TonyBreakpoint):
+    def __init__(self, owner: CollisionLoaderProbe, address: int, name: str):
+        self.owner = owner
+        self.name = name
+        super().__init__(address, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.stage(ctx, self.name)
+
+
+class _CollisionLoaderReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionLoaderProbe, address: int):
+        self.owner = owner
+        self.return_site = address
+        super().__init__(address, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx, self.return_site)
