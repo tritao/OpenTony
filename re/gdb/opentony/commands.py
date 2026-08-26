@@ -12,7 +12,17 @@ from .breakpoint import CountingBreakpoint, TonyBreakpoint
 from .frame import FrameBreakpoint, frame_clock
 from .knowledge import BUILD_SHA256, GLOBALS, known_function_addresses
 from .memory import mem
-from .physics import PhysicsProbe, PlayerDiffProbe
+from .physics import (
+    AirCollisionQueryProbe,
+    InAirHandlerProbe,
+    MovementPhysicsProbe,
+    PhysicsProbe,
+    PhysicsStateRequestProbe,
+    PhysicsStateWriterProbe,
+    OllieLatchProbe,
+    OLLIE_LATCH_WRITERS,
+    PlayerDiffProbe,
+)
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
@@ -28,6 +38,14 @@ THPS2_LEVELS = {
 
 ACTION_STATE_BASE = GLOBALS["InputActionStates"]
 ACTION_STATE_RECORDS = {
+    "jump": (ACTION_STATE_BASE, 0x0010),
+    "grind": (ACTION_STATE_BASE + 0x10, 0x0080),
+    "grab": (ACTION_STATE_BASE + 0x20, 0x0020),
+    "kick": (ACTION_STATE_BASE + 0x30, 0x0040),
+    "spinleft": (ACTION_STATE_BASE + 0x40, 0x0004),
+    "nollie": (ACTION_STATE_BASE + 0x50, 0x0001),
+    "spinright": (ACTION_STATE_BASE + 0x60, 0x0008),
+    "switch": (ACTION_STATE_BASE + 0x70, 0x0002),
     "left": (ACTION_STATE_BASE + 0x80, 0x8000),
     "right": (ACTION_STATE_BASE + 0x90, 0x2000),
     "up": (ACTION_STATE_BASE + 0xA0, 0x1000),
@@ -81,6 +99,7 @@ _PLAYER_WATCH_FIELDS = {
     "position_history.y": 0xC0,
     "position_history.z": 0xC4,
     "physics_state": 0x30B8,
+    "previous_physics_state": 0x30C0,
     "unknown_state": 0x30C4,
 }
 
@@ -335,20 +354,25 @@ class TonyTHPS2Breakpoint(gdb.Command):
 
 
 class TonySkipMovieBreakpoint(TonyBreakpoint):
-    """Return immediately from the blocking startup-movie routine."""
+    """Return immediately from either Bink movie entry path."""
 
-    def __init__(self):
-        address = THPS2_ADDRESSES["movie_play"][0]
+    def __init__(self, address: int):
+        # PCMovie_PlayGameFMV (0x004e7090) is only the outer formatter/loader.
+        # Startup calls the blocking wrapper at 0x004e5ec0, while level-select
+        # and other frontend FMVs call the Bink setup routine 0x004e6590
+        # directly.  Both must be bypassed for frontend-driven experiments.
         super().__init__(address, internal=True)
 
     def on_hit(self, ctx):
         return_address = ctx.return_address()
+        # Both callers treat a false return as “movie unavailable/skipped”.
+        gdb.execute("set $eax = 0")
         gdb.execute(f"set $eip = 0x{return_address:x}")
         gdb.execute(f"set $esp = 0x{ctx.esp + 4:x}")
         _write(f"skipped movie playback; returning to 0x{return_address:08x}")
 
 
-_movie_skip_breakpoint = None
+_movie_skip_breakpoints = []
 
 
 class TonySkipMovies(gdb.Command):
@@ -358,15 +382,16 @@ class TonySkipMovies(gdb.Command):
         super().__init__("tony-skip-movies", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        global _movie_skip_breakpoint
+        global _movie_skip_breakpoints
         if arg.strip():
             raise gdb.GdbError("usage: tony-skip-movies")
-        if _movie_skip_breakpoint is not None and _movie_skip_breakpoint.is_valid():
+        if _movie_skip_breakpoints and all(bp.is_valid() for bp in _movie_skip_breakpoints):
             _write("startup movie bypass is already enabled")
             return
-        _movie_skip_breakpoint = TonySkipMovieBreakpoint()
-        address = THPS2_ADDRESSES["movie_play"][0]
-        _write(f"startup movie bypass enabled at 0x{address:08x}")
+        addresses = (0x004E5EC0, 0x004E6590)
+        _movie_skip_breakpoints = [TonySkipMovieBreakpoint(address) for address in addresses]
+        formatted = ", ".join(f"0x{address:08x}" for address in addresses)
+        _write(f"startup movie bypass enabled at {formatted}")
 
 
 class TonyForceLevelBreakpoint(CountingBreakpoint):
@@ -546,6 +571,116 @@ class TonyInputSample(gdb.Command):
             raise gdb.GdbError(f"could not prepare input sample {path}: {exc}") from exc
         TonyInputSampleBreakpoint(count, path, writer=_trace_writer)
         _write(f"input sampling armed for {count} post-poll hits -> {path}")
+
+
+class TonyActionEdgeBreakpoint(TonyBreakpoint):
+    """Inject one named action after the live mask is built.
+
+    The delay is measured in the shared physics frames, not breakpoint hits.
+    That keeps a requested edge out of shell/level-loading input updates when
+    the breakpoint is armed before the playable loop exists.
+    """
+
+    ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
+    AFTER_ACTION_MASK_BUILD = 0x00489A15
+
+    def __init__(self, action: str, delay=0, hold=1, writer=None):
+        try:
+            _address, action_mask = ACTION_STATE_RECORDS[action]
+        except KeyError as exc:
+            raise gdb.GdbError(f"unknown action {action!r}") from exc
+        super().__init__(self.AFTER_ACTION_MASK_BUILD, internal=True)
+        self.action = action
+        self.action_mask = action_mask
+        self.delay = delay
+        self.hold = hold
+        self.injected = False
+        self.writer = writer
+
+    def on_hit(self, ctx):
+        if ctx.frame < self.delay:
+            return
+        if self.hold <= 0:
+            self.enabled = False
+            return
+        # 0x00489a15 is the instruction immediately after the poll/build
+        # call and immediately before the action-state records consume the
+        # returned mask.  This produces one held action frame; the next live
+        # poll supplies the release/zero mask normally.
+        mem.write(self.ACTION_MASK_ADDRESS, self.action_mask.to_bytes(2, "little"))
+        record = {
+            "type": f"{self.action}_edge_injection" if not self.injected else f"{self.action}_hold_update",
+            "frame": ctx.frame,
+            "eip": f"0x{ctx.eip:08x}",
+            "action_mask_address": f"0x{self.ACTION_MASK_ADDRESS:08x}",
+            "action": self.action,
+            "action_mask": self.action_mask,
+            "action_state_address": f"0x{ACTION_STATE_BASE:08x}",
+            "action_state_bit": self.action_mask,
+            "hold_updates": self.hold,
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        self.hold -= 1
+        self.injected = True
+        if self.hold <= 0:
+            self.enabled = False
+
+
+class TonyActionEdge(gdb.Command):
+    """tony-action-edge ACTION [DELAY [HOLD]] -- inject a bounded action."""
+
+    def __init__(self):
+        super().__init__("tony-action-edge", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-action-edge ACTION [DELAY [HOLD]]")
+        if len(values) not in (1, 2, 3):
+            raise gdb.GdbError("usage: tony-action-edge ACTION [DELAY [HOLD]]")
+        action = values[0].casefold()
+        delay = _integer(values[1]) if len(values) > 1 else 0
+        hold = _integer(values[2]) if len(values) > 2 else 1
+        if delay < 0:
+            raise gdb.GdbError("DELAY must not be negative")
+        if hold <= 0:
+            raise gdb.GdbError("HOLD must be positive")
+        breakpoint = TonyActionEdgeBreakpoint(action, delay=delay, hold=hold, writer=_trace_writer)
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            f"one-shot {action.upper()} edge armed at 0x{breakpoint.address:08x}; "
+            f"mask 0x{breakpoint.action_mask:04x}; "
+            f"delay {delay} physics frames, hold {hold} input updates"
+        )
+
+
+class TonyJumpEdge(gdb.Command):
+    """Compatibility alias for tony-action-edge jump [DELAY [HOLD]]."""
+
+    def __init__(self):
+        super().__init__("tony-jump-edge", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        try:
+            values = shlex.split(arg)
+        except ValueError as exc:
+            raise gdb.GdbError(f"invalid arguments: {exc}") from exc
+        if len(values) > 2:
+            raise gdb.GdbError("usage: tony-jump-edge [DELAY [HOLD]]")
+        delay = _integer(values[0]) if values else 0
+        hold = _integer(values[1]) if len(values) > 1 else 1
+        if delay < 0:
+            raise gdb.GdbError("DELAY must not be negative")
+        if hold <= 0:
+            raise gdb.GdbError("HOLD must be positive")
+        breakpoint = TonyActionEdgeBreakpoint("jump", delay=delay, hold=hold, writer=_trace_writer)
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            f"one-shot JUMP edge armed at 0x{breakpoint.address:08x}; "
+            f"mask 0x{breakpoint.action_mask:04x}; delay {delay} physics frames, "
+            f"hold {hold} input updates"
+        )
 
 
 def _watch_limit(values: list[str], usage: str, *, default_limit: int | None) -> tuple[list[str], int | None]:
@@ -788,6 +923,122 @@ class TonyPhysicsProbe(gdb.Command):
         _write(f"physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonyMovementPhysicsProbe(gdb.Command):
+    """tony-movement-physics-probe [COUNT] -- log action/velocity handoff."""
+
+    def __init__(self):
+        super().__init__("tony-movement-physics-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-movement-physics-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-movement-physics-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = MovementPhysicsProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"movement physics probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyInAirProbe(gdb.Command):
+    """tony-in-air-probe [COUNT] -- log candidate in-air handler entries."""
+
+    def __init__(self):
+        super().__init__("tony-in-air-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-in-air-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-in-air-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = InAirHandlerProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"in-air handler probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyAirCollisionProbe(gdb.Command):
+    """tony-air-collision-probe [COUNT] -- log raw in-air cast results."""
+
+    def __init__(self):
+        super().__init__("tony-air-collision-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-air-collision-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-air-collision-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = AirCollisionQueryProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"air-collision probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyPhysicsStateRequestProbe(gdb.Command):
+    """tony-physics-state-requests [COUNT] -- log state requests and reasons."""
+
+    def __init__(self):
+        super().__init__("tony-physics-state-requests", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-physics-state-requests [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-physics-state-requests [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = PhysicsStateRequestProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"physics state-request probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyPhysicsStateWriterProbe(gdb.Command):
+    """tony-physics-state-writers [COUNT] -- log the exact +0x30b8 store."""
+
+    def __init__(self):
+        super().__init__("tony-physics-state-writers", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-physics-state-writers [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-physics-state-writers [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = PhysicsStateWriterProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} observations"
+        _write(f"physics state-writer probe armed {limit} at 0x{probe.address:08x}")
+
+
+class TonyOllieLatchProbe(gdb.Command):
+    """tony-ollie-latch-probe [COUNT] -- log exact ollie latch PCs."""
+
+    def __init__(self):
+        super().__init__("tony-ollie-latch-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(arg, "tony-ollie-latch-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-ollie-latch-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address in OLLIE_LATCH_WRITERS:
+            probe = OllieLatchProbe(address, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        pcs = ", ".join(f"0x{address:08x}" for address in OLLIE_LATCH_WRITERS)
+        limit = "until disabled" if count is None else f"for {count} hits per PC"
+        _write(f"ollie latch probes armed {limit}: {pcs}")
+
+
 class TonyPlayerDiff(gdb.Command):
     """tony-player-diff [COUNT] -- log changed player words at physics dispatch."""
 
@@ -854,6 +1105,8 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyPlayerSample()
     TonyInputSample()
+    TonyActionEdge()
+    TonyJumpEdge()
     TonyWatch()
     TonyWatchOnce()
     TonyWatchBatch()
@@ -863,6 +1116,12 @@ def register_commands() -> None:
     TonyTraceClose()
     TonyFrameClock()
     TonyPhysicsProbe()
+    TonyMovementPhysicsProbe()
+    TonyInAirProbe()
+    TonyAirCollisionProbe()
+    TonyPhysicsStateRequestProbe()
+    TonyPhysicsStateWriterProbe()
+    TonyOllieLatchProbe()
     TonyPlayerDiff()
     TonyPositionCommitProbe()
     _registered = True
@@ -871,7 +1130,12 @@ def register_commands() -> None:
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-action-edge, tony-jump-edge, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
+        "tony-movement-physics-probe, "
+        "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
+        "tony-physics-state-writers, "
+        "tony-ollie-latch-probe, "
         "tony-player-diff, tony-position-commit"
     )

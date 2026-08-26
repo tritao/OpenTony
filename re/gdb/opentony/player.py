@@ -18,6 +18,7 @@ class PlayerView:
     VECTOR_4C_OFFSET = 0x4C
     POSITION_HISTORY_OFFSET = 0xBC
     PHYSICS_STATE_OFFSET = 0x30B8
+    PREVIOUS_PHYSICS_STATE_OFFSET = 0x30C0
     UNKNOWN_STATE_OFFSET = 0x30C4
 
     def __init__(self, address: int, memory: Memory | None = None):
@@ -61,6 +62,10 @@ class PlayerView:
     @property
     def physics_state(self) -> int:
         return self.memory.u32(self.address + self.PHYSICS_STATE_OFFSET)
+
+    @property
+    def previous_physics_state(self) -> int:
+        return self.memory.u32(self.address + self.PREVIOUS_PHYSICS_STATE_OFFSET)
 
     @property
     def unknown_state(self) -> int:
