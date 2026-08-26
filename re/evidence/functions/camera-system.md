@@ -1,6 +1,6 @@
 # Camera system and rendered-frame boundary
 
-Status: normal-mode input/player/camera/update ordering, fixed-point camera math, shake composition, and the gameplay render/present ordering are established; projection semantics and non-default modes remain partial
+Status: normal-mode input/player/camera/update ordering, fixed-point camera math, camera-to-view matrix ordering, shake composition, and the gameplay render/present ordering are established; projection scale semantics and non-default modes remain partial
 
 Build: THPS2 PC PE32/i386, SHA-256 `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -194,11 +194,31 @@ target table at `0x00410378`. The currently proven mapping is:
 | `22` | `0x0041001b` → `Camera_DeathMode 0x00410c90` | death-camera handler |
 | `23` | `0x0040feef` | alternate follow/effect path; calls `0x00410610` and smoothing |
 
-Values `24` and `25` pass the bounds check but index padding bytes after the
-21 meaningful table entries; no runtime evidence shows them as valid modes.
-This is useful for a faithful recreation: preserve the dispatch table and its
-invalid-mode behavior instead of collapsing every non-default state into a
-single enum branch.
+Value `24` remains unobserved and appears to index padding after the
+meaningful table entries. Value `25` is different: the dedicated
+`camera-zoom-probe` recorded two valid runtime intervals, and the camera path
+used the normal follow preparation with the mode-25 `(0,-0x1000,0)` offset
+branch before returning to mode `1`. Preserve this as a real transition rather
+than collapsing it into invalid-mode handling.
+
+The mode-25 producer is visible at the gameplay boundary in
+`Skater_PhysicsDispatcher 0x0049db80`. In the physics-state `0` path, when the
+player has the `+0x2dd4`/`+0x3018` conditions, it sets camera `+0x504` to
+`0x19` when `player +0x3110 > 1000` and either
+`player +0x3130 > 0x5000` or the elapsed tick condition is below
+`DAT_0056865c * 6 >> 8`. The same path emits the associated `0x14` event.
+This is a producer boundary, not a request to reimplement the surrounding
+physics dispatcher inside the camera class.
+
+Runtime validation from `camera-zoom-probe.jsonl` recorded mode-25 intervals
+at frames `4108..4204` (97 observations) and `4292..4389` (98 observations),
+with mode `1` before, between, and after them. The camera remained attached to
+the live Warehouse player and returned to mode `1` without entering the point
+or death handlers. Confidence is high that mode `25` is a valid alternate
+follow transition and medium for the exact gameplay meaning of its producer;
+a falsifier would be a trace showing the same `0x19` store used for a
+non-camera event or a mode-25 update that bypasses the recovered follow offset
+branch.
 
 The mode-21 and mode-22 targets do not return through the normal
 `Camera_SmoothAndValidate` tail. Both handlers jump to `0x00410357`, which
@@ -472,9 +492,12 @@ the Q12 half-turn X basis to shorts and back produces `0x0ffe` rather than the
 original `0x0fff` component, so the native implementation must preserve the
 short matrix round trip instead of assuming a lossless quaternion conversion.
 
-A controlled dynamic basis check is still useful to validate the renderer’s
-row/column consumption and handedness, but both payload/matrix conversion
-directions are now encoded in [camera_math.hpp](../../../src/camera/camera_math.hpp).
+The remaining visual calibration is now narrower than a generic matrix-basis
+search. A controlled basis-object check is still useful for world-axis
+handedness, screen-axis signs, and clip/depth conventions, but the
+row/column/storage convention itself is promoted by the dynamic render trace.
+Both payload/matrix conversion directions and the backend-record transpose are
+encoded in [camera_math.hpp](../../../src/camera/camera_math.hpp).
 
 `0x004a9bf0` is the orientation interpolation helper used by
 `Camera_SmoothAndValidate`. Its static contract is:
@@ -981,12 +1004,59 @@ matrix scratch into the second view-record block. This fixes the engine’s
 internal matrix ordering even though the eventual renderer API should still
 keep handedness and clip-space naming as explicit contracts.
 
+### Dynamic matrix-convention validation
+
+The paired `camera-input-motion2.jsonl` trace closes the previously open
+row/column question for the normal gameplay path. It contains 1,091
+`Render_SetViewProjection` observations from caller `0x00467d0c`, covering
+frame-clock values `5760..6850`. For every observation, the nine signed shorts
+in the view record at `+0x54` equal:
+
+```text
+transpose_matrix_q12(transform_to_matrix_q12(camera.current_transform))
+```
+
+The comparison uses the camera snapshot at the same frame-clock value; the
+camera breakpoint is at function entry, so the `+0x34` block represents the
+post-update matrix in the adjacent render/update phase. The one-frame probe
+offset is visible in the trace rather than being hidden in the comparison.
+For example, at frame `6000` the entry transform was
+`[473,2366,1485,-2958]`. `0x004a9910` produces:
+
+```text
+[ 287,-1599, 3760, 2691, 2911, 1031, -3076, 2399, 1254 ]
+```
+
+and the backend-order `+0x54` record is:
+
+```text
+[ 287, 2691,-3076,-1599, 2911, 2399, 3760, 1031, 1254 ]
+```
+
+which is the exact 3x3 transpose. The same relation holds across all 1,091
+normal gameplay view records, including the controlled Left and Right motion
+phases. This promotes the storage convention with high confidence. A
+remaining falsifier is a non-default mode or alternate viewport that uses a
+different basis; world-axis handedness and final clip/depth signs still need
+a controlled basis-object submission.
+
 The render setup also derives viewport center/scale shorts from the active
 viewport record and global scale values. It writes camera `+0x40c` into the
 active viewport record at `+0x0e`, but the current evidence does not identify
 that value as a perspective FOV. A faithful renderer should retain the raw
 viewport record and only promote a projection parameter after a controlled
 zoom/aspect experiment.
+
+The projection search can now distinguish the two nearby raw fields. The
+active viewport input word at `+0x0c` (word `6`) is directly consumed by
+`Render_SetViewProjection` when deriving `viewport[7]`, and the static
+`Camera_PointSelect 0x00411fc0` path writes this field with camera-point
+values `0x96a`, `0xb72`, and `0xd52` (and a distance-derived value in the
+interpolated branch). By contrast, the dedicated `O` action experiment
+recorded action mask `0x0100` while camera `+0x40c` and viewport input word
+`7` remained raw `12`. Therefore word `6` is the stronger vertical
+projection/framing input candidate; camera `+0x40c`/word `7` remains a raw
+selector or secondary viewport parameter and must not be labelled FOV.
 
 Static viewport contract recovered from `0x0045e8e0`:
 
@@ -1277,6 +1347,6 @@ whole DirectDraw backend.
   records until a controlled movement/viewport experiment identifies the
   final matrix convention and any zoom parameter.
 - `+0x40c` remained raw `12` through the dedicated `O` camera-action phases (`0x0100` / key `24`). A run that changes actual projection scale without changing it would falsify the current viewport/framing label and move the parameter search to another viewport/global field.
-- The current Warehouse capture remained in mode `1`, so it does not identify all mode constants or cutscene behavior.
-- The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse; the remaining falsifier is a controlled dynamic matrix-basis comparison at `0x004a9910` to establish renderer row/column and handedness.
+- The default Warehouse motion capture remained in mode `1`, but the dedicated camera-action capture also observed valid mode-25 intervals. Modes `2`, `21`, `22`, and `23` remain unobserved in a live level transition.
+- The camera object’s four-word embedded payload is strongly quaternion-like from the half-angle constructors, composition helper, and recovered matrix inverse. The dynamic `+0x34`/`+0x54` comparison now establishes the renderer record transpose; a controlled basis-object submission remains for world-axis handedness, screen-axis signs, and clip/depth behavior.
 - `0x0041c2d0` may run other shell/session modes without entering `Game_LevelLoop`; a callback trace in menu and level modes would strengthen the loop relationship.

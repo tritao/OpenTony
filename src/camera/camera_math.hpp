@@ -525,6 +525,15 @@ inline MatrixQ12 transpose_matrix_q12(const MatrixQ12& matrix) {
     };
 }
 
+// Dynamic Warehouse traces establish the two render-record conventions:
+// `+0x34` contains the row-ordered result of 0x004a9910 and the backend view
+// record at `+0x54` contains its literal 0x004f53e0 transpose.  Keep this
+// adapter separate from transform_to_matrix_q12 so callers cannot silently
+// substitute a graphics-API convention for the retail record layout.
+inline MatrixQ12 camera_view_record_matrix_q12(const TransformQ12& transform) {
+    return transpose_matrix_q12(transform_to_matrix_q12(transform));
+}
+
 inline TransformQ12 rotation_x_q12(std::int16_t angle) {
     const Raw half = arithmetic_shift_right_one(static_cast<Raw>(angle));
     return {sin_angle_q12(half), 0, 0, cos_angle_q12(half)};
