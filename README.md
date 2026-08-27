@@ -34,6 +34,20 @@ Game-specific code and tools are **not** copied from either project.
 
 ## First setup
 
+After provisioning the pinned Ghidra installation and local game inputs, create
+the shared PyGhidra environment and canonical analysis project once from the
+primary `main` worktree:
+
+```bash
+./tony.sh prerequisites bootstrap
+```
+
+Use `./tony.sh prerequisites repair` only when the shared PyGhidra installation
+or canonical project must be recreated. Additional Git worktrees should run
+`./tony.sh worktree prepare`; they receive a private writable project copy while
+sharing immutable tools. `./tony.sh worktree verify` reports dynamic tracing,
+live PyGhidra, and binary matching as separate capabilities.
+
 The bootstrap downloads and verifies the recorded image here:
 
 ```text

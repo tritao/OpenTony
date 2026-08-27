@@ -66,10 +66,17 @@ committed manifests remain the reviewable scope and completion contract. Use
 one worktree and branch per concurrent editing agent. `tony slice prompt ID`
 prints the compact handoff prompt for a new or continuing agent.
 
-Hydrate a new worktree once with `tony worktree prepare`. It shares immutable
-inputs and tools while seeding a private copy of the ready Ghidra project.
-Agents must use `tony worktree verify` as a read-only readiness check and must
-not download inputs or rebuild Ghidra as part of slice reconstruction.
+Bootstrap the primary `main` worktree once with
+`tony prerequisites bootstrap`. This installs the bundled PyGhidra package in
+Git's shared administrative directory and creates the canonical Ghidra project
+from already-provisioned local inputs. It never downloads game material.
+
+Hydrate each additional worktree with `tony worktree prepare`. It links
+immutable inputs and seeds a private writable copy of the canonical Ghidra
+project. Agents must use `tony worktree verify` as a read-only capability
+check and must not download inputs or rebuild Ghidra during slice work.
+`binary-matching: DEFERRED` does not block static analysis, dynamic tracing,
+reconstruction, or behavioral tests.
 
 ## Reconstruction stages
 

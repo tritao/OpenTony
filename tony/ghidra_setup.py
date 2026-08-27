@@ -102,18 +102,21 @@ def install_ghidra() -> Path:
     return install
 
 
-def _install_pyghidra(install: Path) -> None:
+def _install_pyghidra(install: Path, *, target: Path | None = None, force: bool = False) -> None:
     # Bootstrap script installs OpenTony into .tools/venv. If setup is invoked
     # elsewhere, use the current interpreter so PyGhidra and `tony` coexist.
     python = Path(sys.executable)
     dist = install / "Ghidra/Features/PyGhidra/pypkg/dist"
-    subprocess.run(
-        [str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-index", "-f", str(dist), "pyghidra"],
-        check=True,
-    )
+    command = [
+        str(python), "-m", "pip", "install", "--disable-pip-version-check",
+        "--no-index", "-f", str(dist),
+    ]
+    if target is not None:
+        target.mkdir(parents=True, exist_ok=True)
+        command.extend(["--target", str(target)])
+    if force:
+        command.append("--upgrade")
+    subprocess.run([*command, "pyghidra"], check=True)
     stubs = install / "docs/ghidra_stubs"
     if stubs.is_dir():
-        subprocess.run(
-            [str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-index", "-f", str(stubs), "ghidra-stubs"],
-            check=False,
-        )
+        subprocess.run([*command, "-f", str(stubs), "ghidra-stubs"], check=False)

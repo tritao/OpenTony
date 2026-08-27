@@ -16,12 +16,21 @@ branch refs/heads/main
 
 
 def test_worktree_verify_is_read_only(monkeypatch, capsys):
-    monkeypatch.setattr(worktrees, "_readiness", lambda: [("input", True), ("project", False)])
+    monkeypatch.setattr(
+        worktrees,
+        "_capabilities",
+        lambda: [
+            ("static-evidence", "READY", "checked in"),
+            ("live-pyghidra", "MISSING", "not provisioned"),
+            ("binary-matching", "DEFERRED", "original modules"),
+        ],
+    )
 
-    assert worktrees.worktree_verify(SimpleNamespace()) == 1
+    assert worktrees.worktree_verify(SimpleNamespace()) == 0
     output = capsys.readouterr().out
-    assert "MISSING project" in output
-    assert "do not download or rebuild" in output
+    assert "MISSING  live-pyghidra" in output
+    assert "DEFERRED binary-matching" in output
+    assert "worktree: PARTIAL" in output
 
 
 def test_link_shared_creates_symlink(tmp_path, monkeypatch):
@@ -37,3 +46,19 @@ def test_link_shared_creates_symlink(tmp_path, monkeypatch):
     target = target_root / "game/THPS2.img"
     assert target.is_symlink()
     assert target.read_bytes() == b"disc"
+
+
+def test_seed_ghidra_project_defers_when_canonical_project_is_missing(tmp_path, monkeypatch, capsys):
+    source_root = tmp_path / "main"
+    target_root = tmp_path / "topic"
+    monkeypatch.setattr(worktrees, "ROOT", target_root)
+    monkeypatch.setattr(
+        worktrees,
+        "load_yaml",
+        lambda _path: {"ghidra": {"project_dir": "build/ghidra", "project_name": "OpenTony"}},
+    )
+
+    worktrees._seed_ghidra_project(source_root)
+
+    assert not (target_root / "build/ghidra").exists()
+    assert "DEFER build/ghidra" in capsys.readouterr().out

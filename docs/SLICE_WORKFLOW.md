@@ -72,7 +72,9 @@ tony slice prompt camera-update
 Slice claims are stored in Git's shared administrative directory, so every
 worktree sees the same owner. `worktree prepare` links immutable inputs and the
 Ghidra installation from the primary checkout, then copies its existing Ghidra
-project for private use. It does not download media or rebuild analysis. Each
-worktree keeps its own editable Python environment and writable Ghidra project.
-During slice work, a failed readiness check is a prerequisite problem to report;
-do not run setup or `tony ghidra rebuild`.
+project for private use. PyGhidra is installed once under Git's common directory
+by `tony prerequisites bootstrap` in the primary worktree. It does not download
+media. Each worktree keeps its own editable Python environment and writable
+Ghidra project. `worktree verify` reports independent capabilities; deferred
+binary matching is not a general reversing failure. During slice work, report
+missing required capabilities and do not run setup or `tony ghidra rebuild`.

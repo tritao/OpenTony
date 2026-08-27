@@ -171,6 +171,12 @@ def _apply_recovered_types(program, pyghidra) -> dict:
                     return VoidDataType.dataType
                 while name in alias_targets:
                     name = alias_targets[name]
+                if name not in named:
+                    # Unsized recovered layouts are intentionally omitted from
+                    # the fixed-layout plan, but pointers to them still need a
+                    # stable opaque Ghidra type instead of failing the rebuild.
+                    opaque = StructureDataType(category, name, 0, manager)
+                    named[name] = manager.addDataType(opaque, conflict_handler)
                 return named[name]
             if expression.kind == "pointer":
                 return PointerDataType(resolve_type(expression.element), 4, manager)

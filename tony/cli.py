@@ -23,6 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = setup_sub.add_parser("vc6", help="provision the exact Visual C++ 6.0 SP3 toolchain under Wine")
     p.set_defaults(func=commands.setup_vc6)
 
+    prerequisites = sub.add_parser("prerequisites", help="bootstrap shared reversing prerequisites")
+    prerequisites_sub = prerequisites.add_subparsers(dest="prerequisites_command", required=True)
+    p = prerequisites_sub.add_parser("bootstrap", help="install shared PyGhidra and create the canonical project")
+    p.add_argument("--profile", choices=("fast", "complete"), default="complete")
+    p.set_defaults(func=commands.prerequisites_bootstrap, repair=False)
+    p = prerequisites_sub.add_parser("repair", help="reinstall shared PyGhidra and rebuild the canonical project")
+    p.add_argument("--profile", choices=("fast", "complete"), default="complete")
+    p.set_defaults(func=commands.prerequisites_bootstrap, repair=True)
+
     vc6 = sub.add_parser("vc6", help="manage the pinned Visual C++ 6.0 SP3 toolchain")
     vc6_sub = vc6.add_subparsers(dest="vc6_command", required=True)
     p = vc6_sub.add_parser("verify", help="verify the provisioned compiler and linker versions")

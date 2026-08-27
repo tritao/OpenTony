@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import importlib
 import shutil
+import sys
 from pathlib import Path
 
 from .common import ROOT, capture, load_yaml, resolve
 from .ghidra_setup import _install_pyghidra
+
+
+def _git_common_dir() -> Path:
+    returncode, output = capture(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    if returncode:
+        raise SystemExit("could not locate the Git common directory")
+    return Path(output).resolve()
+
+
+def _shared_pyghidra_site() -> Path:
+    version = load_yaml("re/config/ghidra.yml")["ghidra"]["version"]
+    return _git_common_dir() / "opentony/tools" / f"pyghidra-{version}"
 
 
 def _primary_worktree() -> Path:
@@ -79,7 +93,8 @@ def _seed_ghidra_project(source_root: Path) -> None:
         print(f"READY {relative}")
         return
     if not (source / "recovered-types.json").is_file():
-        raise SystemExit(f"primary Ghidra project is not ready: {source}")
+        print(f"DEFER {relative} (canonical project is not ready: {source})")
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target, copy_function=_copy_reflink)
     print(f"COPY  {relative} (private worktree project)")
@@ -112,27 +127,81 @@ def _readiness() -> list[tuple[str, bool]]:
     return checks
 
 
+def _capabilities() -> list[tuple[str, str, str]]:
+    ready = dict(_readiness())
+    config = load_yaml("re/config/ghidra.yml")["ghidra"]
+    project = f"{config['project_dir']}/{config['project_name']}"
+    dynamic = ready["game/THPS2.img"] and ready["build/disc"]
+    live = ready[str(Path(config["install_dir"]))] and ready[project] and ready["pyghidra"]
+    matching = ready["match/original"]
+    return [
+        ("static-evidence", "READY", "checked-in symbols, evidence, and disassembly"),
+        ("dynamic-tracing", "READY" if dynamic else "MISSING", "disc image and extracted executable"),
+        ("live-pyghidra", "READY" if live else "MISSING", "PyGhidra and a private Ghidra project"),
+        ("binary-matching", "READY" if matching else "DEFERRED", "original split modules"),
+    ]
+
+
 def worktree_verify(_args) -> int:
-    failed = False
-    for name, ready in _readiness():
-        print(f"{'READY' if ready else 'MISSING':7} {name}")
-        failed |= not ready
-    if failed:
-        print("Run `tony worktree prepare` from this worktree; do not download or rebuild prerequisites.")
-        return 1
-    print("worktree: READY")
+    capabilities = _capabilities()
+    for name, status, detail in capabilities:
+        print(f"{status:8} {name:17} {detail}")
+    missing = [name for name, status, _detail in capabilities if status == "MISSING"]
+    if missing:
+        print("Run `tony worktree prepare`; bootstrap the primary worktree first if live-pyghidra remains missing.")
+    print("worktree: READY" if not missing else f"worktree: PARTIAL ({', '.join(missing)} unavailable)")
     return 0
 
 
 def worktree_prepare(args) -> int:
     source_root = Path(args.source).resolve() if args.source else _primary_worktree()
     if source_root == ROOT.resolve():
-        print("Already in the primary worktree")
+        print("Primary worktree selected; run `tony prerequisites bootstrap` to provision shared tools and its canonical project.")
         return worktree_verify(args)
     for relative in _shared_paths():
+        if relative == Path("match/original") and not _path_ready(source_root, relative):
+            print("DEFER match/original (binary matching unavailable)")
+            continue
         _link_shared(source_root, relative)
     _seed_ghidra_project(source_root)
-    install = resolve(load_yaml("re/config/ghidra.yml")["ghidra"]["install_dir"])
-    if not any(name == "pyghidra" and ready for name, ready in _readiness()):
-        _install_pyghidra(install)
+    return worktree_verify(args)
+
+
+def _project_ready(root: Path) -> bool:
+    config = load_yaml("re/config/ghidra.yml")["ghidra"]
+    project = root / config["project_dir"]
+    return (
+        (project / "recovered-types.json").is_file()
+        and (project / f"{config['project_name']}.gpr").is_file()
+        and (project / f"{config['project_name']}.rep/project.prp").is_file()
+    )
+
+
+def prerequisites_bootstrap(args) -> int:
+    primary = _primary_worktree()
+    if ROOT.resolve() != primary:
+        raise SystemExit(f"run prerequisite bootstrap from the primary worktree: {primary}")
+    config = load_yaml("re/config/ghidra.yml")["ghidra"]
+    install = resolve(config["install_dir"])
+    if not _path_ready(ROOT, Path(config["install_dir"])):
+        raise SystemExit("Ghidra is not installed; provision the pinned installation explicitly with `tony setup ghidra`")
+    if not _path_ready(ROOT, Path("build/disc")):
+        raise SystemExit("the extracted retail executable is missing; bootstrap will not download game inputs")
+    site = _shared_pyghidra_site()
+    if args.repair and site.exists():
+        shutil.rmtree(site)
+    if not (site / "pyghidra/__init__.py").is_file():
+        _install_pyghidra(install, target=site, force=args.repair)
+    else:
+        print(f"Shared PyGhidra already installed: {site}")
+    if str(site) not in sys.path:
+        sys.path.insert(0, str(site))
+    importlib.invalidate_caches()
+    if args.repair or not _project_ready(ROOT):
+        from .ghidra_ops import rebuild
+
+        rebuild(args.profile)
+    else:
+        print(f"Canonical Ghidra project already ready: {resolve(config['project_dir'])}")
+    print(f"Shared PyGhidra ready: {site}")
     return worktree_verify(args)

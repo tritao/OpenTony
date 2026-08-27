@@ -78,6 +78,7 @@ from .wine import (  # noqa: F401 - public command compatibility
     wine_unmount_disc,
 )
 from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
+    prerequisites_bootstrap,
     worktree_prepare,
     worktree_verify,
 )
