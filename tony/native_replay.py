@@ -92,7 +92,141 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     action_mask = int(input_record.get("action_mask", 0)) & 0xFFFF
     horizontal = _signed(int(axes.get("horizontal", 0)), 8)
     vertical = _signed(int(axes.get("vertical", 0)), 8)
-    return f"frame {frame_index} {action_mask} {horizontal} {vertical}"
+    timing = frame.get("before")
+    timing = timing.get("timing") if isinstance(timing, dict) else None
+    scale_record = timing.get("animation_time_scale") \
+        if isinstance(timing, dict) else None
+    scale_raw = scale_record.get("raw") if isinstance(scale_record, dict) else None
+    frame_scale_q8 = _signed(int(scale_raw), 32) if isinstance(scale_raw, int) else 0x100
+    random_by_purpose: dict[str, int] = {}
+    events = frame.get("events", [])
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict) or event.get("type") != "ollie_random_input":
+                continue
+            purpose = event.get("purpose")
+            raw_roll = event.get("raw_roll")
+            if not isinstance(purpose, str) or not isinstance(raw_roll, int):
+                raise ValueError(f"frame {frame_index} has an invalid ollie random event")
+            if purpose in random_by_purpose:
+                raise ValueError(f"frame {frame_index} has duplicate ollie random purpose {purpose!r}")
+            random_by_purpose[purpose] = _signed(raw_roll, 32)
+
+    random_purposes = (
+        "charge_cap.first",
+        "charge_cap.second",
+        "charge_refresh.first",
+        "charge_refresh.second",
+        "impulse.first",
+        "impulse.second",
+        "impulse.third",
+        "impulse.fourth",
+        "impulse.fifth",
+        "early_release.first",
+        "early_release.second",
+    )
+    random_values = [random_by_purpose.get(purpose, 0) for purpose in random_purposes]
+    random_available = int(bool(random_by_purpose))
+    metric_event = next(
+        (
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "ollie_random_input"
+        ),
+        None,
+    ) if isinstance(events, list) else None
+    metrics = [
+        _signed(int(metric_event.get(name, 0)), 32)
+        if isinstance(metric_event, dict) and isinstance(metric_event.get(name, 0), int)
+        else 0
+        for name in ("slope_metric", "horizontal_speed_metric", "height_delta_metric")
+    ]
+    damping_by_purpose: dict[str, int] = {}
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict) or event.get("type") != "velocity_damping_random_input":
+                continue
+            purpose = event.get("purpose")
+            raw_roll = event.get("raw_roll")
+            if not isinstance(purpose, str) or not isinstance(raw_roll, int):
+                raise ValueError(f"frame {frame_index} has an invalid velocity damping random event")
+            if purpose in damping_by_purpose:
+                raise ValueError(
+                    f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
+                )
+            damping_by_purpose[purpose] = _signed(raw_roll, 32)
+    damping_values = [
+        damping_by_purpose.get(purpose, 0)
+        for purpose in (
+            "rescale_threshold",
+            "rescale_x",
+            "rescale_y",
+            "rescale_z",
+            "decay_threshold",
+        )
+    ]
+    damping_available = int(bool(damping_by_purpose))
+    motion_events = [
+        event
+        for event in events
+        if isinstance(event, dict) and event.get("type") == "motion_correction_input"
+    ] if isinstance(events, list) else []
+    if len(motion_events) > 1:
+        raise ValueError(f"frame {frame_index} has duplicate motion correction events")
+    motion_event = motion_events[0] if motion_events else None
+    motion_values = (
+        motion_event.get("correction_s32")
+        if isinstance(motion_event, dict)
+        else None
+    )
+    if not isinstance(motion_values, list) or len(motion_values) != 3:
+        raw = motion_event.get("correction_raw") if isinstance(motion_event, dict) else None
+        motion_values = (
+            [_signed(int(value), 32) for value in raw]
+            if isinstance(raw, list) and len(raw) == 3
+            else [0, 0, 0]
+        )
+    motion_available = int(motion_event is not None)
+    response_events = [
+        event
+        for event in events
+        if isinstance(event, dict) and event.get("type") == "response_correction_input"
+    ] if isinstance(events, list) else []
+    if len(response_events) > 1:
+        raise ValueError(f"frame {frame_index} has duplicate response correction events")
+    response_event = response_events[0] if response_events else None
+    response_values = (
+        response_event.get("operand_s32")
+        if isinstance(response_event, dict)
+        else None
+    )
+    if not isinstance(response_values, list) or len(response_values) != 3:
+        raw = response_event.get("operand_raw") if isinstance(response_event, dict) else None
+        response_values = (
+            [_signed(int(value), 32) for value in raw]
+            if isinstance(raw, list) and len(raw) == 3
+            else [0, 0, 0]
+        )
+    response_available = int(response_event is not None)
+    return "frame " + " ".join(
+        str(value)
+        for value in (
+            frame_index,
+            action_mask,
+            horizontal,
+            vertical,
+            frame_scale_q8,
+            random_available,
+            *random_values,
+            *metrics,
+            damping_available,
+            *damping_values,
+            motion_available,
+            *motion_values,
+            response_available,
+            *response_values,
+        )
+    )
 
 
 def _wire_input(initial: dict[str, Any], frames: list[dict[str, Any]]) -> str:

@@ -61,7 +61,7 @@ class RecordingWriter:
 
     FORMAT = "opentony-retail-recording-v1"
     FORMAT_VERSION = 1
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(
         self,

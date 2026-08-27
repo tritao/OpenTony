@@ -113,9 +113,13 @@ def test_validator_requires_contiguous_complete_frames(tmp_path):
         },
     )
     controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.event({"type": "motion_correction_input"})
+    controller.event({"type": "response_correction_input"})
     controller.end_frame(_snapshot(1))
     controller.request_stop()
     controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.event({"type": "motion_correction_input"})
+    controller.event({"type": "response_correction_input"})
     controller.end_frame(_snapshot(2))
 
     summary, errors = validate_recording(path)

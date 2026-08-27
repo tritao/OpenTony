@@ -3,6 +3,7 @@
 #include "gameplay_frame.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace opentony::runtime {
 
@@ -36,7 +37,8 @@ public:
         const DirectInputKeyboardState& keyboard,
         const InputBindings& bindings,
         const PlayerPhysicsFrameHooks& physics_hooks = {},
-        LevelFrameObserver* observer = nullptr);
+        LevelFrameObserver* observer = nullptr,
+        std::optional<std::int32_t> frame_scale_override = std::nullopt);
 
     // Direct action/device path for gamepads and replay fixtures. The raw
     // axes are preserved through GameplayFrame so the retail analog-to-action
@@ -48,7 +50,8 @@ public:
         std::int8_t horizontal_axis,
         std::int8_t vertical_axis,
         const PlayerPhysicsFrameHooks& physics_hooks = {},
-        LevelFrameObserver* observer = nullptr);
+        LevelFrameObserver* observer = nullptr,
+        std::optional<std::int32_t> frame_scale_override = std::nullopt);
 
     [[nodiscard]] std::uint32_t accumulated_ms() const noexcept {
         return accumulated_ms_;

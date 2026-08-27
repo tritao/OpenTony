@@ -25,6 +25,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     result.position_commit.position = player.position();
 
     player.begin_physics_frame();
+    // Retail canonicalizes the initially published grounded basis before
+    // FUN_00493370 consumes it. The initial recording snapshot remains raw;
+    // this is the one frame-boundary write that turns it canonical.
+    if (player.physics_state() == 0 || player.physics_state() == 7) {
+        player.normalize_orientation_basis();
+    }
     result.queued_motion = player.drain_queued_motion(frame_scale_q8);
     if (hooks.apply_queued_motion) {
         result.queued_motion_world_delta = player.apply_queued_motion(
@@ -41,6 +47,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     if (hooks.apply_ground_turn
         && (player.physics_state() == 0 || player.physics_state() == 7)) {
         GroundTurnConfig turn_config = hooks.ground_turn_config;
+        turn_config.frame_scale_q8 = frame_scale_q8;
         // FUN_00493370 selects +0x5a000 when +0x31a2 exceeds 0x1e or the
         // profile's Down slot is active. +0x31a2 is copied from action-state
         // +0x148, the retained vertical axis.
@@ -346,6 +353,22 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         // This is the outer-frame +58 -> +4c handoff after dispatch.
         player.integrate_motion_correction(frame_scale_q8);
         result.motion_correction_integrated = true;
+    }
+    if (hooks.motion_correction_input) {
+        const std::optional<FixedPosition> motion_correction =
+            hooks.motion_correction_input(player, result.dispatch);
+        if (motion_correction.has_value()) {
+            // Preserve the completed +0x58 value without folding it into
+            // response a second time.
+            player.set_motion_correction(*motion_correction);
+        }
+    }
+    if (hooks.response_correction_input) {
+        const std::optional<FixedPosition> response_correction =
+            hooks.response_correction_input(player, result.dispatch);
+        if (response_correction.has_value()) {
+            player.add_collision_response(*response_correction);
+        }
     }
     if (hooks.ground_motion_threshold_input) {
         const std::optional<GroundMotionThresholdInput> threshold_input =

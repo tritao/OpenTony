@@ -192,6 +192,8 @@ def _load_recording(path: Path) -> tuple[dict, list[dict]]:
         raise gdb.GdbError(f"retail recording has no header: {path}")
     if records[0].get("format") != "opentony-retail-recording-v1":
         raise gdb.GdbError(f"unsupported retail recording format: {path}")
+    if records[0].get("capture_schema_version") != 2:
+        raise gdb.GdbError(f"unsupported retail recording capture schema: {path}")
     frames = [record for record in records if record.get("type") == "frame"]
     footer = records[-1] if records else {}
     if footer.get("type") != "end" or not footer.get("complete"):

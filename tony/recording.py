@@ -1,4 +1,4 @@
-"""Host-side recording controls and V1 recording validation."""
+"""Host-side recording controls and V2 recording validation."""
 
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def validate_recording(path: str | Path) -> tuple[dict, list[dict]]:
         errors.append({"line": 1, "error": "first record is not a header"})
     if header.get("format") != RECORDING_FORMAT:
         errors.append({"line": 1, "error": "unsupported recording format"})
-    if header.get("capture_schema_version") != 1:
+    if header.get("capture_schema_version") != 2:
         errors.append({"line": 1, "error": "unsupported capture schema version"})
     for field in (
         "recording_id",
@@ -176,6 +176,20 @@ def validate_recording(path: str | Path) -> tuple[dict, list[dict]]:
             errors.append({"frame": frame.get("frame"), "error": "after is not an object"})
         if not isinstance(frame.get("events", []), list):
             errors.append({"frame": frame.get("frame"), "error": "events is not an array"})
+        else:
+            for event_type in (
+                "motion_correction_input",
+                "response_correction_input",
+            ):
+                count = sum(
+                    isinstance(event, dict) and event.get("type") == event_type
+                    for event in frame["events"]
+                )
+                if count != 1:
+                    errors.append({
+                        "frame": frame.get("frame"),
+                        "error": f"expected one {event_type} event, found {count}",
+                    })
 
     if end.get("type") == "end" and end.get("frames") != len(frames):
         errors.append({

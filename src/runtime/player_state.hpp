@@ -185,6 +185,11 @@ public:
     void set_collision_response(FixedPosition response) noexcept {
         collision_response_ = response;
     }
+    void add_collision_response(const FixedPosition& delta) noexcept {
+        for (std::size_t index = 0; index < collision_response_.size(); ++index) {
+            collision_response_[index] += delta[index];
+        }
+    }
     void set_motion_correction(FixedPosition correction) noexcept {
         motion_correction_ = correction;
     }
@@ -194,7 +199,12 @@ public:
     void set_orientation(Q12Matrix3 orientation) noexcept {
         orientation_ = orientation;
         retail_basis_ = retail_basis_from_matrix(orientation_);
+        orientation_basis_normalization_pending_ = true;
     }
+    // Grounded retail frames canonicalize the three published basis vectors
+    // before the turn producer consumes them. Keep the raw setter above
+    // lossless so recordings can preserve the pre-frame state.
+    void normalize_orientation_basis() noexcept;
     [[nodiscard]] bool set_queued_motion_command(
         std::int32_t axis,
         std::int16_t amount,
@@ -462,6 +472,7 @@ private:
     std::int32_t ground_motion_animation_speed_{};
     Q12Matrix3 orientation_{q12_identity_matrix()};
     RetailBasis retail_basis_{retail_basis_from_matrix(orientation_)};
+    bool orientation_basis_normalization_pending_{true};
     Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};
     std::int32_t ground_turn_angle12_{};
     bool ground_turn_saved_orientation_valid_{};

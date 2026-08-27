@@ -51,16 +51,25 @@ from .physics import (
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
     GROUND_MOTION_THRESHOLD_RANDOM_SITES,
+    OLLIE_RANDOM_SITES,
+    VELOCITY_DAMPING_COMPONENT_SITES,
+    VELOCITY_DAMPING_RANDOM_SITES,
     OLLIE_LATCH_WRITERS,
     SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
+    AirCorrectionProbe,
     GroundMotionControlWriterProbe,
     GroundMotionProducerProbe,
     GroundMotionProfileWriterProbe,
     GroundMotionRandomProbe,
     InAirHandlerProbe,
+    MotionCorrectionProbe,
     MovementPhysicsProbe,
     OllieLatchProbe,
+    OllieRandomProbe,
+    VelocityDampingComponentProbe,
+    VelocityDampingRandomProbe,
+    ResponseCorrectionProbe,
     PhysicsProbe,
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
@@ -2231,6 +2240,132 @@ class TonyGroundMotionWriters(gdb.Command):
         )
 
 
+class TonyOllieRandomProbe(gdb.Command):
+    """tony-ollie-random-probe [COUNT] -- trace prephysics RNG seams."""
+
+    def __init__(self):
+        super().__init__("tony-ollie-random-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-ollie-random-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-ollie-random-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in OLLIE_RANDOM_SITES.items():
+            probe = OllieRandomProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"ollie random probes armed {limit}")
+
+
+class TonyVelocityDampingRandomProbe(gdb.Command):
+    """tony-velocity-damping-random-probe [COUNT] -- trace damping RNG."""
+
+    def __init__(self):
+        super().__init__("tony-velocity-damping-random-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-velocity-damping-random-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-velocity-damping-random-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in VELOCITY_DAMPING_RANDOM_SITES.items():
+            probe = VelocityDampingRandomProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"velocity damping random probes armed {limit}")
+
+
+class TonyVelocityDampingComponentProbe(gdb.Command):
+    """tony-velocity-damping-component-probe [COUNT] -- trace decay producers."""
+
+    def __init__(self):
+        super().__init__("tony-velocity-damping-component-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-velocity-damping-component-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-velocity-damping-component-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
+            probe = VelocityDampingComponentProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"velocity damping component probes armed {limit}")
+
+
+class TonyAirCorrectionProbe(gdb.Command):
+    """tony-air-correction-probe [COUNT] -- trace in-air correction operands."""
+
+    def __init__(self):
+        super().__init__("tony-air-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-air-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-air-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = AirCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"air correction probe armed {limit}")
+
+
+class TonyResponseCorrectionProbe(gdb.Command):
+    """tony-response-correction-probe [COUNT] -- trace response additions."""
+
+    def __init__(self):
+        super().__init__("tony-response-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-response-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-response-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = ResponseCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"response correction probe armed {limit}")
+
+
+class TonyMotionCorrectionProbe(gdb.Command):
+    """tony-motion-correction-probe [COUNT] -- trace outer +0x58 output."""
+
+    def __init__(self):
+        super().__init__("tony-motion-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-motion-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-motion-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = MotionCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"motion correction probe armed {limit}")
+
+
 class TonyGroundMotionProfileProbe(gdb.Command):
     """tony-ground-motion-profile-probe [COUNT] -- trace B010 profile sources."""
 
@@ -2815,6 +2950,17 @@ def _install_recording_instrumentation() -> None:
                 player_register="ebp",
             )
         )
+    for address, purpose in OLLIE_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            OllieRandomProbe(address, purpose, writer=sink)
+        )
+    for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
+        _runtime_breakpoints.append(
+            VelocityDampingComponentProbe(address, purpose, writer=sink)
+        )
+    _runtime_breakpoints.append(AirCorrectionProbe(writer=sink))
+    _runtime_breakpoints.append(ResponseCorrectionProbe(writer=sink))
+    _runtime_breakpoints.append(MotionCorrectionProbe(writer=sink))
 
 
 _registered = False
@@ -2876,6 +3022,12 @@ def register_commands() -> None:
     TonyMovementPhysicsProbe()
     TonyGroundMotionProbe()
     TonyGroundMotionWriters()
+    TonyOllieRandomProbe()
+    TonyVelocityDampingRandomProbe()
+    TonyVelocityDampingComponentProbe()
+    TonyAirCorrectionProbe()
+    TonyResponseCorrectionProbe()
+    TonyMotionCorrectionProbe()
     TonyGroundMotionProfileProbe()
     TonyInAirProbe()
     TonySpecialPhysicsProbe()
@@ -2923,6 +3075,12 @@ def register_commands() -> None:
         "tony-collision-init-boundaries, "
         "tony-movement-physics-probe, "
         "tony-ground-motion-probe, tony-ground-motion-writers, "
+        "tony-ollie-random-probe, "
+        "tony-velocity-damping-random-probe, "
+        "tony-velocity-damping-component-probe, "
+        "tony-air-correction-probe, "
+        "tony-response-correction-probe, "
+        "tony-motion-correction-probe, "
         "tony-ground-motion-profile-probe, "
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
         "tony-special-physics-probe, "

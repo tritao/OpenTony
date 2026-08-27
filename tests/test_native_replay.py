@@ -37,8 +37,34 @@ def test_native_wire_preserves_initial_state_and_direct_input() -> None:
 
     assert "version 1" in wire
     assert "init -1 0 0" in wire
-    assert "frame 0 36864 -41 40" in wire
+    assert "frame 0 36864 -41 40 256 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" in wire
     assert wire.endswith("end\n")
+
+
+def test_native_wire_carries_outer_correction_seams() -> None:
+    recording = {
+        "initial": _snapshot(0),
+        "frames": [
+            {
+                "frame": 0,
+                "input": {"action_mask": 0},
+                "events": [
+                    {
+                        "type": "motion_correction_input",
+                        "correction_s32": [4, 5, 6],
+                    },
+                    {
+                        "type": "response_correction_input",
+                        "operand_s32": [7, 8, 9],
+                    },
+                ],
+            }
+        ],
+    }
+
+    line = _wire_input(recording["initial"], recording["frames"]).splitlines()[2]
+
+    assert line.split()[-8:] == ["1", "4", "5", "6", "1", "7", "8", "9"]
 
 
 def test_native_output_parser_reads_signed_snapshot_fields() -> None:

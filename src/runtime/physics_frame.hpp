@@ -133,6 +133,18 @@ struct PlayerPhysicsFrameHooks {
         const PositionCollisionHit&)> standard_air_contact_input;
     std::function<void(PlayerState&, const PhysicsDispatchResult&)>
         on_postphysics;
+    // The outer frame wrapper's completed transient +0x58 correction. It is
+    // sampled after the normal +0x58 -> +0x4c handoff so the captured value is
+    // authoritative for the frame-end snapshot.
+    std::function<std::optional<FixedPosition>(
+        const PlayerState&, const PhysicsDispatchResult&)>
+        motion_correction_input;
+    // The confirmed 0x004ca9f0 response add. This is separate from the
+    // transient correction because retail scales the latter before adding it
+    // to persistent response velocity.
+    std::function<std::optional<FixedPosition>(
+        const PlayerState&, const PhysicsDispatchResult&)>
+        response_correction_input;
     // Optional post-dispatch producer for the confirmed 0x0049d480 response
     // damping. The callback supplies random/mode-table values; the vector is
     // always taken from the current PlayerState.

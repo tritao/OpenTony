@@ -122,6 +122,35 @@ int main() {
     CHECK(prephysics_source.previous_position() == FixedPosition({0, 0, 0}));
     CHECK(prephysics_source.position() == FixedPosition({0x100, 0, 0}));
 
+    // The outer retail wrapper publishes the completed transient correction
+    // separately from the persistent response add. Both replay seams run
+    // after dispatch and must remain independently observable.
+    PlayerState correction_hooks_player;
+    correction_hooks_player.set_physics_state(3);
+    correction_hooks_player.set_collision_response({1, 2, 3});
+    InputState correction_hooks_input;
+    correction_hooks_input.begin_frame(0);
+    PlayerPhysicsFrameHooks correction_hooks{};
+    correction_hooks.integrate_position = false;
+    correction_hooks.integrate_motion_correction = false;
+    correction_hooks.motion_correction_input = [](
+        const PlayerState&,
+        const opentony::runtime::PhysicsDispatchResult&) {
+        return std::optional<FixedPosition>{FixedPosition({4, 5, 6})};
+    };
+    correction_hooks.response_correction_input = [](
+        const PlayerState&,
+        const opentony::runtime::PhysicsDispatchResult&) {
+        return std::optional<FixedPosition>{FixedPosition({7, 8, 9})};
+    };
+    const auto correction_hooks_frame = PlayerPhysicsFrame::step(
+        correction_hooks_player,
+        correction_hooks_input,
+        correction_hooks);
+    CHECK(!correction_hooks_frame.position_integrated);
+    CHECK(correction_hooks_player.motion_correction() == FixedPosition({4, 5, 6}));
+    CHECK(correction_hooks_player.collision_response() == FixedPosition({8, 10, 12}));
+
     PlayerState profile_player;
     profile_player.set_physics_state(0);
     InputState profile_input;
@@ -252,6 +281,34 @@ int main() {
     // The response-normalized write is transient: retail clears +0x58/+0x5c/
     // +0x60 between FUN_00493370 and B010.
     CHECK(normalized_player.motion_correction() == FixedPosition({0, 0, 0}));
+
+    // The live retail frame canonicalizes the captured, slightly-short Q12
+    // basis before grounded turn/input processing. Preserve the short values
+    // in InitialState, but expose the normalized values after frame 0.
+    PlayerState basis_player;
+    basis_player.set_physics_state(0);
+    opentony::runtime::Q12Matrix3 short_basis{};
+    short_basis.at(0, 0) = -4095;
+    short_basis.at(0, 2) = -6;
+    short_basis.at(1, 1) = -4096;
+    short_basis.at(2, 0) = 6;
+    short_basis.at(2, 2) = -4095;
+    basis_player.set_orientation(short_basis);
+    InputState basis_input;
+    basis_input.begin_frame(0);
+    PlayerPhysicsFrameHooks basis_hooks{};
+    basis_hooks.integrate_position = false;
+    basis_hooks.integrate_motion_correction = false;
+    static_cast<void>(PlayerPhysicsFrame::step(
+        basis_player,
+        basis_input,
+        basis_hooks));
+    CHECK(basis_player.orientation().values
+        == (std::array<std::int16_t, 9>{
+            -4096, 0, -6,
+            0, -4096, 0,
+            6, 0, -4096,
+        }));
 
     PlayerState cooldown_player;
     cooldown_player.set_physics_state(0);
@@ -475,9 +532,9 @@ int main() {
     CHECK(launch_frame.ollie.has_value());
     CHECK(launch_frame.ollie->event
         == opentony::runtime::OlliePrePhysicsEvent::Launched);
-    CHECK(ollie_player.physics_state() == 3);
+    CHECK(ollie_player.physics_state() == 1);
     CHECK(ollie_player.last_state_request().reason
-        == opentony::runtime::kAlternateLaunchReason);
+        == opentony::runtime::kOrdinaryLaunchReason);
 
     PlayerState landing_player({0, 100, 0});
     landing_player.set_physics_state(3);

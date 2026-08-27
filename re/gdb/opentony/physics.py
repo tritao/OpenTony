@@ -107,6 +107,61 @@ GROUND_MOTION_FRAME_RANDOM_SITES = {
     0x0049E836: "frame_speed_seed",
 }
 
+# Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
+# placed after the call, where EAX contains the returned roll.  The charge
+# pairs and the launch/release sequence are kept distinct because retail
+# consumes them from different branches of the prephysics function.
+OLLIE_RANDOM_SITES = {
+    0x0049A5C0: "charge_cap.first",
+    0x0049A5CA: "charge_cap.second",
+    0x0049A5FF: "charge_refresh.first",
+    0x0049A609: "charge_refresh.second",
+    0x0049A993: "impulse.first",
+    0x0049A99D: "impulse.second",
+    0x0049A9BF: "impulse.third",
+    0x0049A9EE: "impulse.fourth",
+    0x0049AA3F: "impulse.fifth",
+    0x0049AB10: "impulse.first",
+    0x0049AB1A: "impulse.second",
+    0x0049AB3D: "impulse.third",
+    0x0049AB6E: "impulse.fourth",
+    0x0049ABC0: "impulse.fifth",
+    0x0049AC1F: "early_release.first",
+    0x0049AC29: "early_release.second",
+}
+
+# FUN_0049d480's shared-RNG return sites. The rescale branch can consume
+# three component rolls in addition to its initial threshold roll; the
+# ordinary decay path starts at 0x0049d5a5.
+VELOCITY_DAMPING_RANDOM_SITES = {
+    0x0049D4A6: "rescale_threshold",
+    0x0049D4E7: "rescale_x",
+    0x0049D51E: "rescale_y",
+    0x0049D557: "rescale_z",
+    0x0049D5A5: "decay_threshold",
+}
+
+# FUN_0049d480 calls the fixed-point component helper once for each response
+# component on the randomized decay path.  Break after each call, before the
+# retail global scale and shift are applied, so native replay can preserve the
+# raw producer rather than baking in one observed response value.
+VELOCITY_DAMPING_COMPONENT_SITES = {
+    0x0049D5D4: "decay_x",
+    0x0049D5EF: "decay_y",
+    0x0049D60C: "decay_z",
+}
+
+# FUN_004caa20 adds or subtracts a prepared vector from the player's
+# temporary +0x58 correction.  The in-air handler uses this boundary for
+# action/gravity corrections; retain the operand before it is folded into the
+# player so replay can distinguish the producer from the final accumulator.
+AIR_CORRECTION_APPLY_ADDRESS = 0x004CAA20
+RESPONSE_CORRECTION_ADD_ADDRESS = 0x004CA9F0
+# The outer frame wrapper has just completed FUN_004cac30's scale step at
+# this address. EBP is the player and +0x58 contains the authoritative
+# transient correction retained in the frame-end snapshot.
+MOTION_CORRECTION_SOURCE_ADDRESS = 0x0049F1EE
+
 # The local gate is not assigned by B010 itself.  These are the static writer
 # chain discovered in the retail image: per-profile source flags, their copy
 # into the runtime table, and the final table store consumed by B010.
@@ -652,6 +707,230 @@ class GroundMotionRandomProbe(CountingBreakpoint):
             "physics_state": ctx.memory.u32(player + 0x30B8),
             "cooldown": ctx.memory.u32(player + 0x2F2C),
             "speed_threshold_before": ctx.memory.u32(player + 0x2DC8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class OllieRandomProbe(CountingBreakpoint):
+    """Capture raw shared-RNG results consumed by retail ollie prephysics."""
+
+    def __init__(self, address: int, purpose: str, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.purpose = purpose
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("ebp")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        value = ctx.register("eax")
+        record = {
+            "type": "ollie_random_input",
+            "function": "Skater_PrePhysicsOllie",
+            "eip": f"0x{ctx.eip:08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "purpose": self.purpose,
+            "raw_roll": value & 0xFFFFFFFF,
+            "roll_s32": _signed32(value),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+            "charge": ctx.memory.u32(player + 0x2DE8),
+            "slope_metric": ctx.memory.s32(player + 0x3110),
+            "horizontal_speed_metric": ctx.memory.s32(player + 0x2F30),
+            "height_delta_metric": (
+                ctx.memory.s32(player + 0x2F48) -
+                ctx.memory.s32(player + 0x2F4C)
+            ) >> 12,
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class VelocityDampingRandomProbe(CountingBreakpoint):
+    """Capture shared-RNG results consumed by the post-dispatch damping pass."""
+
+    def __init__(self, address: int, purpose: str, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.purpose = purpose
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        value = ctx.register("eax")
+        record = {
+            "type": "velocity_damping_random_input",
+            "function": "Skater_DampVelocity",
+            "eip": f"0x{ctx.eip:08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "purpose": self.purpose,
+            "raw_roll": value & 0xFFFFFFFF,
+            "roll_s32": _signed32(value),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+            "response_velocity": list(ctx.memory.u32_vec3(player + 0x4C)),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class VelocityDampingComponentProbe(CountingBreakpoint):
+    """Capture the raw fixed-point component decay producer result."""
+
+    def __init__(self, address: int, purpose: str, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.purpose = purpose
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("esi")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        value = ctx.register("eax")
+        record = {
+            "type": "velocity_damping_component_input",
+            "function": "Skater_DampVelocity",
+            "eip": f"0x{ctx.eip:08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "purpose": self.purpose,
+            "raw_value": value & 0xFFFFFFFF,
+            "value_s32": _signed32(value),
+            "response_velocity": list(ctx.memory.u32_vec3(player + 0x4C)),
+            "retail_scale": ctx.memory.u32(0x0056865C),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class AirCorrectionProbe(CountingBreakpoint):
+    """Capture vectors applied to the player's temporary correction."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(AIR_CORRECTION_APPLY_ADDRESS, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        destination = ctx.register("ecx")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(destination):
+            return False
+        target_offset = destination - current
+        if target_offset not in (0x4C, 0x58):
+            return False
+        source = ctx.memory.u32(ctx.esp + 4)
+        operand_raw = (
+            list(ctx.memory.u32_vec3(source))
+            if ctx.memory.readable(source, 0x0C)
+            else None
+        )
+        record = {
+            "type": "air_correction_input",
+            "function": "Skater_DoPhysicsInAir",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{current:08x}",
+            "target_offset": target_offset,
+            "source": f"0x{source:08x}",
+            "operand_raw": operand_raw,
+            "operand_s32": (
+                [_signed32(value) for value in operand_raw]
+                if operand_raw is not None
+                else None
+            ),
+            "correction_before": list(ctx.memory.u32_vec3(destination)),
+            "physics_state": ctx.memory.u32(current + 0x30B8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class ResponseCorrectionProbe(CountingBreakpoint):
+    """Capture vectors folded into persistent collision response."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(RESPONSE_CORRECTION_ADD_ADDRESS, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        destination = ctx.register("ecx")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(destination) or destination != current + 0x4C:
+            return False
+        source = ctx.memory.u32(ctx.esp + 4)
+        operand_raw = (
+            list(ctx.memory.u32_vec3(source))
+            if ctx.memory.readable(source, 0x0C)
+            else None
+        )
+        record = {
+            "type": "response_correction_input",
+            "function": "Skater_PhysicsFrame",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{current:08x}",
+            "source": f"0x{source:08x}",
+            "operand_raw": operand_raw,
+            "operand_s32": (
+                [_signed32(value) for value in operand_raw]
+                if operand_raw is not None
+                else None
+            ),
+            "response_before": list(ctx.memory.u32_vec3(destination)),
+            "physics_state": ctx.memory.u32(current + 0x30B8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class MotionCorrectionProbe(CountingBreakpoint):
+    """Capture the completed outer-frame +0x58 correction producer."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        super().__init__(MOTION_CORRECTION_SOURCE_ADDRESS, count=count, internal=True)
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register("ebp")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        correction_raw = list(ctx.memory.u32_vec3(player + 0x58))
+        record = {
+            "type": "motion_correction_input",
+            "function": "Skater_PhysicsFrame",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": f"0x{ctx.caller():08x}",
+            "frame": ctx.frame,
+            "player": f"0x{player:08x}",
+            "correction_raw": correction_raw,
+            "correction_s32": [_signed32(value) for value in correction_raw],
+            "physics_state": ctx.memory.u32(player + 0x30B8),
         }
         if self.writer is None:
             self.emit(record)
