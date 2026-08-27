@@ -22,15 +22,27 @@ artifacts:
   native:
     - src/trg/level_trigger_state.hpp
     - src/trg/level_trigger_state.cpp
+    - src/runtime/level_event_owner.hpp
+    - src/runtime/level_event_owner.cpp
+    - src/runtime/player_state.hpp
+    - src/runtime/player_state.cpp
+    - src/runtime/physics_replay.hpp
+    - src/runtime/gameplay_session.hpp
+    - src/runtime/gameplay_session.cpp
+    - src/runtime/level_frame.hpp
+    - src/runtime/gameplay_frame.cpp
+    - src/camera/camera_runtime.hpp
+    - src/camera/camera_runtime.cpp
   tests:
     - src/trg/trg_runtime_test.cpp
     - src/trg/level_trigger_state_test.cpp
+    - src/runtime/level_event_owner_test.cpp
 
 open_questions:
-  - The owning player/camera services must apply the returned replay, score, animation, and +0x5b4 camera writes.
   - FUN_004dee50, FUN_004ab9c0, and FUN_0044e0f0 retain broader mode/menu/stat side effects outside this trigger service.
 
 completion:
   - Opcode 0x009e is proven operand-free in normal and conditional-skip paths, including stream-boundary failures.
   - Mode-8/mode-9 raw counter writes and first-call latch initialization are represented with explicit caller inputs.
   - Eligible per-frame countdown, animation selection, camera-step deltas, replay reset, completion, and pending-score handoffs have deterministic tests.
+  - LevelEventGameplayOwner applies animation, replay-slot, score, and camera writes with raw player-field names preserved where semantics remain open.

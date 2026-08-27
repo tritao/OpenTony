@@ -61,6 +61,9 @@ struct PsxObject {
     // signed rotation components, although their original asset names are
     // not recovered yet.
     std::array<std::int16_t, 3> collision_angles{};
+    // PSX archive model-table index. This is not the PC runtime node's
+    // kind-strided +0x1a/+0x1f pair; linked queries use the explicit
+    // PsxLinkedCollisionObject view below for that attachment product.
     std::uint16_t model_index = 0;
     std::size_t source_index = 0;
 };
@@ -356,7 +359,14 @@ public:
     }
 
     const std::vector<PsxObject>& objects() const { return objects_; }
+    // The PSX archive owns this model table. The PC executable's
+    // DAT_0056d43c kind-strided runtime model tables are a separate loader
+    // product and are represented only by caller-resolved linked-node input.
     const std::vector<PsxModel>& models() const { return models_; }
+    // Parsed PSX blockmaps are the portable source for static candidate
+    // selection. They are not the PC DAT_00567f80/DAT_00567fa0 zone graph;
+    // the latter's ownership and pointer-array shape remain explicit in the
+    // reference layer and evidence fixture.
     const std::vector<PsxBlockmap>& blockmaps() const { return blockmaps_; }
 
     // Construct the collision-facing portion of a linked runtime object from

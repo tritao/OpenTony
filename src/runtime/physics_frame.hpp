@@ -42,6 +42,12 @@ struct PlayerPhysicsFrameHooks {
     // after the queued-motion drain. This preserves the producer/consumer
     // ordering for callers that decode the recovered action stream.
     std::function<void(PlayerState&)> on_action_stream;
+    // Observer at the confirmed FUN_00492190 -> FUN_004925e0 boundary. The
+    // history ring is already updated when this runs; it is intentionally an
+    // observer, not a replacement for the recovered publisher.
+    std::function<void(
+        const PlayerState&,
+        const ActionProfileState&)> on_action_history;
     // Optional fully connected generated-table/action-archive path. The
     // source is intentionally a view so loaders can keep ownership outside
     // the frame object while PlayerState owns the history ring.
@@ -131,6 +137,13 @@ struct PlayerPhysicsFrameHooks {
         const PlayerState&,
         const InputState&,
         const PositionCollisionHit&)> standard_air_contact_input;
+    // The accepted-contact caller reaches the known animation request at
+    // retail FUN_0049a519 (animation 5, start 0, end -1). The callback keeps
+    // that caller-owned request explicit while pose/asset decoding remains
+    // outside this frame boundary.
+    std::function<std::optional<GroundAnimationRequest>(
+        const PlayerState&,
+        const PositionCollisionHit&)> landing_animation_request;
     std::function<void(PlayerState&, const PhysicsDispatchResult&)>
         on_postphysics;
     // The outer frame wrapper's completed transient +0x58 correction. It is
@@ -163,6 +176,9 @@ struct PlayerPhysicsFrameHooks {
     bool apply_queued_motion{true};
     bool integrate_position{true};
     bool integrate_motion_correction{true};
+    // Equivalent caller gate for skater +0x3200. Static matching proves that
+    // a nonzero word bypasses FUN_00496060 collision resolution, but its
+    // writer is not present on the selected paths, so this remains explicit.
     bool bypass_collision{false};
     bool apply_in_air_jump_hold_effect{true};
     // FUN_00490610 is confirmed in the ground/air hit path. It is enabled for
@@ -172,6 +188,9 @@ struct PlayerPhysicsFrameHooks {
 };
 
 struct PlayerPhysicsFrameResult {
+    std::int32_t physics_state_before{};
+    std::int32_t physics_state_after{};
+    PhysicsStateRequest state_request{};
     ActionProfileState action_profile{};
     PhysicsDispatchResult dispatch{};
     PositionCommitResult position_commit{};
@@ -195,6 +214,7 @@ struct PlayerPhysicsFrameResult {
     std::optional<ActionSequenceExecutionResult> action_sequence;
     std::optional<GroundMotionResult> ground_motion;
     std::optional<GroundAnimationResult> ground_animation;
+    std::optional<GroundAnimationRequest> landing_animation_request;
     std::optional<GroundMotionThresholdResult> ground_motion_threshold;
     QueuedMotionDrainResult queued_motion{};
     FixedPosition queued_motion_world_delta{};

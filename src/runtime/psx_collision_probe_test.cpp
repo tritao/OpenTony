@@ -165,12 +165,19 @@ int main(int argc, char** argv) {
     CHECK(result.collided);
     CHECK(!result.blocked);
     CHECK(result.probes == 4);
+    CHECK(result.selected_candidate == static_cast<std::uint8_t>(
+        opentony::runtime::PositionCommitCandidate::OldY));
 
     const auto recovered_scene = opentony::collision::PsxScene::parse(
         std::span<const std::byte>(bytes.data(), bytes.size()));
     CHECK(recovered_scene.has_value());
+    // This synthetic face deliberately uses the non-retail 0x1234 surface
+    // word to exercise metadata publication; opt out of the retail selector
+    // for this compatibility fixture.
+    opentony::collision::CollisionFaceFilter compatibility_filter;
+    compatibility_filter.apply_retail_face_filter = false;
     const opentony::runtime::PsxScenePositionCollisionProbe recovered_probe(
-        *recovered_scene, {0, 4096, 0});
+        *recovered_scene, {0, 4096, 0}, compatibility_filter);
     const auto recovered_hit = recovered_probe.query({0, -4096, 0});
     CHECK(recovered_hit.has_value());
     CHECK(recovered_hit->object_index == 0);

@@ -18,6 +18,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     const PlayerPhysicsFrameHooks& hooks,
     std::int32_t frame_scale_q8) {
     PlayerPhysicsFrameResult result{};
+    result.physics_state_before = player.physics_state();
     result.action_profile = map_action_profile(
         input.action_mask(),
         input.horizontal_axis(),
@@ -141,6 +142,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     player.publish_action_profile(
         result.action_profile,
         static_cast<std::uint32_t>(player.frame_counter()));
+    if (hooks.on_action_history) {
+        hooks.on_action_history(player, result.action_profile);
+    }
     if (hooks.action_sequence_source.has_value()
         && hooks.action_sequence_source->tricks != nullptr) {
         std::span<const std::uint8_t> sequence_table =
@@ -343,6 +347,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             if (accepted_air_contact) {
                 result.landed = current_player.accept_air_contact(
                     result.position_commit.position);
+                if (result.landed && hooks.landing_animation_request) {
+                    result.landing_animation_request =
+                        hooks.landing_animation_request(
+                            current_player,
+                            *result.collision_hit);
+                }
             }
             result.position_integrated = true;
         },
@@ -390,6 +400,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     if (hooks.on_postphysics) {
         hooks.on_postphysics(player, result.dispatch);
     }
+    result.physics_state_after = player.physics_state();
+    result.state_request = player.last_state_request();
     return result;
 }
 

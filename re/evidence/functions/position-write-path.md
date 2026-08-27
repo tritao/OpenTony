@@ -8,9 +8,12 @@ proposal risk was `unknown-adjacent`; static bytes show that the following
 split explicitly without absorbing that padding.
 
 The function uses `ECX` as the player/skater object, receives proposed X/Y/Z
-words on the stack, and returns with `ret 0x0c`. When the field at object offset
-`0x3200` is nonzero, it writes those values directly to offsets `+0x08`,
-`+0x0c`, and `+0x10`.
+words on the stack, and returns with `ret 0x0c`. The field at object offset
+`0x3200` is therefore behaviorally resolved as a direct-commit gate: when it is
+nonzero, the function writes those values directly to offsets `+0x08`,
+`+0x0c`, and `+0x10`. The selected ordinary grounded and air-to-landing paths
+take the zero/collision branch. The reviewed split has no writer for this
+field, so its producer remains open outside the selected paths.
 
 When `+0x3200` is zero, the function saves and sets global `0x00567c7c`, builds
 a local collision-query structure, and repeatedly calls `0x004624d0` and
@@ -22,4 +25,7 @@ the global guard restored. Exact role names for the two callees and result
 field remain inferred.
 
 The matching module expresses the complete 534-byte function as reviewed NASM;
-it contains no `incbin`. The module and full PE remain byte-identical.
+it contains no `incbin`. The module and full PE remain byte-identical. The
+compact [player-frame integration fixture](../fixtures/player-frame-integration.json)
+records the fixed-point caller values and the native candidate ordinals used
+by the two selected frame paths.

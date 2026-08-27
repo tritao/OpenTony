@@ -117,6 +117,30 @@ public:
     [[nodiscard]] std::int16_t animation_frame() const noexcept {
         return animation_frame_;
     }
+    // Raw skater fields consumed by the level-event update.  Keep the
+    // executable offsets at this boundary until the surrounding score/stat
+    // service is reconstructed.
+    [[nodiscard]] std::int32_t level_event_field_2cdc() const noexcept {
+        return field_2cdc_;
+    }
+    [[nodiscard]] std::int32_t level_event_field_2dd4() const noexcept {
+        return field_2dd4_;
+    }
+    [[nodiscard]] std::uint8_t level_event_field_107() const noexcept {
+        return field_107_;
+    }
+    [[nodiscard]] std::int32_t level_event_field_2a8() const noexcept {
+        return field_2a8_;
+    }
+    [[nodiscard]] std::int32_t level_event_field_16c() const noexcept {
+        return field_16c_;
+    }
+    [[nodiscard]] std::uint32_t level_event_animation_requests() const noexcept {
+        return level_event_animation_requests_;
+    }
+    [[nodiscard]] std::uint32_t last_level_event_animation() const noexcept {
+        return last_level_event_animation_;
+    }
     [[nodiscard]] std::int32_t ground_motion_threshold() const noexcept {
         return ground_motion_threshold_;
     }
@@ -249,6 +273,37 @@ public:
         std::uint32_t auxiliary = 0,
         std::uint16_t auxiliary_word = 0) noexcept;
     void set_physics_state(std::int32_t state) noexcept { physics_state_ = state; }
+    void set_level_event_field_2cdc(std::int32_t value) noexcept {
+        field_2cdc_ = value;
+    }
+    void set_level_event_field_2dd4(std::int32_t value) noexcept {
+        field_2dd4_ = value;
+    }
+    void set_level_event_field_107(std::uint8_t value) noexcept {
+        field_107_ = value;
+    }
+    void set_level_event_field_2a8(std::int32_t value) noexcept {
+        field_2a8_ = value;
+    }
+    void set_level_event_field_16c(std::int32_t value) noexcept {
+        field_16c_ = value;
+    }
+    // The pending-score transfer is proven as +0x2a8 -> +0x16c followed by
+    // clearing +0x2a8. The caller supplies the result returned by the level
+    // event service; this player object owns only these two raw words.
+    void apply_level_event_score(std::int32_t value) noexcept {
+        field_16c_ = static_cast<std::int32_t>(
+            static_cast<std::uint32_t>(field_16c_)
+            + static_cast<std::uint32_t>(value));
+        field_2a8_ = 0;
+    }
+    // FUN_00469a30 calls the animation service with the selected ID.  The
+    // animation service itself is not reconstructed here, so retain a stable
+    // request record without confusing it with the +0xf6 selector input.
+    void request_level_event_animation(std::uint32_t animation) noexcept {
+        last_level_event_animation_ = animation;
+        ++level_event_animation_requests_;
+    }
     void set_script_skater_fields(
         const PlayerScriptSkaterFields& fields) noexcept {
         script_skater_fields_ = fields;
@@ -460,6 +515,13 @@ private:
     bool ground_turn_policy_changed_{};
     std::uint16_t animation_state_{};
     std::int16_t animation_frame_{};
+    std::int32_t field_2cdc_{};
+    std::int32_t field_2dd4_{};
+    std::uint8_t field_107_{};
+    std::int32_t field_2a8_{};
+    std::int32_t field_16c_{};
+    std::uint32_t level_event_animation_requests_{};
+    std::uint32_t last_level_event_animation_{};
     // FUN_0046c98c initializes skater +0x2dc8 before the first frame.
     // Later FUN_0049e680 updates it from the shared RNG/stat service.
     std::int32_t ground_motion_threshold_{0x2e9b6};

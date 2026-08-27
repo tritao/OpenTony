@@ -69,6 +69,7 @@ add_library(opentony_runtime STATIC
     src/runtime/fixed_math.cpp
     src/runtime/fixed_step_driver.cpp
     src/runtime/gameplay_frame.cpp
+    src/runtime/level_event_owner.cpp
     src/runtime/gameplay_presentation.cpp
     src/runtime/gameplay_session.cpp
     src/runtime/ground_brake.cpp
@@ -220,6 +221,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_render_packet_builder_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_render_packet_builder_test COMMAND opentony_render_packet_builder_test)
 
+    add_executable(opentony_render_polygon_bucket_test
+        src/trg/render_polygon_bucket_test.cpp
+    )
+    target_link_libraries(opentony_render_polygon_bucket_test PRIVATE opentony_trg)
+    target_compile_features(opentony_render_polygon_bucket_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_render_polygon_bucket_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_render_polygon_bucket_test COMMAND opentony_render_polygon_bucket_test)
+
     add_executable(opentony_render_command_dispatch_test
         src/trg/render_command_dispatch_test.cpp
     )
@@ -260,6 +269,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_gameplay_frame_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_gameplay_frame_test COMMAND opentony_gameplay_frame_test)
 
+    add_executable(opentony_player_frame_integration_test
+        src/runtime/player_frame_integration_test.cpp
+    )
+    target_link_libraries(opentony_player_frame_integration_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_player_frame_integration_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_player_frame_integration_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_player_frame_integration_test COMMAND opentony_player_frame_integration_test)
+
     add_executable(opentony_fixed_step_driver_test
         src/runtime/fixed_step_driver_test.cpp
     )
@@ -275,6 +292,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_features(opentony_gameplay_session_test PRIVATE cxx_std_20)
     target_compile_options(opentony_gameplay_session_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_gameplay_session_test COMMAND opentony_gameplay_session_test)
+
+    add_executable(opentony_level_event_owner_test
+        src/runtime/level_event_owner_test.cpp
+    )
+    target_link_libraries(opentony_level_event_owner_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_level_event_owner_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_level_event_owner_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_level_event_owner_test COMMAND opentony_level_event_owner_test)
 
     add_executable(opentony_ground_brake_test
         src/runtime/ground_brake_test.cpp

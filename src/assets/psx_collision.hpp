@@ -111,7 +111,9 @@ struct PsxCollisionHit {
 
 // Renderer- and physics-policy-independent collision geometry. It reproduces
 // the PSX blockmap's object selection and world-space fixed-point placement;
-// callers decide how surface flags affect skater movement or raycasts.
+// callers decide how face flags and surface words affect skater movement or
+// raycasts. In particular, face flag 0x80 is retained as metadata rather than
+// being treated as an inferred geometry-exclusion bit.
 class PsxCollisionWorld final {
 public:
     static PsxCollisionWorld build(const PsxArchive& archive);

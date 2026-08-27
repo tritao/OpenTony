@@ -42,6 +42,7 @@ int main() {
     // The desired x=10 is blocked; FUN_00496060 falls back to the old x.
     CHECK(frame.position_commit.collided);
     CHECK(frame.position_commit.probes == 2);
+    CHECK(frame.position_commit.selected_candidate == 2);
     CHECK(player.position() == FixedPosition({0, 20, 30}));
     CHECK(player.previous_position() == FixedPosition({0, 0, 0}));
     CHECK(player.turn_accumulator() == 0);

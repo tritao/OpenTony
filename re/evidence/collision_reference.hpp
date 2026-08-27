@@ -2022,7 +2022,9 @@ inline bool face_aabb_overlaps_query(const CollisionFaceAabbRecord& face_aabb,
 }
 
 struct CollisionFaceFilter {
-    std::uint32_t reject_mask = 0;       // DAT_00567a60
+    // The ordinary startup inputs are all clear, so FUN_004660b0 leaves the
+    // 0x200000 rejection bit set after its toggle sequence.
+    std::uint32_t reject_mask = 0x00200000u;  // DAT_00567a60
     std::uint32_t required_bits = 0xffffffffu;  // DAT_00567a68
     bool query_mask_mode = false;        // q+0x88
     // The retail query always evaluates these predicates. Native callers

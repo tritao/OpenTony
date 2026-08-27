@@ -283,3 +283,8 @@ words, the `0x200` stream origin, and the proven eight signed 20-bit channels
 followed by eight signed 16-bit channels. `ReplayAsset::card_transfer()` also
 models the two-player `0x7fe00` transfer size. Synthetic bitstream coverage and
 the real `DEMOA.REC` header both pass.
+
+The level-event countdown reset is owned at the gameplay replay boundary by
+`PlayerReplayResetOwner`. It records the two slot resets requested by
+`0x00469a30`, including the null-secondary one-player slot, without claiming
+to reconstruct the separate replay stream contents.

@@ -125,14 +125,17 @@ type-6 TRG command point +0x0c checksum
     + command 0xc9 aligned checksum/divider
     -> executable gap definition (+0x00/+0x04/+0x06/+0x08)
     -> immediate completion or deferred gap state
-    -> ordinary completion: one source-node pulse
+    -> player physics state selects +0x3014/+0x3018
+    -> checklist completion record
+    -> owning level session pulses the stored source node
 ```
 
 The score value, divider, display name, completion/award state, and source
-pulse are independently representable. The unresolved part is the owner of
-the deferred player-position test and the public names of the score/checklist
-fields, not the disk/command/table lookup, pending-pointer storage, or
-state-specific completion branch.
+pulse are independently representable. `LevelTriggerState` owns this native
+checklist record and `GameplaySession` owns the source-node pulse after the
+player physics state selects the branch. The unresolved part is the public
+name of the surrounding score/checklist service, not the disk/command/table
+lookup, pending-pointer storage, or state-specific completion branch.
 
 ## Corpus cross-check
 

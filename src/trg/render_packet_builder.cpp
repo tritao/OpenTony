@@ -1,6 +1,7 @@
 #include "render_packet_builder.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -49,7 +50,303 @@ namespace {
     };
 }
 
+[[nodiscard]] float store_f32(float value) {
+    // The retail code stores each intermediate through an x87 f32 slot. The
+    // volatile local prevents a host compiler from retaining excess
+    // precision across the same boundary.
+    volatile float stored = value;
+    return stored;
+}
+
+[[nodiscard]] float store_f32(long double value) {
+    volatile float stored = static_cast<float>(value);
+    return stored;
+}
+
+void validate_polygon(const RenderPolygonPacket& polygon) {
+    if (polygon.vertex_count != 3 && polygon.vertex_count != 4) {
+        throw RenderPacketError(
+            "render polygon must contain three or four vertices");
+    }
+    if (polygon.vertices.size() != polygon.vertex_count) {
+        throw RenderPacketError(
+            "render polygon vertex count does not match its record");
+    }
+}
+
+struct NearClipVertex {
+    RenderPolygonVertex vertex{};
+    float clip_depth{};
+};
+
+[[nodiscard]] std::uint8_t color_byte(
+    std::uint32_t color,
+    unsigned shift) {
+    return static_cast<std::uint8_t>((color >> shift) & 0xffU);
+}
+
+void set_color_byte(
+    std::uint32_t& color,
+    unsigned shift,
+    std::uint8_t value) {
+    const std::uint32_t mask = 0xffU << shift;
+    color = (color & ~mask) | (static_cast<std::uint32_t>(value) << shift);
+}
+
+[[nodiscard]] std::uint8_t interpolate_color_byte(
+    std::uint8_t current,
+    std::uint8_t next,
+    long double factor) {
+    // The retail helper loads both bytes as unsigned integers, calls the
+    // truncating __ftol, and adds the result to the current byte in AL.
+    const int delta = static_cast<int>(std::trunc(
+        (static_cast<long double>(next) - current) * factor));
+    return static_cast<std::uint8_t>(
+        static_cast<unsigned int>(current + delta));
+}
+
+[[nodiscard]] NearClipVertex interpolate_near_edge(
+    const NearClipVertex& current,
+    const NearClipVertex& next,
+    float near_depth,
+    bool textured) {
+    const long double factor =
+        (static_cast<long double>(near_depth) - current.clip_depth)
+        / (static_cast<long double>(next.clip_depth) - current.clip_depth);
+    NearClipVertex result = current;
+    result.clip_depth = near_depth;
+    result.vertex.projected.x = store_f32(
+        (static_cast<long double>(next.vertex.projected.x)
+         - current.vertex.projected.x)
+            * factor
+        + current.vertex.projected.x);
+    result.vertex.projected.y = store_f32(
+        (static_cast<long double>(next.vertex.projected.y)
+         - current.vertex.projected.y)
+            * factor
+        + current.vertex.projected.y);
+    result.vertex.projected.reciprocal_depth = near_depth;
+
+    for (const unsigned shift : {0U, 8U, 16U}) {
+        set_color_byte(
+            result.vertex.color,
+            shift,
+            interpolate_color_byte(
+                color_byte(current.vertex.color, shift),
+                color_byte(next.vertex.color, shift),
+                factor));
+    }
+    // The byte at stream offset +0x13 is not written by 0x004d25c0. Keeping
+    // the current native byte is deterministic while retaining that target
+    // field as an unresolved/stale-byte seam.
+
+    if (textured) {
+        result.vertex.uv[0] = store_f32(
+            (static_cast<long double>(next.vertex.uv[0])
+             - current.vertex.uv[0])
+                * factor
+            + current.vertex.uv[0]);
+        result.vertex.uv[1] = store_f32(
+            (static_cast<long double>(next.vertex.uv[1])
+             - current.vertex.uv[1])
+                * factor
+            + current.vertex.uv[1]);
+    }
+    return result;
+}
+
+[[nodiscard]] long double winding_determinant(
+    const RenderPolygonPacket& polygon,
+    std::size_t origin_index,
+    std::size_t first,
+    std::size_t last,
+    bool reverse_operands = false) {
+    const RenderProjectedVertex& origin =
+        polygon.vertices[origin_index].projected;
+    const RenderProjectedVertex& edge_first =
+        polygon.vertices[first].projected;
+    const RenderProjectedVertex& edge_last =
+        polygon.vertices[last].projected;
+    const long double first_x =
+        static_cast<long double>(edge_first.x) - origin.x;
+    const long double first_y =
+        static_cast<long double>(edge_first.y) - origin.y;
+    const long double last_x =
+        static_cast<long double>(edge_last.x) - origin.x;
+    const long double last_y =
+        static_cast<long double>(edge_last.y) - origin.y;
+
+    // This is the retail operand order: last_y * first_x - last_x * first_y.
+    const long double determinant = last_y * first_x - last_x * first_y;
+    return reverse_operands ? -determinant : determinant;
+}
+
+[[nodiscard]] std::size_t depth_bucket(float selected_depth) {
+    // 0x005004f4 (__ftol) truncates toward zero. Do the range checks before
+    // converting to an integer so extreme test fixtures remain defined on the
+    // host while retaining the retail 0..0xfff result.
+    const long double rounded = static_cast<long double>(selected_depth) + 0.5L;
+    if (!(rounded > 0.0L)) {
+        return 0;
+    }
+    if (rounded >= 16384.0L) {
+        return kRenderDepthBucketCount - 1;
+    }
+    const long double truncated = std::trunc(rounded);
+    if (!(truncated > 0.0L)) {
+        return 0;
+    }
+    const auto quantized = static_cast<std::size_t>(truncated) >> 2;
+    return std::min(quantized, kRenderDepthBucketCount - 1);
+}
+
+void adjust_depth(
+    const RenderDepthBucketOptions& options,
+    float& multiplier,
+    float& offset,
+    bool& choose_nearest) {
+    multiplier = 1.0F;
+    offset = options.depth_offset;
+    choose_nearest = options.choose_nearest_depth;
+    switch (options.mode) {
+    case RenderDepthBucketMode::base:
+        break;
+    case RenderDepthBucketMode::scaled_nearest:
+        multiplier = 0.95F;
+        break;
+    case RenderDepthBucketMode::scaled_farthest:
+        multiplier = options.mode2_multiplier;
+        break;
+    case RenderDepthBucketMode::offset_farthest:
+        offset = store_f32(offset + options.mode3_offset);
+        choose_nearest = false;
+        break;
+    case RenderDepthBucketMode::forced_offset:
+        offset = 16380.0F;
+        choose_nearest = false;
+        break;
+    }
+}
+
+[[nodiscard]] float update_depth_and_select(
+    RenderPolygonPacket& polygon,
+    const RenderDepthBucketOptions& options) {
+    if (options.display_rect_depth) {
+        float selected = polygon.vertices.front().projected.z;
+        for (std::size_t index = 1; index < polygon.vertices.size(); ++index) {
+            selected = std::max(selected, polygon.vertices[index].projected.z);
+        }
+        return selected;
+    }
+
+    float multiplier = 1.0F;
+    float offset = options.depth_offset;
+    bool choose_nearest = options.choose_nearest_depth;
+    adjust_depth(options, multiplier, offset, choose_nearest);
+    if (options.mode == RenderDepthBucketMode::forced_offset) {
+        polygon.flags |= 0x80000000U;
+    }
+
+    float selected = 0.0F;
+    for (std::size_t index = 0; index < polygon.vertices.size(); ++index) {
+        RenderProjectedVertex& projected = polygon.vertices[index].projected;
+        const long double adjusted_extended =
+            (static_cast<long double>(offset) + projected.z)
+            * static_cast<long double>(multiplier);
+        const float adjusted = store_f32(adjusted_extended);
+        projected.z = adjusted;
+        if (index == 0 || (choose_nearest ? adjusted < selected
+                                          : selected < adjusted)) {
+            selected = adjusted;
+        }
+        if (projected.z < options.near_depth) {
+            projected.z = options.near_depth;
+        }
+        const long double reciprocal =
+            static_cast<long double>(options.near_depth) / projected.z;
+        if (static_cast<long double>(options.reciprocal_depth_cap)
+            < reciprocal) {
+            projected.z = options.reciprocal_depth_cap;
+        } else {
+            projected.z = store_f32(reciprocal);
+        }
+    }
+    return selected;
+}
+
 } // namespace
+
+RenderPolygonArena::RenderPolygonArena(
+    std::size_t initial_cursor,
+    std::size_t end_cursor)
+    : polygon_cursor_(initial_cursor),
+      cursor_(initial_cursor),
+      end_(end_cursor) {
+    if (end_cursor < initial_cursor) {
+        throw RenderPacketError("render polygon arena end precedes cursor");
+    }
+}
+
+std::size_t RenderPolygonArena::cursor() const noexcept {
+    return cursor_;
+}
+
+std::size_t RenderPolygonArena::end() const noexcept {
+    return end_;
+}
+
+std::size_t RenderPolygonArena::begin_view_record() {
+    if (cursor_ > end_ || end_ - cursor_ < kRenderViewRecordSize) {
+        throw RenderPacketError("render view record exceeds polygon arena");
+    }
+    const std::size_t record_offset = cursor_;
+    cursor_ += kRenderViewRecordSize;
+    polygon_cursor_ = cursor_;
+    return record_offset;
+}
+
+std::optional<RenderPolygonArenaAllocation>
+RenderPolygonArena::allocate_polygon() {
+    if (cursor_ >= end_) {
+        return std::nullopt;
+    }
+    const std::size_t cursor_before = cursor_;
+    cursor_ += kRenderPolygonArenaSlotSize;
+    pending_slots_.push_back(cursor_before);
+    return RenderPolygonArenaAllocation{
+        cursor_before, cursor_before, cursor_};
+}
+
+void RenderPolygonArena::commit_polygon(
+    const RenderPolygonArenaAllocation& allocation) {
+    if (pending_slots_.empty()
+        || pending_slots_.back() != allocation.slot_offset
+        || allocation.cursor_after != cursor_) {
+        throw RenderPacketError(
+            "render polygon arena commit is not the latest slot");
+    }
+    live_slots_.push_back(allocation.slot_offset);
+    pending_slots_.pop_back();
+}
+
+bool RenderPolygonArena::has_live_polygon(
+    std::size_t slot_offset) const noexcept {
+    return std::find(live_slots_.begin(), live_slots_.end(), slot_offset)
+        != live_slots_.end();
+}
+
+std::size_t RenderPolygonArena::live_polygon_count() const noexcept {
+    return live_slots_.size();
+}
+
+void RenderPolygonArena::rollback_polygon() {
+    if (pending_slots_.empty()
+        || cursor_ < polygon_cursor_ + kRenderPolygonArenaSlotSize) {
+        throw RenderPacketError("render polygon arena rollback without slot");
+    }
+    pending_slots_.pop_back();
+    cursor_ -= kRenderPolygonArenaSlotSize;
+}
 
 RenderPolygonPacket RenderPacketBuilder::build_face(
     const LevelRenderFaceSnapshot& face,
@@ -157,6 +454,273 @@ RenderPacketBuildResult RenderPacketBuilder::build(
                 {position, face.flags}, packet.vertices[corner].projected});
         }
         result.polygons.push_back(std::move(packet));
+    }
+    return result;
+}
+
+RenderPolygonClipSummary RenderPacketBuilder::summarize_clip(
+    const RenderPolygonPacket& polygon) {
+    validate_polygon(polygon);
+    RenderPolygonClipSummary summary{
+        polygon.vertices.front().projected.clip_flags, 0};
+    for (const RenderPolygonVertex& vertex : polygon.vertices) {
+        summary.all_flags &= vertex.projected.clip_flags;
+        summary.any_flags |= vertex.projected.clip_flags;
+    }
+    return summary;
+}
+
+std::vector<RenderPolygonPacket> RenderPacketBuilder::split_textured_quad(
+    const RenderPolygonPacket& polygon,
+    bool split) {
+    validate_polygon(polygon);
+    if (!split || !polygon.textured || polygon.vertex_count != 4) {
+        return {polygon};
+    }
+
+    RenderPolygonPacket first = polygon;
+    first.vertex_count = 3;
+    first.vertices = {polygon.vertices[0], polygon.vertices[1],
+                     polygon.vertices[3]};
+
+    RenderPolygonPacket second = polygon;
+    second.vertex_count = 3;
+    second.vertices = {polygon.vertices[3], polygon.vertices[1],
+                      polygon.vertices[2]};
+    return {std::move(first), std::move(second)};
+}
+
+RenderNearClipResult RenderPacketBuilder::clip_near_plane(
+    RenderPolygonPacket& polygon,
+    const RenderNearClipOptions& options) {
+    validate_polygon(polygon);
+
+    const bool textured = polygon.textured;
+    std::vector<NearClipVertex> source;
+    source.reserve(polygon.vertices.size());
+    for (const RenderPolygonVertex& input : polygon.vertices) {
+        NearClipVertex transformed{input, 0.0F};
+        const long double reciprocal =
+            static_cast<long double>(options.projection_unit_scale)
+            / static_cast<long double>(input.projected.reciprocal_depth);
+        transformed.vertex.projected.x = store_f32(
+            (static_cast<long double>(input.projected.x)
+             - options.screen_center_x)
+            * reciprocal);
+        transformed.vertex.projected.y = store_f32(
+            (static_cast<long double>(input.projected.y)
+             - options.screen_center_y)
+            * reciprocal);
+        transformed.clip_depth = store_f32(
+            static_cast<long double>(options.depth_scale) * reciprocal);
+        // The clipper uses +0xc as view depth until its final reprojection.
+        transformed.vertex.projected.reciprocal_depth =
+            transformed.clip_depth;
+        source.push_back(transformed);
+    }
+
+    std::vector<NearClipVertex> output;
+    output.reserve(6);
+    for (std::size_t index = 0; index < source.size(); ++index) {
+        const NearClipVertex& current = source[index];
+        const NearClipVertex& next = source[(index + 1) % source.size()];
+        const bool current_outside = current.clip_depth < options.near_depth;
+        const bool next_outside = next.clip_depth < options.near_depth;
+
+        // 0x004d2310 walks current -> next in source order. An inside vertex
+        // is copied before an inside transition's intersection; an outside
+        // to inside transition emits only the intersection.
+        if (current_outside) {
+            if (!next_outside) {
+                output.push_back(interpolate_near_edge(
+                    current, next, options.near_depth, textured));
+            }
+        } else {
+            output.push_back(current);
+            if (next_outside) {
+                output.push_back(interpolate_near_edge(
+                    current, next, options.near_depth, textured));
+            }
+        }
+    }
+
+    const std::size_t output_count = output.size();
+    RenderNearClipResult result;
+    result.output_vertex_count = static_cast<std::uint8_t>(output_count);
+
+    if (output_count > 2) {
+        std::uint32_t all_lateral_flags = 0;
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            NearClipVertex& vertex = output[index];
+            const float clip_depth = vertex.vertex.projected.reciprocal_depth;
+            vertex.vertex.projected.z = clip_depth;
+
+            // Retail keeps this reciprocal extended for X, stores it to +0xc,
+            // then reloads that f32 for Y.
+            const long double reciprocal_extended =
+                static_cast<long double>(options.depth_scale)
+                / static_cast<long double>(clip_depth);
+            const float reciprocal = store_f32(reciprocal_extended);
+            vertex.vertex.projected.reciprocal_depth = reciprocal;
+            vertex.vertex.projected.x = store_f32(
+                reciprocal_extended
+                    * static_cast<long double>(vertex.vertex.projected.x)
+                + options.screen_center_x);
+            vertex.vertex.projected.y = store_f32(
+                static_cast<long double>(vertex.vertex.projected.y)
+                    * static_cast<long double>(reciprocal)
+                + options.screen_center_y);
+
+            std::uint32_t lateral_flags = 0;
+            if (vertex.vertex.projected.x < options.viewport_edges[2]) {
+                lateral_flags |= 0x01U;
+            }
+            if (options.viewport_edges[0] <= vertex.vertex.projected.x) {
+                lateral_flags |= 0x02U;
+            }
+            if (vertex.vertex.projected.y < options.viewport_edges[3]) {
+                lateral_flags |= 0x04U;
+            }
+            if (options.viewport_edges[1] <= vertex.vertex.projected.y) {
+                lateral_flags |= 0x08U;
+            }
+            vertex.vertex.projected.clip_flags = lateral_flags;
+            all_lateral_flags = index == 0
+                ? lateral_flags
+                : all_lateral_flags & lateral_flags;
+        }
+        result.all_lateral_clip_flags = all_lateral_flags;
+        if (all_lateral_flags != 0) {
+            polygon.vertices.clear();
+            polygon.vertex_count = 0;
+            result.output_vertex_count = 0;
+            return result;
+        }
+    }
+
+    polygon.vertices.clear();
+    polygon.vertices.reserve(output.size());
+    for (NearClipVertex& vertex : output) {
+        polygon.vertices.push_back(std::move(vertex.vertex));
+    }
+    polygon.vertex_count = static_cast<std::uint8_t>(output_count);
+
+    if (output_count < 3 || output_count > 6) {
+        return result;
+    }
+    result.disposition = RenderNearClipDisposition::accepted;
+    return result;
+}
+
+RenderDepthStateResolution RenderPacketBuilder::resolve_depth_state(
+    const RenderPolygonPacket& polygon,
+    const RenderDepthStateInputs& inputs) {
+    const std::uint32_t selected_state_mask =
+        inputs.renderer_state_word & 0x6000U;
+    float depth_offset = 0.0F;
+    switch (selected_state_mask) {
+    case 0x2000U:
+        depth_offset = inputs.depth_offset_2000;
+        break;
+    case 0x4000U:
+        depth_offset = inputs.depth_offset_4000;
+        break;
+    case 0x6000U:
+        depth_offset = inputs.depth_offset_6000;
+        break;
+    default:
+        break;
+    }
+
+    // 0x004d20f0 performs this write after 0x004d26b0 returns. Keep the
+    // result separate from the input packet so callers can apply the depth
+    // offset before classification and the packet flags afterward.
+    std::uint32_t packet_flags = polygon.flags;
+    if (polygon.textured
+        && inputs.current_level != 6U
+        && inputs.current_level != 10U
+        && (packet_flags & 0x1c0U) == 0x40U
+        && (inputs.material_runtime_flags & 0x110U) == 0U) {
+        packet_flags = (packet_flags & ~0x40U) | 0x80U;
+    }
+
+    return {
+        selected_state_mask,
+        depth_offset,
+        packet_flags,
+    };
+}
+
+RenderBucketDecision RenderPacketBuilder::classify_polygon(
+    RenderPolygonPacket& polygon,
+    const RenderPolygonClipSummary& clip,
+    const RenderDepthBucketOptions& options) {
+    validate_polygon(polygon);
+    RenderBucketDecision decision;
+    if ((clip.all_flags & 0x10U) != 0
+        || ((clip.all_flags & 0x3fU) != 0
+            && (clip.any_flags & 0x10U) == 0)) {
+        decision.disposition = RenderBucketDisposition::rejected_clip;
+        return decision;
+    }
+    if ((clip.any_flags & 0x10U) != 0) {
+        decision.disposition = RenderBucketDisposition::requires_near_clip;
+        return decision;
+    }
+
+    const long double first_determinant = winding_determinant(
+        polygon, 0, 1, polygon.vertex_count - 1);
+    decision.first_winding_determinant = store_f32(first_determinant);
+    const bool first_is_back_facing =
+        first_determinant <= options.winding_threshold;
+    if (polygon.vertex_count == 4) {
+        const long double second_determinant = winding_determinant(
+            polygon, 2, 1, 3, true);
+        decision.second_winding_determinant = store_f32(second_determinant);
+        const bool second_is_back_facing =
+            second_determinant <= options.winding_threshold;
+        if (second_is_back_facing == first_is_back_facing) {
+            const bool reject = options.reverse_winding
+                ? options.winding_threshold
+                    < first_determinant
+                : first_is_back_facing;
+            if (reject) {
+                decision.disposition = RenderBucketDisposition::rejected_winding;
+                return decision;
+            }
+        }
+    } else if (options.reverse_winding
+                   ? options.winding_threshold
+                       < first_determinant
+                   : first_is_back_facing) {
+        decision.disposition = RenderBucketDisposition::rejected_winding;
+        return decision;
+    }
+
+    decision.selected_depth = update_depth_and_select(polygon, options);
+    decision.bucket_index = depth_bucket(decision.selected_depth);
+    decision.disposition = RenderBucketDisposition::accepted;
+    return decision;
+}
+
+RenderBucketBuildResult RenderPacketBuilder::bucketize(
+    std::span<RenderPolygonPacket> polygons,
+    const RenderDepthBucketOptions& options) {
+    RenderBucketBuildResult result;
+    result.bucket_heads.fill(kRenderNoPolygonIndex);
+    result.next_polygon.assign(polygons.size(), kRenderNoPolygonIndex);
+    result.decisions.reserve(polygons.size());
+
+    for (std::size_t index = 0; index < polygons.size(); ++index) {
+        const RenderPolygonClipSummary clip = summarize_clip(polygons[index]);
+        RenderBucketDecision decision = classify_polygon(
+            polygons[index], clip, options);
+        if (decision.disposition == RenderBucketDisposition::accepted) {
+            result.next_polygon[index] =
+                result.bucket_heads[decision.bucket_index];
+            result.bucket_heads[decision.bucket_index] = index;
+        }
+        result.decisions.push_back(decision);
     }
     return result;
 }

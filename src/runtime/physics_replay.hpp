@@ -2,6 +2,8 @@
 
 #include "physics_frame.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -48,6 +50,33 @@ struct PlayerReplaySnapshot {
     friend bool operator==(
         const PlayerReplaySnapshot&,
         const PlayerReplaySnapshot&) = default;
+};
+
+// The level-event consumer resets both replay-input slots at countdown
+// expiry. The replay stream itself is still a separate asset/service, so this
+// owner records the slot-scoped reset requests without fabricating stream
+// contents.
+class PlayerReplayResetOwner final {
+public:
+    void reset() noexcept { reset_requests_ = {}; }
+
+    void reset_slot(std::size_t slot) noexcept {
+        if (slot >= reset_requests_.size()) {
+            return;
+        }
+        ++reset_requests_[slot];
+    }
+
+    [[nodiscard]] std::size_t reset_requests(std::size_t slot) const noexcept {
+        return slot < reset_requests_.size() ? reset_requests_[slot] : 0;
+    }
+
+    [[nodiscard]] std::size_t total_reset_requests() const noexcept {
+        return reset_requests_[0] + reset_requests_[1];
+    }
+
+private:
+    std::array<std::size_t, 2> reset_requests_{};
 };
 
 // Headless deterministic runner for native-vs-retail semantic traces. It

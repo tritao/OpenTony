@@ -21,9 +21,11 @@ record, and what ordering reaches the primitive handlers before presentation?
     -> 0x004d0ca4  IDirectDrawSurface7::Flip
 ```
 
-This slice starts at the list-consumer record, not at the unresolved bucket
-classifier. It stops before the platform device call and keeps the actual
-display boundary separate from command processing.
+This slice starts at the list-consumer record. The upstream visibility/depth
+and bucket-link contract is recorded separately in
+[`render-packet-submission.md`](render-packet-submission.md). It stops before
+the platform device call and keeps the actual display boundary separate from
+command processing.
 
 ## Inputs
 
@@ -99,9 +101,17 @@ preserves diagnostics without treating skipped work as a draw.
 
 The consumer does not reorder its input: `dispatch()` walks the span from
 index zero to the end and returns the same number of records. Any bucket
-ordering or list reversal must therefore be represented by the caller that
-builds the input span. The exact insertion direction and depth-bucket formula
-belong to `0x004d20f0`, which remains open.
+ordering or list reversal is therefore represented by the caller that builds
+the input span. The upstream target's per-bucket insertion is a head prepend;
+the final bucket-head iteration order remains separate.
+
+The successful polygon slots are owned by the current render-buffer arena for
+the entire linked-list walk. `0x004d3160` reads `next` at `+0x00`, dispatches
+the current record, and advances until null; its loop has no cursor write,
+unlink, or free. A failed `0x004d2310` result is different: its caller rolls
+back the unused `0xc0` reservation before any head store, so no stale node can
+reach this consumer. The next buffer preparation resets the arena as a whole;
+that reset, rather than packet dispatch, is the storage lifetime boundary.
 
 The dispatch result is a submission description, not a displayed frame. The
 normal frame reaches the game-owned `0x004d0c30` wrapper and the
@@ -113,16 +123,22 @@ modeled separately by the camera/frame contract.
 [`render_command_dispatch.hpp`](../../src/trg/render_command_dispatch.hpp) and
 [`render_command_dispatch.cpp`](../../src/trg/render_command_dispatch.cpp)
 implement the portable table and state decode. They intentionally do not
-call Direct3D, allocate retail polygon records, or infer the bucket classifier.
-The test in
+call Direct3D, allocate retail polygon records, or infer the bucket classifier;
+the latter is covered by the packet-submission native seam.
+The tests in
 [`render_command_dispatch_test.cpp`](../../src/trg/render_command_dispatch_test.cpp)
 covers a textured triangle with low state bits, a textured Gouraud quad, the
 variable-count `0xb0` path, a disabled command, and an uninstalled opcode
 slot while asserting source/list order and preserved raw fields.
+The arena-linked success and rollback fixtures in
+[`render_polygon_bucket_test.cpp`](../../src/trg/render_polygon_bucket_test.cpp)
+also feed the recovered prepend chain into this dispatcher and assert forward
+consumption, slot reuse, and the absence of a rejected node.
 
 Confirmed from the existing renderer evidence: linked-record consumption,
 opcode masking, no-op initialization, the handler addresses and primitive
 families, fixed handler vertex counts, and the separation from the `Flip`
 boundary. Native confidence is tested for this semantic adapter. Open are
 the exact Direct3D enum/state names, variable `0xb0` stride/flag semantics,
-bucket insertion order, and the projected winding/depth policy upstream.
+final bucket-head iteration order, and the near-clipping/state-resolution
+seams upstream.

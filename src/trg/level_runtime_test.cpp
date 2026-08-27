@@ -135,7 +135,7 @@ int main() {
     CHECK(runtime.bits_runtime()->find("smoke") != nullptr);
     CHECK(runtime.collision().grids().size() == 1);
     CHECK(runtime.collision().referenced_object_count() == 252);
-    CHECK(runtime.collision().face_count() == 1345);
+    CHECK(runtime.collision().face_count() == 1642);
     const auto& first_face = runtime.collision().faces().front();
     const opentony::runtime::FixedPosition face_center{
         static_cast<std::int32_t>((static_cast<std::int64_t>(first_face.vertices[0][0])

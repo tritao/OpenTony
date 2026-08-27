@@ -35,9 +35,62 @@ functions:
       - src/trg/render_packet_builder.cpp
     tests:
       - src/trg/render_packet_builder_test.cpp
+      - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, and half-texel UV normalization; raw arena allocation is not represented as a host pointer layout.
+    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, half-texel UV normalization, caller-resolved textured-quad split order, and the fixed 0xc0-byte per-attempt arena reservation.
+
+  - address: 0x004d20f0
+    name: M3D_ClipAndBucketPolygon
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native boundary covers all/any clip classification, projected winding, partial-near-clip handoff, one-slot rollback on clip/cull rejection, per-bucket head-prepend links, the 0x6000 renderer-state depth-offset selector, and the post-classifier textured material flag rewrite; final bucket traversal remains an adapter seam.
+
+  - address: 0x004d2310
+    name: M3D_ClipPolygonNearPlane
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native reconstruction covers reciprocal-depth unprojection, circular near-plane edge ordering, three-to-six output records, final reprojection, and aggregate lateral rejection; deterministic fixtures cover the caller's rollback when this in-place clip returns no polygon.
+
+  - address: 0x004d25c0
+    name: M3D_InterpolatePolygonEdge
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native edge interpolation preserves f32 X/Y and textured UV stores, unsigned RGB-byte truncation/wrap, and the target's unwritten high color-byte seam.
+
+  - address: 0x004d26b0
+    name: M3D_ClassifyPolygonDepth
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native depth modes preserve the observed f32 adjustment, extremum selection, near normalization, 0.99 cap, forced-depth flag, truncation, four-depth-unit quantization, and 0..0xfff clamp using resolved caller inputs.
 
   - address: 0x004d3160
     name: D3D_DrawPolygonList
@@ -48,10 +101,11 @@ functions:
       - src/trg/render_command_dispatch.cpp
     tests:
       - src/trg/render_command_dispatch_test.cpp
+      - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-command-dispatch.md
       - re/evidence/functions/renderer.md
-    notes: Native backend-neutral consumer preserves one-for-one linked-list order, opcode-base handler selection, fixed primitive counts, variable 0xb0 counts, and low opcode state bits; Direct3D calls and upstream bucket ordering remain adapter seams.
+    notes: Native backend-neutral consumer preserves one-for-one linked-list order, opcode-base handler selection, fixed primitive counts, variable 0xb0 counts, low opcode state bits, and arena-owned record lifetime through forward list consumption; Direct3D calls and final upstream bucket-head traversal remain adapter seams.
 
   - address: 0x004d29e0
     name: M3D_TransformVertices
@@ -112,6 +166,54 @@ functions:
       - re/evidence/functions/ground-movement.md
       - re/evidence/functions/physics.md
     notes: Grounded analog/lean target branch preserves signed +0x31a1 byte threshold 0x1a, sign-corrected SAR-7 target, weighted fixed-point response, 32-bit arithmetic boundaries, and +0x2e7c branch-selection output; queued-motion and non-ground state branches remain outside this slice.
+
+  - address: 0x00491c90
+    name: TrickInput_RecordState
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/action_sequence.cpp
+      - src/runtime/action_sequence.hpp
+    tests:
+      - src/runtime/action_sequence_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: The native action-history ring preserves changed-value publication, write cursor, action identity, pressed state, and frame timestamp at the frame boundary.
+
+  - address: 0x00492190
+    name: TrickInput_RefreshHistory
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/player_state.hpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Profile publication is placed after prephysics and before the action-stream consumer, with the fixture recording action 4 press/release timestamps and cursor movement.
+
+  - address: 0x0049e680
+    name: Skater_PhysicsFrame
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/physics_frame.cpp
+      - src/runtime/physics_frame.hpp
+      - src/runtime/gameplay_frame.cpp
+      - src/runtime/gameplay_frame.hpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: The renderer-independent frame boundary connects scheduler input/level order, action history, dispatch, candidate queries, commit, landing state request, and animation request in a deterministic native fixture; unresolved stat/table producers remain explicit hooks.
 
   - address: 0x00480730
     name: Animation_Start
@@ -189,15 +291,19 @@ functions:
   - address: 0x00496060
     name: Skater_PositionWritePath
     slice: player-position-commit
-    status: tested
+    status: integrated
     sources:
       - src/runtime/position_commit.cpp
       - src/runtime/position_commit.hpp
     tests:
       - src/runtime/position_commit_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
     evidence:
       - re/evidence/functions/position-write-path.md
-    notes: Candidate ordering and fallback behavior are tested; retail trace parity and the offset-0x3200 bypass meaning remain open.
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Candidate order, desired/old-Y native selections, fixed-point caller values, and optional-hit consumer ordering are covered by the integration fixture. Static matching resolves +0x3200 as the direct-commit gate; its writer is not present in the selected paths/current split.
 
   - address: 0x0049b010
     name: Skater_UpdateAcceleration
@@ -266,7 +372,7 @@ functions:
       - src/assets/psx_collision_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: Geometry and nearest-hit arithmetic are tested; exact retail face filters remain open.
+    notes: Geometry, nearest-hit arithmetic, and the four-stage raw face-word selector are tested; higher-level material names remain provisional.
 
   - address: 0x004638d0
     name: M3D_CollisionCell
@@ -283,8 +389,8 @@ functions:
       - re/evidence/functions/blockmap-collision.md
     notes: >-
       Native coverage reproduces the recovered signed-short basis layout,
-      model-face fixed-point AABB generation, and scene traversal boundary;
-      the PC heap linked-list loader and exact retail face filters remain
+      model-face fixed-point AABB generation, signed 2-D zone walk, and the
+      separate zone/candidate-table ownership; the PC heap allocator remains
       outside this adapter.
 
   - address: 0x00466090
@@ -300,7 +406,63 @@ functions:
       - src/runtime/psx_collision_probe_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: Caller-prepared query records are populated through the native scene wrapper, which returns zero unconditionally like retail; mode-gated linked traversal and static blockmap behavior are covered, while unresolved retail zone ownership remains outside the native scene adapter.
+    notes: Caller-prepared query records are populated through the native scene wrapper, which returns zero unconditionally like retail; mode-gated linked traversal, static blockmap behavior, and the resolved face policy are covered.
+
+  - address: 0x004628f0
+    name: M3D_PrepareCollisionObjectList
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: >-
+      Linked nodes use the recovered low-byte admission gate, object-space
+      bounds/reflection, caller-supplied model-kind/index and transform tail,
+      then dynamic projected-face nearest-distance ordering.
+
+  - address: 0x00463d50
+    name: M3D_CommitCollisionSurface
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+      - src/runtime/psx_collision_probe.cpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: >-
+      Result publication keeps body, contact, normal, face, model, travel,
+      parameter, and query-mask sideband distinct; the outer wrapper's return
+      value remains zero rather than a hit boolean.
+
+  - address: 0x004660b0
+    name: M3D_ZoneCollisionBroadphase
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+      - src/runtime/psx_collision_probe.cpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/blockmap-collision.md
+    notes: >-
+      Scene traversal separates mode-gated linked objects from static zone
+      candidates, applies the retail face policy, and compares the shared
+      traveled-distance field while preserving the static result on ties.
 
   - address: 0x004b2450
     name: PSX_ParseEnvironment
@@ -442,12 +604,15 @@ functions:
       - src/trg/gap_table.cpp
       - src/trg/level_trigger_state.cpp
       - src/trg/level_trigger_state.hpp
+      - src/runtime/gameplay_session.cpp
+      - src/runtime/gameplay_session.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
       - src/trg/trg_runtime_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/gap-runtime.md
-    notes: Native state joins the decoded divider to the executable definition, preserves score/name/flags, and distinguishes immediate completion from both deferred flag paths.
+    notes: Native state joins the decoded divider to the executable definition, preserves score/name/flags, distinguishes immediate completion from both deferred flag paths, and hands the selected raw +0x3014/+0x3018 slot to the gameplay session's player-state boundary.
 
   - address: 0x00414c50
     name: Gap_CompleteDefinition
@@ -456,11 +621,30 @@ functions:
     sources:
       - src/trg/level_trigger_state.cpp
       - src/trg/level_trigger_state.hpp
+      - src/runtime/gameplay_session.cpp
+      - src/runtime/gameplay_session.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/gap-runtime.md
-    notes: Deferred completion is represented as a one-shot completion event and source-pulse handoff; unresolved player/checklist ownership remains explicit.
+    notes: Deferred completion is selected by the recovered player physics state, represented as a one-shot completion event, and pulsed through the owning level session; the score/checklist record remains offset/raw-name preserving.
+
+  - address: 0x00401060
+    name: TRG_CreateScriptObject
+    slice: trg-script-object-lifecycle
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+      - src/trg/level_runtime.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+    notes: Native creation preserves the 0xcc raw record, resolved key/parameter boundary, and 0x83/0x84 identifier space; level-state reset is the explicit release boundary while retail destructor internals remain unclaimed.
 
   - address: 0x00412640
     name: TRG_ConstructTrafficObject
@@ -482,12 +666,18 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/runtime/player_state.hpp
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_replay.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
       - src/trg/trg_runtime_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; player/stat/menu owners remain explicit inputs or handoffs.
+    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; the returned frame side effects are now consumed by explicit player, replay-slot, and camera owners.
 
   - address: 0x00469a30
     name: Skater_UpdateAnimationObjects
@@ -496,11 +686,18 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/runtime/player_state.hpp
+      - src/runtime/level_frame.hpp
+      - src/runtime/gameplay_frame.cpp
+      - src/runtime/physics_replay.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition.
+    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition; LevelEventGameplayOwner applies the promoted player/replay side effects.
 
   - address: 0x00469de0
     name: Game_GameplayUpdate
@@ -509,11 +706,16 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/camera/camera_runtime.hpp
+      - src/camera/camera_runtime.cpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots without manufacturing camera pointers.
+    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots; LevelEventGameplayOwner applies each promoted delta through CameraRuntime::apply_level_event_delta without manufacturing retail pointers.
 
   - address: 0x004c5460
     name: TRG_CreateObject
@@ -557,16 +759,19 @@ functions:
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     slice: physics
-    status: tested
+    status: integrated
     sources:
       - src/runtime/air_contact.cpp
       - src/runtime/air_contact.hpp
       - src/runtime/physics_frame.cpp
     tests:
       - src/runtime/air_contact_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
     evidence:
       - re/evidence/functions/physics-states.md
-    notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate and preserves caller-owned wall/rail classification.
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate, preserves caller-owned wall/rail classification, and records the accepted-contact 1->0 request and animation handoff in the end-to-end fixture.
 
   - address: 0x0049db80
     name: Skater_PhysicsDispatcher

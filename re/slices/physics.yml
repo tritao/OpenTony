@@ -1,24 +1,40 @@
 version: 1
 id: physics
 subsystem: physics
-status: planned
+status: active
 
 scope:
   functions:
+    - 0x0049e680
+    - 0x00492190
+    - 0x00491c90
+    - 0x0049db80
     - 0x00497f40
   types: []
   globals: []
 
+shared:
+  functions:
+    - 0x00493370
+
 artifacts:
   evidence:
     - re/evidence/functions/physics-states.md
+    - re/evidence/functions/physics.md
+    - re/evidence/functions/player-frame-integration.md
+    - re/evidence/fixtures/player-frame-integration.json
   native:
     - re/native/functions.yml
+    - src/runtime/gameplay_frame.cpp
+    - src/runtime/physics_frame.cpp
+    - src/runtime/player_state.cpp
   tests:
     - tests/test_native_progress.py
+    - src/runtime/player_frame_integration_test.cpp
 
 open_questions:
-  - Move the in-air native boundary into a dedicated active physics slice when its remaining state policy is selected.
+  - Resolve the remaining stat/table producers behind the explicit frame hooks without changing the confirmed producer/consumer order.
 
 completion:
-  - The existing native mapping has a manifest owner without changing the physics implementation.
+  - A deterministic native GameplayFrame fixture covers one ordinary grounded and one air-to-landing frame across input history, action history, movement, collision, commit, state transition, and animation request.
+  - The selected producer/consumer order and fixed-point values are recorded in the compact integration fixture.

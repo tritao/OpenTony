@@ -85,6 +85,101 @@ globals:
     evidence:
       - re/evidence/functions/game-loop.md
       - re/evidence/functions/level-load.md
+  - address: 0x00560fd0
+    name: RenderPolygonArenaCursor
+    description: current cursor in the per-view polygon arena; the view record advances it by 0x14, polygon construction advances it by 0xc0, and rejected attempts rewind one slot before linking
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00568628
+    name: RenderPolygonArenaEnd
+    description: exclusive end checked by the fixed-size per-view polygon allocator
+    confidence: observed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x0056433c
+    name: RenderBucketHeads
+    description: per-view bucket table whose 8-byte slots hold the intrusive polygon-list heads
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00518484
+    name: RenderWindingThreshold
+    description: projected winding comparison threshold; the retail data value is zero
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563b08
+    name: RenderReverseWinding
+    description: nonzero state selecting the reverse projected-winding rejection rule
+    confidence: observed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x0058f30c
+    name: RenderDepthModeSelector
+    description: renderer state word whose masked 0x6000 value selects the caller-resolved depth offset before 0x004d26b0
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a64
+    name: RenderDepthOffset2000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x2000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a7c
+    name: RenderDepthOffset4000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x4000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a88
+    name: RenderDepthOffset6000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x6000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x0058089c
+    name: RenderNearDepth
+    description: near-depth clamp used by the depth classifier and ordinary transform clip test; live value is 10
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a38
+    name: RenderViewportEdges
+    description: pointer to the active raw viewport record; the clipper reads edges as [right, bottom, left, top]
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x00518d70
+    name: RenderProjectionUnitScale
+    description: unit numerator used when the near clipper inverts ordinary reciprocal depth; live value is 1.0
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a0
+    name: RenderProjectionCenterX
+    description: screen-space projection center X consumed by ordinary and near-clipped vertex paths; live value is 320
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a4
+    name: RenderProjectionCenterY
+    description: screen-space projection center Y consumed by ordinary and near-clipped vertex paths; live value is 240
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a8
+    name: RenderProjectionDepthScale
+    description: reciprocal-depth projection scale consumed by ordinary and near-clipped vertex paths; live value is 384
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
   - address: 0x0056ad00
     name: MmuManager
     description: active PC save/card compatibility manager used by the MMU setup and frontend state machine
