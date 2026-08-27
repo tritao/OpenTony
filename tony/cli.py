@@ -357,4 +357,9 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    if args.command == "ghidra":
+        from .ghidra_lock import ghidra_project_lock
+
+        with ghidra_project_lock():
+            return int(args.func(args) or 0)
     return int(args.func(args) or 0)

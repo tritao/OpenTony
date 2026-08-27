@@ -78,6 +78,11 @@ check and must not download inputs or rebuild Ghidra during slice work.
 `binary-matching: DEFERRED` does not block static analysis, dynamic tracing,
 reconstruction, or behavioral tests.
 
+`tony ghidra` commands are serialized per worktree because Ghidra projects are
+single-writer. Agents may issue them concurrently; later commands wait for the
+current command instead of failing with `LockException`. Different worktrees
+still analyze concurrently against their private project copies.
+
 ## Reconstruction stages
 
 ### 1. Analyze before transcribing
