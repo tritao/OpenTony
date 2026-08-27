@@ -3272,6 +3272,18 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x004914d0
+    name: Skater_LandingCleanup
+    description: consume landing/recovery markers and dispatch the post-trick rail-entry path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00490ef0
+    name: Skater_StartGrind
+    description: initialize rail-entry bookkeeping, request raw state 4, and shape the entry velocity
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics-states.md
   - address: 0x00497df0
     name: Skater_UpdateAirBasis
     gdb_aliases:
