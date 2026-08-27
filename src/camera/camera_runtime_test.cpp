@@ -38,6 +38,72 @@ int main() {
     CHECK(runtime.viewport_projection().viewport.words[8] == 320);
     CHECK(runtime.viewport_projection().viewport.words[9] == 240);
 
+    CameraStateRaw effect_sample_camera{};
+    effect_sample_camera.update_tick = 0xd;
+    effect_sample_camera.effect_sample_phase_raw = 1;
+    effect_sample_camera.effect_sample_magnitude_raw = 7;
+    CameraEffectSampleInputRaw effect_sample_input{};
+    effect_sample_input.primary_path_valid = true;
+    effect_sample_input.tripod_physics_state = 0;
+    effect_sample_input.hit = true;
+    effect_sample_input.hit_distance_raw = 97;
+    const auto effect_sample = advance_camera_effect_sample(
+        effect_sample_camera, effect_sample_input);
+    // Entry phase 1 advances to phase 2 and samples.  The 97-unit hit
+    // produces the observed short magnitude 18.
+    CHECK(effect_sample.function_entered);
+    CHECK(effect_sample.phase_before_raw == 1);
+    CHECK(effect_sample.phase_after_raw == 2);
+    CHECK(effect_sample.sampled);
+    CHECK(effect_sample_camera.effect_sample_distance_raw == 97);
+    CHECK(effect_sample_camera.effect_sample_magnitude_raw == 18);
+    CHECK(camera_primary_effect_magnitude_from_hit(90) == 32);
+    CHECK(camera_primary_effect_magnitude_from_hit(91) == 29);
+    const auto effect_sample_next = advance_camera_effect_sample(
+        effect_sample_camera, effect_sample_input);
+    // The next entry sees the phase reset and counter increment, while the
+    // sampled output remains latched until the next phase-2 query.
+    CHECK(effect_sample_next.phase_before_raw == 2);
+    CHECK(effect_sample_next.phase_after_raw == 0);
+    CHECK(effect_sample_next.counter_raw == 1);
+    CHECK(!effect_sample_next.sampled);
+    CHECK(effect_sample_camera.effect_sample_magnitude_raw == 18);
+
+    CameraStateRaw no_hit_effect_camera{};
+    no_hit_effect_camera.update_tick = 0xd;
+    no_hit_effect_camera.effect_sample_phase_raw = 1;
+    no_hit_effect_camera.effect_sample_magnitude_raw = 7;
+    CameraEffectSampleInputRaw no_hit_input{};
+    no_hit_input.primary_path_valid = true;
+    no_hit_input.tripod_physics_state = 1;
+    no_hit_input.hit = false;
+    const auto no_hit_sample = advance_camera_effect_sample(
+        no_hit_effect_camera, no_hit_input);
+    CHECK(no_hit_sample.sampled);
+    CHECK(no_hit_effect_camera.effect_sample_distance_raw == -1);
+    CHECK(no_hit_effect_camera.effect_sample_magnitude_raw == 0x200);
+
+    CameraStateRaw committed_view_camera{};
+    committed_view_camera.position = {0x1000, 0x2000, 0x3000};
+    committed_view_camera.screen_effect_offset = {0x1000, -0x1000, 0x2000};
+    committed_view_camera.anchor_target = {0x1000, 0x1000, 0x1000};
+    committed_view_camera.look_target = {0x4000, 0x5000, 0x6000};
+    committed_view_camera.current_transform = {0, 0, 0, kQ12One};
+    const auto committed_view = commit_viewport_effects(
+        committed_view_camera, {0x1000, -0x1000, 0x2000}, 0);
+    CHECK(committed_view.view_record.valid);
+    CHECK(committed_view.view_record.camera_position_q4.x == 2);
+    CHECK(committed_view.view_record.camera_position_q4.y == 1);
+    CHECK(committed_view.view_record.camera_position_q4.z == 5);
+    CHECK(committed_view.view_record.look_target_q4.x == 5);
+    CHECK(committed_view.view_record.look_target_q4.y == 4);
+    CHECK(committed_view.view_record.look_target_q4.z == 8);
+    const MatrixQ12 expected_view_matrix{
+        kQ12One, 0, 0,
+        0, kQ12One, 0,
+        0, 0, kQ12One};
+    CHECK(committed_view.view_record.row_matrix_q12 == expected_view_matrix);
+
     CameraMode25ProducerInputRaw mode25{};
     mode25.tripod_present = true;
     mode25.tripod_follow_offset_y_raw = 0x65;

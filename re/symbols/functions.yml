@@ -2860,11 +2860,12 @@ functions:
   - address: 0x00492f20
     name: Skater_UpdateHeading
     gdb_aliases: [animation_selector]
-    description: interpolate the player heading/angle field from the movement target
+    description: select and seat grounded/special turn animation poses from the mirrored movement target
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
       - re/evidence/functions/animation.md
+      - re/evidence/functions/animation-ground-turn-selector.md
   - address: 0x00492ed0
     name: Skater_ApproachHeadingFrame
     gdb_aliases: [animation_approach_frame]
@@ -2874,6 +2875,36 @@ functions:
       - re/evidence/functions/physics.md
       - re/evidence/functions/physics-states.md
       - re/evidence/functions/animation.md
+  - address: 0x004903f0
+    name: Animation_RequestStart
+    description: reset animation rate and start an animation at an explicit frame
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+  - address: 0x00490420
+    name: Animation_RequestStartDefaultEnd
+    description: reset animation rate and start an animation with a default endpoint
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+  - address: 0x00490450
+    name: Animation_RequestRange
+    description: reset animation rate and start an animation over an explicit frame range
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+  - address: 0x00490480
+    name: Animation_RequestFull
+    description: reset animation rate and start an animation with an alternate endpoint
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+  - address: 0x00496280
+    name: Skater_AnimationCompletionCheck
+    description: post-request special-turn velocity/event completion check
+    confidence: observed
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
   - address: 0x00493370
     name: Skater_ActionPhysicsStep
     gdb_aliases:
@@ -3273,6 +3304,18 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x004914d0
+    name: Skater_LandingCleanup
+    description: consume landing/recovery markers and dispatch the post-trick rail-entry path
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics-states.md
+  - address: 0x00490ef0
+    name: Skater_StartGrind
+    description: initialize rail-entry bookkeeping, request raw state 4, and shape the entry velocity
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/physics-states.md
   - address: 0x00497df0
     name: Skater_UpdateAirBasis
     gdb_aliases:

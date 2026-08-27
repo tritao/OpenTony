@@ -572,6 +572,20 @@ struct FaceFlagView {
     std::uint8_t surface_class = 0;
 };
 
+// The result-consumer globals written by 0x0048ea80. Keep the values as the
+// retail raw widths (rather than bools): surface bit 0x40 and face bit 0x80
+// are published as masks, while the inverse tests and surface class are
+// published as 0/1 and a four-bit value respectively. face_record models
+// _DAT_0056b77c, which is also left unchanged when there is no hit.
+struct CollisionResultSurfaceFlags {
+    std::uint32_t surface_bit_40 = 0;  // DAT_0056b768
+    std::uint32_t inverse_bit_24 = 0;  // DAT_0056b7b8
+    std::uint32_t inverse_bit_23 = 0;  // DAT_0056b7a8
+    std::uint32_t face_bit_80 = 0;     // DAT_0056b7ac
+    std::uint32_t surface_class = 0;   // DAT_0056b7e8
+    std::uint32_t face_record = 0;     // _DAT_0056b77c
+};
+
 // The PC helper uses signed integer truncation after the floating-point
 // divide has been converted back to an integer.  C++ signed division has the
 // same truncation-toward-zero behavior for the non-overflow, nonzero cases.
@@ -1725,12 +1739,14 @@ inline std::array<std::int16_t, 9> build_line_basis(std::int16_t x_delta,
         static_cast<std::int64_t>(x86_shift_left(x_delta, ratio_shift)) /
         horizontal.normalized_root);
 
-    // These are the exact three vectors seeded by 0x004624d0, before its
-    // three calls to the Q12 matrix multiply at 0x004e3130.
+    // 0x004624d0 forms the vertical ratio with the same Q12 numerator shift
+    // as the horizontal ratios. The retail instruction is `shl eax, cl`
+    // after loading half_total + 0xc; the x86 shift count is masked to five
+    // bits by x86_shift_left.
     const auto half_total = total.lead_minus_one >> 1u;
     const auto vertical_ratio = static_cast<std::int16_t>(
         static_cast<std::int64_t>(x86_shift_left(y_delta,
-                                                 (half_total + 24u))) /
+                                                 (half_total + 12u))) /
         total.normalized_root);
     const Raw horizontal_ratio = static_cast<Raw>(
         static_cast<std::int64_t>(x86_shift_left(horizontal.normalized_root,
@@ -1764,7 +1780,8 @@ inline std::array<std::int16_t, 9> build_line_basis(std::int16_t x_delta,
 }
 
 // Reconstruct the fields whose setup is established by 0x004624d0, including
-// the short basis consumed by the linked/oriented-object path.
+// its unscaled short basis. Linked-object scale words at +0x28/+0x2a/+0x2c
+// are consumed later by 0x004f5540, not by this query initializer.
 inline void prepare(QueryRecord& query, std::uint16_t query_stamp = 0) {
     query.bounds_min = {
         std::min(query.start[0], query.end[0]),
@@ -2117,6 +2134,24 @@ inline FaceFlagView decode_face_flags(std::uint32_t face_word_zero,
         .face_bit_80 = (base_flags & 0x80u) != 0,
         .surface_class = static_cast<std::uint8_t>((face_word_c >> 25u) & 0xfu),
     };
+}
+
+// Exact semantic reconstruction of M3D_ReadSurfaceFlags (0x0048ea80). The
+// original is void and writes shared globals; passing the prior state by
+// reference preserves its no-hit behavior, which is an intentional no-op.
+inline void read_surface_flags(const QueryRecord& query,
+                               std::uint32_t face_word_zero,
+                               std::uint32_t face_word_c,
+                               CollisionResultSurfaceFlags& result) {
+    if (query.hit_body == 0) {
+        return;
+    }
+    result.surface_bit_40 = (face_word_c >> 16u) & 0x40u;
+    result.inverse_bit_24 = (~face_word_c >> 24u) & 1u;
+    result.inverse_bit_23 = (~face_word_c >> 23u) & 1u;
+    result.face_bit_80 = face_word_zero & 0x80u;
+    result.surface_class = (face_word_c >> 25u) & 0xfu;
+    result.face_record = query.hit_face_record;
 }
 
 }  // namespace opentony::collision_reference

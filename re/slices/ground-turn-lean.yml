@@ -1,0 +1,38 @@
+version: 1
+id: ground-turn-lean
+subsystem: ground-movement
+status: active
+
+scope:
+  functions:
+    - 0x00493370
+  types:
+    - RuntimeSkaterMovementState
+  globals: []
+
+shared:
+  functions:
+    - 0x00492f20
+
+artifacts:
+  evidence:
+    - re/evidence/functions/ground-movement.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/runtime/ground_turn.cpp
+    - src/runtime/ground_turn.hpp
+    - src/physics_state_machine.cpp
+    - src/physics_state_machine.hpp
+  tests:
+    - src/runtime/ground_turn_test.cpp
+    - tests/physics_state_machine_test.cpp
+
+open_questions:
+  - Confirm a retail analog-axis frame that joins the +0x31a1 target response to the later orientation/position candidate.
+  - Recover the non-ground state 1/2 action branches without broadening this grounded lean slice into general physics dispatch.
+  - Confirm the remaining animation side effects of the shared 0x00492f20 call at this boundary.
+
+completion:
+  - The grounded signed-byte lean threshold, target arithmetic, weighted response, and active-branch flag are evidence-backed.
+  - Exact fixed-point boundary fixtures cover abs(lean) 0x19/0x1a, negative target rounding, analog overshoot clamping, and repeated input at a cap.
+  - Native movement outputs document the unchanged raw state and the +0x3144/+0x3148/+0x2e78/+0x2e7c handoff consumed around the physics dispatcher.

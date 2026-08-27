@@ -48,14 +48,17 @@ PlayerResourceSpool::PlayerResourceSpool() noexcept {
 }
 
 void PlayerResourceSpool::reset() noexcept {
-    raw_.fill(std::byte{0});
     request_sizes_.fill(0);
-    request_flags_.fill(0);
-    loaded_.clear();
     for (std::size_t index = 0; index < kPlayerSpoolEntryCount; ++index) {
-        write_u8(entry_offset(index) + 0x04U, 0);
-        write_u32(entry_offset(index) + 0x1cU, 0xffffffffU);
+        // Retail reset first processes a pending platform request, then calls
+        // ReleaseEntry for every slot. Native loads are synchronous, so there
+        // is no platform request to process here; keep the per-entry release
+        // semantics exact and clear only the manager state below.
+        release(index);
     }
+    write_u32(0xa04U, 0);
+    write_u32(0xa08U, 0);
+    write_u32(0xa0cU, 0);
 }
 
 std::size_t PlayerResourceSpool::entry_offset(std::size_t index) const {
@@ -98,11 +101,14 @@ std::size_t PlayerResourceSpool::enqueue(
     std::string_view base_name,
     PlayerSpoolResourceKind resource_kind,
     std::int32_t heap,
-    std::uint32_t request_size,
-    std::uint8_t flags) {
+    std::uint32_t request_size) {
     if (base_name.empty() || base_name.size() > 8U) {
         throw std::invalid_argument(
             "player spool resource name must fit the retail eight-byte base");
+    }
+    if (heap != 0 && heap != 1) {
+        throw std::invalid_argument(
+            "player spool heap selector must be zero or one");
     }
     const std::size_t count = queued_count();
     if (count >= kPlayerSpoolEntryCount) {
@@ -121,7 +127,6 @@ std::size_t PlayerResourceSpool::enqueue(
     write_u32(offset + 0x1cU, 0xffffffffU);
     write_u32(offset + 0x24U, static_cast<std::uint32_t>(heap));
     request_sizes_[count] = request_size;
-    request_flags_[count] = flags;
     write_u32(0xa04U, static_cast<std::uint32_t>(count + 1U));
     return count;
 }
@@ -135,56 +140,89 @@ bool PlayerResourceSpool::start_next() {
     return true;
 }
 
-std::size_t PlayerResourceSpool::load_current(const std::string& asset_root) {
+std::size_t PlayerResourceSpool::load_current(
+    const std::string& asset_root,
+    const assets::PreRuntimeManager* pre) {
     if (state() != 1U || current_index() >= queued_count()) {
         throw std::logic_error("player spool has no active load");
     }
+    assets::ResourceBackend backend{std::filesystem::path(asset_root)};
     const std::size_t index = current_index();
-    const std::string base = name(index);
-    const std::filesystem::path root(asset_root);
-    PlayerSpoolLoadedResource resource{};
-    resource.queue_index = index;
-    resource.kind = kind(index);
-    if (resource.kind == PlayerSpoolResourceKind::PshRegion) {
-        resource.psh = assets::PshManifest::load(
-            (root / (base + ".PSH")).string());
-    } else {
-        resource.psx = assets::PsxArchive::load(
-            (root / (base + ".PSX")).string());
-    }
-    loaded_.push_back(std::move(resource));
-    write_u8(entry_offset(index) + 0x04U, 1);
-    write_u32(0xa0cU, 2);
-    return index;
+    const std::string extension = kind(index) == PlayerSpoolResourceKind::PshRegion
+        ? ".PSH"
+        : ".PSX";
+    return load_current(backend, name(index) + extension, pre);
 }
 
 std::size_t PlayerResourceSpool::load_current(
-    const assets::PkrArchive& package) {
+    const assets::PkrArchive& package,
+    const assets::PreRuntimeManager* pre) {
     if (state() != 1U || current_index() >= queued_count()) {
         throw std::logic_error("player spool has no active load");
     }
     const std::size_t index = current_index();
     const std::string base = name(index);
-    PlayerSpoolLoadedResource resource{};
-    resource.queue_index = index;
-    resource.kind = kind(index);
-    const std::string extension = resource.kind == PlayerSpoolResourceKind::PshRegion
+    const std::string extension = kind(index) == PlayerSpoolResourceKind::PshRegion
         ? ".PSH"
         : ".PSX";
-    const auto entry = package_resource_entry(package, base, extension);
-    if (!entry.has_value()) {
-        throw std::runtime_error(
-            "player spool package resource was not found: " + base + extension);
+    std::string resource_path = base + extension;
+    if (pre == nullptr || !pre->find_embedded(resource_path).has_value()) {
+        const auto entry = package_resource_entry(package, base, extension);
+        if (!entry.has_value()) {
+            throw std::runtime_error(
+                "player spool package resource was not found: " + resource_path);
+        }
+        resource_path = package.entry(*entry).archive_path();
     }
-    const std::string source = package.entry(*entry).archive_path();
-    if (resource.kind == PlayerSpoolResourceKind::PshRegion) {
+    assets::ResourceBackend backend(package);
+    return load_current(backend, resource_path, pre);
+}
+
+std::size_t PlayerResourceSpool::load_current(
+    assets::ResourceBackend& backend,
+    std::string_view resource_path,
+    const assets::PreRuntimeManager* pre) {
+    if (state() != 1U || current_index() >= queued_count()) {
+        throw std::logic_error("player spool has no active load");
+    }
+    const std::size_t index = current_index();
+    const std::string base = name(index);
+    const PlayerSpoolResourceKind resource_kind = kind(index);
+    assets::ResourceLoader loader(backend, pre);
+
+    // ResourceLoader owns the active backend/PRE handoff until the bytes have
+    // been copied. Parsing happens only after that handle is synchronized, so
+    // a malformed PSH/PSX can never publish a partial runtime object.
+    const std::size_t loaded_size = loader.open(resource_path);
+    const assets::ResourceSourceKind source_kind = loader.source_kind();
+    std::size_t allocation_size = loaded_size;
+    const std::uint32_t requested_size = request_size_staging(index);
+    if (resource_kind == PlayerSpoolResourceKind::DirectPsx
+        && requested_size != 0U
+        && requested_size != kPlayerSpoolNoPadSize) {
+        if (loaded_size > requested_size) {
+            throw assets::ResourceRuntimeError(
+                "specified player spool pad size is smaller than the resource");
+        }
+        allocation_size = requested_size;
+    }
+    std::vector<std::byte> bytes(loaded_size);
+    loader.load(bytes);
+    loader.synchronize();
+
+    PlayerSpoolLoadedResource resource{};
+    resource.queue_index = index;
+    resource.kind = resource_kind;
+    resource.source_kind = source_kind;
+    resource.allocation_size = allocation_size;
+    if (resource_kind == PlayerSpoolResourceKind::PshRegion) {
         resource.psh = assets::PshManifest::parse(
-            package.decode(*entry), source, base);
+            std::move(bytes), std::string(resource_path), base);
     } else {
         resource.psx = assets::PsxArchive::parse(
-            package.decode(*entry), source);
+            std::move(bytes), std::string(resource_path));
     }
-    loaded_.push_back(std::move(resource));
+    loaded_[index].emplace(std::move(resource));
     write_u8(entry_offset(index) + 0x04U, 1);
     write_u32(0xa0cU, 2);
     return index;
@@ -198,6 +236,21 @@ void PlayerResourceSpool::complete_current() {
     write_u32(entry_offset(index) + 0x1cU, 0xffffffffU);
     write_u32(0xa08U, static_cast<std::uint32_t>(index + 1U));
     write_u32(0xa0cU, consume_index() >= queued_count() ? 0U : 2U);
+}
+
+void PlayerResourceSpool::release(std::size_t queue_index) {
+    (void)entry_offset(queue_index);
+    if (!processed(queue_index)) {
+        loaded_[queue_index].reset();
+        return;
+    }
+    loaded_[queue_index].reset();
+    if (kind(queue_index) != PlayerSpoolResourceKind::PshRegion) {
+        write_u32(entry_offset(queue_index) + 0x20U, 0);
+        write_u8(entry_offset(queue_index) + 0x04U, 0);
+        return;
+    }
+    write_u32(entry_offset(queue_index) + 0x1cU, 0xffffffffU);
 }
 
 std::size_t PlayerResourceSpool::queued_count() const noexcept {
@@ -244,13 +297,6 @@ std::int32_t PlayerResourceSpool::heap_selector(std::size_t index) const {
         read_u32(entry_offset(index) + 0x24U));
 }
 
-std::uint8_t PlayerResourceSpool::request_flags(std::size_t index) const {
-    if (index >= kPlayerSpoolEntryCount) {
-        throw std::out_of_range("player spool flag index is outside the manager");
-    }
-    return request_flags_[index];
-}
-
 std::uint32_t PlayerResourceSpool::request_size_staging(
     std::size_t index) const {
     if (index >= kPlayerSpoolEntryCount) {
@@ -261,12 +307,10 @@ std::uint32_t PlayerResourceSpool::request_size_staging(
 
 const PlayerSpoolLoadedResource* PlayerResourceSpool::loaded(
     std::size_t queue_index) const noexcept {
-    for (const PlayerSpoolLoadedResource& resource : loaded_) {
-        if (resource.queue_index == queue_index) {
-            return &resource;
-        }
+    if (queue_index >= loaded_.size() || !loaded_[queue_index].has_value()) {
+        return nullptr;
     }
-    return nullptr;
+    return &*loaded_[queue_index];
 }
 
 } // namespace opentony::runtime

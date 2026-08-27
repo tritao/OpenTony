@@ -208,6 +208,62 @@ Then `turn_step = (base_turn * 0x100 * DAT_0056865c) >> 8`. The normal cap is `0
 
 `0x00492f20` consumes the mirrored `+0x3148` value for steering/pose response, but the orientation-to-basis operation used by the grounded physics path is the separate `0x00496360` call below.
 
+## Grounded analog/lean target branch
+
+The selected unresolved unit for this session is the no-direction analog
+branch of 0x00493370, reached when the signed byte at player+0x31a1
+has magnitude at least 0x1a. The serialized Ghidra decompilation is
+build/ghidra/decomp/ground-turn-lean.c; the relevant state is static-confirmed
+and the native boundary is tested, while the analog frame-to-position join
+remains open.
+
+For raw grounded states 0 and 7, the function first clears
+player+0x2e7c, selects +0x2d000 or +0x5a000 as its limit, and resolves
+the action bytes at controller +0x80/+0x90. Left has priority over Right.
+When neither direction is active and abs((signed char)+0x31a1) >= 0x1a, it
+performs this fixed-point response:
+
+~~~text
+product = limit * sign_extended_byte(+0x31a1)
+target  = clamp((product + (product < 0 ? 0x7f : 0)) >> 7,
+                -limit, limit)
+denom   = (unsigned)(limit >> 12) / 2
+
+if (turn < target) {
+    +0x2e7c = 1
+    turn += (((target - turn) >> 12) * step) / denom + step
+    turn = min(turn, target)
+} else if (target < turn) {
+    +0x2e7c = 1
+    turn -= (((turn - target) >> 12) * step) / denom + step
+    turn = max(turn, target)
+}
+~~~
+
+The 0x7f correction is applied before the arithmetic shift only for a
+negative product, preserving the retail truncate-toward-zero result at
+non-canonical fixed-point boundaries. The 0x1a comparison is strict on the
+inside (0x19 still takes release decay) and inclusive on the analog side.
+The native implementation preserves 32-bit product/add/subtract wrapping and
+signed division before the final branch clamp. It also reports +0x2e7c as a
+branch-selection flag: a repeated Right press at the positive cap still sets
+the flag even though +0x3144 remains unchanged.
+
+The final output handoff is deliberately split by ownership:
+
+| Retail output | Immediate consumer | Scope of this slice |
+|---|---|---|
+| +0x3144 target/turn accumulator | 0x00496360 -> 0x0049b500, then grounded motion | reconstructed |
+| +0x3148 = +0x3144 | 0x00492f20 steering/pose helper and later grounded reads | published, helper remains shared |
+| +0x2e7c active target/turn flag | 0x0049b010 correction gate | reconstructed as raw flag |
+| +0x2e78 wide-limit/brake flag | 0x0049b010 wide-turn side effect | caller-selected limit |
+| +0x30b8 physics state | 0x0049db80 dispatcher | unchanged by this branch |
+
+Thus the branch produces no ground-to-air, ground-to-rail, or special-state
+request. The physics dispatcher continues on its existing raw state 0/7
+ground path and consumes the updated target/basis inputs; state transition
+ownership stays with the dispatcher and its state-specific handlers.
+
 ## Exact orientation writer
 
 The grounded function `0x00496550` calls `0x00496360` after its initial motion/collision preparation. `0x00496360` reads the signed accumulator and, when the grounded `+0x2d90` correction path is inactive, calls:
