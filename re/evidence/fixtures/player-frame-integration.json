@@ -1,0 +1,155 @@
+{
+  "format": "opentony-player-frame-integration-v1",
+  "binary_sha256": "f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c",
+  "retail": {
+    "grounded": {
+      "source": "build/debug/sessions/physics-contact2/air-collision.trace.ndjson",
+      "frame": 10324,
+      "input": {
+        "action_mask": "0x0000",
+        "physics_state": 0
+      },
+      "dispatcher": {
+        "address": "0x0049db80",
+        "case": 0,
+        "handlers": [
+          "0x0049dad0",
+          "0x00496550",
+          "0x00495cc0",
+          "0x0049d9c0"
+        ]
+      },
+      "position_before_raw": [25761808, 4294845077, 43497789],
+      "position_before_fixed": [393.093994140625, -1.8649139404296875, 663.7235870361328],
+      "position_commit": {
+        "callsite": "0x0049f0e5",
+        "proposed_xyz": ["0x01893682", "0xfffd22d5", "0x02947ff8"],
+        "response_raw": [4662, 4294850065, 4294791555],
+        "response_fixed": [0.071136474609375, -1.7888031005859375, -2.6815948486328125]
+      }
+    },
+    "air_to_landing": {
+      "source": "build/debug/sessions/physics-contact2/air-collision.trace.ndjson",
+      "frame": 10347,
+      "input": {
+        "action_mask": "0x0000",
+        "physics_state": 1
+      },
+      "dispatcher": {
+        "address": "0x0049db80",
+        "case": 1,
+        "handler": "0x00497f40"
+      },
+      "collision_result": {
+        "handler": "0x00497f40",
+        "raw_result_token": 99837432,
+        "material_flags": 0,
+        "material_flags_contact": 128,
+        "material_flags_secondary": 1,
+        "material_flags_transient": 1,
+        "material_type": 0
+      },
+      "position_commit": {
+        "callsite": "0x0049917b",
+        "proposed_xyz": ["0x018af966", "0xffffa587", "0x025b94b3"],
+        "position_before_raw": [25853558, 144166, 39500633],
+        "position_before_fixed": [394.4939880371094, 2.199798583984375, 602.7318267822266],
+        "response_raw": [3799, 151267, 4294795129],
+        "response_fixed": [0.0579681396484375, 2.3081512451171875, -2.6270599365234375]
+      },
+      "state_transition": {
+        "request_call": "0x004991fe",
+        "trace_caller": "0x00499203",
+        "writer": "0x004902bf",
+        "from": 1,
+        "to": 0,
+        "reason": "0x00001fd6"
+      },
+      "animation_request": {
+        "source": "build/debug/sessions/physics-special-rail5/rail.trace.ndjson",
+        "outer_caller": "0x0049a519",
+        "wrapper_caller": "0x00490447",
+        "animation": 5,
+        "start": 0,
+        "end": -1,
+        "alternate": -1
+      }
+    }
+  },
+  "position_commit": {
+    "bypass_offset": "0x3200",
+    "ordinary_selected_path_value": 0,
+    "nonzero_behavior": "directly store proposed XYZ at +0x08/+0x0c/+0x10",
+    "known_writer": "not observed in the selected paths or current split modules",
+    "candidate_order": [
+      "desired XYZ",
+      "old X + desired YZ",
+      "desired X + old Z",
+      "desired X + old Y + desired Z",
+      "desired X + old YZ",
+      "old XY + desired Z",
+      "old X + desired Y + old Z",
+      "current XYZ fallback"
+    ],
+    "query_result_interpretation": "the optional hit record is the acceptance value; 0x00466090 forwards to the engine and clears EAX"
+  },
+  "native_fixture": {
+    "test": "src/runtime/player_frame_integration_test.cpp",
+    "frame_scale_q8": "0x100",
+    "grounded": {
+      "input_mask": "0x2000",
+      "start_q12": [0, 8192, 0],
+      "response_q12": [384, 0, 128],
+      "desired_q12": [384, 8192, 128],
+      "query_count": 1,
+      "selected_candidate": 1,
+      "state_before": 0,
+      "state_after": 0,
+      "action_history": [
+        {"action": 4, "pressed": true, "timestamp": 1}
+      ],
+      "ground_animation": {"animation": 7, "start": 1, "end": 1}
+    },
+    "air_to_landing": {
+      "start_q12": [0, 4096, 0],
+      "response_q12": [0, -12288, 0],
+      "desired_q12": [0, -8192, 0],
+      "query_endpoints_q12": [
+        [0, -8192, 0],
+        [0, -8192, 0],
+        [0, -8192, 0],
+        [0, 4096, 0]
+      ],
+      "query_count": 4,
+      "selected_candidate": 4,
+      "state_before": 1,
+      "state_after": 0,
+      "landing_reason": "0x1fd6",
+      "action_history": [
+        {"action": 4, "pressed": false, "timestamp": 2}
+      ],
+      "landing_animation": {"animation": 5, "start": 0, "end": -1, "alternate": -1}
+    },
+    "callback_order": [
+      "input-frame",
+      "level-tick",
+      "action-history",
+      "action-stream",
+      "stage-ground-preparation",
+      "stage-ground-collision",
+      "collision-query",
+      "stage-ground-post",
+      "stage-ground-final",
+      "input-frame",
+      "level-tick",
+      "action-history",
+      "action-stream",
+      "stage-in-air",
+      "collision-query x3",
+      "collision-query",
+      "collision-consumer",
+      "air-contact",
+      "landing-animation"
+    ]
+  }
+}

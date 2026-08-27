@@ -165,6 +165,8 @@ int main(int argc, char** argv) {
     CHECK(result.collided);
     CHECK(!result.blocked);
     CHECK(result.probes == 4);
+    CHECK(result.selected_candidate == static_cast<std::uint8_t>(
+        opentony::runtime::PositionCommitCandidate::OldY));
 
     const auto recovered_scene = opentony::collision::PsxScene::parse(
         std::span<const std::byte>(bytes.data(), bytes.size()));

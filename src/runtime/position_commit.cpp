@@ -15,7 +15,13 @@ PositionCommitResult PositionCommitter::commit(
     const PositionCollisionProbe& probe,
     bool bypass_collision) {
     if (bypass_collision || !probe) {
-        return PositionCommitResult{desired, false, false, 0};
+        return PositionCommitResult{
+            desired,
+            false,
+            false,
+            0,
+            static_cast<std::uint8_t>(PositionCommitCandidate::Direct),
+        };
     }
 
     // The retail order is visible in the seven successive FUN_004624d0 /
@@ -38,11 +44,14 @@ PositionCommitResult PositionCommitter::commit(
         if (!probe(candidate)) {
             result.position = candidate;
             result.collided = result.probes != 1;
+            result.selected_candidate = result.probes;
             return result;
         }
     }
     result.collided = true;
     result.blocked = true;
+    result.selected_candidate = static_cast<std::uint8_t>(
+        PositionCommitCandidate::CurrentFallback);
     return result;
 }
 

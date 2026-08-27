@@ -165,6 +165,54 @@ functions:
       - re/evidence/functions/physics.md
     notes: Grounded analog/lean target branch preserves signed +0x31a1 byte threshold 0x1a, sign-corrected SAR-7 target, weighted fixed-point response, 32-bit arithmetic boundaries, and +0x2e7c branch-selection output; queued-motion and non-ground state branches remain outside this slice.
 
+  - address: 0x00491c90
+    name: TrickInput_RecordState
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/action_sequence.cpp
+      - src/runtime/action_sequence.hpp
+    tests:
+      - src/runtime/action_sequence_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: The native action-history ring preserves changed-value publication, write cursor, action identity, pressed state, and frame timestamp at the frame boundary.
+
+  - address: 0x00492190
+    name: TrickInput_RefreshHistory
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/player_state.hpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/bin-runtime.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Profile publication is placed after prephysics and before the action-stream consumer, with the fixture recording action 4 press/release timestamps and cursor movement.
+
+  - address: 0x0049e680
+    name: Skater_PhysicsFrame
+    slice: physics
+    status: integrated
+    sources:
+      - src/runtime/physics_frame.cpp
+      - src/runtime/physics_frame.hpp
+      - src/runtime/gameplay_frame.cpp
+      - src/runtime/gameplay_frame.hpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/physics.md
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: The renderer-independent frame boundary connects scheduler input/level order, action history, dispatch, candidate queries, commit, landing state request, and animation request in a deterministic native fixture; unresolved stat/table producers remain explicit hooks.
+
   - address: 0x00480730
     name: Animation_Start
     slice: animation-endpoint-transition
@@ -241,15 +289,19 @@ functions:
   - address: 0x00496060
     name: Skater_PositionWritePath
     slice: player-position-commit
-    status: tested
+    status: integrated
     sources:
       - src/runtime/position_commit.cpp
       - src/runtime/position_commit.hpp
     tests:
       - src/runtime/position_commit_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
     evidence:
       - re/evidence/functions/position-write-path.md
-    notes: Candidate ordering and fallback behavior are tested; retail trace parity and the offset-0x3200 bypass meaning remain open.
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Candidate order, desired/old-Y native selections, fixed-point caller values, and optional-hit consumer ordering are covered by the integration fixture. Static matching resolves +0x3200 as the direct-commit gate; its writer is not present in the selected paths/current split.
 
   - address: 0x0049b010
     name: Skater_UpdateAcceleration
@@ -609,16 +661,19 @@ functions:
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     slice: physics
-    status: tested
+    status: integrated
     sources:
       - src/runtime/air_contact.cpp
       - src/runtime/air_contact.hpp
       - src/runtime/physics_frame.cpp
     tests:
       - src/runtime/air_contact_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
     evidence:
       - re/evidence/functions/physics-states.md
-    notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate and preserves caller-owned wall/rail classification.
+      - re/evidence/functions/player-frame-integration.md
+      - re/evidence/fixtures/player-frame-integration.json
+    notes: Native bridge decodes the packed collision face fields into the ordinary in-air landing predicate, preserves caller-owned wall/rail classification, and records the accepted-contact 1->0 request and animation handoff in the end-to-end fixture.
 
   - address: 0x0049db80
     name: Skater_PhysicsDispatcher

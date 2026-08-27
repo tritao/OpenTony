@@ -12,6 +12,22 @@ namespace opentony::runtime {
 using FixedPosition = std::array<std::int32_t, 3>;
 using PositionCollisionProbe = std::function<bool(const FixedPosition&)>;
 
+// FUN_00496060 has one direct-commit path, seven collision candidates, and a
+// final current-position fallback. Keep the ordinal visible to replay and
+// fixture consumers without turning the collision result into a guessed
+// geometry type.
+enum class PositionCommitCandidate : std::uint8_t {
+    Direct = 0,
+    Desired = 1,
+    OldX = 2,
+    OldZ = 3,
+    OldY = 4,
+    OldYOldZ = 5,
+    OldXOldY = 6,
+    OldXOldZ = 7,
+    CurrentFallback = 8,
+};
+
 // Stable collision metadata shared by the native physics boundary. The PSX
 // adapter converts its asset-specific hit record into this representation;
 // gameplay code can then consume normals/materials without depending on the
@@ -50,6 +66,10 @@ inline constexpr std::int32_t kRetailGroundContactNormalYQ12 = 0xccd;
 [[nodiscard]] bool accepts_retail_ground_contact(
     const PositionCollisionHit& hit) noexcept;
 
+// A query result is the collision object's optional hit record. Its wrapper
+// at 0x00466090 clears EAX after forwarding the query, so native acceptance
+// must use this optional record rather than treating that wrapper return as a
+// C++ boolean.
 using PositionCollisionQuery = std::function<std::optional<PositionCollisionHit>(
     const FixedPosition& start,
     const FixedPosition& end)>;
@@ -59,6 +79,7 @@ struct PositionCommitResult {
     bool collided{};
     bool blocked{};
     std::uint8_t probes{};
+    std::uint8_t selected_candidate{};
 
     friend bool operator==(
         const PositionCommitResult&,

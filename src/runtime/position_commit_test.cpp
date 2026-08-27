@@ -32,6 +32,8 @@ int main() {
     CHECK(slide.collided);
     CHECK(!slide.blocked);
     CHECK(slide.probes == 2);
+    CHECK(slide.selected_candidate == static_cast<std::uint8_t>(
+        opentony::runtime::PositionCommitCandidate::OldX));
 
     const auto blocked = opentony::runtime::PositionCommitter::commit(
         current,
@@ -41,6 +43,8 @@ int main() {
     CHECK(blocked.collided);
     CHECK(blocked.blocked);
     CHECK(blocked.probes == 7);
+    CHECK(blocked.selected_candidate == static_cast<std::uint8_t>(
+        opentony::runtime::PositionCommitCandidate::CurrentFallback));
 
     const auto bypassed = opentony::runtime::PositionCommitter::commit(
         current,
@@ -50,5 +54,7 @@ int main() {
     CHECK(bypassed.position == desired);
     CHECK(!bypassed.collided);
     CHECK(bypassed.probes == 0);
+    CHECK(bypassed.selected_candidate == static_cast<std::uint8_t>(
+        opentony::runtime::PositionCommitCandidate::Direct));
     std::cout << "Position commit tests passed\n";
 }
