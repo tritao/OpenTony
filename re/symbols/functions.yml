@@ -1,5 +1,17 @@
 version: 1
 functions:
+  - address: 0x0048f3a0
+    name: Skater_ProfileValue
+    description: Resolve a selector-based per-skater profile/stat value.
+    confidence: confirmed
+    signature:
+      calling_convention: thiscall
+      return: i32
+      parameters:
+        - name: selector
+          type: i32
+    evidence:
+      - re/evidence/functions/shared-random-service.md
   - address: 0x00468b30
     name: AnimationClock_Update
     gdb_aliases:

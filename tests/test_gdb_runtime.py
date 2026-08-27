@@ -75,7 +75,7 @@ from opentony.collision import (
 )
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
-from opentony.physics import PhysicsProbe, PlayerDiffProbe
+from opentony.physics import PhysicsProbe, PlayerDiffProbe, SharedRandomServiceProbe
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
@@ -351,6 +351,56 @@ def test_player_view_exposes_fixed_position_and_integer_state_fields():
     assert events[0]["position_history_fixed"] == [0.25, 0.75, 16672.0]
     assert events[0]["physics_state"] == 1
     assert "candidate_position" not in events[0]
+
+
+def test_shared_random_service_probe_records_call_and_return():
+    inferior = FakeInferior()
+    inferior.data[0x100:0x108] = struct.pack("<2I", 0x0049E836, 3)
+    memory = Memory(inferior)
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = SharedRandomServiceProbe(writer=Writer(), frame_provider=lambda: 241)
+    entry_context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "ecx": 0x00123400, "eip": 0x48F3A0},
+        ),
+        memory,
+    )
+    probe.on_hit(entry_context)
+
+    assert len(probe._returns) == 1
+    return_probe = probe._returns[0]
+    return_probe.on_hit(
+        Context(
+            CallContext(memory, registers={"esp": 0x100, "eax": 187}),
+            memory,
+        )
+    )
+
+    assert events == [
+        {
+            "type": "shared_random_call",
+            "function": "FUN_0048f3a0",
+            "address": "0x0048f3a0",
+            "frame": 241,
+            "ordinal_within_frame": 0,
+            "caller": "0x0049e831",
+            "return_address": "0x0049e836",
+            "this": "0x00123400",
+            "argument_raw": 3,
+            "argument_s32": 3,
+            "state_before": None,
+            "state_after": None,
+            "state_status": "not-established",
+            "return_value_raw": 187,
+            "return_value_s32": 187,
+        }
+    ]
 
 
 def test_player_diff_probe_records_changed_relative_words():

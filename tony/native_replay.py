@@ -10,6 +10,14 @@ from typing import Any
 from .common import resolve
 from .recording import validate_recording
 
+REPLAY_MODES = ("assisted", "strict")
+_DERIVED_NATIVE_CHANNELS = (
+    "ollie_random",
+    "velocity_damping_random",
+    "motion_correction",
+    "response_correction",
+)
+
 
 def _signed(value: int, bits: int) -> int:
     mask = (1 << bits) - 1
@@ -76,7 +84,12 @@ def _initial_wire(snapshot: dict[str, Any]) -> str:
     return "init " + " ".join(str(value) for value in values)
 
 
-def _frame_wire(frame: dict[str, Any]) -> str:
+def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
+    if mode not in REPLAY_MODES:
+        raise ValueError(
+            f"unsupported native replay mode {mode!r}; "
+            f"choose one of {', '.join(REPLAY_MODES)}"
+        )
     input_record = frame.get("input")
     if not isinstance(input_record, dict):
         raise TypeError(f"frame {frame.get('frame')} has no input record")
@@ -100,6 +113,10 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     frame_scale_q8 = _signed(int(scale_raw), 32) if isinstance(scale_raw, int) else 0x100
     random_by_purpose: dict[str, int] = {}
     events = frame.get("events", [])
+    if mode == "strict":
+        # Derived events remain useful evidence in the recording, but strict
+        # replay must not even parse them as native service inputs.
+        events = []
     if isinstance(events, list):
         for event in events:
             if not isinstance(event, dict) or event.get("type") != "ollie_random_input":
@@ -107,7 +124,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             purpose = event.get("purpose")
             raw_roll = event.get("raw_roll")
             if not isinstance(purpose, str) or not isinstance(raw_roll, int):
-                raise ValueError(f"frame {frame_index} has an invalid ollie random event")
+                raise TypeError(f"frame {frame_index} has an invalid ollie random event")
             if purpose in random_by_purpose:
                 raise ValueError(f"frame {frame_index} has duplicate ollie random purpose {purpose!r}")
             random_by_purpose[purpose] = _signed(raw_roll, 32)
@@ -126,7 +143,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         "early_release.second",
     )
     random_values = [random_by_purpose.get(purpose, 0) for purpose in random_purposes]
-    random_available = int(bool(random_by_purpose))
+    random_available = int(bool(random_by_purpose) and mode == "assisted")
     metric_event = next(
         (
             event
@@ -149,7 +166,9 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             purpose = event.get("purpose")
             raw_roll = event.get("raw_roll")
             if not isinstance(purpose, str) or not isinstance(raw_roll, int):
-                raise ValueError(f"frame {frame_index} has an invalid velocity damping random event")
+                raise TypeError(
+                    f"frame {frame_index} has an invalid velocity damping random event"
+                )
             if purpose in damping_by_purpose:
                 raise ValueError(
                     f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
@@ -165,7 +184,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             "decay_threshold",
         )
     ]
-    damping_available = int(bool(damping_by_purpose))
+    damping_available = int(bool(damping_by_purpose) and mode == "assisted")
     motion_events = [
         event
         for event in events
@@ -186,7 +205,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             if isinstance(raw, list) and len(raw) == 3
             else [0, 0, 0]
         )
-    motion_available = int(motion_event is not None)
+    motion_available = int(motion_event is not None and mode == "assisted")
     response_events = [
         event
         for event in events
@@ -207,7 +226,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             if isinstance(raw, list) and len(raw) == 3
             else [0, 0, 0]
         )
-    response_available = int(response_event is not None)
+    response_available = int(response_event is not None and mode == "assisted")
     before_snapshot = frame.get("before")
     physics_snapshot = (
         before_snapshot.get("physics")
@@ -255,9 +274,19 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     )
 
 
-def _wire_input(initial: dict[str, Any], frames: list[dict[str, Any]]) -> str:
+def _wire_input(
+    initial: dict[str, Any],
+    frames: list[dict[str, Any]],
+    *,
+    mode: str = "assisted",
+) -> str:
+    if mode not in REPLAY_MODES:
+        raise ValueError(
+            f"unsupported native replay mode {mode!r}; "
+            f"choose one of {', '.join(REPLAY_MODES)}"
+        )
     lines = ["version 2", _initial_wire(initial)]
-    lines.extend(_frame_wire(frame) for frame in frames)
+    lines.extend(_frame_wire(frame, mode=mode) for frame in frames)
     lines.append("end")
     return "\n".join(lines) + "\n"
 
@@ -343,6 +372,12 @@ def _level_paths(args, header: dict[str, Any]) -> tuple[Path, Path, Path]:
 
 
 def replay_native(args) -> int:
+    mode = getattr(args, "mode", "assisted")
+    if mode not in REPLAY_MODES:
+        raise SystemExit(
+            f"unsupported native replay mode {mode!r}; "
+            f"choose one of {', '.join(REPLAY_MODES)}"
+        )
     path = resolve(args.path)
     summary, errors = validate_recording(path)
     if errors:
@@ -366,7 +401,7 @@ def replay_native(args) -> int:
     try:
         result = subprocess.run(
             [str(binary), str(trg), str(psx), str(asset_root)],
-            input=_wire_input(initial_records[0]["state"], frames),
+            input=_wire_input(initial_records[0]["state"], frames, mode=mode),
             text=True,
             capture_output=True,
             check=False,
@@ -393,6 +428,7 @@ def replay_native(args) -> int:
             "format": "opentony-native-replay-v1",
             "recording": str(path),
             "recording_id": header.get("recording_id"),
+            "mode": mode,
         }
     ]
     difference: tuple[int, str, Any, Any] | None = None
@@ -427,6 +463,16 @@ def replay_native(args) -> int:
 
     print(f"native trace: {output}")
     print(f"frames: {len(native_frames)}")
+    print(f"mode: {mode}")
+    print(
+        "injected derived channels: "
+        + (", ".join(_DERIVED_NATIVE_CHANNELS) if mode == "assisted" else "none")
+    )
+    if mode == "strict":
+        print(
+            "note: native strict mode disables captured derived seams; "
+            "their native producers are not yet complete"
+        )
     if difference is None:
         print(f"matching: {len(native_frames)}")
         print("result: matching")

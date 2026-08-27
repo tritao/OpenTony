@@ -58,6 +58,18 @@ _VOLATILE_TIMING_FIELDS = {
     "simulation_time",
 }
 
+REPLAY_MODES = ("assisted", "strict")
+_DERIVED_REPLAY_CHANNELS = (
+    "simulation_time_store",
+    "animation_clock_store",
+    "landing_frame_store",
+    "launch_frame_store",
+    "air_motion_x_store",
+    "player_frame_counter_store",
+    "animation_state_timestamp_store",
+    "animation_timestamp_store",
+)
+
 
 def _signed32(value: int) -> int:
     return value - 0x100000000 if value & 0x80000000 else value
@@ -226,9 +238,15 @@ def _axis_bytes(input_record: dict) -> tuple[bytes | None, bytes | None]:
 class RetailReplay:
     """Inject recorded retail input and compare canonical player frames."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, mode: str = "assisted"):
+        if mode not in REPLAY_MODES:
+            raise ValueError(
+                f"unsupported retail replay mode {mode!r}; "
+                f"choose one of {', '.join(REPLAY_MODES)}"
+            )
         self.path = Path(path).expanduser().resolve()
         self.header, self.frames = _load_recording(self.path)
+        self.mode = mode
         self.index = 0
         self.active = False
         self._keyboard_initialized = False
@@ -249,11 +267,33 @@ class RetailReplay:
             RetailReplayAnimationTimestampBreakpoint(self, address)
             for address in _PLAYER_ANIMATION_TIMESTAMP_STORES
         ]
+        self._derived_breakpoints = (
+            self.simulation_time_breakpoint,
+            self.animation_clock_breakpoint,
+            self.landing_frame_breakpoint,
+            self.launch_frame_breakpoint,
+            self.air_motion_x_breakpoint,
+            self.player_frame_counter_breakpoint,
+            self.animation_state_timestamp_breakpoint,
+            *self.animation_timestamp_breakpoints,
+        )
+        if self.mode == "strict":
+            for breakpoint in self._derived_breakpoints:
+                breakpoint.enabled = False
 
     def install(self) -> None:
         gdb.write(
             f"retail replay armed: {self.path} ({len(self.frames)} frames)\n"
+            f"mode: {self.mode}\n"
         )
+        if self.mode == "assisted":
+            gdb.write(
+                "injected derived channels: "
+                + ", ".join(_DERIVED_REPLAY_CHANNELS)
+                + "\n"
+            )
+        else:
+            gdb.write("injected derived channels: none\n")
 
     def inject_input(self) -> None:
         if self._stopped or self.index >= len(self.frames):
@@ -402,7 +442,10 @@ class RetailReplay:
         if breakpoint is not None:
             breakpoint.should_stop = True
         gdb.write(
-            f"frames: {self.index}\nmatching: {self.index}\nresult: deterministic\n"
+            f"frames: {self.index}\n"
+            f"matching: {self.index}\n"
+            f"mode: {self.mode}\n"
+            "result: deterministic\n"
         )
 
     def _diverge(self, stage: str, difference, breakpoint=None) -> None:
@@ -432,6 +475,7 @@ class RetailReplay:
             f"replay   = {actual!r}\n"
             f"frames: {self.index}\n"
             f"matching: {self.index}\n"
+            f"mode: {self.mode}\n"
             "result: divergent\n"
         )
 
@@ -667,9 +711,9 @@ class RetailReplayReturnBreakpoint(TonyBreakpoint):
         self.replay.frame_return(_snapshot(self.player), self)
 
 
-def create_retail_replay(path: str | Path) -> RetailReplay:
-    return RetailReplay(path)
+def create_retail_replay(path: str | Path, *, mode: str = "assisted") -> RetailReplay:
+    return RetailReplay(path, mode=mode)
 
 
-def gdb_replay_usage(path: str | Path) -> str:
-    return "tony-replay-retail " + shlex.quote(str(path))
+def gdb_replay_usage(path: str | Path, *, mode: str = "assisted") -> str:
+    return "tony-replay-retail " + shlex.quote(str(path)) + " --mode " + shlex.quote(mode)

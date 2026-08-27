@@ -51,11 +51,12 @@ from .physics import (
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
     GROUND_MOTION_THRESHOLD_RANDOM_SITES,
+    OLLIE_LATCH_WRITERS,
     OLLIE_RANDOM_SITES,
+    SHARED_RANDOM_SERVICE,
+    SPECIAL_HANDLER_INFO,
     VELOCITY_DAMPING_COMPONENT_SITES,
     VELOCITY_DAMPING_RANDOM_SITES,
-    OLLIE_LATCH_WRITERS,
-    SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
     AirCorrectionProbe,
     GroundMotionControlWriterProbe,
@@ -67,20 +68,21 @@ from .physics import (
     MovementPhysicsProbe,
     OllieLatchProbe,
     OllieRandomProbe,
-    VelocityDampingComponentProbe,
-    VelocityDampingRandomProbe,
-    ResponseCorrectionProbe,
     PhysicsProbe,
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
     PlayerDiffProbe,
+    ResponseCorrectionProbe,
+    SharedRandomServiceProbe,
     SpecialPhysicsHandlerProbe,
     SyntheticPhysicsStateForceProbe,
+    VelocityDampingComponentProbe,
+    VelocityDampingRandomProbe,
 )
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
-from .replay import create_retail_replay
+from .replay import REPLAY_MODES, create_retail_replay
 from .snapshot import format_diff, snapshots
 from .timing import animation_timing_record
 from .trace import JsonlWriter
@@ -476,21 +478,32 @@ class TonyRecordingStatus(gdb.Command):
 
 
 class TonyRetailReplay(gdb.Command):
-    """tony-replay-retail FILE -- inject and compare one retail recording."""
+    """tony-replay-retail FILE [--mode MODE] -- replay one retail recording."""
 
     def __init__(self):
         super().__init__("tony-replay-retail", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
         del from_tty
-        values = _argv(arg, "tony-replay-retail FILE")
-        if len(values) != 1:
-            raise gdb.GdbError("usage: tony-replay-retail FILE")
+        values = _argv(arg, "tony-replay-retail FILE [--mode assisted|strict]")
+        mode = "assisted"
+        if "--mode" in values:
+            mode_index = values.index("--mode")
+            if mode_index + 1 >= len(values):
+                raise gdb.GdbError(
+                    "usage: tony-replay-retail FILE [--mode assisted|strict]"
+                )
+            mode = values[mode_index + 1]
+            del values[mode_index:mode_index + 2]
+        if len(values) != 1 or mode not in REPLAY_MODES:
+            raise gdb.GdbError(
+                "usage: tony-replay-retail FILE [--mode assisted|strict]"
+            )
         global _retail_replay
         if _retail_replay is not None:
             raise gdb.GdbError("a retail replay is already armed")
         try:
-            _retail_replay = create_retail_replay(values[0])
+            _retail_replay = create_retail_replay(values[0], mode=mode)
         except (OSError, TypeError, ValueError, gdb.GdbError) as exc:
             raise gdb.GdbError(str(exc)) from exc
         _retail_replay.install()
@@ -1921,6 +1934,11 @@ class TonyTraceClose(gdb.Command):
         writer = _trace_writer
         for breakpoint in _runtime_breakpoints:
             if getattr(breakpoint, "writer", None) is writer:
+                disable_pending_returns = getattr(
+                    breakpoint, "disable_pending_returns", None
+                )
+                if disable_pending_returns is not None:
+                    disable_pending_returns()
                 breakpoint.enabled = False
         watchpoints.disable_writer(writer)
         try:
@@ -2262,6 +2280,28 @@ class TonyOllieRandomProbe(gdb.Command):
             _runtime_breakpoints.append(probe)
         limit = "until disabled" if count is None else f"for {count} hits per site"
         _write(f"ollie random probes armed {limit}")
+
+
+class TonySharedRandomProbe(gdb.Command):
+    """tony-rng-probe [COUNT] -- trace the shared 0x0048f3a0 boundary."""
+
+    def __init__(self):
+        super().__init__("tony-rng-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-rng-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-rng-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = SharedRandomServiceProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} completed calls"
+        _write(
+            f"shared 0x{SHARED_RANDOM_SERVICE:08x} service probes armed {limit}"
+        )
 
 
 class TonyVelocityDampingRandomProbe(gdb.Command):
@@ -2913,6 +2953,16 @@ def _install_recording_instrumentation() -> None:
             TonyRecordingFrameEntryBreakpoint(_recording_controller),
         )
     )
+    _runtime_breakpoints.append(
+        SharedRandomServiceProbe(
+            writer=sink,
+            frame_provider=lambda: (
+                _recording_controller.active_frame
+                if _recording_controller is not None
+                else None
+            ),
+        )
+    )
 
     collision_probe = CollisionQueryProbe(writer=sink)
     _runtime_breakpoints.extend(
@@ -3025,6 +3075,7 @@ def register_commands() -> None:
     TonyGroundMotionProbe()
     TonyGroundMotionWriters()
     TonyOllieRandomProbe()
+    TonySharedRandomProbe()
     TonyVelocityDampingRandomProbe()
     TonyVelocityDampingComponentProbe()
     TonyAirCorrectionProbe()
@@ -3078,6 +3129,7 @@ def register_commands() -> None:
         "tony-movement-physics-probe, "
         "tony-ground-motion-probe, tony-ground-motion-writers, "
         "tony-ollie-random-probe, "
+        "tony-rng-probe, "
         "tony-velocity-damping-random-probe, "
         "tony-velocity-damping-component-probe, "
         "tony-air-correction-probe, "
