@@ -69,6 +69,7 @@ from .physics import (
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
+from .replay import create_retail_replay
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
@@ -107,6 +108,8 @@ _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
 _recording_controller = None
+_retail_replay = None
+_frontend_screen_automation = None
 
 
 _RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
@@ -451,6 +454,27 @@ class TonyRecordingStatus(gdb.Command):
         _write(json.dumps(_recording_controller.status(), sort_keys=True))
 
 
+class TonyRetailReplay(gdb.Command):
+    """tony-replay-retail FILE -- inject and compare one retail recording."""
+
+    def __init__(self):
+        super().__init__("tony-replay-retail", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-replay-retail FILE")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-replay-retail FILE")
+        global _retail_replay
+        if _retail_replay is not None:
+            raise gdb.GdbError("a retail replay is already armed")
+        try:
+            _retail_replay = create_retail_replay(values[0])
+        except (OSError, TypeError, ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _retail_replay.install()
+
+
 def _snapshot_address(value: str) -> int:
     try:
         return _integer(value)
@@ -727,7 +751,12 @@ class TonyTHPS2Breakpoint(gdb.Command):
 
 
 class TonySkipMovieBreakpoint(TonyBreakpoint):
-    """Return immediately from either Bink movie entry path."""
+    """Return immediately from either Bink movie entry path.
+
+    The shared setup routine is used for startup logos, level previews, and
+    level transitions.  Its callers treat a false result as "movie
+    unavailable/skipped" and continue their own state machines.
+    """
 
     def __init__(self, address: int):
         # PCMovie_PlayGameFMV (0x004e7090) is only the outer formatter/loader.
@@ -738,11 +767,18 @@ class TonySkipMovieBreakpoint(TonyBreakpoint):
 
     def on_hit(self, ctx):
         return_address = ctx.return_address()
-        # Both callers treat a false return as “movie unavailable/skipped”.
-        gdb.execute("set $eax = 0")
+        # The callers use a false result to leave the optional movie path and
+        # continue ordinary frontend/gameplay setup.  Returning success here
+        # enters the Bink surface/frame loop and does not mean "already
+        # completed".
+        result = 0
+        gdb.execute(f"set $eax = {result}")
         gdb.execute(f"set $eip = 0x{return_address:x}")
         gdb.execute(f"set $esp = 0x{ctx.esp + 4:x}")
-        _write(f"skipped movie playback; returning to 0x{return_address:08x}")
+        _write(
+            f"skipped movie playback; returning to 0x{return_address:08x} "
+            f"(result {result})"
+        )
 
 
 _movie_skip_breakpoints = []
@@ -806,6 +842,34 @@ class TonyForceLevel(gdb.Command):
         _write(f"next level launch will use {level} ({label})")
 
 
+class TonyFrontendLevelOverrideBreakpoint(CountingBreakpoint):
+    """Replace the level selected by the real frontend level-select helper."""
+
+    # The level-select handler enters here before its helper calls.  Synthetic
+    # input can make that helper take the no-selection path, so provide the
+    # desired result and resume at the original validation/store sequence.
+    LEVEL_SELECT_ENTRY = 0x0045355D
+    LEVEL_RESULT_CHECK = 0x0045359B
+
+    def __init__(self, level: int, label: str):
+        self.level = level
+        self.label = label
+        super().__init__(
+            self.LEVEL_SELECT_ENTRY,
+            count=1,
+            internal=True,
+        )
+
+    def on_count(self, _ctx):
+        gdb.execute(f"set $eax = {self.level}")
+        gdb.execute(f"set $eip = 0x{self.LEVEL_RESULT_CHECK:x}")
+        _write(
+            f"frontend level override: {self.label} ({self.level}) at "
+            f"0x{self.LEVEL_SELECT_ENTRY:08x}"
+        )
+        return True
+
+
 class TonyFrontendPlayBreakpoint(TonyBreakpoint):
     """Force PLAY_GAME in the verified main-menu result slot."""
 
@@ -819,7 +883,13 @@ class TonyFrontendPlayBreakpoint(TonyBreakpoint):
     # and enables video-restart playback.
     PLAY_GAME_RESULT = 0x26
 
-    def __init__(self):
+    def __init__(self, followup_enter_cycles: int = 0, level_index: int | None = None):
+        if followup_enter_cycles < 0:
+            raise ValueError("frontend follow-up cycles must not be negative")
+        if level_index is not None and not 0 <= level_index < 13:
+            raise ValueError("frontend level index must be between 0 and 12")
+        self.followup_enter_cycles = followup_enter_cycles
+        self.level_index = level_index
         super().__init__(self.FRONTEND_RESULT_READ, internal=True)
 
     def on_hit(self, ctx):
@@ -828,26 +898,128 @@ class TonyFrontendPlayBreakpoint(TonyBreakpoint):
             self.PLAY_GAME_RESULT,
         )
         self.enabled = False
+        if self.followup_enter_cycles:
+            global _frontend_screen_automation
+            if _frontend_screen_automation is None:
+                _frontend_screen_automation = TonyFrontendScreenAutomationBreakpoint(
+                    self.followup_enter_cycles,
+                    self.level_index,
+                )
         _write(
             "forced main-menu selection PLAY_GAME at result read "
-            f"0x{self.FRONTEND_RESULT_READ:08x}"
+            f"0x{self.FRONTEND_RESULT_READ:08x}; "
+            f"follow-up Enter cycles {self.followup_enter_cycles}"
+        )
+
+
+class TonyFrontendScreenAutomationBreakpoint(TonyBreakpoint):
+    """Select a known level, then arm Enter at the level-select boundary."""
+
+    SCREEN_LOG = 0x0045326B
+
+    def __init__(self, cycles: int, level_index: int | None = None):
+        if cycles <= 0:
+            raise ValueError("frontend automation cycles must be positive")
+        if level_index is not None and not 0 <= level_index < 13:
+            raise ValueError("frontend level index must be between 0 and 12")
+        self.cycles = cycles
+        self.level_index = level_index
+        self.last_screen = None
+        super().__init__(self.SCREEN_LOG, internal=True)
+
+    def _arm_enter(self) -> None:
+        _key_loop_breakpoints.append(
+            TonyKeyLoopBreakpoint(
+                0x1C,
+                press_ticks=5,
+                release_ticks=15,
+                cycles=self.cycles,
+            )
+        )
+        _write(f"frontend level selected: armed Enter cycles {self.cycles}")
+
+    def _arm_summary_enter(self) -> None:
+        breakpoint = TonyNetmenuSummaryBreakpoint(self.cycles)
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            "frontend play: waiting for NETMENU_InitSummary before final Enter "
+            f"cycles {self.cycles}"
+        )
+
+    def on_hit(self, ctx):
+        screen = ctx.register("eax")
+        if screen == self.last_screen:
+            return
+        self.last_screen = screen
+        if screen not in (2, 6):
+            return
+        if screen == 2 and self.level_index is not None:
+            label = next(
+                (name for name, index in THPS2_LEVELS.items() if index == self.level_index),
+                f"level-{self.level_index}",
+            )
+            override = TonyFrontendLevelOverrideBreakpoint(self.level_index, label)
+            _runtime_breakpoints.append(override)
+            _write(
+                f"frontend screen {screen}: real level-select result will use "
+                f"{label} ({self.level_index})"
+            )
+            self._arm_enter()
+            return
+        self._arm_enter()
+        self._arm_summary_enter()
+
+
+class TonyNetmenuSummaryBreakpoint(TonyBreakpoint):
+    """Send the final frontend confirmation after the level has loaded."""
+
+    # NETMENU_InitSummary emits its diagnostic string at this instruction,
+    # after the level/player setup and before the summary menu waits for input.
+    SUMMARY_LOG = 0x0047FB36
+
+    def __init__(self, enter_cycles: int):
+        self.enter_cycles = enter_cycles
+        super().__init__(self.SUMMARY_LOG, internal=True)
+
+    def on_hit(self, _ctx):
+        self.enabled = False
+        _key_loop_breakpoints.append(
+            TonyKeyLoopBreakpoint(
+                0x1C,
+                press_ticks=5,
+                release_ticks=15,
+                cycles=self.enter_cycles,
+            )
+        )
+        _write(
+            "frontend NETMENU_InitSummary reached: armed final Enter cycles "
+            f"{self.enter_cycles}"
         )
 
 
 class TonyFrontendPlay(gdb.Command):
-    """tony-frontend-play -- force the next main-menu selection to PLAY_GAME."""
+    """tony-frontend-play [ENTER_CYCLES] [LEVEL] -- force main-menu PLAY_GAME."""
 
     def __init__(self):
         super().__init__("tony-frontend-play", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        if arg.strip():
-            raise gdb.GdbError("usage: tony-frontend-play")
-        breakpoint = TonyFrontendPlayBreakpoint()
+        del from_tty
+        values = _argv(arg, "tony-frontend-play [ENTER_CYCLES] [LEVEL]") if arg.strip() else []
+        if len(values) > 2:
+            raise gdb.GdbError("usage: tony-frontend-play [ENTER_CYCLES] [LEVEL]")
+        try:
+            enter_cycles = _integer(values[0]) if values else 0
+            level_index = _integer(values[1]) if len(values) > 1 else None
+            breakpoint = TonyFrontendPlayBreakpoint(enter_cycles, level_index)
+        except (ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
         _runtime_breakpoints.append(breakpoint)
         _write(
             "main-menu PLAY_GAME override armed at "
-            f"0x{breakpoint.FRONTEND_RESULT_READ:08x}"
+            f"0x{breakpoint.FRONTEND_RESULT_READ:08x}; "
+            f"follow-up Enter cycles {enter_cycles}; "
+            f"level {breakpoint.level_index if breakpoint.level_index is not None else 'current'}"
         )
 
 
@@ -858,37 +1030,73 @@ class TonyFrontendConfirmBreakpoint(TonyBreakpoint):
     SELECTION_CALL_RETURN = 0x0046AF9F
     CONFIRM_SCAN_CODE = 0x10
 
-    def __init__(self):
+    def __init__(
+        self,
+        scan_code: int = CONFIRM_SCAN_CODE,
+        count: int = 1,
+        followup_enter_cycles: int = 0,
+    ):
+        if not 0 <= scan_code < 0x100:
+            raise ValueError("frontend confirmation scan code must be between 0 and 255")
+        if count <= 0:
+            raise ValueError("frontend confirmation count must be positive")
+        if followup_enter_cycles < 0:
+            raise ValueError("frontend follow-up cycles must not be negative")
+        self.scan_code = scan_code
+        self.remaining = count
+        self.followup_enter_cycles = followup_enter_cycles
         super().__init__(self.KEY_STATE_HELPER, internal=True)
 
     def on_hit(self, ctx):
         if ctx.return_address() != self.SELECTION_CALL_RETURN:
             return
         ctx.memory.write_u8(
-            GLOBALS["KeyboardState"] + self.CONFIRM_SCAN_CODE,
+            GLOBALS["KeyboardState"] + self.scan_code,
             0x80,
         )
-        self.enabled = False
+        self.remaining -= 1
+        if self.remaining <= 0:
+            self.enabled = False
+            if self.followup_enter_cycles:
+                _key_loop_breakpoints.append(
+                    TonyKeyLoopBreakpoint(
+                        0x1C,
+                        press_ticks=5,
+                        release_ticks=15,
+                        cycles=self.followup_enter_cycles,
+                    )
+                )
         _write(
             "released frontend selection loop with keyboard scan "
-            f"0x{self.CONFIRM_SCAN_CODE:02x}"
+            f"0x{self.scan_code:02x} ({self.remaining} confirmations remaining); "
+            f"follow-up Enter cycles {self.followup_enter_cycles}"
         )
 
 
 class TonyFrontendConfirm(gdb.Command):
-    """tony-frontend-confirm -- release the next frontend selection loop."""
+    """tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES] -- release frontend loops."""
 
     def __init__(self):
         super().__init__("tony-frontend-confirm", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        if arg.strip():
-            raise gdb.GdbError("usage: tony-frontend-confirm")
-        breakpoint = TonyFrontendConfirmBreakpoint()
+        del from_tty
+        values = _argv(arg, "tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES]") if arg.strip() else []
+        if len(values) > 3:
+            raise gdb.GdbError("usage: tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES]")
+        try:
+            scan_code = _integer(values[0]) if values else TonyFrontendConfirmBreakpoint.CONFIRM_SCAN_CODE
+            count = _integer(values[1]) if len(values) > 1 else 1
+            enter_cycles = _integer(values[2]) if len(values) > 2 else 0
+            breakpoint = TonyFrontendConfirmBreakpoint(scan_code, count, enter_cycles)
+        except (ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
         _runtime_breakpoints.append(breakpoint)
         _write(
             "frontend confirmation armed at "
-            f"0x{breakpoint.KEY_STATE_HELPER:08x}"
+            f"0x{breakpoint.KEY_STATE_HELPER:08x}; "
+            f"scan 0x{breakpoint.scan_code:02x}, count {count}, "
+            f"follow-up Enter cycles {enter_cycles}"
         )
 
 
@@ -1143,7 +1351,14 @@ class TonyJumpEdge(gdb.Command):
 class TonyKeyLoopBreakpoint(CountingBreakpoint):
     """Drive one DirectInput scan-code byte with a repeatable press/release loop."""
 
-    def __init__(self, scan_code: int, press_ticks: int, release_ticks: int, cycles: int):
+    def __init__(
+        self,
+        scan_code: int,
+        press_ticks: int,
+        release_ticks: int,
+        cycles: int,
+        on_complete=None,
+    ):
         period = press_ticks + release_ticks
         super().__init__(THPS2_ADDRESSES["input_state"][0], count=period * cycles, internal=True)
         self.key_address = GLOBALS["KeyboardState"] + scan_code
@@ -1151,6 +1366,7 @@ class TonyKeyLoopBreakpoint(CountingBreakpoint):
         self.press_ticks = press_ticks
         self.release_ticks = release_ticks
         self.phase = 0
+        self.on_complete_callback = on_complete
 
     def on_count(self, ctx):
         del ctx
@@ -1164,6 +1380,8 @@ class TonyKeyLoopBreakpoint(CountingBreakpoint):
     def on_complete(self):
         mem.write(self.key_address, b"\0")
         _write(f"keyboard loop complete for scan code {self.scan_code}")
+        if self.on_complete_callback is not None:
+            self.on_complete_callback()
 
 
 class TonyKeyLoop(gdb.Command):
@@ -2594,6 +2812,7 @@ def register_commands() -> None:
     TonyRecordingStop()
     TonyRecordingToggle()
     TonyRecordingStatus()
+    TonyRetailReplay()
     TonyPlayerSample()
     TonyInputSample()
     TonyActionEdge()
@@ -2658,6 +2877,7 @@ def register_commands() -> None:
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-record-start, tony-record-stop, tony-record-toggle, tony-record-status, "
+        "tony-replay-retail, "
         "tony-action-edge, tony-jump-edge, "
         "tony-key-loop, tony-key-clear, tony-animation-sample, tony-animation-request-sample, "
         "tony-animation-selector-sample, "

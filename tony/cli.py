@@ -224,6 +224,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.play_game)
 
+    replay = sub.add_parser("replay", help="replay recorded gameplay through a target runtime")
+    replay_sub = replay.add_subparsers(dest="replay_command", required=True)
+    p = replay_sub.add_parser("retail", help="replay one recording through the retail executable")
+    p.add_argument("path")
+    p.add_argument("--session", help="named debug session; omitted generates a unique session")
+    p.add_argument("--port", type=int)
+    p.add_argument("--unmute", action="store_true", help="leave game audio enabled")
+    p.set_defaults(func=commands.replay_retail)
+
     p = sub.add_parser("debug", help="run through WineDbg GDB proxy and interactive GDB")
     p.add_argument("--headless", action="store_true", help="use the isolated Xvfb display (the default for launches)")
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled for this debug session")

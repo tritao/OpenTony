@@ -147,6 +147,16 @@ def test_debug_unmute_parse():
     assert args.unmute is True
 
 
+def test_retail_replay_parse():
+    args = build_parser().parse_args(
+        ["replay", "retail", "run.otrec", "--session", "warehouse", "--port", "31350"]
+    )
+    assert args.path == "run.otrec"
+    assert args.session == "warehouse"
+    assert args.port == 31350
+    assert callable(args.func)
+
+
 def test_record_commands_parse():
     start = build_parser().parse_args(
         ["record", "start", "--session", "warehouse", "--output", "run.otrec", "--force"]

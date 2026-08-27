@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from types import SimpleNamespace
 
@@ -19,7 +20,7 @@ from .assets import (
     assets_inventory,  # noqa: F401 - command handlers are consumed by cli.py
 )
 from .common import capture, load_yaml, resolve, sha256
-from .debug import debug_game  # noqa: F401 - command handlers are consumed by cli.py
+from .debug import debug_game
 from .explorer import assets_explore  # noqa: F401 - command handlers are consumed by cli.py
 from .gdb_knowledge import generate as generate_gdb_knowledge
 from .ghidra_setup import install_ghidra
@@ -41,6 +42,7 @@ from .recording import (
     record_stop,  # noqa: F401 - command handlers are consumed by cli.py
     record_toggle,  # noqa: F401 - command handlers are consumed by cli.py
     record_validate,  # noqa: F401 - command handlers are consumed by cli.py
+    validate_recording,
 )
 from .recovered_types import types_verify
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
@@ -100,6 +102,40 @@ def play_game(args) -> int:
     if mount_status:
         return mount_status
     return run_game(args)
+
+
+def replay_retail(args) -> int:
+    """Run a validated recording through the retail executable under GDB."""
+
+    path = resolve(args.path)
+    summary, errors = validate_recording(path)
+    if errors:
+        print(json.dumps({"summary": summary, "errors": errors}, indent=2, sort_keys=True))
+        return 1
+
+    replay_command = f"tony-replay-retail {shlex.quote(str(path))}"
+    replay_args = SimpleNamespace(
+        headless=True,
+        unmute=bool(getattr(args, "unmute", False)),
+        screenshot=None,
+        record=None,
+        session=getattr(args, "session", None),
+        port=getattr(args, "port", None),
+        pid=None,
+        game_args=[],
+        gdb_commands=[
+            "tony-skip-movies",
+            # Select Warehouse in the real level-select state before Enter;
+            # rewriting the later launch argument leaves the frontend's
+            # selected-level/FMV state inconsistent.
+            "tony-frontend-play 1 12",
+            "tony-frontend-confirm",
+            replay_command,
+            "continue",
+        ],
+        gdb_batch=True,
+    )
+    return debug_game(replay_args)
 
 
 def exe_patch_nocd(args) -> int:

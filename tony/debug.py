@@ -247,6 +247,10 @@ def debug_game(args) -> int:
             "-ex", f"target remote localhost:{port}",
             "-x", str(ROOT / "re/gdb/bootstrap.gdb"),
         ]
+        for command in getattr(args, "gdb_commands", ()):
+            gdb_cmd.extend(("-ex", command))
+        if getattr(args, "gdb_batch", False):
+            gdb_cmd.append("-batch")
         gdb_env = os.environ.copy()
         gdb_env["TONY_SESSION_ID"] = session.session_id
         gdb_env["TONY_SESSION_DIR"] = str(session.path)
