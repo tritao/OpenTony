@@ -366,7 +366,8 @@ Its explicit `bucketize` seam additionally:
 success and failed-near-clip fixtures in `render_polygon_bucket_test.cpp`
 couple those cursor transitions to bucket-link construction and
 `RenderCommandDispatcher`, proving that accepted slots survive dispatch while
-the rejected slot is reused and never appears in the list.
+the rejected tail slot is reused, the earlier committed slot remains live, and
+the failed attempt never appears in the list.
 
 `split_textured_quad` models the preceding retail split as a separate
 caller-resolved operation and tests that its output records retain the exact
