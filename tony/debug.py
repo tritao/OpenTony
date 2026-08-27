@@ -14,7 +14,13 @@ from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, w
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .gdb_knowledge import generate as generate_gdb_knowledge
 from .nocd import nocd_executable
-from .sessions import _timestamp, cleanup_session_audio, cleanup_session_prefix, create_session
+from .sessions import (
+    _timestamp,
+    cleanup_session_audio,
+    cleanup_session_prefix,
+    create_session,
+    terminate_session_runtime,
+)
 
 _WINE_PROC_LINE = re.compile(r"^\s*=?([0-9a-fA-F]+)\s+\d+\s+(?:\\_\s+)?'([^']+)'$")
 
@@ -287,21 +293,13 @@ def debug_game(args) -> int:
             _recover_incomplete_recording(session, reason)
         if display is not None and proxy is not None:
             terminate_process(proxy)
-            if env is not None:
-                subprocess.run(
-                    ["wineserver", "-k"],
-                    cwd=ROOT,
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
         elif proxy is not None:
             proxy.terminate()
             try:
                 proxy.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 proxy.kill()
+        terminate_session_runtime(session)
         cleanup_session_audio(session)
         if display is not None:
             display.close()

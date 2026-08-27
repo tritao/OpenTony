@@ -318,6 +318,45 @@ def _session_pid_alive(pid: int, session_id: str) -> bool:
     return marker in environment
 
 
+def _session_process_ids(
+    session: DebugSession,
+    proc_root: Path = Path("/proc"),
+) -> set[int]:
+    """Find every live process carrying this debug session's identity.
+
+    Wine reparents its server, debugger, and game processes to the user
+    service manager, so parent/child traversal and the original wrapper's
+    process group are insufficient.  The launcher deliberately places both
+    ``TONY_SESSION_ID`` and the private ``WINEPREFIX`` in every descendant's
+    environment; either exact marker safely identifies a process owned by
+    this isolated session.
+    """
+
+    marker = f"TONY_SESSION_ID={session.session_id}".encode()
+    prefix_marker = (
+        f"WINEPREFIX={session.prefix.resolve()}".encode()
+        if session.prefix is not None
+        else None
+    )
+    result: set[int] = set()
+    try:
+        processes = list(proc_root.iterdir())
+    except OSError:
+        return result
+    for process in processes:
+        if not process.name.isdigit():
+            continue
+        try:
+            environment = (process / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if marker in environment or (
+            prefix_marker is not None and prefix_marker in environment
+        ):
+            result.add(int(process.name))
+    return result
+
+
 def _terminate_pid(pid: int, timeout: float = 2.0) -> None:
     if not _pid_alive(pid):
         return
@@ -345,12 +384,55 @@ def _terminate_pid(pid: int, timeout: float = 2.0) -> None:
             return
 
 
-def stop_session(session_id: str) -> DebugSession:
-    session = load_session(session_id)
+def terminate_session_runtime(session: DebugSession, timeout: float = 2.0) -> None:
+    """Terminate all debugger and Wine processes owned by *session*.
+
+    Known wrapper PIDs are stopped first so ``tony debug`` can leave its wait
+    loop normally.  A prefix-scoped wineserver shutdown then asks Wine to
+    retire reparented processes, followed by a marker-based sweep for Xvfb,
+    WineDbg, THawk, GDB, or helper processes that survived either path.
+    Recording and trace files are retained.
+    """
+
     for key in ("gdb_pid", "proxy_pid"):
         value = session.data.get(key)
         if value and _session_pid_alive(int(value), session.session_id):
-            _terminate_pid(int(value))
+            _terminate_pid(int(value), timeout=timeout)
+
+    if session.prefix is not None:
+        environment = os.environ.copy()
+        environment["WINEPREFIX"] = str(session.prefix)
+        environment["TONY_SESSION_ID"] = session.session_id
+        subprocess.run(
+            ["wineserver", "-k"],
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        try:
+            subprocess.run(
+                ["wineserver", "-w"],
+                cwd=ROOT,
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
+    current_pid = os.getpid()
+    for pid in sorted(_session_process_ids(session)):
+        if pid != current_pid:
+            _terminate_pid(pid, timeout=timeout)
+
+
+def stop_session(session_id: str) -> DebugSession:
+    session = load_session(session_id)
+    terminate_session_runtime(session)
     cleanup_session_audio(session)
     session.update(status="stopped", stopped_at=_timestamp())
     return session

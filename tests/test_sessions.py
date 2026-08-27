@@ -53,6 +53,59 @@ def test_stop_and_clean_session(monkeypatch, tmp_path: Path):
         sessions.load_session("warehouse")
 
 
+def test_session_process_ids_find_reparented_marker_and_prefix(monkeypatch, tmp_path: Path):
+    _use_temp_registry(monkeypatch, tmp_path)
+    session = sessions.create_session("warehouse", None, isolated=True)
+    proc = tmp_path / "proc"
+    marker_process = proc / "101"
+    prefix_process = proc / "102"
+    unrelated_process = proc / "103"
+    for process in (marker_process, prefix_process, unrelated_process):
+        process.mkdir(parents=True)
+    (marker_process / "environ").write_bytes(b"TONY_SESSION_ID=warehouse\0")
+    (prefix_process / "environ").write_bytes(
+        f"WINEPREFIX={session.prefix.resolve()}\0".encode()
+    )
+    (unrelated_process / "environ").write_bytes(
+        b"TONY_SESSION_ID=another-session\0WINEPREFIX=/tmp/unrelated\0"
+    )
+
+    assert sessions._session_process_ids(session, proc) == {101, 102}
+
+
+def test_terminate_session_runtime_stops_wrappers_wine_and_reparented_processes(
+    monkeypatch,
+    tmp_path: Path,
+):
+    _use_temp_registry(monkeypatch, tmp_path)
+    session = sessions.create_session("warehouse", None, isolated=True)
+    session.update(status="running", proxy_pid=201, gdb_pid=202)
+    terminated = []
+    commands = []
+
+    monkeypatch.setattr(sessions, "_session_pid_alive", lambda pid, _session_id: pid in {201, 202})
+    monkeypatch.setattr(sessions, "_terminate_pid", lambda pid, timeout=2.0: terminated.append(pid))
+    monkeypatch.setattr(sessions, "_session_process_ids", lambda _session: {203, 204})
+    monkeypatch.setattr(
+        sessions.subprocess,
+        "run",
+        lambda command, **kwargs: commands.append((command, kwargs)) or None,
+    )
+
+    sessions.terminate_session_runtime(session)
+
+    assert terminated == [202, 201, 203, 204]
+    assert [command for command, _kwargs in commands] == [
+        ["wineserver", "-k"],
+        ["wineserver", "-w"],
+    ]
+    assert all(
+        kwargs["env"]["WINEPREFIX"] == str(session.prefix)
+        and kwargs["env"]["TONY_SESSION_ID"] == "warehouse"
+        for _command, kwargs in commands
+    )
+
+
 def test_clean_rejects_active_session(monkeypatch, tmp_path: Path):
     _use_temp_registry(monkeypatch, tmp_path)
     sessions.create_session("warehouse", None, isolated=True)
