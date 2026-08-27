@@ -4,6 +4,9 @@ import getpass
 import os
 import re
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
+from fcntl import LOCK_EX, flock
 from pathlib import Path
 
 from .common import ROOT, capture, headless_wine_command, headless_wine_env, load_yaml, resolve, wine_env
@@ -19,16 +22,55 @@ def _normalized_disc() -> Path:
     return ROOT / "build" / "disc" / f"{media_path.stem}.iso"
 
 
+@contextmanager
+def _disc_lock(image: Path) -> Iterator[None]:
+    """Serialize loop, mount, and Wine mapping updates across worktrees."""
+
+    resolved = image.resolve()
+    lock_path = resolved.parent / f".{resolved.name}.mount.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as stream:
+        flock(stream.fileno(), LOCK_EX)
+        yield
+
+
 def _existing_loop_device(image: Path) -> str | None:
     status, output = capture(["losetup", "--list", "--output", "NAME,BACK-FILE"])
     if status != 0:
         return None
+    resolved_image = image.resolve()
+    devices = []
     for line in output.splitlines():
-        if str(image) in line:
-            match = _LOOP_DEVICE_RE.search(line)
-            if match:
-                return match.group(1)
-    return None
+        match = _LOOP_DEVICE_RE.search(line)
+        if not match:
+            continue
+        backing_text = line[match.end():].strip()
+        if not backing_text or backing_text == "BACK-FILE":
+            continue
+        try:
+            same_image = Path(backing_text).resolve() == resolved_image
+        except OSError:
+            same_image = False
+        if same_image:
+            devices.append(match.group(1))
+    # Prefer the loop already mapped as Wine's raw D: device. This makes a
+    # repeated call a genuine no-op even if an older race left several
+    # mounted loop devices for the same image.
+    raw_drive = Path(wine_env()["WINEPREFIX"]) / "dosdevices" / "d::"
+    if raw_drive.is_symlink():
+        configured = str(raw_drive.resolve(strict=False))
+        if configured in devices:
+            mounted, target = capture(
+                ["findmnt", "-rn", "-S", configured, "-o", "TARGET"]
+            )
+            if mounted == 0 and target.strip():
+                return configured
+    # Otherwise prefer any loop that is already mounted.
+    for device in devices:
+        mounted, target = capture(["findmnt", "-rn", "-S", device, "-o", "TARGET"])
+        if mounted == 0 and target.strip():
+            return device
+    return devices[0] if devices else None
 
 
 def _loop_device(image: Path) -> str:
@@ -61,28 +103,59 @@ def _mounted_target(loop_device: str) -> Path:
     return Path(output.splitlines()[0].strip())
 
 
-def _set_disc_drive(prefix: Path, mount_point: Path, raw_device: str) -> None:
+def _wine_capture(command: list[str], *, timeout: float = 20.0) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=wine_env(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = (
+            exc.stdout.decode(errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else exc.stdout
+        )
+        return 124, (output or f"timed out after {timeout:g}s")
+    return result.returncode, result.stdout.strip()
+
+
+def _set_disc_drive(prefix: Path, mount_point: Path, raw_device: str) -> bool:
     dosdevices = prefix / "dosdevices"
     dosdevices.mkdir(parents=True, exist_ok=True)
     drive = dosdevices / "d:"
+    raw_drive = dosdevices / "d::"
+    expected_mount = mount_point.resolve(strict=False)
+    expected_raw = Path(raw_device).resolve(strict=False)
+    if (
+        drive.is_symlink()
+        and raw_drive.is_symlink()
+        and drive.resolve(strict=False) == expected_mount
+        and raw_drive.resolve(strict=False) == expected_raw
+    ):
+        return False
     if drive.is_symlink():
         drive.unlink()
     elif drive.exists():
         raise SystemExit(f"refusing to replace existing Wine D: mapping: {drive}")
     drive.symlink_to(mount_point)
-    raw_drive = dosdevices / "d::"
     if raw_drive.is_symlink():
         raw_drive.unlink()
     elif raw_drive.exists():
         raise SystemExit(f"refusing to replace existing Wine raw D: mapping: {raw_drive}")
     raw_drive.symlink_to(raw_device)
 
-    status, output = capture(
-        ["wine", "reg", "add", r"HKCU\Software\Wine\Drives", "/v", "d:", "/d", "cdrom", "/f"],
-        env=wine_env(),
+    status, output = _wine_capture(
+        ["wine", "reg", "add", r"HKCU\Software\Wine\Drives", "/v", "d:", "/d", "cdrom", "/f"]
     )
     if status != 0:
         raise SystemExit(f"could not configure Wine D: as a CD-ROM:\n{output}")
+    return True
 
 
 def wine_init(_args) -> int:
@@ -98,10 +171,11 @@ def wine_mount_disc(_args) -> int:
     if not image.is_file():
         raise SystemExit(f"normalized disc image not found: {image}\nRun: tony media extract")
 
-    loop_device = _loop_device(image)
-    mount_point = _mounted_target(loop_device)
-    prefix = Path(wine_env()["WINEPREFIX"])
-    _set_disc_drive(prefix, mount_point, loop_device)
+    with _disc_lock(image):
+        loop_device = _loop_device(image)
+        mount_point = _mounted_target(loop_device)
+        prefix = Path(wine_env()["WINEPREFIX"])
+        mapping_changed = _set_disc_drive(prefix, mount_point, loop_device)
 
     print(f"Mounted read-only: {image}")
     print(f"Loop device:      {loop_device}")
@@ -113,7 +187,10 @@ def wine_mount_disc(_args) -> int:
     print("Note: loop devices provide the ISO filesystem but not optical CD-ROM TOC ioctls.")
     print("tony run/play use the generated no-CD executable, so physical CD TOC emulation is not required.")
 
-    status, output = capture(["wine", "cmd", "/c", "vol", "D:"], env=wine_env())
+    if not mapping_changed:
+        print("Wine D: mapping already configured.")
+        return 0
+    status, output = _wine_capture(["wine", "cmd", "/c", "vol", "D:"])
     if status != 0:
         raise SystemExit(f"Wine cannot read D::\n{output}")
     print(output)
