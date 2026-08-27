@@ -67,6 +67,28 @@ std::int32_t narrow_impulse(std::int64_t value) noexcept {
     return static_cast<std::int32_t>(value);
 }
 
+std::int32_t wrap_i32(std::int64_t value) noexcept {
+    return static_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+}
+
+std::int32_t wrap_add_i32(std::int32_t left, std::int32_t right) noexcept {
+    return wrap_i32(static_cast<std::int64_t>(left) + right);
+}
+
+std::int32_t wrap_subtract_i32(std::int32_t left,
+                               std::int32_t right) noexcept {
+    return wrap_i32(static_cast<std::int64_t>(left) - right);
+}
+
+std::int32_t wrap_multiply_i32(std::int32_t left,
+                               std::int32_t right) noexcept {
+    return wrap_i32(static_cast<std::int64_t>(left) * right);
+}
+
+std::int32_t wrap_negate_i32(std::int32_t value) noexcept {
+    return wrap_i32(-static_cast<std::int64_t>(value));
+}
+
 std::int32_t sign_extend_short(std::int32_t value) noexcept {
     const std::uint32_t bits = static_cast<std::uint32_t>(value) & 0xffffu;
     return bits >= 0x8000u ? static_cast<std::int32_t>(bits) - 0x10000
@@ -624,6 +646,21 @@ bool ground_leave_air_predicate(
     //   +0x3130 > 0x5000 || frame - +0x2d98 < (dt * 6) >> 8.
     return input.recovery_progress > retail::kGroundLeaveAirRecoveryThreshold ||
            frames_since_landing < recent_window;
+}
+
+bool ground_to_rail_geometry_hint(
+    const GroundRailGeometryInput& input) noexcept {
+    // This is the uVar4 selector at 0x00491630-0x00491661, passed as the
+    // second argument to FUN_00490ef0. Every comparison is strict; in
+    // particular, equality at a threshold does not take the reset branch.
+    return input.velocity_y < 0 &&
+           absolute_value(input.slope_y) <
+               retail::kStartGrindSlopeAbsThreshold &&
+           input.up_basis_y > retail::kStartGrindVelocityYThreshold &&
+           absolute_value(input.target_normal_y) <
+               retail::kStartGrindTargetNormalAbsThreshold &&
+           absolute_value(input.rail_basis_y) <
+               retail::kStartGrindRailBasisAbsThreshold;
 }
 
 OllieImpulseResult compute_ollie_vertical_impulse(const OllieImpulseInput& input) noexcept {
@@ -1277,6 +1314,13 @@ DispatchResult PhysicsStateMachine::step_frame(
         state_.raw_state != retail::kPhysicsInHandplant) {
         callbacks.landing_cleanup(*this, user);
     }
+    if (callbacks.ground_to_rail_input != nullptr &&
+        state_.raw_state != retail::kPhysicsInHandplant) {
+        GroundRailTransitionInput input{};
+        if (callbacks.ground_to_rail_input(*this, input, user)) {
+            result.ground_to_rail = try_ground_to_rail(input);
+        }
+    }
 
     if (callbacks.velocity_integration != nullptr) {
         callbacks.velocity_integration(*this, user);
@@ -1339,7 +1383,7 @@ DispatchResult PhysicsStateMachine::dispatch_impl(
     case 4:
         result.kind = DispatchKind::State4;
         state_.auxiliary = 0;
-        add_handler(0x00494210);
+        add_handler(retail::kRailPhysicsHandler);
         break;
     case 5:
         result.kind = DispatchKind::State5;
@@ -1427,6 +1471,217 @@ GroundAirTransitionResult PhysicsStateMachine::try_ground_to_air(
     result.off_ground = apply_off_ground_transition(
         OffGroundTransitionInput{0x14, 0, retail::kGroundLeaveAirOffGroundCallsite});
     state_.off_ground.marker_3204 = retail::kGroundLeaveAirMarker;
+    return result;
+}
+
+GroundRailTransitionResult PhysicsStateMachine::try_ground_to_rail(
+    const GroundRailTransitionInput& input) {
+    GroundRailTransitionResult result;
+    result.predicate_evaluated = true;
+    if (!input.trick_dispatch_requested) {
+        // FUN_004914d0 returns at 0x0049167b when +0x3064 is zero. No
+        // StartGrind field is touched on this path.
+        return result;
+    }
+
+    result.eligible = true;
+    const auto record_stage = [&result](GroundRailEntryStage stage) {
+        result.stages[result.stage_count++] = stage;
+    };
+
+    // 0x00490ef0 first negates +0x2eb4 in place, uses that direction for the
+    // complete entry, and restores the original vector at 0x00491493.
+    FixedVec3 direction{
+        wrap_negate_i32(state_.rail.direction_2eb4.x),
+        wrap_negate_i32(state_.rail.direction_2eb4.y),
+        wrap_negate_i32(state_.rail.direction_2eb4.z),
+    };
+    state_.rail.direction_2eb4 = direction;
+    record_stage(GroundRailEntryStage::DirectionNegated);
+
+    result.geometry_hint = ground_to_rail_geometry_hint(
+        GroundRailGeometryInput{
+            state_.velocity.y,
+            state_.basis_310c.y,
+            state_.basis_30f4.y,
+            state_.off_ground.word_82,
+            state_.basis_3100.y,
+        });
+    if (result.geometry_hint) {
+        state_.rail.vector_gate_2c78 = 0;
+        state_.rail.vector_gate_2c7c = 0;
+        state_.rail.pending_motion_2c94_2cb4.fill(0);
+        state_.ollie.latched = 0;
+        result.pending_vectors_cleared = true;
+        record_stage(GroundRailEntryStage::GeometryHintResets);
+    }
+
+    // The entry relocates the live position from +0x2ea8 and applies the
+    // fixed -0x19000 vertical offset before publishing both copies used by
+    // the following rail frame.
+    state_.rail.animation_marker_2eec = 0;
+    state_.position = state_.rail.rail_position_2ea8;
+    state_.position.y = wrap_subtract_i32(
+        state_.position.y, retail::kStartGrindPositionYOffset);
+    state_.off_ground.word_2e94 = 0;
+    state_.off_ground.word_2e90 = 1;
+    state_.rail.relocated_position_2ee0 = state_.position;
+    state_.rail.entry_position_2ecc = state_.position;
+    result.position_relocated = true;
+    record_stage(GroundRailEntryStage::PositionRelocated);
+
+    // +0x2efc changes by one rail-distance quantum, while +0x2ef4 is reset
+    // on a node change and then receives the two type-7 random draws. Keep
+    // each retail 32-bit multiply visible so replay values wrap like imul.
+    if (state_.rail.node_current_2e9c == state_.rail.node_previous_2e98) {
+        state_.rail.speed_2efc = wrap_add_i32(
+            state_.rail.speed_2efc, 0x28000);
+    } else {
+        state_.rail.speed_2efc = wrap_subtract_i32(
+            state_.rail.speed_2efc, 0x28000);
+        if (state_.rail.speed_2efc < 0) {
+            state_.rail.speed_2efc = 0;
+        }
+        state_.rail.node_previous_2e98 = state_.rail.node_current_2e9c;
+        state_.rail.speed_delta_2ef4 = 0;
+    }
+
+    const std::int32_t random_numerator =
+        wrap_add_i32(wrap_multiply_i32(input.random_speed_primary, -0x708),
+                     300000) /
+        10000;
+    const std::int32_t random_scaled =
+        wrap_multiply_i32(random_numerator, state_.rail.speed_delta_2ef4) /
+        100;
+    const std::int32_t speed_factor =
+        (state_.rail.speed_2efc >> 12) + 0x3c;
+    const std::int32_t random_speed_product =
+        wrap_multiply_i32(random_scaled, speed_factor);
+    const std::int32_t random_denominator =
+        wrap_multiply_i32(wrap_add_i32(input.random_speed_secondary, 0x15e),
+                          2000) /
+        10000;
+    if (random_denominator != 0) {
+        state_.rail.speed_delta_2ef4 = random_speed_product / random_denominator;
+        result.speed_formula_applied = true;
+    } else {
+        // The retail IDIV would fault for a zero denominator. Native replay
+        // keeps the transition inspectable while leaving the field unchanged.
+        result.speed_formula_applied = false;
+    }
+    state_.ollie.recovery_latch = 1;
+    state_.rail.sequence_count_2e88 =
+        wrap_add_i32(state_.rail.sequence_count_2e88, 1);
+    state_.rail.update_count_3070 =
+        wrap_add_i32(state_.rail.update_count_3070, 1);
+    state_.rail.update_count_304c =
+        wrap_add_i32(state_.rail.update_count_304c, 1);
+    record_stage(GroundRailEntryStage::RailKinematicsUpdated);
+
+    // Vector3_Subtract(&local_c, +0x2ea8, +0x2e18) computes the relative
+    // vector from the already-negated direction to the rail start. Its X/Z
+    // perpendicular is the third dot-product basis used by the turn flags.
+    state_.rail.relative_vector_2e18 = FixedVec3{
+        wrap_subtract_i32(direction.x, state_.rail.rail_position_2ea8.x),
+        wrap_subtract_i32(direction.y, state_.rail.rail_position_2ea8.y),
+        wrap_subtract_i32(direction.z, state_.rail.rail_position_2ea8.z),
+    };
+    const FixedVec3 perpendicular{
+        state_.rail.relative_vector_2e18.z,
+        0,
+        wrap_negate_i32(state_.rail.relative_vector_2e18.x),
+    };
+    const std::int32_t tangent_dot = fixed12_dot(
+        state_.rail.direction_2eb4, state_.basis_30f4);
+    const std::int32_t rail_dot = fixed12_dot(
+        state_.rail.direction_2eb4, state_.basis_3100);
+    const std::int32_t perpendicular_dot = fixed12_dot(
+        state_.rail.direction_2eb4, perpendicular);
+
+    if (state_.off_ground.word_2ec8 != state_.rail.node_current_2e9c) {
+        state_.rail.turn_flag_2bf0 = 0;
+        state_.rail.turn_flag_2bf4 = 0;
+        if (perpendicular_dot > 0) {
+            state_.rail.turn_flag_2bf0 = 1;
+        }
+        state_.rail.stance_flag_2bf8 =
+            (state_.object_flags_d8 & 2) != 0 ? 1 : 0;
+        if (state_.rail.turn_flag_2bf0 != state_.rail.stance_flag_2bf8) {
+            state_.rail.turn_flag_2bf4 = 1;
+        }
+    }
+    state_.rail.normal_direction_flag_2bec = 0;
+    state_.rail.normal_flag_2be8 = 0;
+    if (absolute_value(rail_dot) < retail::kStartGrindNormalDotThreshold) {
+        state_.rail.normal_flag_2be8 = 1;
+        if (tangent_dot > 0) {
+            state_.rail.normal_direction_flag_2bec = 1;
+        }
+    } else if (rail_dot < 0) {
+        state_.rail.normal_direction_flag_2bec = 1;
+    }
+    state_.off_ground.word_2ec8 = state_.rail.node_current_2e9c;
+    record_stage(GroundRailEntryStage::DirectionFlagsUpdated);
+
+    state_.rail.derived_pattern_2c04 = 0;
+    result.derived_pattern = input.derived_pattern;
+    if (state_.rail.pattern_source_2bfc != 0) {
+        const std::uint32_t pattern =
+            ((1u - static_cast<std::uint32_t>(state_.rail.pattern_state_2c00)) ^
+             static_cast<std::uint32_t>(state_.rail.pattern_source_2bfc)) >>
+            1;
+        state_.rail.derived_pattern_2c04 = static_cast<std::int32_t>(
+            pattern ^ static_cast<std::uint32_t>(state_.rail.turn_flag_2bf0));
+    }
+    state_.rail.mode_2ed8 = 1;
+    state_.rail.effect_2c0c = 0;
+    // TrickInput_DerivePattern, TrickScript_Execute, and the rail-type sound
+    // switch all run here in retail. Their producers/consumers are external,
+    // but this stage preserves their position before the state writer.
+    record_stage(GroundRailEntryStage::TrickServicesPrepared);
+
+    result.request = request_state(
+        retail::kPhysicsOnRail, retail::kState4EnterReason,
+        retail::kState4EnterRequestCallsite);
+    result.transitioned = result.request.changed;
+    record_stage(GroundRailEntryStage::StateRequested);
+
+    // After the request, velocity is projected onto the negated rail
+    // direction. The random kick is ordinary integer vector multiplication
+    // followed by component-wise division by ten, not Q12 multiplication.
+    const std::int32_t direction_velocity_dot = fixed12_dot(
+        state_.rail.direction_2eb4, state_.velocity);
+    state_.velocity = FixedVec3{
+        fixed12_scalar_multiply(state_.rail.direction_2eb4.x,
+                                direction_velocity_dot),
+        fixed12_scalar_multiply(state_.rail.direction_2eb4.y,
+                                direction_velocity_dot),
+        fixed12_scalar_multiply(state_.rail.direction_2eb4.z,
+                                direction_velocity_dot),
+    };
+    const std::int32_t random_scalar =
+        wrap_multiply_i32(
+            wrap_add_i32(input.random_velocity_adjustment, 100), 5000) /
+        10000;
+    const auto random_component = [random_scalar](std::int32_t component) {
+        return wrap_multiply_i32(component, random_scalar) / 10;
+    };
+    state_.velocity.x = wrap_add_i32(
+        state_.velocity.x, random_component(state_.rail.direction_2eb4.x));
+    state_.velocity.y = wrap_add_i32(
+        state_.velocity.y, random_component(state_.rail.direction_2eb4.y));
+    state_.velocity.z = wrap_add_i32(
+        state_.velocity.z, random_component(state_.rail.direction_2eb4.z));
+    result.velocity_projected = true;
+    record_stage(GroundRailEntryStage::VelocityShaped);
+
+    state_.rail.direction_2eb4 = FixedVec3{
+        wrap_negate_i32(state_.rail.direction_2eb4.x),
+        wrap_negate_i32(state_.rail.direction_2eb4.y),
+        wrap_negate_i32(state_.rail.direction_2eb4.z),
+    };
+    result.direction_restored = true;
+    record_stage(GroundRailEntryStage::DirectionRestored);
     return result;
 }
 

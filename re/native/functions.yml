@@ -504,7 +504,7 @@ functions:
 
   - address: 0x0049db80
     name: Skater_PhysicsDispatcher
-    slice: ground-leave-air
+    slice: ground-to-rail
     status: tested
     sources:
       - src/physics_state_machine.cpp
@@ -513,7 +513,33 @@ functions:
       - tests/physics_state_machine_test.cpp
     evidence:
       - re/evidence/functions/physics-states.md
-    notes: Dispatcher case routing and the post-case-0 grounded leave-air tail are tested with caller-owned slope/recovery/frame inputs; collision, animation, and sound producers remain explicit seams.
+    notes: Dispatcher case routing, the post-case-0 grounded leave-air tail, and the post-landing ground-to-rail handoff are tested; collision/TRG, animation, sound, trick, and script producers remain explicit seams.
+
+  - address: 0x004914d0
+    name: Skater_LandingCleanup
+    slice: ground-to-rail
+    status: tested
+    sources:
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Deterministic landing gates and the +0x3064 handoff are modeled; collision preparation, trick recognition, animation/audio services, and script execution remain callback-owned.
+
+  - address: 0x00490ef0
+    name: Skater_StartGrind
+    slice: ground-to-rail
+    status: tested
+    sources:
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Deterministic StartGrind entry mutations, strict geometry hint, state-4 request, fixed-point velocity shaping, and direction restoration are tested; TRG inputs and trick/animation/audio/script services remain explicit seams.
 
   - address: 0x004ed9b0
     name: Audio_LoadWavPcm

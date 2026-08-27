@@ -1,0 +1,39 @@
+version: 1
+id: ground-to-rail
+subsystem: player-physics
+status: complete
+
+scope:
+  functions:
+    - 0x004914d0
+    - 0x00490ef0
+    - 0x0049db80
+  types:
+    - RuntimeSkaterMovementState
+  globals:
+    - AnimationClock
+
+shared:
+  functions:
+    - 0x00492120
+    - 0x004900b0
+    - 0x00494210
+
+artifacts:
+  evidence:
+    - re/evidence/functions/physics-states.md
+    - re/evidence/functions/physics.md
+  native:
+    - src/physics_state_machine.cpp
+    - src/physics_state_machine.hpp
+  tests:
+    - tests/physics_state_machine_test.cpp
+
+open_questions: []
+
+completion:
+  - The post-landing +0x3064 invocation predicate and strict geometry-hint boundaries are recorded.
+  - StartGrind entry writes, request metadata, velocity shaping, and direction restoration have deterministic tests.
+  - The state-4 dispatcher call order is tested with the rail handler as its sole selected callee.
+  - Trick recognition, script/audio services, collision/TRG producers, and rail-handler internals remain explicit seams.
+  - Raw matching/signature work remains deferred to the repository's `match/original` prerequisite.
