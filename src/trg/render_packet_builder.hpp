@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -22,6 +23,9 @@ public:
 
 inline constexpr std::uint8_t kRenderPolygonPacketFormat = 0xb0;
 inline constexpr std::size_t kRenderPolygonRecordSize = 0x30;
+inline constexpr std::size_t kRenderDepthBucketCount = 0x1000;
+inline constexpr std::size_t kRenderNoPolygonIndex =
+    std::numeric_limits<std::size_t>::max();
 
 // The retail renderer's projection helper consumes a transformed working
 // vertex, not a PSX face directly. Keep that handoff as a callback until the
@@ -71,13 +75,70 @@ struct RenderPolygonPacket {
     std::size_t model_index{CommandPointRuntime::npos};
     std::size_t face_index{};
     std::uint8_t format{};
-    std::uint16_t flags{};
+    // Retail stores the complete state word at record +0x08. In particular,
+    // the forced-depth path sets bit 31, so this is intentionally wider than
+    // the source face's usual low flag bits.
+    std::uint32_t flags{};
     std::size_t material_index{CommandPointRuntime::npos};
     std::uint32_t material_checksum{};
     bool textured{};
     std::uint8_t vertex_count{};
     std::size_t working_vertex_offset{};
     std::vector<RenderPolygonVertex> vertices;
+};
+
+enum class RenderBucketDisposition : std::uint8_t {
+    accepted,
+    rejected_clip,
+    rejected_winding,
+    requires_near_clip,
+};
+
+struct RenderPolygonClipSummary {
+    std::uint32_t all_flags{};
+    std::uint32_t any_flags{};
+};
+
+// These are the resolved inputs to 0x004d26b0. Retail derives them from the
+// renderer state word, material flags, texture mode, and level. Keeping that
+// resolution outside this helper makes the native contract testable without
+// claiming ownership of camera or asset-runtime state.
+enum class RenderDepthBucketMode : std::uint8_t {
+    base = 0,
+    scaled_nearest = 1,
+    scaled_farthest = 2,
+    offset_farthest = 3,
+    forced_offset = 4,
+};
+
+struct RenderDepthBucketOptions {
+    RenderDepthBucketMode mode{RenderDepthBucketMode::base};
+    float depth_offset{};
+    float mode3_offset{};
+    float mode2_multiplier{0.7F};
+    bool choose_nearest_depth{};
+    bool display_rect_depth{};
+    bool reverse_winding{};
+    float winding_threshold{};
+    float near_depth{10.0F};
+    float reciprocal_depth_cap{0.99F};
+};
+
+struct RenderBucketDecision {
+    RenderBucketDisposition disposition{RenderBucketDisposition::rejected_clip};
+    std::size_t bucket_index{kRenderNoPolygonIndex};
+    float first_winding_determinant{};
+    float second_winding_determinant{};
+    float selected_depth{};
+};
+
+struct RenderBucketBuildResult {
+    // These indices model the retail pointer links without exposing the
+    // process-local polygon arena. Each accepted polygon prepends to its
+    // bucket head, so `next_polygon` is the exact per-bucket link chain.
+    std::array<std::size_t, kRenderDepthBucketCount> bucket_heads{};
+    std::vector<std::size_t> next_polygon;
+    std::vector<RenderBucketDecision> decisions;
 };
 
 struct RenderPacketBuildOptions {
@@ -115,6 +176,30 @@ public:
         const camera::CameraStateRaw& camera,
         const RenderProjector& projector,
         const RenderPacketBuildOptions& options = {});
+
+    // Models the 0x004d1d40 -> 0x004d20f0 boundary and the lower
+    // 0x004d26b0 depth classifier. Near-plane clipping itself remains a
+    // separate native seam; a partial near clip is reported rather than
+    // silently accepted.
+    static RenderPolygonClipSummary summarize_clip(
+        const RenderPolygonPacket& polygon);
+
+    // 0x004d1d40 emits these two packets for an eligible textured quad before
+    // invoking 0x004d20f0. The caller supplies the already-resolved view-state
+    // condition because the global display/view selector is outside this
+    // portable packet type.
+    static std::vector<RenderPolygonPacket> split_textured_quad(
+        const RenderPolygonPacket& polygon,
+        bool split);
+
+    static RenderBucketDecision classify_polygon(
+        RenderPolygonPacket& polygon,
+        const RenderPolygonClipSummary& clip,
+        const RenderDepthBucketOptions& options = {});
+
+    static RenderBucketBuildResult bucketize(
+        std::span<RenderPolygonPacket> polygons,
+        const RenderDepthBucketOptions& options = {});
 };
 
 } // namespace opentony::trg

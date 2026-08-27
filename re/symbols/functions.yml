@@ -658,9 +658,22 @@ functions:
   - address: 0x004d20f0
     name: M3D_ClipAndBucketPolygon
     description: cull, depth-classify, and link an accepted polygon into a renderer bucket
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/renderer.md
+  - address: 0x004d2310
+    name: M3D_ClipPolygonNearPlane
+    description: clip a partially near-plane-clipped polygon and rewrite its vertex stream
     confidence: observed
     evidence:
-      - re/evidence/functions/renderer.md
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x004d26b0
+    name: M3D_ClassifyPolygonDepth
+    description: adjust projected polygon depth, quantize a render bucket, and return its index
+    confidence: observed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
   - address: 0x004d29e0
     name: M3D_TransformVertices
     gdb_aliases:

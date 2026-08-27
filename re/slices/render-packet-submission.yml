@@ -8,12 +8,20 @@ scope:
     - 0x004d14d0
     - 0x004d18b0
     - 0x004d1d40
+    - 0x004d20f0
+    - 0x004d26b0
     - 0x004d29e0
     - 0x004d3160
   types:
     - RuntimeD3DPolygonRecord
     - RuntimeM3DTransformedVertex
-  globals: []
+  globals:
+    - RenderPolygonArenaCursor
+    - RenderPolygonArenaEnd
+    - RenderBucketHeads
+    - RenderWindingThreshold
+    - RenderReverseWinding
+    - RenderNearDepth
 
 artifacts:
   evidence:
@@ -21,23 +29,26 @@ artifacts:
   native:
     - src/trg/render_packet_builder.hpp
     - src/trg/render_packet_builder.cpp
+    - src/trg/render_polygon_bucket_test.cpp
     - src/trg/render_command_dispatch.hpp
     - src/trg/render_command_dispatch.cpp
     - src/camera/camera_math.hpp
   tests:
     - src/trg/render_packet_builder_test.cpp
+    - src/trg/render_polygon_bucket_test.cpp
     - src/trg/render_command_dispatch_test.cpp
     - tests/test_camera_math.py
 
 open_questions:
-  - Recover the exact 0x004d20f0 projected winding and depth-bucket classifier.
+  - Recover the exact near-plane vertex rewrite at 0x004d2310 and its failure/arena semantics.
+  - Resolve the renderer-state/material inputs that select the 0x004d26b0 depth mode on each retail path.
   - Confirm whether the native flattened face adapter should be replaced by a model-wide vertex table when the runtime model identity is available.
-  - Determine the exact polygon arena allocation cursor and linked-list insertion direction.
+  - Confirm the final bucket-head traversal order at the 0x004d3160 caller.
 
 completion:
   - The model/state, ordinary transform, face-walk, and polygon-record boundaries have recorded inputs and outputs.
   - The ordinary seven-word transformed-vertex contract has deterministic native coverage.
   - Native packet construction preserves source face order, vertex order, format, material identity, and UV normalization.
   - Native command dispatch preserves the recorded opcode handler table and list order without treating submission as presentation.
-  - The exact culling/bucket and Direct3D device stages remain separate documented seams.
+  - Native visibility/depth classification records source decisions and exact per-bucket prepend links while keeping near clipping and final traversal separate.
   - Exact matching work remains byte-identical where pursued.

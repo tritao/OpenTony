@@ -37,7 +37,33 @@ functions:
       - src/trg/render_packet_builder_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, and half-texel UV normalization; raw arena allocation is not represented as a host pointer layout.
+    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, half-texel UV normalization, and the caller-resolved textured-quad split order; raw arena allocation is not represented as a host pointer layout.
+
+  - address: 0x004d20f0
+    name: M3D_ClipAndBucketPolygon
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip seam, and per-bucket head-prepend links; retail near-plane vertex rewriting and global/material state resolution remain explicit seams.
+
+  - address: 0x004d26b0
+    name: M3D_ClassifyPolygonDepth
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native depth modes preserve the observed f32 adjustment, extremum selection, near normalization, 0.99 cap, forced-depth flag, truncation, four-depth-unit quantization, and 0..0xfff clamp using resolved caller inputs.
 
   - address: 0x004d3160
     name: D3D_DrawPolygonList
