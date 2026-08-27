@@ -316,8 +316,13 @@ class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
             return
         try:
             self.controller.end_frame(_recording_player_snapshot(self.player))
-        except RecordingError as exc:
-            raise gdb.GdbError(str(exc)) from exc
+        except (OSError, TypeError, ValueError, RecordingError) as exc:
+            # Recording is an observer.  A malformed/unsupported probe value
+            # must end the file cleanly and never leave the gameplay thread
+            # stopped at an internal temporary breakpoint.
+            self.controller.close_incomplete(
+                f"frame-{self.frame}-finalization-failed: {exc}"
+            )
 
 
 class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
@@ -809,7 +814,10 @@ class TonyFrontendPlayBreakpoint(TonyBreakpoint):
     # the real selection helper remains on the path.
     FRONTEND_RESULT_READ = 0x004532AA
     FRONTEND_RESULT_OFFSET = 0x58
-    PLAY_GAME_RESULT = 0x2A
+    # FrontEnd_Main's result dispatch sends 0x26 through the ordinary game
+    # path.  0x2a also reaches the PLAY_GAME screen, but first loads DemoA.rec
+    # and enables video-restart playback.
+    PLAY_GAME_RESULT = 0x26
 
     def __init__(self):
         super().__init__(self.FRONTEND_RESULT_READ, internal=True)

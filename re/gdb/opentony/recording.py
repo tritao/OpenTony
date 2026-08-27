@@ -10,6 +10,7 @@ stable file contract later.
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 import uuid
@@ -32,6 +33,27 @@ class RecordingError(RuntimeError):
 
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _json_safe(value):
+    """Return a JSON-compatible copy while retaining non-finite evidence.
+
+    Probe records intentionally include heuristic float interpretations beside
+    their raw words.  A raw word can decode as an IEEE NaN or infinity even
+    when the game's actual value is integer/fixed-point data.  Strict JSON
+    cannot represent those values, so keep the distinction explicit instead
+    of emitting non-standard JSON or dropping the field.
+    """
+
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return {"non_finite_float": value.hex()}
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class RecordingWriter:
@@ -109,7 +131,7 @@ class RecordingWriter:
         if self._stream is None:
             self.open()
         self._stream.write(
-            json.dumps(record, sort_keys=True, allow_nan=False) + "\n"
+            json.dumps(_json_safe(record), sort_keys=True, allow_nan=False) + "\n"
         )
         self._stream.flush()
 
@@ -422,7 +444,12 @@ class RecordingController:
             raise RecordingError("active frame has no writer")
         frame = dict(self._active_frame)
         frame["after"] = after
-        self._writer.write(frame)
+        try:
+            self._writer.write(frame)
+        except (OSError, TypeError, ValueError) as exc:
+            frame_index = int(frame["frame"])
+            self.close_incomplete(f"frame-{frame_index}-write-failed: {exc}")
+            raise RecordingError(str(exc)) from exc
         frame_index = int(frame["frame"])
         self.current_frame_index += 1
         self._active_frame = None

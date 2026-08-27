@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -128,3 +129,32 @@ def test_validator_requires_contiguous_complete_frames(tmp_path):
     summary, errors = validate_recording(path)
     assert summary["valid"] is False
     assert any("contiguous" in error["error"] for error in errors)
+
+
+def test_non_finite_probe_values_are_explicit_and_do_not_break_frame_close(tmp_path):
+    path = tmp_path / "non-finite.otrec"
+    controller = RecordingController(
+        writer_factory=RecordingWriter,
+        clock=lambda: "2026-08-27T12:00:00.000+00:00",
+    )
+    controller.request_start(path)
+    controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.event(
+        {
+            "type": "position_commit",
+            "word": {"raw": "0000c07f", "f32": math.nan},
+        }
+    )
+    controller.end_frame(_snapshot(1))
+    controller.request_stop()
+    controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(2))
+
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    event = records[2]["events"][0]
+    assert event["word"] == {
+        "f32": {"non_finite_float": "nan"},
+        "raw": "0000c07f",
+    }
+    assert records[-1]["complete"] is True
+    assert controller.state is RecordingState.IDLE
