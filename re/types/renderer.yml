@@ -50,7 +50,7 @@ types:
     kind: fixed_layout
     size: 0x30
     confidence: observed
-    description: Fixed-size per-frame polygon record allocated after PSX face color and vertex resolution. The tail is a variable vertex/color/UV stream; non-textured vertices occupy 0x14 bytes and textured vertices occupy 0x1c bytes.
+    description: Fixed-size logical polygon record allocated after PSX face color and vertex resolution. The stable copied record is 0x30 bytes, while the retail per-frame arena reserves 0xc0 bytes for each construction attempt. The tail is a variable vertex/color/UV stream; non-textured vertices occupy 0x14 bytes and textured vertices occupy 0x1c bytes.
     fields:
       - offset: 0x00
         name: next

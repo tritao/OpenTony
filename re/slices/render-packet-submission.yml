@@ -8,12 +8,31 @@ scope:
     - 0x004d14d0
     - 0x004d18b0
     - 0x004d1d40
+    - 0x004d20f0
+    - 0x004d2310
+    - 0x004d25c0
+    - 0x004d26b0
     - 0x004d29e0
     - 0x004d3160
   types:
     - RuntimeD3DPolygonRecord
     - RuntimeM3DTransformedVertex
-  globals: []
+  globals:
+    - RenderPolygonArenaCursor
+    - RenderPolygonArenaEnd
+    - RenderBucketHeads
+    - RenderWindingThreshold
+    - RenderReverseWinding
+    - RenderNearDepth
+    - RenderViewportEdges
+    - RenderProjectionUnitScale
+    - RenderProjectionCenterX
+    - RenderProjectionCenterY
+    - RenderProjectionDepthScale
+    - RenderDepthModeSelector
+    - RenderDepthOffset2000
+    - RenderDepthOffset4000
+    - RenderDepthOffset6000
 
 artifacts:
   evidence:
@@ -21,23 +40,25 @@ artifacts:
   native:
     - src/trg/render_packet_builder.hpp
     - src/trg/render_packet_builder.cpp
+    - src/trg/render_polygon_bucket_test.cpp
     - src/trg/render_command_dispatch.hpp
     - src/trg/render_command_dispatch.cpp
     - src/camera/camera_math.hpp
   tests:
     - src/trg/render_packet_builder_test.cpp
+    - src/trg/render_polygon_bucket_test.cpp
     - src/trg/render_command_dispatch_test.cpp
     - tests/test_camera_math.py
 
 open_questions:
-  - Recover the exact 0x004d20f0 projected winding and depth-bucket classifier.
+  - Confirm the arena allocation rollback surrounding a failed 0x004d2310 clip.
   - Confirm whether the native flattened face adapter should be replaced by a model-wide vertex table when the runtime model identity is available.
-  - Determine the exact polygon arena allocation cursor and linked-list insertion direction.
+  - Confirm the final bucket-head traversal order at the 0x004d3160 caller.
 
 completion:
   - The model/state, ordinary transform, face-walk, and polygon-record boundaries have recorded inputs and outputs.
   - The ordinary seven-word transformed-vertex contract has deterministic native coverage.
   - Native packet construction preserves source face order, vertex order, format, material identity, and UV normalization.
   - Native command dispatch preserves the recorded opcode handler table and list order without treating submission as presentation.
-  - The exact culling/bucket and Direct3D device stages remain separate documented seams.
+  - Native visibility/depth classification and near clipping record source decisions, rewritten packet order, and exact per-bucket prepend links; the 0x004d20f0 state/depth-offset selector and textured material flag rewrite are deterministic caller inputs.
   - Exact matching work remains byte-identical where pursued.

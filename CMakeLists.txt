@@ -213,6 +213,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_render_packet_builder_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_render_packet_builder_test COMMAND opentony_render_packet_builder_test)
 
+    add_executable(opentony_render_polygon_bucket_test
+        src/trg/render_polygon_bucket_test.cpp
+    )
+    target_link_libraries(opentony_render_polygon_bucket_test PRIVATE opentony_trg)
+    target_compile_features(opentony_render_polygon_bucket_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_render_polygon_bucket_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_render_polygon_bucket_test COMMAND opentony_render_polygon_bucket_test)
+
     add_executable(opentony_render_command_dispatch_test
         src/trg/render_command_dispatch_test.cpp
     )
