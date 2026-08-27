@@ -276,6 +276,78 @@ void adjust_depth(
 
 } // namespace
 
+RenderPolygonArena::RenderPolygonArena(
+    std::size_t initial_cursor,
+    std::size_t end_cursor)
+    : polygon_cursor_(initial_cursor),
+      cursor_(initial_cursor),
+      end_(end_cursor) {
+    if (end_cursor < initial_cursor) {
+        throw RenderPacketError("render polygon arena end precedes cursor");
+    }
+}
+
+std::size_t RenderPolygonArena::cursor() const noexcept {
+    return cursor_;
+}
+
+std::size_t RenderPolygonArena::end() const noexcept {
+    return end_;
+}
+
+std::size_t RenderPolygonArena::begin_view_record() {
+    if (cursor_ > end_ || end_ - cursor_ < kRenderViewRecordSize) {
+        throw RenderPacketError("render view record exceeds polygon arena");
+    }
+    const std::size_t record_offset = cursor_;
+    cursor_ += kRenderViewRecordSize;
+    polygon_cursor_ = cursor_;
+    return record_offset;
+}
+
+std::optional<RenderPolygonArenaAllocation>
+RenderPolygonArena::allocate_polygon() {
+    if (cursor_ >= end_) {
+        return std::nullopt;
+    }
+    const std::size_t cursor_before = cursor_;
+    cursor_ += kRenderPolygonArenaSlotSize;
+    pending_slots_.push_back(cursor_before);
+    return RenderPolygonArenaAllocation{
+        cursor_before, cursor_before, cursor_};
+}
+
+void RenderPolygonArena::commit_polygon(
+    const RenderPolygonArenaAllocation& allocation) {
+    if (pending_slots_.empty()
+        || pending_slots_.back() != allocation.slot_offset
+        || allocation.cursor_after != cursor_) {
+        throw RenderPacketError(
+            "render polygon arena commit is not the latest slot");
+    }
+    live_slots_.push_back(allocation.slot_offset);
+    pending_slots_.pop_back();
+}
+
+bool RenderPolygonArena::has_live_polygon(
+    std::size_t slot_offset) const noexcept {
+    return std::find(live_slots_.begin(), live_slots_.end(), slot_offset)
+        != live_slots_.end();
+}
+
+std::size_t RenderPolygonArena::live_polygon_count() const noexcept {
+    return live_slots_.size();
+}
+
+void RenderPolygonArena::rollback_polygon() {
+    if (pending_slots_.empty()
+        || cursor_ < polygon_cursor_ + kRenderPolygonArenaSlotSize) {
+        throw RenderPacketError("render polygon arena rollback without slot");
+    }
+    pending_slots_.pop_back();
+    cursor_ -= kRenderPolygonArenaSlotSize;
+}
+
 RenderPolygonPacket RenderPacketBuilder::build_face(
     const LevelRenderFaceSnapshot& face,
     const std::array<std::int32_t, 3>& object_position_q16,

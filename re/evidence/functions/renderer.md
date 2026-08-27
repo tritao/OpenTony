@@ -4,7 +4,7 @@ Status: confirmed live/static renderer consumer for the loaded PSX environment,
 including object/model selection, transformed-vertex, polygon-packet,
 dispatch-table, and hardware primitive contracts
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Addresses: `0x00467c90`, `0x0045e8e0`, `0x0045f530`, `0x004610f0`, `0x00461a50`, `0x00461a90`, `0x00461b10`, `0x004d0c30`, `0x004d11d0`, `0x004d14d0`, `0x004d18b0`, `0x004d1960`, `0x004d1d40`, `0x004d20f0`, `0x004d29e0`, `0x004d3160`, `0x004d3480`, `0x004d3510`, `0x004d3600`, `0x004d3780`, `0x004d3a40`, `0x004d41e0`, `0x004d42f0`, `0x004d45f0`, `0x004d49e0`, `0x004d4bf0`, `0x004d5040`, `0x004d5280`, `0x004d56c0`, `0x004d5960`, `0x004d5e40`, `0x004d6090`, `0x004d60c0`, `0x004d60f0`, `0x004d6120`, `0x004d6320`, `0x004d6560`, `0x004d66f0`, `0x004d68b0`
+Addresses: `0x0042fed0`, `0x00467c90`, `0x0045e8e0`, `0x0045f530`, `0x004610f0`, `0x00461a50`, `0x00461a90`, `0x00461b10`, `0x004d0c30`, `0x004d11d0`, `0x004d14d0`, `0x004d18b0`, `0x004d1960`, `0x004d1d40`, `0x004d20f0`, `0x004d29e0`, `0x004d3160`, `0x004d3480`, `0x004d3510`, `0x004d3600`, `0x004d3780`, `0x004d3a40`, `0x004d41e0`, `0x004d42f0`, `0x004d45f0`, `0x004d49e0`, `0x004d4bf0`, `0x004d5040`, `0x004d5280`, `0x004d56c0`, `0x004d5960`, `0x004d5e40`, `0x004d6090`, `0x004d60c0`, `0x004d60f0`, `0x004d6120`, `0x004d6320`, `0x004d6560`, `0x004d66f0`, `0x004d68b0`
 
 This document records the renderer boundary without assigning full Direct3D
 semantics to the lower-level helpers. The scene loader's material rewrite is
@@ -158,14 +158,20 @@ The renderer therefore consumes the same model pointer table and the same
 runtime object fields already established by the PSX loader and collision
 path. It is not a second, unrelated scene representation.
 
-At the frame boundary, `0x00467c90` selects the per-view polygon arena at
+At the frame boundary, buffer preparation at `0x0042fed0` resets
+`DAT_00560fd0` from the active render buffer's arena start. Then
+`0x00467c90` selects the per-view polygon/bucket region at
 `DAT_00560fd4 + 0x88 + view * 0x8000` and calls `0x0045e8e0` with the active
-viewport and that view's bucket-head array. `0x0045e8e0` binds the viewport,
-resets the polygon allocation cursor, stores the bucket-head pointer in
-`DAT_0056433c`, and seeds the first head record. Accepted polygons from
-`0x004d20f0` are linked into this array using the depth/class bucket returned
-by its lower classifier. This establishes the per-frame arena and bucket-list
-ownership that feeds the `0x004d3160` Direct3D command consumer.
+viewport and that view's bucket-head array. `0x0045e8e0` captures the current
+cursor for its view record, links that record into the initial head, and
+stores `DAT_00560fd0 = cursor + 0x14`; it does not reset the cursor itself.
+`0x004d1d40` subsequently reserves one `0xc0`-byte slot whenever the cursor
+is below `0x00568628`. Its early culls rewind that slot, and
+`0x004d20f0` rewinds it when in-place `0x004d2310` returns null or when the
+later winding test rejects. Accepted polygons are linked into this array
+using the depth/class bucket returned by the lower classifier. This
+establishes the per-frame arena and bucket-list ownership that feeds the
+`0x004d3160` Direct3D command consumer.
 
 ## Polygon-list consumer and hardware state
 
@@ -178,7 +184,11 @@ The later draw loop is now identified as `0x004d3160`. It receives the head
 of the current linked polygon/command list, begins the render-state bracket
 with `0x20000/0x30000`, and follows each record through its `+0x00` next link.
 The byte at `+0x07` is the command opcode/format byte and `+0x04` is the
-record-enable/payload word checked before dispatch.
+record-enable/payload word checked before dispatch. The loop only reads and
+advances the link; it does not return storage to the arena or modify the
+arena cursor. Accepted record storage therefore remains owned by the active
+render buffer through the entire list walk, while the caller's failed-clip
+rollback prevents an unlinked slot from reaching this boundary.
 
 For ordinary geometry, `0x004d3160` uses `opcode & 0xfc` to select a handler
 from the executable's geometry dispatch table. The low bits control state:
@@ -277,8 +287,9 @@ contract rather than merely a temporary decompiler artifact.
 `0x004d18b0` walks the variable-size face stream using the face record's
 length word. Visible records go through `0x004d1960`, which resolves the
 packed face color against the active color/palette tables, and then through
-`0x004d1d40`, which allocates a fixed 0x30-byte polygon record from the
-per-frame polygon arena. The observed stable fields are:
+`0x004d1d40`, which writes a 0x30-byte logical polygon prefix into one
+0xc0-byte per-attempt slot from the per-frame polygon arena. The observed
+stable fields are:
 
 ```text
 polygon +0x00  linked-list next pointer

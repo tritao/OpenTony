@@ -1,4 +1,5 @@
 #include "render_packet_builder.hpp"
+#include "render_command_dispatch.hpp"
 
 #include "tests/test_check.hpp"
 
@@ -274,6 +275,140 @@ int main() {
     CHECK(buckets.next_polygon[1] == 0);
     CHECK(buckets.bucket_heads[5] == 2);
     CHECK(buckets.next_polygon[2] == kRenderNoPolygonIndex);
+
+    // BeginRenderView consumes a 0x14-byte record from the current buffer;
+    // accepted polygon attempts then reserve fixed 0xc0-byte slots. The
+    // native bucket result carries the same intrusive prepend order that the
+    // dispatcher consumes from each selected head.
+    RenderPolygonArena success_arena(
+        0x1000,
+        0x1000 + kRenderViewRecordSize + 3 * kRenderPolygonArenaSlotSize);
+    CHECK(success_arena.begin_view_record() == 0x1000);
+    CHECK(success_arena.cursor() == 0x1014);
+    const auto success_first = success_arena.allocate_polygon();
+    CHECK(success_first.has_value());
+    CHECK(success_first->cursor_before == 0x1014);
+    CHECK(success_first->cursor_after
+          == 0x1014 + kRenderPolygonArenaSlotSize);
+    CHECK(success_first->slot_offset == 0x1014);
+    success_arena.commit_polygon(*success_first);
+
+    const auto success_second = success_arena.allocate_polygon();
+    CHECK(success_second.has_value());
+    CHECK(success_second->slot_offset
+          == 0x1014 + kRenderPolygonArenaSlotSize);
+    success_arena.commit_polygon(*success_second);
+
+    const auto success_third = success_arena.allocate_polygon();
+    CHECK(success_third.has_value());
+    CHECK(success_third->slot_offset
+          == 0x1014 + 2 * kRenderPolygonArenaSlotSize);
+    success_arena.commit_polygon(*success_third);
+    CHECK(success_arena.live_polygon_count() == 3);
+    CHECK(success_arena.has_live_polygon(success_first->slot_offset));
+    const std::array<std::size_t, 3> success_slots{
+        success_first->slot_offset,
+        success_second->slot_offset,
+        success_third->slot_offset,
+    };
+    CHECK(success_arena.cursor() == success_arena.end());
+    CHECK(!success_arena.allocate_polygon().has_value());
+
+    std::vector<RenderCommandRecord> success_commands;
+    for (std::size_t index = buckets.bucket_heads[2];
+         index != kRenderNoPolygonIndex;
+         index = buckets.next_polygon[index]) {
+        success_commands.push_back({
+            true,
+            kRenderPolygonPacketFormat,
+            source_order[index].flags,
+            success_slots[index],
+            source_order[index].vertex_count,
+            source_order[index].textured,
+        });
+    }
+    const std::vector<RenderDispatchRecord> success_dispatch =
+        RenderCommandDispatcher::dispatch(success_commands);
+    CHECK(success_dispatch.size() == 2);
+    CHECK(success_dispatch[0].polygon_index == success_second->slot_offset);
+    CHECK(success_dispatch[1].polygon_index == success_first->slot_offset);
+    CHECK(success_arena.has_live_polygon(success_dispatch[0].polygon_index));
+    CHECK(success_arena.has_live_polygon(success_dispatch[1].polygon_index));
+    CHECK(success_arena.live_polygon_count() == 3);
+    CHECK(success_arena.has_live_polygon(success_third->slot_offset));
+    CHECK(success_arena.cursor() == success_arena.end());
+
+    // A failed near clip does not publish a list node. Its caller rewinds the
+    // one 0xc0-byte reservation, so the next accepted polygon gets the exact
+    // same slot and remains live through packet dispatch.
+    RenderPolygonArena rollback_arena(
+        0x2000,
+        0x2000 + kRenderViewRecordSize + 2 * kRenderPolygonArenaSlotSize);
+    CHECK(rollback_arena.begin_view_record() == 0x2000);
+    const auto retained_allocation = rollback_arena.allocate_polygon();
+    CHECK(retained_allocation.has_value());
+    rollback_arena.commit_polygon(*retained_allocation);
+    CHECK(rollback_arena.has_live_polygon(retained_allocation->slot_offset));
+    const auto failed_allocation = rollback_arena.allocate_polygon();
+    CHECK(failed_allocation.has_value());
+    CHECK(failed_allocation->cursor_before
+          == 0x2014 + kRenderPolygonArenaSlotSize);
+    CHECK(failed_allocation->cursor_after == rollback_arena.end());
+    RenderPolygonPacket failed_near = make_near_triangle();
+    for (RenderPolygonVertex& vertex : failed_near.vertices) {
+        vertex.projected.reciprocal_depth = 384.0F / 5.0F;
+    }
+    const RenderNearClipResult failed_clip =
+        RenderPacketBuilder::clip_near_plane(failed_near);
+    CHECK(failed_clip.disposition == RenderNearClipDisposition::rejected);
+    CHECK(failed_near.vertex_count == 0);
+    rollback_arena.rollback_polygon();
+    CHECK(rollback_arena.cursor() == failed_allocation->slot_offset);
+    CHECK(!rollback_arena.has_live_polygon(failed_allocation->slot_offset));
+    CHECK(rollback_arena.live_polygon_count() == 1);
+    CHECK(rollback_arena.has_live_polygon(retained_allocation->slot_offset));
+    const std::vector<RenderCommandRecord> failed_commands;
+    CHECK(RenderCommandDispatcher::dispatch(failed_commands).empty());
+
+    const auto reused_allocation = rollback_arena.allocate_polygon();
+    CHECK(reused_allocation.has_value());
+    CHECK(reused_allocation->slot_offset == failed_allocation->slot_offset);
+    rollback_arena.commit_polygon(*reused_allocation);
+    CHECK(rollback_arena.live_polygon_count() == 2);
+    CHECK(rollback_arena.has_live_polygon(reused_allocation->slot_offset));
+    CHECK(rollback_arena.cursor() == rollback_arena.end());
+    std::vector<RenderPolygonPacket> accepted_after_rollback{
+        make_triangle({10.0F, 10.0F, 10.0F}),
+        make_triangle({11.0F, 11.0F, 11.0F})};
+    const RenderBucketBuildResult rollback_buckets =
+        RenderPacketBuilder::bucketize(accepted_after_rollback);
+    CHECK(rollback_buckets.bucket_heads[2] == 1);
+    CHECK(rollback_buckets.next_polygon[1] == 0);
+    const std::array<std::size_t, 2> rollback_slots{
+        retained_allocation->slot_offset,
+        reused_allocation->slot_offset,
+    };
+    std::vector<RenderCommandRecord> rollback_commands;
+    for (std::size_t index = rollback_buckets.bucket_heads[2];
+         index != kRenderNoPolygonIndex;
+         index = rollback_buckets.next_polygon[index]) {
+        rollback_commands.push_back({
+            true,
+            kRenderPolygonPacketFormat,
+            accepted_after_rollback[index].flags,
+            rollback_slots[index],
+            accepted_after_rollback[index].vertex_count,
+            accepted_after_rollback[index].textured,
+        });
+    }
+    const std::vector<RenderDispatchRecord> rollback_dispatch =
+        RenderCommandDispatcher::dispatch(rollback_commands);
+    CHECK(rollback_dispatch.size() == 2);
+    CHECK(rollback_dispatch[0].polygon_index == reused_allocation->slot_offset);
+    CHECK(rollback_dispatch[1].polygon_index == retained_allocation->slot_offset);
+    CHECK(rollback_arena.has_live_polygon(rollback_dispatch[0].polygon_index));
+    CHECK(rollback_arena.has_live_polygon(rollback_dispatch[1].polygon_index));
+    CHECK(rollback_arena.live_polygon_count() == 2);
 
     RenderPolygonPacket near_triangle = make_near_triangle();
     const RenderNearClipResult near_result =
