@@ -173,7 +173,11 @@ class RecordingController:
 
     DEFAULT_HOTKEY_SCAN_CODE = 0x58  # DIK_F12; not used by TH2_OPT.CFG.
     DEFAULT_DIRECTORY = Path("build/recordings/retail")
-    PENDING_ASYNC_EVENT_TYPES = frozenset({"simulation_time_accumulator_store"})
+    # Accept the pre-Phase-1 name while reading/finishing older captures;
+    # newly emitted events use the causal external-service name below.
+    PENDING_ASYNC_EVENT_TYPES = frozenset(
+        {"timer_callback_delivery", "simulation_time_accumulator_store"}
+    )
 
     def __init__(
         self,

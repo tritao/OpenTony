@@ -497,6 +497,8 @@ def test_simulation_time_accumulator_probe_records_timer_output():
                 0x10C: 16,
                 0x110: 0,
                 0x114: 0x006A05A0,
+                0x118: 0,
+                0x11C: 0,
                 0x006A05A0: 1,
                 0x006A05A4: 16,
                 0x006A05A8: 16,
@@ -504,13 +506,20 @@ def test_simulation_time_accumulator_probe_records_timer_output():
                 0x006A05B0: 0,
                 TIMING_FIELDS["simulation_time"]: 17,
                 0x0056E31C: 23,
+                0x006A0590: 12.5,
+                0x006A0598: 11.5,
             }
 
         def u32(self, address):
             return self.values[address]
 
+        def bytes(self, address, size):
+            if size != 8:
+                raise AssertionError((address, size))
+            return struct.pack("<d", self.values[address])
+
         def readable(self, address, size=1):
-            return size == 4 and address in self.values
+            return address in self.values and size in (4, 8)
 
     memory = SourceMemory()
     events = []
@@ -541,16 +550,31 @@ def test_simulation_time_accumulator_probe_records_timer_output():
     assert probe.hits == 1
     assert probe.remaining == 0
     event = events[0]
-    assert event["type"] == "simulation_time_accumulator_store"
+    assert event["type"] == "timer_callback_delivery"
     assert event["function"] == "SimulationTimeTimerCallback"
     assert event["frame"] == 7
+    assert event["callback_ordinal"] == 0
     assert event["callback_return"] == "0x7686aa3f"
     assert event["callback_arg0"] == 16
     assert event["callback_arg1"] == 0
+    assert event["callback_arg2"] == 0x006A05A0
+    assert event["callback_arg3"] == 0
+    assert event["callback_arg4"] == 0
     assert event["timer_state"] == "0x006a05a0"
     assert event["timer_state_matches_global"] is True
     assert event["timer_state_at_store"]["interval_ms"] == 16
     assert event["timer_state_at_store"]["accumulated_ms"] == 16
+    assert event["timer_state_before"]["accumulated_ms"] == 0
+    assert event["timer_state_after"] == event["timer_state_at_store"]
+    assert event["interval_ms"] == 16
+    assert event["public_accumulator_after"] == {
+        "raw": 0x4029000000000000,
+        "value": 12.5,
+    }
+    assert event["simulation_accumulator_after"] == {
+        "raw": 0x4027000000000000,
+        "value": 11.5,
+    }
     assert event["simulation_time_result_raw"] == 1042
     assert event["simulation_time_before_raw"] == 17
     assert event["public_tick_before_raw"] == 23

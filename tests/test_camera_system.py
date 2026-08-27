@@ -79,6 +79,85 @@ def test_camera_frame_contract_keeps_present_explicit(tmp_path):
     assert run.returncode == 0, run.stderr
 
 
+def test_retail_timer_callback_model_matches_integer_clock_contract(tmp_path):
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("g++ is not installed")
+    source = tmp_path / "retail_timer_model.cpp"
+    source.write_text(
+        textwrap.dedent(
+            """
+            #include "src/camera/camera_timing.hpp"
+
+            int main() {
+                using namespace opentony::camera;
+                RetailTimerState state;
+                state.interval_ms = 16;
+                const TimerCallbackEvent delivery{0x10, 0};
+
+                const auto first = advance_timer(state, delivery);
+                if (first.accumulated_ms_before != 0
+                    || first.accumulated_ms_after != 16
+                    || first.public_tick != 0
+                    || first.simulation_time != 0
+                    || state.public_accumulator != 0.96
+                    || state.simulation_accumulator != 0.96) {
+                    return 1;
+                }
+                const auto second = advance_timer(state, delivery);
+                if (second.accumulated_ms_before != 16
+                    || second.accumulated_ms_after != 32
+                    || second.public_tick != 1
+                    || second.simulation_time != 1) {
+                    return 2;
+                }
+
+                state.simulation_pause_gate_a = true;
+                const auto paused = advance_timer(state);
+                if (paused.simulation_advanced
+                    || state.public_tick != 2
+                    || state.simulation_time != 1) {
+                    return 3;
+                }
+                state.simulation_pause_gate_a = false;
+                state.simulation_pause_gate_b = true;
+                const auto paused_again = advance_timer(state);
+                if (paused_again.simulation_advanced
+                    || state.public_tick != 3
+                    || state.simulation_time != 1) {
+                    return 4;
+                }
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            compiler,
+            "-std=c++20",
+            "-I",
+            str(Path(__file__).resolve().parents[1]),
+            str(source),
+            "-o",
+            str(tmp_path / "retail_timer_model"),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        [str(tmp_path / "retail_timer_model")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+
+
 def test_camera_system_reference_compiles_and_preserves_stage_order(tmp_path):
     compiler = shutil.which("g++")
     if compiler is None:

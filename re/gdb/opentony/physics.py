@@ -127,6 +127,9 @@ SIMULATION_TIME_PLAYER_OFFSET = 0x2F44
 # observation boundary until callback delivery can be controlled safely.
 SIMULATION_TIME_ACCUMULATOR_STORE_ADDRESS = 0x004DAD68
 SIMULATION_TIME_TIMER_STATE = 0x006A05A0
+TIMER_PUBLIC_ACCUMULATOR = 0x006A0590
+TIMER_SIMULATION_ACCUMULATOR = 0x006A0598
+TIMER_PUBLIC_TICK = 0x0056E31C
 
 # Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
 # placed after the call, where EAX contains the returned roll.  The charge
@@ -632,7 +635,12 @@ class SimulationTimeStoreProbe(CountingBreakpoint):
 
 
 class SimulationTimeAccumulatorProbe(CountingBreakpoint):
-    """Trace the timer callback's computed value before its global store."""
+    """Trace one external multimedia-timer callback delivery.
+
+    The breakpoint is deliberately placed on the final integer store rather
+    than callback entry.  This avoids perturbing Wine's timer thread while
+    retaining the callback arguments, state transition, and derived outputs.
+    """
 
     ADDRESS = SIMULATION_TIME_ACCUMULATOR_STORE_ADDRESS
     TIMER_STATE_ADDRESS = SIMULATION_TIME_TIMER_STATE
@@ -640,12 +648,16 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
     CALLBACK_ARG0_STACK_OFFSET = 0x0C
     CALLBACK_ARG1_STACK_OFFSET = 0x10
     CALLBACK_STATE_STACK_OFFSET = 0x14
+    CALLBACK_ARG3_STACK_OFFSET = 0x18
+    CALLBACK_ARG4_STACK_OFFSET = 0x1C
     CALLBACK_CLEANUP_BYTES = 0x14
 
     def __init__(self, count: int | None = None, writer=None, frame_provider=None):
         super().__init__(self.ADDRESS, count=count, internal=True)
         self.writer = writer
         self.frame_provider = frame_provider
+        self._ordinal_frame = None
+        self._ordinal = 0
 
     def _current_frame(self, ctx: Context) -> int:
         if self.frame_provider is None:
@@ -659,6 +671,22 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
             return None
         return memory.u32(address)
 
+    @staticmethod
+    def _read_optional_double(memory, address: int) -> dict | None:
+        if not memory.readable(address, 8):
+            return None
+        raw = int.from_bytes(memory.bytes(address, 8), "little")
+        value = struct.unpack("<d", raw.to_bytes(8, "little"))[0]
+        return {"raw": raw, "value": value}
+
+    def _callback_ordinal(self, frame: int) -> int:
+        if self._ordinal_frame != frame:
+            self._ordinal_frame = frame
+            self._ordinal = 0
+        ordinal = self._ordinal
+        self._ordinal += 1
+        return ordinal
+
     def on_count(self, ctx: Context) -> bool:
         memory = ctx.memory
         state = self._read_optional(
@@ -671,28 +699,56 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
             for name, offset in (
                 ("timer_handle", 0),
                 ("interval_ms", 4),
-                ("elapsed_ms", 8),
+                ("opaque_08", 8),
                 ("accumulated_ms", 12),
-                ("period_ms", 16),
+                ("opaque_10", 16),
             )
         }
+        frame = self._current_frame(ctx)
+        interval = state_values["interval_ms"]
+        accumulated_after = state_values["accumulated_ms"]
+        accumulated_before = (
+            (accumulated_after - interval) & 0xFFFFFFFF
+            if interval is not None and accumulated_after is not None
+            else None
+        )
+        state_before = dict(state_values)
+        state_before["accumulated_ms"] = accumulated_before
+        public_accumulator = self._read_optional_double(
+            memory, TIMER_PUBLIC_ACCUMULATOR
+        )
+        simulation_accumulator = self._read_optional_double(
+            memory, TIMER_SIMULATION_ACCUMULATOR
+        )
         record = {
-            "type": "simulation_time_accumulator_store",
+            "type": "timer_callback_delivery",
             "function": "SimulationTimeTimerCallback",
             "eip": f"0x{ctx.eip:08x}",
             "writer_pc": f"0x{self.ADDRESS:08x}",
             "callback_return": f"0x{memory.u32(ctx.esp + self.CALLBACK_RETURN_STACK_OFFSET):08x}",
-            "frame": self._current_frame(ctx),
+            "frame": frame,
+            "callback_ordinal": self._callback_ordinal(frame),
             "callback_arg0": self._read_optional(
                 memory, ctx.esp + self.CALLBACK_ARG0_STACK_OFFSET
             ),
             "callback_arg1": self._read_optional(
                 memory, ctx.esp + self.CALLBACK_ARG1_STACK_OFFSET
             ),
+            "callback_arg2": state,
+            "callback_arg3": self._read_optional(
+                memory, ctx.esp + self.CALLBACK_ARG3_STACK_OFFSET
+            ),
+            "callback_arg4": self._read_optional(
+                memory, ctx.esp + self.CALLBACK_ARG4_STACK_OFFSET
+            ),
             "timer_state": f"0x{state:08x}",
             "timer_state_address": f"0x{self.TIMER_STATE_ADDRESS:08x}",
             "timer_state_matches_global": state == self.TIMER_STATE_ADDRESS,
+            "timer_state_before": state_before,
+            "timer_state_after": state_values,
+            # Retain this observation alias for existing trace consumers.
             "timer_state_at_store": state_values,
+            "interval_ms": interval,
             "result_register": "eax",
             "simulation_time_result_raw": ctx.register("eax") & 0xFFFFFFFF,
             "simulation_time_result_s32": _signed32(ctx.register("eax")),
@@ -700,7 +756,12 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
             "simulation_time_before_s32": _signed32(
                 memory.u32(TIMING_FIELDS["simulation_time"])
             ),
-            "public_tick_before_raw": memory.u32(0x0056E31C),
+            "public_tick_after_raw": memory.u32(TIMER_PUBLIC_TICK),
+            # Compatibility observation name; at this boundary the first
+            # callback store has already published the current public tick.
+            "public_tick_before_raw": memory.u32(TIMER_PUBLIC_TICK),
+            "public_accumulator_after": public_accumulator,
+            "simulation_accumulator_after": simulation_accumulator,
             "callback_cleanup_bytes": f"0x{self.CALLBACK_CLEANUP_BYTES:04x}",
         }
         if self.writer is None:

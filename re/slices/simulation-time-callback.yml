@@ -1,0 +1,39 @@
+version: 1
+id: simulation-time-callback
+subsystem: timing
+status: active
+
+scope:
+  functions:
+    - 0x004dace0
+  types:
+    - RetailTimerState
+  globals:
+    - SimulationPublicTick
+    - SimulationTime
+    - TimerPublicAccumulator
+    - TimerSimulationAccumulator
+    - TimerState
+
+shared:
+  functions: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/simulation-time-callback.md
+  native:
+    - src/camera/camera_timing.hpp
+  tests:
+    - tests/test_camera_system.py
+    - tests/test_gdb_runtime.py
+    - tests/test_recording.py
+
+open_questions:
+  - Characterize callback count, ordering, interval, and pause-gate behavior across repeated idle Warehouse recordings.
+  - Confirm that initial timer state plus ordered callback deliveries reproduces all observed integer and floating clock outputs.
+  - Add deterministic replay service control only after the callback model passes long-recording fixtures.
+
+completion:
+  - The callback boundary and timer-state fields read/written by 0x004dace0 are recorded.
+  - Recording events represent callback delivery as an external input while retaining derived clocks as observations.
+  - The offline native model covers the callback transition, x87-style publication, 16 ms deliveries, and both pause gates.

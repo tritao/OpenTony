@@ -90,7 +90,7 @@ def test_async_simulation_time_store_waits_for_next_frame(tmp_path):
     controller.request_start(path)
     controller.event(
         {
-            "type": "simulation_time_accumulator_store",
+            "type": "timer_callback_delivery",
             "frame": 0,
             "timer_state": "0x006a05a0",
             "timer_state_at_store": {"interval_ms": 16},
@@ -108,7 +108,7 @@ def test_async_simulation_time_store_waits_for_next_frame(tmp_path):
             "frame": 0,
             "timer_state": "0x006a05a0",
             "timer_state_at_store": {"interval_ms": 16},
-            "type": "simulation_time_accumulator_store",
+            "type": "timer_callback_delivery",
         }
     ]
 

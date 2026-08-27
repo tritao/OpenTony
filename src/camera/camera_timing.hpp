@@ -10,8 +10,96 @@
 
 #include <array>
 #include <cstdint>
+#include <cmath>
 
 namespace opentony::camera {
+
+// The callback registered by the retail multimedia timer at 0x004dace0.
+// These are the values which live in the callback-owned timer record; the
+// callback reads interval_ms and advances accumulated_ms on every delivery.
+// The two opaque words are retained because they are part of the observed
+// record layout but are not read by the callback body.
+struct RetailTimerState {
+    std::uint32_t timer_handle{}; // +0x00
+    std::uint32_t interval_ms{}; // +0x04
+    std::uint32_t opaque_08{}; // +0x08
+    std::uint32_t accumulated_ms{}; // +0x0c
+    std::uint32_t opaque_10{}; // +0x10
+
+    // 0x006a0590 and 0x006a0598 are stored as PE32 doubles after each
+    // callback. Keep them as doubles at the model boundary and perform each
+    // operation through long double to retain the x87 intermediate precision
+    // before the retail store rounds back to 64 bits.
+    double public_accumulator{};
+    double simulation_accumulator{};
+    bool simulation_pause_gate_a{}; // DAT_00561c04
+    bool simulation_pause_gate_b{}; // DAT_0056a8e0
+    Raw public_tick{}; // DAT_0056e31c
+    Raw simulation_time{}; // DAT_0056e320
+};
+
+struct TimerCallbackEvent {
+    std::uint32_t callback_arg0{};
+    std::uint32_t callback_arg1{};
+};
+
+struct TimerResult {
+    std::uint32_t accumulated_ms_before{};
+    std::uint32_t accumulated_ms_after{};
+    double interval_delta{};
+    double public_accumulator{};
+    double simulation_accumulator{};
+    bool simulation_advanced{};
+    Raw public_tick{};
+    Raw simulation_time{};
+};
+
+inline Raw timer_double_to_raw(double value) {
+    // FUN_005004f4 changes the x87 control word to truncate toward zero,
+    // stores a QWORD, and returns its low 32 bits. Valid retail values fit
+    // in the QWORD; modulo conversion preserves the PE32 result for signed
+    // negative values as well.
+    const auto truncated = static_cast<std::int64_t>(std::trunc(value));
+    return static_cast<Raw>(static_cast<std::uint32_t>(truncated));
+}
+
+// Pure transition model for the callback at 0x004dace0. The callback
+// parameters are intentionally accepted but not interpreted: static
+// disassembly shows that only the timer-state pointer (the delivery target)
+// and state +0x04 are meaningful to the transition.
+inline TimerResult advance_timer(
+    RetailTimerState& state,
+    const TimerCallbackEvent& event = {}) {
+    (void)event;
+    const auto before = state.accumulated_ms;
+    state.accumulated_ms += state.interval_ms;
+
+    const long double interval_delta =
+        static_cast<long double>(state.interval_ms) * 0.001L * 60.0L;
+    const double stored_delta = static_cast<double>(interval_delta);
+    state.public_accumulator = static_cast<double>(
+        static_cast<long double>(state.public_accumulator)
+        + static_cast<long double>(stored_delta));
+
+    if (!state.simulation_pause_gate_a && !state.simulation_pause_gate_b) {
+        state.simulation_accumulator = static_cast<double>(
+            static_cast<long double>(state.simulation_accumulator)
+            + static_cast<long double>(stored_delta));
+    }
+
+    state.public_tick = timer_double_to_raw(state.public_accumulator);
+    state.simulation_time = timer_double_to_raw(state.simulation_accumulator);
+    return {
+        before,
+        state.accumulated_ms,
+        stored_delta,
+        state.public_accumulator,
+        state.simulation_accumulator,
+        !state.simulation_pause_gate_a && !state.simulation_pause_gate_b,
+        state.public_tick,
+        state.simulation_time,
+    };
+}
 
 struct SimulationClockStateRaw {
     Raw public_tick{};       // DAT_0056e31c

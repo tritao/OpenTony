@@ -1,5 +1,35 @@
 version: 1
 globals:
+  - address: 0x0056e31c
+    name: SimulationPublicTick
+    description: integer public tick published by the multimedia timer callback
+    confidence: observed
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
+  - address: 0x0056e320
+    name: SimulationTime
+    description: integer simulation-time value published by the multimedia timer callback
+    confidence: observed
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
+  - address: 0x006a0590
+    name: TimerPublicAccumulator
+    description: double accumulator converted into SimulationPublicTick by the timer callback
+    confidence: observed
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
+  - address: 0x006a0598
+    name: TimerSimulationAccumulator
+    description: double accumulator converted into SimulationTime when both pause gates are clear
+    confidence: observed
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
+  - address: 0x006a05a0
+    name: TimerState
+    description: callback-owned multimedia timer state record
+    confidence: observed
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
   - address: 0x029d6920
     name: AudioBankRecords
     gdb_aliases:

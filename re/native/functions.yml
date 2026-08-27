@@ -1,5 +1,18 @@
 version: 1
 functions:
+  - address: 0x004dace0
+    name: SimulationTimeTimerCallback
+    slice: simulation-time-callback
+    status: modeled
+    sources:
+      - src/camera/camera_timing.hpp
+    tests:
+      - tests/test_camera_system.py
+      - tests/test_gdb_runtime.py
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
+    notes: Pure callback transition model and observation probe are complete; long repeated idle recordings and deterministic replay service control remain open.
+
   - address: 0x004d14d0
     name: M3D_SubmitModelState
     slice: render-packet-submission

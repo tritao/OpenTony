@@ -1,0 +1,40 @@
+version: 1
+types:
+  - name: RetailTimerState
+    kind: fixed_layout
+    size: 0x14
+    confidence: observed
+    description: Callback-owned multimedia timer record passed as dwUser to 0x004dace0; only interval_ms and accumulated_ms are read or written by the callback.
+    fields:
+      - offset: 0x00
+        name: timer_handle
+        type: u32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/simulation-time-callback.md
+      - offset: 0x04
+        name: interval_ms
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/simulation-time-callback.md
+      - offset: 0x08
+        name: opaque_08
+        type: u32
+        confidence: observed
+        description: Adjacent timer-record word retained for layout; callback body does not access it.
+        evidence:
+          - re/evidence/functions/simulation-time-callback.md
+      - offset: 0x0c
+        name: accumulated_ms
+        type: u32
+        confidence: confirmed
+        evidence:
+          - re/evidence/functions/simulation-time-callback.md
+      - offset: 0x10
+        name: opaque_10
+        type: u32
+        confidence: observed
+        description: Adjacent timer-record word retained for layout; callback body does not access it.
+        evidence:
+          - re/evidence/functions/simulation-time-callback.md

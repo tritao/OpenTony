@@ -1,5 +1,25 @@
 version: 1
 functions:
+  - address: 0x004dace0
+    name: SimulationTimeTimerCallback
+    description: multimedia timer callback that advances the simulation-time accumulators
+    confidence: observed
+    signature:
+      calling_convention: stdcall
+      return: void
+      parameters:
+        - name: callback_arg0
+          type: u32
+        - name: callback_arg1
+          type: u32
+        - name: timer_state
+          type: pointer<RetailTimerState>
+        - name: callback_arg3
+          type: u32
+        - name: callback_arg4
+          type: u32
+    evidence:
+      - re/evidence/functions/simulation-time-callback.md
   - address: 0x0048f3a0
     name: Skater_ProfileValue
     description: Resolve a selector-based per-skater profile/stat value.

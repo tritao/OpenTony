@@ -2251,6 +2251,33 @@ class TonySimulationTimeAccumulatorProbe(gdb.Command):
         )
 
 
+class TonyTimerCallbackProbe(gdb.Command):
+    """tony-timer-callback-probe [COUNT] -- trace external timer delivery."""
+
+    def __init__(self):
+        super().__init__("tony-timer-callback-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = (
+            _argv(arg, "tony-timer-callback-probe [COUNT]")
+            if arg.strip()
+            else []
+        )
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-timer-callback-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = SimulationTimeAccumulatorProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} samples"
+        _write(
+            f"timer callback delivery probe armed {limit} at "
+            f"0x{probe.address:08x}"
+        )
+
+
 class TonyGroundMotionProbe(gdb.Command):
     """tony-ground-motion-probe [COUNT] -- log B010 producer inputs."""
 
@@ -3030,6 +3057,19 @@ def _install_recording_instrumentation() -> None:
             ),
         )
     )
+    # Multimedia timer callbacks arrive on Wine's timer thread and can land
+    # between gameplay-frame boundaries. Record the delivery as an external
+    # event; its integer clocks remain observations, never replay inputs.
+    _runtime_breakpoints.append(
+        SimulationTimeAccumulatorProbe(
+            writer=sink,
+            frame_provider=lambda: (
+                _recording_controller.active_frame
+                if _recording_controller is not None
+                else None
+            ),
+        )
+    )
     collision_probe = CollisionQueryProbe(writer=sink)
     _runtime_breakpoints.extend(
         (collision_probe.entry, collision_probe.return_breakpoint)
@@ -3129,6 +3169,7 @@ def register_commands() -> None:
     TonyFrameClock()
     TonySimulationTimeProbe()
     TonySimulationTimeAccumulatorProbe()
+    TonyTimerCallbackProbe()
     TonyPhysicsProbe()
     TonyForcePhysicsState()
     TonyCameraProbe()
@@ -3190,6 +3231,7 @@ def register_commands() -> None:
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
         "tony-simulation-time-probe, "
         "tony-simulation-time-accumulator-probe, "
+        "tony-timer-callback-probe, "
         "tony-force-physics-state, "
         "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-view-perturb, "
         "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "

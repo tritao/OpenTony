@@ -25,9 +25,19 @@ The callback reads the interval from `timer_state + 0x04`, accumulates it in
 0x004dad68  -> DAT_0056e320
 ```
 
-The current recording probe is at `0x004dad68`, immediately before the second
-store. It captures the callback arguments, timer state, source register, and
-computed value as evidence; it does not restore that derived value during
-strict replay. The `0x004f5ff0` path remains a separate millisecond-clock
-helper and is not the callback boundary that produced the observed Warehouse
-simulation-time values.
+The recording probe is at `0x004dad68`, immediately before the second store.
+It captures each delivery as a `timer_callback_delivery` event, including the
+callback ordinal within the observed gameplay frame, callback arguments, timer
+state before/after (with the `+0x0c` pre-value reconstructed from the retail
+add), and the floating/integer outputs. The event is queued across frame
+boundaries as an external input; none of its derived clock values are restored
+during strict replay.
+
+The offline `advance_timer` model in `src/camera/camera_timing.hpp` mirrors the
+callback's state transition and x87-style double-to-integer publication. Its
+fixture covers repeated 16 ms deliveries and both pause gates. Long idle
+recordings remain required to validate the model against retail output across
+more than one callback cadence.
+
+The `0x004f5ff0` path remains a separate millisecond-clock helper and is not the
+callback boundary that produced the observed Warehouse simulation-time values.
