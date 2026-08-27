@@ -81,6 +81,38 @@ def test_start_and_stop_are_committed_on_frame_boundaries(tmp_path):
     }
 
 
+def test_async_simulation_time_store_waits_for_next_frame(tmp_path):
+    path = tmp_path / "timing.otrec"
+    controller = RecordingController(
+        writer_factory=RecordingWriter,
+        clock=lambda: "2026-08-27T12:00:00.000+00:00",
+    )
+    controller.request_start(path)
+    controller.event(
+        {
+            "type": "simulation_time_accumulator_store",
+            "frame": 0,
+            "timer_state": "0x006a05a0",
+            "timer_state_at_store": {"interval_ms": 16},
+        }
+    )
+    controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(1))
+    controller.request_stop()
+    controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(2))
+
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    assert records[2]["events"] == [
+        {
+            "frame": 0,
+            "timer_state": "0x006a05a0",
+            "timer_state_at_store": {"interval_ms": 16},
+            "type": "simulation_time_accumulator_store",
+        }
+    ]
+
+
 def test_hotkey_is_rising_edge_only_and_does_not_enter_input_record(tmp_path):
     controller = RecordingController()
     controller.DEFAULT_DIRECTORY = tmp_path

@@ -173,6 +173,7 @@ class RecordingController:
 
     DEFAULT_HOTKEY_SCAN_CODE = 0x58  # DIK_F12; not used by TH2_OPT.CFG.
     DEFAULT_DIRECTORY = Path("build/recordings/retail")
+    PENDING_ASYNC_EVENT_TYPES = frozenset({"simulation_time_accumulator_store"})
 
     def __init__(
         self,
@@ -195,6 +196,7 @@ class RecordingController:
         self._path: Path | None = None
         self._overwrite = False
         self._active_frame: dict | None = None
+        self._pending_external_events: list[dict] = []
         self._latest_input: dict | None = None
         self._hotkey_down = False
         self._stop_after_frame = False
@@ -292,6 +294,7 @@ class RecordingController:
         self._overwrite = overwrite
         self._writer = None
         self._active_frame = None
+        self._pending_external_events = []
         self._latest_input = None
         self.current_frame_index = 0
         self._stop_after_frame = False
@@ -422,18 +425,25 @@ class RecordingController:
                 raise RecordingError(str(exc)) from exc
         if self.state is RecordingState.START_PENDING:
             self.state = RecordingState.RECORDING
+        pending_external_events = self._pending_external_events
+        self._pending_external_events = []
         self._active_frame = {
             "type": "frame",
             "frame": self.current_frame_index,
             "input": dict(input_record or self._latest_input or {}),
             "before": before,
-            "events": [],
+            "events": [dict(event) for event in pending_external_events],
         }
         self._write_status()
         return self.current_frame_index
 
     def event(self, record: dict) -> None:
         if self._active_frame is None:
+            if (
+                self.state is not RecordingState.IDLE
+                and record.get("type") in self.PENDING_ASYNC_EVENT_TYPES
+            ):
+                self._pending_external_events.append(dict(record))
             return
         self._active_frame["events"].append(dict(record))
 

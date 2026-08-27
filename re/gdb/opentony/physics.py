@@ -121,6 +121,12 @@ SHARED_RANDOM_SERVICE = 0x0048F3A0
 # observes the exact value about to be committed without changing the path.
 SIMULATION_TIME_STORE_ADDRESS = 0x0049F1A9
 SIMULATION_TIME_PLAYER_OFFSET = 0x2F44
+# The multimedia timer callback computes the next integer clock value here,
+# immediately before storing it into DAT_0056e320.  Breaking at callback entry
+# destabilizes WineDbg's multi-threaded stepping, so keep this as an
+# observation boundary until callback delivery can be controlled safely.
+SIMULATION_TIME_ACCUMULATOR_STORE_ADDRESS = 0x004DAD68
+SIMULATION_TIME_TIMER_STATE = 0x006A05A0
 
 # Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
 # placed after the call, where EAX contains the returned roll.  The charge
@@ -617,6 +623,85 @@ class SimulationTimeStoreProbe(CountingBreakpoint):
             "gate_3110_s32": ctx.memory.s32(player + 0x3110),
             "player_animation_clock_raw": ctx.memory.u32(player + 0x2DE4),
             "timing": animation_timing_record(ctx.memory),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class SimulationTimeAccumulatorProbe(CountingBreakpoint):
+    """Trace the timer callback's computed value before its global store."""
+
+    ADDRESS = SIMULATION_TIME_ACCUMULATOR_STORE_ADDRESS
+    TIMER_STATE_ADDRESS = SIMULATION_TIME_TIMER_STATE
+    CALLBACK_RETURN_STACK_OFFSET = 0x08
+    CALLBACK_ARG0_STACK_OFFSET = 0x0C
+    CALLBACK_ARG1_STACK_OFFSET = 0x10
+    CALLBACK_STATE_STACK_OFFSET = 0x14
+    CALLBACK_CLEANUP_BYTES = 0x14
+
+    def __init__(self, count: int | None = None, writer=None, frame_provider=None):
+        super().__init__(self.ADDRESS, count=count, internal=True)
+        self.writer = writer
+        self.frame_provider = frame_provider
+
+    def _current_frame(self, ctx: Context) -> int:
+        if self.frame_provider is None:
+            return ctx.frame
+        frame = self.frame_provider()
+        return ctx.frame if frame is None else int(frame)
+
+    @staticmethod
+    def _read_optional(memory, address: int) -> int | None:
+        if not memory.readable(address, 4):
+            return None
+        return memory.u32(address)
+
+    def on_count(self, ctx: Context) -> bool:
+        memory = ctx.memory
+        state = self._read_optional(
+            memory, ctx.esp + self.CALLBACK_STATE_STACK_OFFSET
+        )
+        if state is None:
+            return False
+        state_values = {
+            name: self._read_optional(memory, state + offset)
+            for name, offset in (
+                ("timer_handle", 0),
+                ("interval_ms", 4),
+                ("elapsed_ms", 8),
+                ("accumulated_ms", 12),
+                ("period_ms", 16),
+            )
+        }
+        record = {
+            "type": "simulation_time_accumulator_store",
+            "function": "SimulationTimeTimerCallback",
+            "eip": f"0x{ctx.eip:08x}",
+            "writer_pc": f"0x{self.ADDRESS:08x}",
+            "callback_return": f"0x{memory.u32(ctx.esp + self.CALLBACK_RETURN_STACK_OFFSET):08x}",
+            "frame": self._current_frame(ctx),
+            "callback_arg0": self._read_optional(
+                memory, ctx.esp + self.CALLBACK_ARG0_STACK_OFFSET
+            ),
+            "callback_arg1": self._read_optional(
+                memory, ctx.esp + self.CALLBACK_ARG1_STACK_OFFSET
+            ),
+            "timer_state": f"0x{state:08x}",
+            "timer_state_address": f"0x{self.TIMER_STATE_ADDRESS:08x}",
+            "timer_state_matches_global": state == self.TIMER_STATE_ADDRESS,
+            "timer_state_at_store": state_values,
+            "result_register": "eax",
+            "simulation_time_result_raw": ctx.register("eax") & 0xFFFFFFFF,
+            "simulation_time_result_s32": _signed32(ctx.register("eax")),
+            "simulation_time_before_raw": memory.u32(TIMING_FIELDS["simulation_time"]),
+            "simulation_time_before_s32": _signed32(
+                memory.u32(TIMING_FIELDS["simulation_time"])
+            ),
+            "public_tick_before_raw": memory.u32(0x0056E31C),
+            "callback_cleanup_bytes": f"0x{self.CALLBACK_CLEANUP_BYTES:04x}",
         }
         if self.writer is None:
             self.emit(record)

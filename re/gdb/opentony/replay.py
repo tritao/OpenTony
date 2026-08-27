@@ -309,6 +309,8 @@ class RetailReplay:
     def inject_timing(self) -> None:
         """Restore the recorded globals before the next player frame."""
 
+        if self.mode == "strict":
+            return
         if self.index >= len(self.frames):
             return
         expected = self.frames[self.index].get("before", {})
@@ -332,6 +334,8 @@ class RetailReplay:
     def inject_after_timing(self) -> None:
         """Restore timing globals captured after the completed frame."""
 
+        if self.mode == "strict":
+            return
         if self.index >= len(self.frames):
             return
         expected = self.frames[self.index].get("after", {})
