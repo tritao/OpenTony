@@ -35,6 +35,13 @@ from .media_setup import install_media
 from .native_progress import native_verify
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
+from .recording import (
+    record_start,  # noqa: F401 - command handlers are consumed by cli.py
+    record_status,  # noqa: F401 - command handlers are consumed by cli.py
+    record_stop,  # noqa: F401 - command handlers are consumed by cli.py
+    record_toggle,  # noqa: F401 - command handlers are consumed by cli.py
+    record_validate,  # noqa: F401 - command handlers are consumed by cli.py
+)
 from .recovered_types import types_verify
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_clean,

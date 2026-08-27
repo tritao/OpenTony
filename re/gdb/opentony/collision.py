@@ -478,6 +478,21 @@ class CollisionQueryProbe:
             "distance_limit_raw": ctx.memory.u32(query + 0x40),
             "hit_distance": _signed32(ctx.memory.u32(query + 0x40)),
             "line_length": _signed32(ctx.memory.u32(query + 0x44)),
+            "material_flags": _collision_flag_snapshot(ctx.memory),
+        }
+        face_words = record["face_words"]
+        record["selected_contact"] = {
+            "hit": record["hit"],
+            "model": record["model"],
+            "face": record["face"],
+            "position_raw": record["contact_raw"],
+            "normal_s16": record["normal_s16"],
+            "face_flags": (
+                face_words[0] & 0xFFFF if face_words else None
+            ),
+            "surface_flags": (
+                (face_words[3] >> 16) & 0xFFFF if face_words else None
+            ),
         }
         self._emit(record)
         self.hits += 1

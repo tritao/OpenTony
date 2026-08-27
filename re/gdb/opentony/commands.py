@@ -3,42 +3,42 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from pathlib import Path
 
 import gdb
 
 from .action import ActionMaskSequenceProbe
-from .breakpoint import CountingBreakpoint, TonyBreakpoint
+from .breakpoint import Context, CountingBreakpoint, TonyBreakpoint
 from .camera import (
     ActorSubmissionProbe,
     CameraCollisionProbe,
     CameraCollisionResultProbe,
     CameraEffectProbe,
     CameraModeOverrideProbe,
-    CameraViewportControlProbe,
     CameraPointSelectProbe,
     CameraPointStateProbe,
-    CameraTimingProbe,
     CameraPositionTransformProbe,
     CameraProbe,
-    GeometrySubmissionProbe,
+    CameraTimingProbe,
+    CameraViewportControlProbe,
     GeometryRasterReturnProbe,
+    GeometrySubmissionProbe,
     TransformedVertexProbe,
-    ViewProjectionProbe,
     ViewProjectionPerturbProbe,
     ViewProjectionProbe,
 )
 from .collision import (
+    COLLISION_INIT_BOUNDARY_CASES,
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
     CollisionDynamicTransformMutationProbe,
     CollisionDynamicTransformProbe,
     CollisionFlagProbe,
-    COLLISION_INIT_BOUNDARY_CASES,
-    CollisionQueryInitBoundaryProbe,
     CollisionLoaderProbe,
     CollisionModelKindProbe,
+    CollisionQueryInitBoundaryProbe,
     CollisionQueryProbe,
 )
 from .frame import FrameBreakpoint, frame_clock
@@ -68,6 +68,7 @@ from .physics import (
 )
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
+from .recording import RecordingController, RecordingError
 from .snapshot import format_diff, snapshots
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
@@ -75,6 +76,11 @@ from .watchpoint import watchpoints
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
 THPS2_ADDRESSES = dict(known_function_addresses())
+THPS2_ADDRESSES["physics_frame"] = (
+    0x0049E680,
+    "per-frame gameplay skater action, collision, state, and position-update wrapper",
+    "re/evidence/functions/physics.md",
+)
 
 THPS2_LEVELS = {
     "hangar": 0,
@@ -100,6 +106,145 @@ ACTION_STATE_RECORDS = {
 _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
+_recording_controller = None
+
+
+_RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
+_RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
+
+
+def _recording_signed8(value: int) -> int:
+    return value - 0x100 if value & 0x80 else value
+
+
+def _recording_signed32(value: int) -> int:
+    return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _recording_signed16(value: int) -> int:
+    return value - 0x10000 if value & 0x8000 else value
+
+
+def _recording_vec(address: int) -> dict | None:
+    if not mem.readable(address, 0x0c):
+        return None
+    raw = list(mem.u32_vec3(address))
+    return {
+        "raw": raw,
+        "signed": [_recording_signed32(value) for value in raw],
+    }
+
+
+def _recording_short_vec(address: int) -> dict | None:
+    if not mem.readable(address, 6):
+        return None
+    raw = [mem.u16(address + offset) for offset in (0, 2, 4)]
+    return {
+        "raw": raw,
+        "signed": [_recording_signed16(value) for value in raw],
+    }
+
+
+def _recording_input(controller: RecordingController) -> tuple[dict, bool]:
+    keyboard = mem.bytes(GLOBALS["KeyboardState"], 0x100)
+    hotkey = controller.hotkey_scan_code
+    raw_axes = (
+        list(mem.bytes(_RECORDING_RAW_AXIS_ADDRESS, 4))
+        if mem.readable(_RECORDING_RAW_AXIS_ADDRESS, 4)
+        else None
+    )
+    normalized_axes = (
+        {
+            "horizontal": _recording_signed8(mem.u8(_RECORDING_NORMALIZED_AXIS_ADDRESS)),
+            "vertical": _recording_signed8(mem.u8(_RECORDING_NORMALIZED_AXIS_ADDRESS + 1)),
+        }
+        if mem.readable(_RECORDING_NORMALIZED_AXIS_ADDRESS, 2)
+        else None
+    )
+    return (
+        {
+            "action_mask": mem.u16(GLOBALS["ActionMask"]),
+            "action_mask_raw_u32": mem.u32(GLOBALS["ActionMask"]),
+            "raw_controller_sample": raw_axes,
+            "raw_axes": {
+                "device_bytes": (
+                    [{"raw": value, "signed": _recording_signed8(value)} for value in raw_axes]
+                    if raw_axes is not None
+                    else None
+                ),
+                "normalized": normalized_axes,
+            },
+            "normalized_axes": normalized_axes,
+            "keyboard_state": keyboard.hex(),
+            "held_scan_codes": [
+                code
+                for code, value in enumerate(keyboard)
+                if value & 0x80 and code != hotkey
+            ],
+            "control_hotkey_scan_code": hotkey,
+        },
+        bool(keyboard[hotkey] & 0x80),
+    )
+
+
+def _recording_player_snapshot(player: int) -> dict:
+    physics_state = mem.u32(player + 0x30B8)
+    return {
+        "player_address": f"0x{player:08x}",
+        "physics_state": physics_state,
+        "physics": {
+            "state_raw": physics_state,
+            "previous_state_raw": mem.u32(player + 0x30C0),
+            "auxiliary_state_raw": mem.u32(player + 0x30C4),
+        },
+        "position": _recording_vec(player + 0x08),
+        "position_history": _recording_vec(player + 0xBC),
+        "response_velocity": _recording_vec(player + 0x4C),
+        "correction": _recording_vec(player + 0x58),
+        "air_motion": _recording_vec(player + 0x310C),
+        "turn": {
+            "accumulator_raw": mem.u32(player + 0x3144),
+            "mirror_raw": mem.u32(player + 0x3148),
+        },
+        "basis": {
+            "forward_raw": _recording_vec(player + 0x30F4),
+            "up_raw": _recording_vec(player + 0x3100),
+            "air_raw": _recording_vec(player + 0x310C),
+        },
+        "orientation": {
+            "row_0": _recording_short_vec(player + 0x2E58),
+            "row_1": _recording_short_vec(player + 0x2E5E),
+            "row_2": _recording_short_vec(player + 0x2E64),
+        },
+        "animation": {
+            "id_raw": mem.u16(player + 0xF6),
+            "frame_raw": mem.s16(player + 0xF4),
+            "fraction_raw": mem.u16(player + 0x104),
+            "rate_raw": mem.u32(player + 0x108),
+            "mode_raw": mem.u8(player + 0xF8),
+            "direction_raw": mem.s8(player + 0x100),
+            "endpoint_raw": mem.s8(player + 0x101),
+            "alternate_endpoint_raw": mem.s8(player + 0x102),
+            "finished_raw": mem.u8(player + 0x107),
+        },
+    }
+
+
+def _recording_metadata(player: int) -> dict:
+    level = mem.u32(GLOBALS["CurrentLevel"])
+    return {
+        "binary_sha256": THPS2_BUILD_SHA256,
+        "retail_executable_sha256": THPS2_BUILD_SHA256,
+        "instrumentation_version": "gdb-recording-v1",
+        "level": {
+            "index": level,
+            "name": next((name for name, index in THPS2_LEVELS.items() if index == level), None),
+        },
+        "player_identity": {
+            "slot": 0,
+            "object_address": f"0x{player:08x}",
+        },
+    }
 
 
 def _argv(arg: str, usage: str) -> list[str]:
@@ -122,6 +267,183 @@ def _integer(value: str) -> int:
 
 def _write(text: str) -> None:
     gdb.write(text + "\n")
+
+
+class _RecordingEventSink:
+    """Adapter used by existing probes to append into the active frame."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+
+    def event(self, record: dict) -> None:
+        self.controller.event(record)
+
+
+class TonyRecordingInputBreakpoint(TonyBreakpoint):
+    """Observe post-poll input and detect the recorder hotkey edge."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(THPS2_ADDRESSES["gameplay_update"][0], internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        self.controller.poll_control()
+        input_record, hotkey_down = _recording_input(self.controller)
+        try:
+            self.controller.on_input(input_record, hotkey_down=hotkey_down)
+        except RecordingError as exc:
+            self.controller.set_error(str(exc))
+
+
+class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
+    """Finalize one physics frame at the return address captured at entry."""
+
+    def __init__(
+        self,
+        controller: RecordingController,
+        address: int,
+        frame: int,
+        player: int,
+    ):
+        self.controller = controller
+        self.frame = frame
+        self.player = player
+        super().__init__(address, internal=True, temporary=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        self.enabled = False
+        if self.controller.active_frame != self.frame:
+            return
+        try:
+            self.controller.end_frame(_recording_player_snapshot(self.player))
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+
+
+class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
+    """Begin capture at the canonical per-player physics-frame boundary."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(THPS2_ADDRESSES["physics_frame"][0], internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        player = ctx.this_ptr()
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        input_record = self.controller.latest_input
+        if input_record is None:
+            input_record, _hotkey_down = _recording_input(self.controller)
+        try:
+            frame = self.controller.begin_frame(
+                _recording_player_snapshot(player),
+                input_record=input_record,
+                metadata=_recording_metadata(player),
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        if frame is None:
+            return
+        return_address = ctx.return_address()
+        if return_address == 0:
+            raise gdb.GdbError("could not install recording frame return breakpoint")
+        _runtime_breakpoints.append(
+            TonyRecordingFrameReturnBreakpoint(
+                self.controller,
+                return_address,
+                frame,
+                player,
+            )
+        )
+
+
+class TonyRecordingStart(gdb.Command):
+    """tony-record-start [FILE] [--force] -- start at the next physics frame."""
+
+    def __init__(self):
+        super().__init__("tony-record-start", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-record-start [FILE] [--force]") if arg.strip() else []
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-record-start [FILE] [--force]")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        try:
+            recording_id = _recording_controller.request_start(
+                values[0] if values else None,
+                overwrite=force,
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _write(
+            f"recording start pending: {recording_id}; "
+            f"path {_recording_controller.path}"
+        )
+
+
+class TonyRecordingStop(gdb.Command):
+    """tony-record-stop -- close after the current complete physics frame."""
+
+    def __init__(self):
+        super().__init__("tony-record-stop", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-record-stop")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        if not _recording_controller.request_stop():
+            _write("no recording is active")
+            return
+        _write("recording stop pending at the next physics-frame return")
+
+
+class TonyRecordingToggle(gdb.Command):
+    """tony-record-toggle [FILE] [--force] -- share the hotkey lifecycle."""
+
+    def __init__(self):
+        super().__init__("tony-record-toggle", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-record-toggle [FILE] [--force]") if arg.strip() else []
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-record-toggle [FILE] [--force]")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        try:
+            recording_id = _recording_controller.request_toggle(
+                values[0] if values else None,
+                overwrite=force,
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _write(f"recording state: {_recording_controller.state.value} ({recording_id})")
+
+
+class TonyRecordingStatus(gdb.Command):
+    """tony-record-status -- print the controller's current state."""
+
+    def __init__(self):
+        super().__init__("tony-record-status", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-record-status")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        _write(json.dumps(_recording_controller.status(), sort_keys=True))
 
 
 def _snapshot_address(value: str) -> int:
@@ -966,7 +1288,7 @@ class TonyAnimationSample(gdb.Command):
 class TonyAnimationRequestBreakpoint(CountingBreakpoint):
     """Collect calls into CSuper::RunAnim for the generated player."""
 
-    def __init__(self, count: int, path: Path, writer=None):
+    def __init__(self, count: int | None, path: Path | None, writer=None):
         super().__init__(THPS2_ADDRESSES["animation_run"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
@@ -1019,11 +1341,14 @@ class TonyAnimationRequestBreakpoint(CountingBreakpoint):
                 "old_anim_dir": mem.s8(player + 0x112),
             },
         }
-        try:
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(record, sort_keys=True) + "\n")
-        except OSError as exc:
-            raise gdb.GdbError(f"could not write animation request sample {self.path}: {exc}") from exc
+        if self.path is not None:
+            try:
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record, sort_keys=True) + "\n")
+            except OSError as exc:
+                raise gdb.GdbError(
+                    f"could not write animation request sample {self.path}: {exc}"
+                ) from exc
         if self.writer is not None:
             self.writer.event({"type": "animation_request", **record})
         self.sample += 1
@@ -2201,6 +2526,39 @@ class TonyType192CommandProbe(gdb.Command):
         _write(f"TRG type-192 command probe armed for {count} completed calls")
 
 
+def _install_recording_instrumentation() -> None:
+    global _recording_controller
+    if _recording_controller is not None:
+        return
+    session_dir = os.environ.get("TONY_SESSION_DIR")
+    _recording_controller = RecordingController(session_dir=session_dir)
+    sink = _RecordingEventSink(_recording_controller)
+
+    _runtime_breakpoints.extend(
+        (
+            TonyRecordingInputBreakpoint(_recording_controller),
+            TonyRecordingFrameEntryBreakpoint(_recording_controller),
+        )
+    )
+
+    collision_probe = CollisionQueryProbe(writer=sink)
+    _runtime_breakpoints.extend(
+        (collision_probe.entry, collision_probe.return_breakpoint)
+    )
+    _runtime_breakpoints.extend(
+        (
+            AirCollisionQueryProbe(writer=sink),
+            PhysicsStateRequestProbe(writer=sink),
+            PhysicsStateWriterProbe(writer=sink),
+            TonyAnimationRequestBreakpoint(None, None, writer=sink),
+        )
+    )
+    for address, label in POSITION_COMMIT_CALLS:
+        _runtime_breakpoints.append(
+            PositionCommitBreakpoint(address, label, None, writer=sink)
+        )
+
+
 _registered = False
 
 
@@ -2224,6 +2582,10 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyFrontendPlay()
     TonyFrontendConfirm()
+    TonyRecordingStart()
+    TonyRecordingStop()
+    TonyRecordingToggle()
+    TonyRecordingStatus()
     TonyPlayerSample()
     TonyInputSample()
     TonyActionEdge()
@@ -2280,12 +2642,14 @@ def register_commands() -> None:
     TonyCollisionDynamicTransformProbe()
     TonyCollisionDynamicTransformMutationProbe()
     TonyType192CommandProbe()
+    _install_recording_instrumentation()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-record-start, tony-record-stop, tony-record-toggle, tony-record-status, "
         "tony-action-edge, tony-jump-edge, "
         "tony-key-loop, tony-key-clear, tony-animation-sample, tony-animation-request-sample, "
         "tony-animation-selector-sample, "

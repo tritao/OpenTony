@@ -78,6 +78,44 @@ def _recover_incomplete_trace(session, reason: str) -> bool:
     return True
 
 
+def _recover_incomplete_recording(session, reason: str) -> bool:
+    """Append an incomplete V1 footer if GDB/Wine dies during recording."""
+
+    marker = session.path / "recording.active"
+    try:
+        metadata = json.loads(marker.read_text(encoding="utf-8"))
+        recording_path = Path(metadata["path"])
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return False
+
+    if not recording_path.is_file():
+        marker.unlink(missing_ok=True)
+        return False
+
+    try:
+        lines = recording_path.read_text(encoding="utf-8").splitlines()
+        records = [json.loads(line) for line in lines]
+        if records and records[-1].get("type") == "end":
+            marker.unlink(missing_ok=True)
+            return False
+        header = records[0] if records else {}
+        frames = sum(record.get("type") == "frame" for record in records)
+        footer = {
+            "type": "end",
+            "format": metadata.get("format", header.get("format")),
+            "recording_id": metadata.get("recording_id", header.get("recording_id")),
+            "frames": frames,
+            "complete": False,
+            "reason": reason,
+        }
+        with recording_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(footer, sort_keys=True) + "\n")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    marker.unlink(missing_ok=True)
+    return True
+
+
 def _find_game_pid(env: dict[str, str]) -> int:
     result = subprocess.run(
         ["winedbg", "--command", "info proc"],
@@ -242,6 +280,7 @@ def debug_game(args) -> int:
             else:
                 reason = "debugger-exited-with-trace-open"
             _recover_incomplete_trace(session, reason)
+            _recover_incomplete_recording(session, reason)
         if display is not None and proxy is not None:
             terminate_process(proxy)
             if env is not None:
