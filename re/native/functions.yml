@@ -174,6 +174,18 @@ functions:
       - re/evidence/functions/camera-system.md
     notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, normal-follow tick increment, mode-25 scalar/shared-angle ordering, and the reviewed raw tripod-basis transform; live mode-25 scalar/basis coverage remains excluded.
 
+  - address: 0x0040c370
+    name: Camera_ApplyEffects
+    slice: camera-update
+    status: trace-validated
+    sources:
+      - src/camera/camera_system.hpp
+    tests:
+      - src/camera/camera_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/camera-system.md
+    notes: Selected periodic primary collision-query branch is modeled through its guard checks, pre-query phase/counter update, no-hit fallback, and fixed-point hit-distance magnitude; secondary tripod and transform-effect branches remain explicit unresolved producers.
+
   - address: 0x00496060
     name: Skater_PositionWritePath
     slice: player-position-commit
