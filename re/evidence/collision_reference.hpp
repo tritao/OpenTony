@@ -1725,12 +1725,14 @@ inline std::array<std::int16_t, 9> build_line_basis(std::int16_t x_delta,
         static_cast<std::int64_t>(x86_shift_left(x_delta, ratio_shift)) /
         horizontal.normalized_root);
 
-    // These are the exact three vectors seeded by 0x004624d0, before its
-    // three calls to the Q12 matrix multiply at 0x004e3130.
+    // 0x004624d0 forms the vertical ratio with the same Q12 numerator shift
+    // as the horizontal ratios. The retail instruction is `shl eax, cl`
+    // after loading half_total + 0xc; the x86 shift count is masked to five
+    // bits by x86_shift_left.
     const auto half_total = total.lead_minus_one >> 1u;
     const auto vertical_ratio = static_cast<std::int16_t>(
         static_cast<std::int64_t>(x86_shift_left(y_delta,
-                                                 (half_total + 24u))) /
+                                                 (half_total + 12u))) /
         total.normalized_root);
     const Raw horizontal_ratio = static_cast<Raw>(
         static_cast<std::int64_t>(x86_shift_left(horizontal.normalized_root,
@@ -1764,7 +1766,8 @@ inline std::array<std::int16_t, 9> build_line_basis(std::int16_t x_delta,
 }
 
 // Reconstruct the fields whose setup is established by 0x004624d0, including
-// the short basis consumed by the linked/oriented-object path.
+// its unscaled short basis. Linked-object scale words at +0x28/+0x2a/+0x2c
+// are consumed later by 0x004f5540, not by this query initializer.
 inline void prepare(QueryRecord& query, std::uint16_t query_stamp = 0) {
     query.bounds_min = {
         std::min(query.start[0], query.end[0]),

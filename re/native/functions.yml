@@ -197,7 +197,7 @@ functions:
       - re/evidence/collision_reference_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: The query setup model intentionally leaves the short basis construction open.
+    notes: Query setup reconstructs the vertical and nonvertical short basis, including normalized horizontal/total roots, truncating signed ratios, three 0x004e3130 column products, and Q12 signed-short saturation. Linked-object +0x28/+0x2a/+0x2c scale is a later 0x004f5540 operation and is covered separately; query setup itself remains unscaled.
 
   - address: 0x00462a20
     name: M3D_CollisionFaceTest
