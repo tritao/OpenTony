@@ -77,6 +77,12 @@ void LevelTriggerState::reset() {
         special_runtime_game_mode_;
     const std::uint32_t configured_special_alias_mode_mask =
         special_alias_mode_mask_;
+    const TriggerLevelEventInputs configured_level_event_inputs =
+        level_event_inputs_;
+    const TriggerLevelEventFrameInput configured_level_event_frame_input =
+        level_event_frame_input_;
+    const bool configured_has_level_event_frame_input =
+        has_level_event_frame_input_;
     *this = LevelTriggerState{};
     visible_mask_ = configured_visible_mask;
     gap_table_ = configured_gap_table;
@@ -84,6 +90,9 @@ void LevelTriggerState::reset() {
     special_runtime_animation_mode_ = configured_special_animation_mode;
     special_runtime_game_mode_ = configured_special_runtime_game_mode;
     special_alias_mode_mask_ = configured_special_alias_mode_mask;
+    level_event_inputs_ = configured_level_event_inputs;
+    level_event_frame_input_ = configured_level_event_frame_input;
+    has_level_event_frame_input_ = configured_has_level_event_frame_input;
 }
 
 void LevelTriggerState::set_object_identifier(std::size_t node, std::uint16_t identifier) {
@@ -313,6 +322,14 @@ void LevelTriggerState::advance_time(std::uint32_t milliseconds) {
         if (current.active && current.pickup_visual_state_d1 != 0) {
             current.pickup_glow_present = true;
         }
+    }
+
+    // LevelRuntime::tick is the native gameplay-frame boundary.  The frame
+    // input is opt-in because the standalone TRG service does not own player
+    // state; when supplied, keep the event update in the same tick stream as
+    // the other level-owned services.
+    if (has_level_event_frame_input_) {
+        (void)advance_level_event_frame();
     }
 
     if (special_runtime_animation_mode_
@@ -1187,15 +1204,85 @@ void LevelTriggerState::on_reverb_type(std::uint8_t type) {
 
 void LevelTriggerState::on_level_event_state() {
     ++level_event_updates_;
-    // FUN_00466c10's first-call initialization is independent of the mode
-    // specific versus/stat branches above it. Preserve those verified raw
-    // global writes while leaving the player/mode inputs to a higher service.
+
+    // FUN_00466c10 performs these mode-dependent writes only while the byte at
+    // DAT_006a3d49 is clear.  The fields retain their retail addresses because
+    // their public score/stat meaning is not established by this call.
+    if (!level_event_flag_) {
+        if (level_event_inputs_.game_mode == 8) {
+            if (level_event_inputs_.primary_compare_value
+                != level_event_inputs_.secondary_compare_value) {
+                if (level_event_inputs_.primary_compare_value
+                    < level_event_inputs_.secondary_compare_value) {
+                    ++level_event_raw_stats_.word_0056b7e0;
+                    ++level_event_raw_stats_.word_0056b79c;
+                    if (level_event_raw_stats_.word_0056b7b4 < 0) {
+                        level_event_raw_stats_.word_0056b7b4 = 1;
+                        level_event_raw_stats_.word_0056b7b0 = -1;
+                    } else {
+                        ++level_event_raw_stats_.word_0056b7b4;
+                        level_event_raw_stats_.word_0056b7b0 =
+                            -level_event_raw_stats_.word_0056b7b4;
+                    }
+                } else {
+                    ++level_event_raw_stats_.word_0056b7dc;
+                    ++level_event_raw_stats_.word_0056b798;
+                    if (level_event_raw_stats_.word_0056b7b0 < 0) {
+                        level_event_raw_stats_.word_0056b7b0 = 1;
+                    } else {
+                        ++level_event_raw_stats_.word_0056b7b0;
+                    }
+                    level_event_raw_stats_.word_0056b7b4 =
+                        -level_event_raw_stats_.word_0056b7b0;
+                }
+                if (level_event_raw_stats_.word_0056b7a4
+                    < level_event_inputs_.primary_compare_value) {
+                    level_event_raw_stats_.word_0056b7a4 =
+                        level_event_inputs_.primary_compare_value;
+                }
+                if (level_event_raw_stats_.word_0056b7a0
+                    < level_event_inputs_.secondary_compare_value) {
+                    level_event_raw_stats_.word_0056b7a0 =
+                        level_event_inputs_.secondary_compare_value;
+                }
+            }
+        } else if (level_event_inputs_.game_mode == 9
+                   && level_event_inputs_.versus_state == 2) {
+            if (!level_event_inputs_.mode9_side_flag) {
+                ++level_event_raw_stats_.word_0056b7dc;
+                ++level_event_raw_stats_.word_0056b798;
+                if (level_event_raw_stats_.word_0056b7b0 < 0) {
+                    level_event_raw_stats_.word_0056b7b0 = 1;
+                } else {
+                    ++level_event_raw_stats_.word_0056b7b0;
+                }
+                level_event_raw_stats_.word_0056b7b4 =
+                    -level_event_raw_stats_.word_0056b7b0;
+            } else {
+                ++level_event_raw_stats_.word_0056b7e0;
+                ++level_event_raw_stats_.word_0056b79c;
+                if (level_event_raw_stats_.word_0056b7b4 < 0) {
+                    level_event_raw_stats_.word_0056b7b4 = 1;
+                    level_event_raw_stats_.word_0056b7b0 = -1;
+                } else {
+                    ++level_event_raw_stats_.word_0056b7b4;
+                    level_event_raw_stats_.word_0056b7b0 =
+                        -level_event_raw_stats_.word_0056b7b4;
+                }
+            }
+        }
+    }
+
+    // The first-call initialization is independent of the mode-specific
+    // branch above.  The secondary player pointer is caller-owned; the native
+    // state records the verified reset request rather than fabricating it.
     if (!level_event_initialized_) {
         level_event_initialized_ = true;
         level_event_timer_value_ = 0x50;
         level_event_mode_value_ = 0x40;
         secondary_turn_reset_ = true;
     }
+    level_event_flag_ = true;
     events_.push_back(TriggerEvent{
         TriggerEvent::Kind::LevelEventUpdated,
         CommandPointRuntime::npos,
@@ -1204,6 +1291,115 @@ void LevelTriggerState::on_level_event_state() {
         0,
         0,
     });
+}
+
+TriggerLevelEventFrameResult LevelTriggerState::advance_level_event_frame() {
+    TriggerLevelEventFrameResult result{};
+    if (!has_level_event_frame_input_ || !level_event_initialized_
+        || !level_event_frame_input_.players_eligible
+        || (level_event_frame_input_.secondary_present
+            && !level_event_frame_input_.secondary_eligible)) {
+        last_level_event_frame_ = result;
+        return result;
+    }
+
+    const auto choose_animation = [](
+        bool state7,
+        std::uint16_t animation_state,
+        bool animation_flag) -> std::uint32_t {
+        if (!state7) {
+            return 0;
+        }
+        if (animation_state == 0) {
+            return 0x5d;
+        }
+        if ((animation_state == 0x5d || animation_state == 0x5f)
+            && animation_flag) {
+            return 0x5f;
+        }
+        return 0;
+    };
+
+    result.primary_animation = choose_animation(
+        level_event_frame_input_.primary_state7,
+        level_event_frame_input_.primary_animation_state,
+        level_event_frame_input_.primary_animation_flag_107);
+    result.primary_animation_started = result.primary_animation != 0;
+    if (level_event_frame_input_.secondary_present) {
+        result.secondary_animation = choose_animation(
+            level_event_frame_input_.secondary_state7,
+            level_event_frame_input_.secondary_animation_state,
+            level_event_frame_input_.secondary_animation_flag_107);
+        result.secondary_animation_started = result.secondary_animation != 0;
+    }
+
+    // Skater_UpdateAnimationObjects decrements this word once per eligible
+    // gameplay frame. Mode 7 has the observed input-triggered early re-arm.
+    if (level_event_inputs_.game_mode == 7) {
+        if (level_event_timer_value_ < 0x3c
+            && level_event_frame_input_.mode7_input_active) {
+            level_event_timer_value_ = 1;
+        }
+    }
+    if (level_event_timer_value_ > 0) {
+        --level_event_timer_value_;
+    }
+
+    if (level_event_timer_value_ < 1) {
+        // The retail routine calls the replay-input reset for both player
+        // slots, including the null secondary slot in one-player mode.
+        result.replay_reset_requests = 2;
+        ++level_event_replay_reset_requests_;
+        ++level_event_replay_reset_requests_;
+
+        const bool mode7 = level_event_inputs_.game_mode == 7;
+        const bool has_pending_score =
+            level_event_frame_input_.primary_pending_score != 0
+            || (level_event_frame_input_.secondary_present
+                && level_event_frame_input_.secondary_pending_score != 0);
+        if (mode7 || !has_pending_score) {
+            level_event_initialized_ = false;
+            result.completion_reset_requested = true;
+            ++level_event_completion_reset_requests_;
+        } else {
+            // The pending-score branch leaves the latch active and re-arms
+            // the countdown after clearing the step word.
+            level_event_mode_value_ = 0;
+            level_event_timer_value_ = 1;
+            if (level_event_frame_input_.primary_pending_score != 0
+                && level_event_frame_input_.primary_score_input_active) {
+                result.primary_score_committed =
+                    level_event_frame_input_.primary_pending_score;
+            }
+            if (level_event_frame_input_.secondary_present
+                && level_event_frame_input_.secondary_pending_score != 0
+                && level_event_frame_input_.secondary_score_input_active) {
+                result.secondary_score_committed =
+                    level_event_frame_input_.secondary_pending_score;
+            }
+        }
+    }
+
+    // Game_GameplayUpdate applies the step word to each eligible camera after
+    // Skater_UpdateAnimationObjects. The camera owns the actual +0x5b4 word;
+    // retain the exact per-slot delta here.
+    if (level_event_inputs_.game_mode != 7
+        && level_event_initialized_
+        && level_event_timer_value_ < 0x28) {
+        result.primary_camera_delta =
+            static_cast<std::int32_t>(level_event_mode_value_);
+        ++level_event_camera_updates_;
+        level_event_primary_camera_delta_ += result.primary_camera_delta;
+        if (level_event_frame_input_.secondary_present) {
+            result.secondary_camera_delta =
+                static_cast<std::int32_t>(level_event_mode_value_);
+            ++level_event_camera_updates_;
+            level_event_secondary_camera_delta_ += result.secondary_camera_delta;
+        }
+    }
+
+    last_level_event_frame_ = result;
+    return result;
 }
 
 void LevelTriggerState::on_script_value(std::uint32_t value) {

@@ -82,6 +82,37 @@ functions:
       - re/evidence/functions/animation-runtime.md
     notes: Exact 5/3/1 signed steering-frame easing primitive; shared by the ground selector and the standalone animation cursor contract.
 
+  - address: 0x00492f20
+    name: Skater_UpdateHeading
+    slice: animation-ground-turn-selector
+    status: tested
+    sources:
+      - src/runtime/ground_animation.hpp
+      - src/runtime/ground_animation.cpp
+    tests:
+      - src/runtime/ground_animation_test.cpp
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+      - re/evidence/functions/animation.md
+    notes: Selector model preserves grounded/special branch integer targets, alternate-positive pre-increment, crouched state-to-target seating, zero-turn release wrappers, wrapper rate reset, and post-request completion ordering; FUN_004902e0 and FUN_00496280 services remain explicit seams.
+
+  - address: 0x00493370
+    name: Skater_ActionPhysicsStep
+    slice: ground-turn-lean
+    status: tested
+    sources:
+      - src/runtime/ground_turn.cpp
+      - src/runtime/ground_turn.hpp
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - src/runtime/ground_turn_test.cpp
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: Grounded analog/lean target branch preserves signed +0x31a1 byte threshold 0x1a, sign-corrected SAR-7 target, weighted fixed-point response, 32-bit arithmetic boundaries, and +0x2e7c branch-selection output; queued-motion and non-ground state branches remain outside this slice.
+
   - address: 0x00480730
     name: Animation_Start
     slice: animation-endpoint-transition
@@ -142,6 +173,18 @@ functions:
     evidence:
       - re/evidence/functions/camera-system.md
     notes: Native model covers the evidence-backed thiscall boundary, exact address-based mode table, observed tripod-copy branches, raw viewport low-word handoff, normal-follow tick increment, mode-25 scalar/shared-angle ordering, and the reviewed raw tripod-basis transform; live mode-25 scalar/basis coverage remains excluded.
+
+  - address: 0x0040c370
+    name: Camera_ApplyEffects
+    slice: camera-update
+    status: trace-validated
+    sources:
+      - src/camera/camera_system.hpp
+    tests:
+      - src/camera/camera_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/camera-system.md
+    notes: Selected periodic primary collision-query branch is modeled through its guard checks, pre-query phase/counter update, no-hit fallback, and fixed-point hit-distance magnitude; secondary tripod and transform-effect branches remain explicit unresolved producers.
 
   - address: 0x00496060
     name: Skater_PositionWritePath
@@ -432,6 +475,46 @@ functions:
       - re/evidence/functions/trg-runtime.md
     notes: Native traffic records preserve the proven 0x1e8 allocation, subtype resource/sound selection, fixed-point constructor handoff, and shared named C_*.PSX region ownership for loose and PKR-backed assets.
 
+  - address: 0x00466c10
+    name: LevelEvent_InitializeAndDispatch
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+      - src/trg/trg_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; player/stat/menu owners remain explicit inputs or handoffs.
+
+  - address: 0x00469a30
+    name: Skater_UpdateAnimationObjects
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition.
+
+  - address: 0x00469de0
+    name: Game_GameplayUpdate
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots without manufacturing camera pointers.
+
   - address: 0x004c5460
     name: TRG_CreateObject
     slice: asset-runtime
@@ -487,7 +570,7 @@ functions:
 
   - address: 0x0049db80
     name: Skater_PhysicsDispatcher
-    slice: ground-leave-air
+    slice: ground-to-rail
     status: tested
     sources:
       - src/physics_state_machine.cpp
@@ -496,7 +579,33 @@ functions:
       - tests/physics_state_machine_test.cpp
     evidence:
       - re/evidence/functions/physics-states.md
-    notes: Dispatcher case routing and the post-case-0 grounded leave-air tail are tested with caller-owned slope/recovery/frame inputs; collision, animation, and sound producers remain explicit seams.
+    notes: Dispatcher case routing, the post-case-0 grounded leave-air tail, and the post-landing ground-to-rail handoff are tested; collision/TRG, animation, sound, trick, and script producers remain explicit seams.
+
+  - address: 0x004914d0
+    name: Skater_LandingCleanup
+    slice: ground-to-rail
+    status: tested
+    sources:
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Deterministic landing gates and the +0x3064 handoff are modeled; collision preparation, trick recognition, animation/audio services, and script execution remain callback-owned.
+
+  - address: 0x00490ef0
+    name: Skater_StartGrind
+    slice: ground-to-rail
+    status: tested
+    sources:
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/physics-states.md
+    notes: Deterministic StartGrind entry mutations, strict geometry hint, state-4 request, fixed-point velocity shaping, and direction restoration are tested; TRG inputs and trick/animation/audio/script services remain explicit seams.
 
   - address: 0x004ed9b0
     name: Audio_LoadWavPcm
@@ -549,6 +658,98 @@ functions:
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
     notes: Native PSH parser preserves trailing runtime labels, model prefixes, contiguous indices, and the SK2ANIM1 alias case.
+
+  - address: 0x004b5200
+    name: PlayerSpool_Construct
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native value-owned manager preserves the observed 0xa10 allocation, forty-entry queue, and initialized entry state.
+
+  - address: 0x004b52b0
+    name: PlayerSpool_Reset
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Reset applies the per-entry release cleanup, then restores queue counters/state; native synchronous loading leaves no platform pending operation to process.
+
+  - address: 0x004b5370
+    name: PlayerSpool_QueueResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Queue insertion preserves the eight-byte base-name bound, 0x28-byte entry stride, mode, zero/one heap selector, and next-stride pad-size staging.
+
+  - address: 0x004b5580
+    name: PlayerSpool_ForceFinalize
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native start_next adapter exposes the observed idle-to-pending transition without claiming the retail scheduler implementation.
+
+  - address: 0x004b5620
+    name: PlayerSpool_LoadQueuedItem
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+      - re/evidence/functions/fileio-runtime.md
+    notes: PSH/PSX loads use ResourceLoader for direct, PKR, and PRE sources; bytes are synchronized before parsing and only complete parsed objects are published.
+
+  - address: 0x004b57d0
+    name: PlayerSpool_AdvanceEntry
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Completion advances the consume index and preserves the loaded result until the explicit release boundary.
+
+  - address: 0x004b5a00
+    name: PlayerSpool_ReleaseEntry
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native release drops one stable per-entry parsed resource and preserves the observed processed-bit difference between direct-file and PSH cleanup.
 
   - address: 0x00480cd0
     name: Skater_AssignModelPartOrder

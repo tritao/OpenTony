@@ -272,6 +272,94 @@ types:
         evidence:
           - re/evidence/functions/trg-runtime.md
 
+  - name: RuntimeLevelEventState
+    kind: variable_record
+    confidence: observed
+    description: Scattered level-event globals and their raw mode-8/mode-9 counter words used by TRG command 0x009e; these are not one contiguous retail allocation.
+    fields:
+      - offset: global
+        name: level_event_state_word
+        type: u32
+        confidence: confirmed
+        description: Global at 0x00568610 initialized to 0x40 and cleared when the pending-score branch re-arms the event.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: level_event_latch
+        type: u8
+        confidence: confirmed
+        description: Global at 0x00568658; set on first event dispatch and cleared by the no-pending-score completion path.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: level_event_countdown
+        type: u32
+        confidence: confirmed
+        description: Global at 0x00568818; initialized to 0x50, decremented once per eligible gameplay frame, and re-armed to one for a pending-score retry.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: level_event_flag
+        type: u8
+        confidence: confirmed
+        description: Byte at 0x006a3d49; set after the mode-dependent initialization branch and used to suppress that branch on later dispatches.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b798
+        type: i32
+        confidence: observed
+        description: Incremented by the less-specific mode-8 comparison branch and one mode-9 side branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b79c
+        type: i32
+        confidence: observed
+        description: Incremented by the complementary mode-8 comparison branch and one mode-9 side branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7a0
+        type: i32
+        confidence: observed
+        description: Maximum-tracking word updated from the secondary player +0x2cdc comparison value.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7a4
+        type: i32
+        confidence: observed
+        description: Maximum-tracking word updated from the primary player +0x2cdc comparison value.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7b0
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7b4
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7dc
+        type: i32
+        confidence: observed
+        description: Incremented by the complementary mode-8 comparison branch and one mode-9 side branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: global
+        name: raw_word_0056b7e0
+        type: i32
+        confidence: observed
+        description: Incremented by the less-specific mode-8 comparison branch and one mode-9 side branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+
   - name: RuntimeTrickObject
     kind: fixed_layout
     size: 0x18

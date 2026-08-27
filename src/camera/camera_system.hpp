@@ -64,6 +64,15 @@ struct CameraStateRaw {
     Raw effect_ramp_counter_b{}; // camera +0x5dc
     Raw effect_ramp_counter_c{}; // camera +0x5e0
     Raw effect_ramp_counter_d{}; // camera +0x5e4
+    // Periodic primary collision/effect sample state from Camera_ApplyEffects
+    // 0x0040c370. These are raw fields until the remaining effect branches
+    // are promoted; the phase is a byte and the two magnitudes are shorts.
+    std::int16_t effect_sample_vertical_raw{}; // camera +0x530
+    std::int16_t effect_sample_magnitude_raw{}; // camera +0x534
+    std::int16_t effect_sample_fallback_raw{}; // camera +0x544
+    std::uint8_t effect_sample_phase_raw{}; // camera +0x550
+    Raw effect_sample_counter_raw{}; // camera +0x554
+    Raw effect_sample_distance_raw{}; // camera +0x558
     // DAT_0055F94C is a shared effect word rather than a field proven to be
     // embedded in the camera object.  Keep a replay mirror here so the
     // default native smoothing adapter can carry it from one update to the
@@ -127,11 +136,23 @@ struct CameraTargetRaw {
     bool distance_sample_valid{};
 };
 
+// The camera-side portion of the active view record consumed as param_1 by
+// Render_SetViewProjection 0x0045e8e0. Its storage also contains renderer
+// scratch fields; this preserves the exact camera-produced position, target,
+// and row-ordered Q12 matrix without claiming ownership of that scratch.
+struct CameraRenderViewRecordRaw {
+    Q4Vec3 camera_position_q4{}; // active record +0x04..+0x0c
+    Q4Vec3 look_target_q4{}; // active record +0x14..+0x1c
+    MatrixQ12 row_matrix_q12{}; // active record +0x34..+0x44
+    bool valid{};
+};
+
 struct CameraViewportCommitRaw {
     Q4Vec3 rendered_position{};
     Q16Vec3 screen_delta{};
     Q4Vec3 rendered_look_target{};
     TransformQ12 current_transform{};
+    CameraRenderViewRecordRaw view_record{};
     // Camera_Update writes the low 16 bits of +0x40c to the active viewport
     // record at +0x0e before mode dispatch. Preserve that render-visible
     // handoff even though the viewport memory lives outside CameraStateRaw.
@@ -187,6 +208,107 @@ struct CameraEffectRampResultRaw {
     bool special_branch{};
     Raw vertical_effect_q16{};
 };
+
+// Inputs crossing the world/collision boundary into the selected primary
+// branch of Camera_ApplyEffects 0x0040c370. The query itself remains external
+// because M3D_InitCollisionQuery/M3D_QueryZoneCollision are not camera-owned.
+struct CameraEffectSampleInputRaw {
+    bool global_latch_clear{true}; // DAT_00561c04 == 0
+    bool effect_latch_clear{true}; // DAT_0056a8e0 == 0
+    bool collision_gate_clear{true}; // DAT_0056a86c == 0
+    bool primary_path_valid{}; // tripod +0x30c4 == 0
+    Raw tripod_physics_state{}; // tripod +0x30b8
+    bool hit{};
+    Raw hit_distance_raw{};
+};
+
+struct CameraEffectSampleResultRaw {
+    bool function_entered{};
+    bool phase_advanced{};
+    bool sampled{};
+    std::uint8_t phase_before_raw{};
+    std::uint8_t phase_after_raw{};
+    Raw counter_raw{};
+    std::int16_t magnitude_raw{};
+    Raw distance_raw{};
+};
+
+// The primary query's hit response is
+//   (((((0x78 - hit) * 0x1000) / 0x78)^2 >> 12) * 0x200) >> 12,
+// narrowed to the signed-short camera field. The intermediate operations
+// are 32-bit, matching the retail IMUL/SAR sequence.
+inline std::int16_t camera_primary_effect_magnitude_from_hit(
+    Raw hit_distance_raw) {
+    if (hit_distance_raw >= 0x78) {
+        return 0;
+    }
+    const Raw distance_gap = subtract_s32(0x78, hit_distance_raw);
+    const Raw ratio_q12 = divide_toward_zero(
+        multiply_s32(distance_gap, kQ12One), 0x78);
+    const Raw squared_q12 = arithmetic_shift_right(
+        multiply_s32(ratio_q12, ratio_q12), 12);
+    return low_s16_raw(arithmetic_shift_right(
+        multiply_s32(squared_q12, 0x200), 12));
+}
+
+// Models the selected periodic primary-query branch of Camera_ApplyEffects.
+// The phase is advanced before the phase-2 query, while the resulting fields
+// remain visible to the next function entry in a trace. A non-primary path
+// still advances the phase but leaves its output to the unresolved secondary
+// producer.
+inline CameraEffectSampleResultRaw advance_camera_effect_sample(
+    CameraStateRaw& camera,
+    const CameraEffectSampleInputRaw& input) {
+    CameraEffectSampleResultRaw result;
+    result.phase_before_raw = camera.effect_sample_phase_raw;
+    result.counter_raw = camera.effect_sample_counter_raw;
+    result.magnitude_raw = camera.effect_sample_magnitude_raw;
+    result.distance_raw = camera.effect_sample_distance_raw;
+
+    if (!input.global_latch_clear
+        || !input.effect_latch_clear
+        || camera.update_tick < 0xd
+        || !input.collision_gate_clear) {
+        result.phase_after_raw = camera.effect_sample_phase_raw;
+        return result;
+    }
+
+    result.function_entered = true;
+    result.phase_advanced = true;
+    const std::uint32_t next_phase =
+        static_cast<std::uint32_t>(camera.effect_sample_phase_raw) + 1;
+    if (next_phase > 2) {
+        camera.effect_sample_phase_raw = 0;
+        camera.effect_sample_counter_raw = add_s32(
+            camera.effect_sample_counter_raw, 1);
+    } else {
+        camera.effect_sample_phase_raw = static_cast<std::uint8_t>(next_phase);
+    }
+    result.phase_after_raw = camera.effect_sample_phase_raw;
+    result.counter_raw = camera.effect_sample_counter_raw;
+
+    if (camera.effect_sample_phase_raw != 2 || !input.primary_path_valid) {
+        result.magnitude_raw = camera.effect_sample_magnitude_raw;
+        result.distance_raw = camera.effect_sample_distance_raw;
+        return result;
+    }
+
+    result.sampled = true;
+    camera.effect_sample_fallback_raw = camera.effect_sample_magnitude_raw;
+    if (!input.hit) {
+        camera.effect_sample_distance_raw = -1;
+        camera.effect_sample_magnitude_raw = input.tripod_physics_state == 1
+            ? static_cast<std::int16_t>(0x200)
+            : camera.effect_sample_fallback_raw;
+    } else {
+        camera.effect_sample_distance_raw = input.hit_distance_raw;
+        camera.effect_sample_magnitude_raw =
+            camera_primary_effect_magnitude_from_hit(input.hit_distance_raw);
+    }
+    result.magnitude_raw = camera.effect_sample_magnitude_raw;
+    result.distance_raw = camera.effect_sample_distance_raw;
+    return result;
+}
 
 inline Raw camera_effect_ramp_delta_q16(Raw strength_q4, Raw phase) {
     const Raw square = multiply_s32(phase, phase);
@@ -456,6 +578,11 @@ struct CameraSmoothingProducerInputRaw {
     bool tripod_effect_gate{};      // tripod +0x2C68 != 0
     bool vertical_effect_valid{};
     Raw vertical_effect_q16{};      // DAT_0055F94C
+    // Optional world/collision result for the selected periodic
+    // Camera_ApplyEffects branch. It is applied after the smoothing entry
+    // boundary and before the camera-owned effect ramp.
+    bool effect_sample_valid{};
+    CameraEffectSampleInputRaw effect_sample{};
 };
 
 inline bool build_camera_smoothing_stage_input(
@@ -1343,6 +1470,15 @@ inline CameraViewportCommitRaw commit_viewport_effects(
     result.screen_delta = camera.screen_delta;
     result.rendered_look_target = world_to_q4(add_q16(camera.look_target, look_target_offset));
     result.current_transform = camera.current_transform;
+    // Camera_CommitViewportEffects writes the camera position and target in
+    // Q4 to the active record and converts the current payload to the
+    // row-ordered short matrix consumed by Render_SetViewProjection. The
+    // renderer later owns the transpose into its +0x54 scratch block.
+    result.view_record.camera_position_q4 = result.rendered_position;
+    result.view_record.look_target_q4 = result.rendered_look_target;
+    result.view_record.row_matrix_q12 = transform_to_matrix_q12(
+        camera.current_transform);
+    result.view_record.valid = true;
     result.viewport_parameter_low_raw = static_cast<std::uint16_t>(
         camera.viewport_parameter_raw);
     return result;
@@ -1792,6 +1928,13 @@ inline CameraViewportCommitRaw update_camera(
         }
     }
     camera.previous_transform = camera.current_transform;
+    if (smoothing_producer.effect_sample_valid) {
+        // The retail call to Camera_ApplyEffects occurs after the smoothing
+        // entry copy and before the effect-ramp arithmetic. Keep the producer
+        // input explicit while preserving that one-update boundary.
+        (void)advance_camera_effect_sample(
+            camera, smoothing_producer.effect_sample);
+    }
     CameraPositionStageInput smoothing_position_input;
     bool have_smoothing_position = false;
     if (hooks.prepare_smoothing_stage != nullptr) {

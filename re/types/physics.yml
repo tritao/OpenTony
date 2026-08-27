@@ -95,12 +95,14 @@ types:
         name: brake_mode
         type: i32
         confidence: observed
+        description: Grounded action step's wide-limit/brake selector; state 0/7 uses it to choose the doubled turn step and +/-0x5a000 limit.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2e7c
         name: steering_active
         type: i32
         confidence: observed
+        description: Grounded action step clears this at entry and sets it when a digital or analog target branch is selected, including a repeated input at a turn cap.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2dc8
@@ -206,7 +208,8 @@ types:
       - offset: 0x31a1
         name: heading_input
         type: i8
-        confidence: observed
+        confidence: confirmed
+        description: Signed controller lean byte consumed by the grounded analog target branch; magnitude 0x1a is the inclusive response threshold.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x31a2
@@ -258,6 +261,196 @@ types:
         description: Selects the alternate heading transition branch when nonzero.
         evidence:
           - re/evidence/functions/physics.md
+      - offset: 0xd8
+        name: object_rail_flags
+        type: u8
+        confidence: observed
+        description: Object flag byte bit 1 consumed by StartGrind's stance-side turn flag update.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e18
+        name: rail_relative_vector
+        type: array<i32,3>
+        confidence: observed
+        description: Relative vector written while deriving the perpendicular direction for the rail-entry turn flags.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e88
+        name: rail_entry_sequence_count
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e8c
+        name: rail_type
+        type: i32
+        confidence: observed
+        description: Rail type selector consumed by the StartGrind sound switch; rail-type semantics remain open.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e90
+        name: rail_entry_active
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e94
+        name: rail_entry_landing_marker
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e98
+        name: rail_previous_node
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2e9c
+        name: rail_current_node
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2ea8
+        name: rail_entry_position
+        type: array<i32,3>
+        confidence: observed
+        description: TRG-produced position copied into the live position and both entry-position snapshots.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2eb4
+        name: rail_entry_direction
+        type: array<i32,3>
+        confidence: observed
+        description: TRG-produced rail direction negated for entry velocity/flag math and restored before StartGrind returns.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2ecc
+        name: rail_entry_position_copy
+        type: array<i32,3>
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2ed8
+        name: rail_entry_mode
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2eec
+        name: rail_entry_animation_marker
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2ef4
+        name: rail_speed_delta
+        type: i32
+        confidence: observed
+        description: Type-7 random speed delta updated after the node-change quantum and consumed by the rail handler.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2efc
+        name: rail_speed_metric
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2bf0
+        name: rail_turn_flag
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2bf4
+        name: rail_turn_mismatch_flag
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2bf8
+        name: rail_stance_flag
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2be8
+        name: rail_normal_alignment_flag
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2bec
+        name: rail_normal_direction_flag
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2c04
+        name: rail_derived_pattern
+        type: i32
+        confidence: observed
+        description: Pattern value derived from +0x2bfc/+0x2c00 and the turn flag before trick services execute.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2c0c
+        name: rail_entry_effect
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2c78
+        name: rail_vector_gate_x
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2c7c
+        name: rail_vector_gate_z
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2cb0
+        name: movement_delta_accumulator_extra_x
+        type: i32
+        confidence: observed
+        description: Additional pending movement word cleared with the +0x2c94..+0x2ca8 block by the geometry-hint branch.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2cb4
+        name: movement_delta_accumulator_extra_y
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x3064
+        name: trick_dispatch_flag
+        type: i32
+        confidence: observed
+        description: Nonzero post-TrickInput_SelectSequence flag that invokes StartGrind from landing cleanup.
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x304c
+        name: rail_update_count
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x3070
+        name: rail_sequence_update_count
+        type: i32
+        confidence: observed
+        evidence:
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2de0
+        name: ollie_latch
+        type: i32
+        confidence: observed
+        description: Latched launch word cleared by the geometry-hint StartGrind branch.
+        evidence:
+          - re/evidence/functions/physics-states.md
 
   - name: RuntimeCollisionQueryRecord
     kind: alias

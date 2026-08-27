@@ -1,0 +1,36 @@
+version: 1
+id: trg-level-event
+subsystem: scripting
+status: active
+
+scope:
+  functions:
+    - 0x00466c10
+    - 0x00469a30
+    - 0x00469de0
+  types:
+    - RuntimeLevelEventState
+  globals:
+    - LevelEventStateWord
+    - LevelEventLatch
+    - LevelEventSecondaryStateWord
+    - LevelEventFlag
+
+artifacts:
+  evidence:
+    - re/evidence/functions/level-event-runtime.md
+  native:
+    - src/trg/level_trigger_state.hpp
+    - src/trg/level_trigger_state.cpp
+  tests:
+    - src/trg/trg_runtime_test.cpp
+    - src/trg/level_trigger_state_test.cpp
+
+open_questions:
+  - The owning player/camera services must apply the returned replay, score, animation, and +0x5b4 camera writes.
+  - FUN_004dee50, FUN_004ab9c0, and FUN_0044e0f0 retain broader mode/menu/stat side effects outside this trigger service.
+
+completion:
+  - Opcode 0x009e is proven operand-free in normal and conditional-skip paths, including stream-boundary failures.
+  - Mode-8/mode-9 raw counter writes and first-call latch initialization are represented with explicit caller inputs.
+  - Eligible per-frame countdown, animation selection, camera-step deltas, replay reset, completion, and pending-score handoffs have deterministic tests.

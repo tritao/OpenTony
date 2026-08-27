@@ -1,0 +1,36 @@
+version: 1
+id: animation-ground-turn-selector
+subsystem: animation
+status: complete
+
+scope:
+  functions:
+    - 0x00492f20
+    - 0x004903f0
+    - 0x00490420
+    - 0x00490450
+    - 0x00490480
+  types:
+    - RuntimeAnimationObjectState
+  globals: []
+
+shared:
+  functions:
+    - 0x00493370
+
+artifacts:
+  evidence:
+    - re/evidence/functions/animation.md
+    - re/evidence/functions/animation-ground-turn-selector.md
+  native:
+    - src/runtime/ground_animation.hpp
+    - src/runtime/ground_animation.cpp
+  tests:
+    - src/runtime/ground_animation_test.cpp
+
+open_questions: []
+
+completion:
+  - The 0x00493370 to 0x00492f20 callsite ordering is evidence-backed.
+  - Ground-turn, special-turn, and zero-turn release requests preserve their exact integer arguments and state/frame seeding.
+  - The wrapper rate reset and post-request special-turn completion check are represented by deterministic native tests.

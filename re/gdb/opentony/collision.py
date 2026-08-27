@@ -10,6 +10,10 @@ from .player import PlayerView
 
 QUERY_WRAPPER = 0x00466090
 QUERY_RETURN = 0x0046609F
+COLLISION_QUERY_INIT = 0x004624D0
+COLLISION_QUERY_INIT_RETURN = 0x004628E5
+COLLISION_QUERY_BASIS_GLOBAL = 0x006A3E10
+COLLISION_QUERY_SCRATCH_GLOBAL = 0x00567BB0
 ACTION_MASK = 0x006A3F1C
 COLLISION_MODEL_TABLE = 0x0056D43C
 COLLISION_LINKED_ROOT = 0x0056AF40
@@ -72,6 +76,47 @@ def _short_vec(address: int, memory) -> list[int]:
 
 def _short_words(address: int, count: int, memory) -> list[int]:
     return [_signed16(memory.u16(address + offset * 2)) for offset in range(count)]
+
+
+def _collision_init_snapshot(query: int, memory) -> dict:
+    return {
+        "line_length": _signed32(memory.u32(query + 0x44)),
+        "line_basis_s16": _short_words(query + 0x48, 9, memory),
+        "hit_distance": _signed32(memory.u32(query + 0x40)),
+        "hit_parameter": _signed32(memory.u32(query + 0x8C)),
+        "hit_body": memory.u32(query + 0x68),
+        "hit_face": memory.u32(query + 0x80),
+        "hit_model_index": memory.u32(query + 0x84),
+        "field_88": memory.u8(query + 0x88),
+        "direction_flag": memory.u8(query + 0x89),
+        "query_stamp": memory.u16(query + 0x8A),
+        "bounds_raw": [
+            _signed32(memory.u32(query + offset))
+            for offset in (0x18, 0x1C, 0x20, 0x24, 0x28, 0x2C)
+        ],
+        "published_basis_s16": _short_words(
+            COLLISION_QUERY_BASIS_GLOBAL, 9, memory
+        ),
+    }
+
+
+# Components are expressed after retail's endpoint difference arithmetic
+# shift by twelve bits.  The set pairs sign changes, proportional scaling,
+# signed-short limits, and the horizontal-degenerate branch while remaining
+# small enough to run before a normal level query stream becomes interesting.
+COLLISION_INIT_BOUNDARY_CASES = (
+    ("unit_xyz", (1, 2, 3)),
+    ("scaled_xyz", (2, 4, 6)),
+    ("negative_x", (-1, 2, 3)),
+    ("negative_y", (1, -2, 3)),
+    ("negative_z", (1, 2, -3)),
+    ("s16_max_x", (0x7FFF, 1, 0)),
+    ("s16_min_x", (-0x8000, 1, 0)),
+    ("horizontal_x_axis", (1, 0, 0)),
+    ("degenerate_zero", (0, 0, 0)),
+    ("degenerate_up", (0, 1, 0)),
+    ("degenerate_down", (0, -1, 0)),
+)
 
 
 def _u32_words(address: int, count: int, memory) -> list[int] | None:
@@ -456,6 +501,145 @@ class _CollisionQueryReturn(TonyBreakpoint):
     def __init__(self, owner: CollisionQueryProbe):
         self.owner = owner
         super().__init__(QUERY_RETURN, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.finish(ctx)
+
+
+class CollisionQueryInitBoundaryProbe:
+    """Run a bounded signed/scale/degenerate matrix through query setup."""
+
+    def __init__(self, count: int | None = None, writer=None):
+        self.remaining = count
+        self.writer = writer
+        self.hits = 0
+        self._case_index = 0
+        self._entry = _CollisionQueryInitEntry(self)
+        self._return = _CollisionQueryInitReturn(self)
+        self._entry.writer = writer
+        self._return.writer = writer
+        self._active: dict[str, object] | None = None
+
+    @property
+    def breakpoints(self):
+        return self._entry, self._return
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            TonyBreakpoint.emit(record)
+        else:
+            self.writer.event(record)
+
+    def begin(self, ctx: Context) -> None:
+        if self._active is not None:
+            return
+        if self._case_index >= len(COLLISION_INIT_BOUNDARY_CASES):
+            self._entry.enabled = False
+            return
+        query = ctx.arg(0)
+        if not query or not ctx.memory.readable(query, 0x90):
+            return
+        if not ctx.memory.readable(COLLISION_QUERY_BASIS_GLOBAL, 0x12):
+            return
+        if not ctx.memory.readable(COLLISION_QUERY_SCRATCH_GLOBAL, 0x12):
+            return
+
+        label, delta = COLLISION_INIT_BOUNDARY_CASES[self._case_index]
+        self._case_index += 1
+        original_end = ctx.memory.bytes(query + 0x0C, 0x0C)
+        original_basis_global = ctx.memory.bytes(
+            COLLISION_QUERY_BASIS_GLOBAL, 0x12
+        )
+        original_scratch_global = ctx.memory.bytes(
+            COLLISION_QUERY_SCRATCH_GLOBAL, 0x12
+        )
+        start_raw = _vec_words(query, ctx.memory)
+        end_raw = _vec_words(query + 0x0C, ctx.memory)
+        controlled_end = tuple(
+            (start_raw[index] + (delta[index] << 12)) & 0xFFFFFFFF
+            for index in range(3)
+        )
+        for index, value in enumerate(controlled_end):
+            ctx.memory.write_u32(query + 0x0C + index * 4, value)
+        self._active = {
+            "query": query,
+            "label": label,
+            "delta_q4": list(delta),
+            "caller": ctx.caller(),
+            "caller_function": function_name_at(ctx.caller()),
+            "start_raw": start_raw,
+            "original_end_raw": end_raw,
+            "controlled_end_raw": list(controlled_end),
+            "original_end": original_end,
+            "original_basis_global": original_basis_global,
+            "original_scratch_global": original_scratch_global,
+        }
+
+    def finish(self, ctx: Context) -> None:
+        active = self._active
+        self._active = None
+        if active is None:
+            return
+        query = int(active["query"])
+        observed = _collision_init_snapshot(query, ctx.memory)
+        original_end = bytes(active["original_end"])
+        original_basis_global = bytes(active["original_basis_global"])
+        original_scratch_global = bytes(active["original_scratch_global"])
+        # Keep the caller-owned retail outputs intact; only restore the
+        # endpoint words injected by this probe and private scratch globals.
+        ctx.memory.write(query + 0x0C, original_end)
+        ctx.memory.write(COLLISION_QUERY_BASIS_GLOBAL, original_basis_global)
+        ctx.memory.write(COLLISION_QUERY_SCRATCH_GLOBAL, original_scratch_global)
+        restored_end = ctx.memory.bytes(query + 0x0C, 0x0C)
+        restored_basis_global = ctx.memory.bytes(
+            COLLISION_QUERY_BASIS_GLOBAL, 0x12
+        )
+        restored_scratch_global = ctx.memory.bytes(
+            COLLISION_QUERY_SCRATCH_GLOBAL, 0x12
+        )
+        self._emit(
+            {
+                "type": "collision_query_init_boundary",
+                "function": "M3D_InitCollisionQuery",
+                "address": f"0x{COLLISION_QUERY_INIT:08x}",
+                "return_pc": f"0x{ctx.eip:08x}",
+                "caller": f"0x{int(active['caller']):08x}",
+                "caller_function": active["caller_function"],
+                "query": f"0x{query:08x}",
+                "case": active["label"],
+                "delta_q4": active["delta_q4"],
+                "start_raw": active["start_raw"],
+                "original_end_raw": active["original_end_raw"],
+                "controlled_end_raw": active["controlled_end_raw"],
+                "observed": observed,
+                "restored": {
+                    "query_input": restored_end == original_end,
+                    "published_basis": restored_basis_global == original_basis_global,
+                    "scratch": restored_scratch_global == original_scratch_global,
+                },
+            }
+        )
+        self.hits += 1
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self._entry.enabled = False
+                self._return.enabled = False
+
+
+class _CollisionQueryInitEntry(TonyBreakpoint):
+    def __init__(self, owner: CollisionQueryInitBoundaryProbe):
+        self.owner = owner
+        super().__init__(COLLISION_QUERY_INIT, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.owner.begin(ctx)
+
+
+class _CollisionQueryInitReturn(TonyBreakpoint):
+    def __init__(self, owner: CollisionQueryInitBoundaryProbe):
+        self.owner = owner
+        super().__init__(COLLISION_QUERY_INIT_RETURN, internal=True)
 
     def on_hit(self, ctx: Context) -> None:
         self.owner.finish(ctx)
