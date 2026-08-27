@@ -154,9 +154,10 @@ boundaries:
 | pending `+0x2a8 -> +0x16c` transfer | `LevelEventGameplayOwner -> PlayerState` | adds the returned value to raw `+0x16c` and clears raw `+0x2a8` |
 | `0x00469de0` camera delta to `+0x5b4` | `LevelEventGameplayOwner -> CameraRuntime` | applies the 16-bit camera field update through `CameraRuntime::apply_level_event_delta` |
 
-The deterministic `src/runtime/level_event_owner_test.cpp` fixture drives the
-native boundary reached by decoded `0x009e`, advances the recovered `0x50`
-countdown, and checks all four side-effect owners at expiry/window boundaries.
+The deterministic `src/runtime/level_event_owner_test.cpp` fixture dispatches a
+synthetic type-6 TRG node containing the operand-free `0x009e` command, then
+advances the recovered `0x50` countdown and checks all four side-effect owners
+at expiry/window boundaries.
 Together with the existing `src/trg/trg_runtime_test.cpp` cursor fixture it
 keeps command dispatch and gameplay ownership separate. The owner fixture also
 checks the two raw deferred-gap slots and script-object reset lifecycle, so no

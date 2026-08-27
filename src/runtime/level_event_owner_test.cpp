@@ -2,10 +2,47 @@
 
 #include "../trg/gap_table.hpp"
 #include "../trg/level_trigger_state.hpp"
+#include "../trg/trg_runtime.hpp"
 #include "tests/test_check.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <vector>
+
+namespace {
+
+void append_u16(std::vector<std::byte>& bytes, std::uint16_t value) {
+    bytes.push_back(static_cast<std::byte>(value & 0xffU));
+    bytes.push_back(static_cast<std::byte>(value >> 8U));
+}
+
+void append_u32(std::vector<std::byte>& bytes, std::uint32_t value) {
+    append_u16(bytes, static_cast<std::uint16_t>(value));
+    append_u16(bytes, static_cast<std::uint16_t>(value >> 16U));
+}
+
+[[nodiscard]] std::vector<std::byte> event_trg_file() {
+    std::vector<std::byte> bytes{
+        std::byte{'_'}, std::byte{'T'}, std::byte{'R'}, std::byte{'G'},
+    };
+    append_u32(bytes, 2);
+    append_u32(bytes, 2);
+    append_u32(bytes, 20);
+    append_u32(bytes, 32);
+
+    // Type-6 command point with the operand-free 0x009e event command.
+    append_u16(bytes, 6);
+    append_u16(bytes, 0);
+    append_u32(bytes, 0x12345678);
+    append_u16(bytes, 0x009e);
+    append_u16(bytes, 0xffff);
+    append_u16(bytes, 0xff);
+    append_u16(bytes, 0);
+    return bytes;
+}
+
+} // namespace
 
 int main() {
     using namespace opentony::runtime;
@@ -48,7 +85,11 @@ int main() {
     const TriggerLevelEventInputs event_inputs{
         0, 0, false, 0, 0};
     event_state.set_level_event_inputs(event_inputs);
-    event_state.on_level_event_state();
+    TrgFile event_file = TrgFile::parse(event_trg_file());
+    TriggerRuntime event_runtime(std::move(event_file), event_state);
+    event_runtime.build();
+    event_runtime.pulse_node(0);
+    CHECK(event_state.level_event_updates() == 1);
 
     PlayerState player;
     player.set_physics_state(7);
