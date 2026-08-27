@@ -420,6 +420,46 @@ functions:
       - re/evidence/functions/trg-runtime.md
     notes: Native traffic records preserve the proven 0x1e8 allocation, subtype resource/sound selection, fixed-point constructor handoff, and shared named C_*.PSX region ownership for loose and PKR-backed assets.
 
+  - address: 0x00466c10
+    name: LevelEvent_InitializeAndDispatch
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+      - src/trg/trg_runtime_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; player/stat/menu owners remain explicit inputs or handoffs.
+
+  - address: 0x00469a30
+    name: Skater_UpdateAnimationObjects
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition.
+
+  - address: 0x00469de0
+    name: Game_GameplayUpdate
+    slice: trg-level-event
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots without manufacturing camera pointers.
+
   - address: 0x004c5460
     name: TRG_CreateObject
     slice: asset-runtime

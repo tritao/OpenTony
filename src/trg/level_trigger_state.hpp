@@ -300,6 +300,63 @@ struct TriggerCurrentSkaterFields {
     std::uint32_t field_319c{};
 };
 
+// Inputs consumed by LevelEvent_InitializeAndDispatch (0x00466c10).  These
+// names intentionally retain the observed global/field role rather than
+// assigning a higher-level versus or score meaning to the values.
+struct TriggerLevelEventInputs {
+    std::uint32_t game_mode{}; // DAT_00533f38
+    std::uint32_t versus_state{}; // DAT_0056db64
+    bool mode9_side_flag{}; // DAT_006a3d48
+    std::int32_t primary_compare_value{}; // primary player +0x2cdc
+    std::int32_t secondary_compare_value{}; // secondary player +0x2cdc
+};
+
+// The gameplay update supplies these player-owned fields to the level-event
+// service.  The trigger runtime does not manufacture player or camera
+// pointers; it returns the writes/requests that the owning runtime must apply.
+struct TriggerLevelEventFrameInput {
+    bool players_eligible{};
+    bool secondary_present{};
+    bool secondary_eligible{};
+    bool primary_state7{};
+    bool secondary_state7{};
+    std::uint16_t primary_animation_state{}; // skater +0xf6
+    std::uint16_t secondary_animation_state{}; // secondary skater +0xf6
+    bool primary_animation_flag_107{}; // skater +0x107
+    bool secondary_animation_flag_107{}; // secondary skater +0x107
+    bool mode7_input_active{};
+    std::int32_t primary_pending_score{}; // skater +0x2a8
+    std::int32_t secondary_pending_score{}; // secondary skater +0x2a8
+    bool primary_score_input_active{};
+    bool secondary_score_input_active{};
+};
+
+struct TriggerLevelEventFrameResult {
+    bool primary_animation_started{};
+    bool secondary_animation_started{};
+    std::uint32_t primary_animation{};
+    std::uint32_t secondary_animation{};
+    std::size_t replay_reset_requests{};
+    bool completion_reset_requested{};
+    std::int32_t primary_score_committed{};
+    std::int32_t secondary_score_committed{};
+    std::int32_t primary_camera_delta{};
+    std::int32_t secondary_camera_delta{};
+};
+
+// Raw mode-8/mode-9 writes from 0x00466c10.  The addresses are part of the
+// evidence contract; semantic names for the counters remain unresolved.
+struct TriggerLevelEventRawStats {
+    std::int32_t word_0056b798{};
+    std::int32_t word_0056b79c{};
+    std::int32_t word_0056b7a0{};
+    std::int32_t word_0056b7a4{};
+    std::int32_t word_0056b7b0{};
+    std::int32_t word_0056b7b4{};
+    std::int32_t word_0056b7dc{};
+    std::int32_t word_0056b7e0{};
+};
+
 struct TriggerSpecialRuntimeContext {
     // FUN_004bdc40 copies the retail player-selection globals into the
     // type-12/type-14 record at +0x0b and +0x0c. Their higher-level meaning is
@@ -404,6 +461,14 @@ public:
         std::uint8_t global_fade_flags = 0);
     void mark_gap_complete(std::uint32_t checksum);
     void mark_goal_complete(std::uint16_t goal, bool complete = true);
+    void set_level_event_inputs(TriggerLevelEventInputs inputs) noexcept {
+        level_event_inputs_ = inputs;
+    }
+    void set_level_event_frame_input(TriggerLevelEventFrameInput input) noexcept {
+        level_event_frame_input_ = input;
+        has_level_event_frame_input_ = true;
+    }
+    [[nodiscard]] TriggerLevelEventFrameResult advance_level_event_frame();
     void advance_time(std::uint32_t milliseconds);
 
     [[nodiscard]] std::uint64_t time_ms() const noexcept { return time_ms_; }
@@ -483,6 +548,30 @@ public:
     }
     [[nodiscard]] std::uint32_t level_event_mode_value() const noexcept {
         return level_event_mode_value_;
+    }
+    [[nodiscard]] bool level_event_flag() const noexcept {
+        return level_event_flag_;
+    }
+    [[nodiscard]] const TriggerLevelEventRawStats& level_event_raw_stats() const noexcept {
+        return level_event_raw_stats_;
+    }
+    [[nodiscard]] const TriggerLevelEventFrameResult& last_level_event_frame() const noexcept {
+        return last_level_event_frame_;
+    }
+    [[nodiscard]] std::size_t level_event_camera_updates() const noexcept {
+        return level_event_camera_updates_;
+    }
+    [[nodiscard]] std::int64_t level_event_primary_camera_delta() const noexcept {
+        return level_event_primary_camera_delta_;
+    }
+    [[nodiscard]] std::int64_t level_event_secondary_camera_delta() const noexcept {
+        return level_event_secondary_camera_delta_;
+    }
+    [[nodiscard]] std::size_t level_event_replay_reset_requests() const noexcept {
+        return level_event_replay_reset_requests_;
+    }
+    [[nodiscard]] std::size_t level_event_completion_reset_requests() const noexcept {
+        return level_event_completion_reset_requests_;
     }
     [[nodiscard]] bool secondary_turn_reset() const noexcept {
         return secondary_turn_reset_;
@@ -641,9 +730,20 @@ private:
     std::size_t bound_scene_position_count_{};
     std::size_t level_event_updates_{};
     bool level_event_initialized_{};
+    bool level_event_flag_{};
     std::uint32_t level_event_timer_value_{};
     std::uint32_t level_event_mode_value_{};
     bool secondary_turn_reset_{};
+    TriggerLevelEventInputs level_event_inputs_{};
+    TriggerLevelEventFrameInput level_event_frame_input_{};
+    bool has_level_event_frame_input_{};
+    TriggerLevelEventRawStats level_event_raw_stats_{};
+    TriggerLevelEventFrameResult last_level_event_frame_{};
+    std::size_t level_event_camera_updates_{};
+    std::int64_t level_event_primary_camera_delta_{};
+    std::int64_t level_event_secondary_camera_delta_{};
+    std::size_t level_event_replay_reset_requests_{};
+    std::size_t level_event_completion_reset_requests_{};
     const GapTable* gap_table_{};
 
     TriggerObjectState* find_object(std::size_t node);

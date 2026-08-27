@@ -2566,7 +2566,7 @@ functions:
       - re/evidence/functions/animation.md
   - address: 0x00469a30
     name: Skater_UpdateAnimationObjects
-    description: walk active skater objects and start state-selected animations
+    description: walk active skater objects, consume the level-event countdown, and start state-selected animations
     confidence: confirmed
     evidence:
       - re/evidence/functions/animation-runtime.md
@@ -2830,10 +2830,11 @@ functions:
     name: Game_GameplayUpdate
     gdb_aliases:
       - gameplay_update
-    description: post-input gameplay update
+    description: post-input gameplay update including the level-event camera-step consumer
     confidence: observed
     evidence:
       - re/evidence/functions/input.md
+      - re/evidence/functions/level-event-runtime.md
   - address: 0x004f7ce0
     name: Game_FrameTick
     gdb_aliases:

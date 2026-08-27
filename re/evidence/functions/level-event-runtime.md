@@ -1,9 +1,9 @@
 # TRG level-event runtime initialization
 
-Status: confirmed first-call state writes for trigger opcode `0x009e`; mode/versus consumers remain open
+Status: confirmed opcode boundary, mode-8/mode-9 first-call writes, eligible-frame countdown/score/camera side effects, and native handoff model; menu/stat/player ownership remains open
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
-Branch: `re/asset-runtime`
-Addresses: `0x004c5dc0`, `0x00466c10`, `0x00469a30`, `0x00469de0`, `0x00568658`, `0x00568818`, `0x00568610`, `0x006a3d49`
+Branch: `re/scripting`
+Addresses: `0x004c5dc0`, `0x00466c10`, `0x00469a30`, `0x00469de0`, `0x0044e0f0`, `0x00568658`, `0x00568818`, `0x00568610`, `0x006a3d48`, `0x006a3d49`, `0x0056b798`, `0x0056b79c`, `0x0056b7a0`, `0x0056b7a4`, `0x0056b7b0`, `0x0056b7b4`, `0x0056b7dc`, `0x0056b7e0`
 
 ## Proven path
 
@@ -24,6 +24,12 @@ This is a trigger-to-runtime-state path, not a geometry loader. It is recorded
 here because a faithful level runtime must preserve the event initialization
 boundary reached from the loaded level's TRG data.
 
+The current Ghidra project gives the exact call/return boundary: case `0x9e`
+calls `LevelEvent_InitializeAndDispatch` with no operand and resumes at the
+word after the opcode. The initializer first calls `0x004dee50` and
+`0x004ab9c0`, whose broader services remain outside this slice, then executes
+the mode-specific counter branch and the common latch initialization.
+
 ## Exact first-call writes
 
 The first-call path in `0x00466c10` performs these directly observed writes:
@@ -41,15 +47,43 @@ alone. The safe correspondence is the already-proven player table at
 `DAT_0056a858`, whose second entry is at `+4`; `0x00466c10` reaches the
 secondary player object before clearing its `+0x3144` field.
 
+## Mode-dependent first-call counters
+
+The mode branch is now represented with explicit caller inputs and raw
+address-named outputs. It runs only while byte `DAT_006a3d49` is zero; the
+initializer sets that byte to one before returning, so later `0x009e` calls do
+not repeat the branch.
+
+| Condition | Direct writes |
+| --- | --- |
+| `DAT_00533f38 == 8`, primary `+0x2cdc` differs from secondary `+0x2cdc`, and primary is lower | increment `DAT_0056b7e0` and `DAT_0056b79c`; update the signed pair `DAT_0056b7b4`/`DAT_0056b7b0` with the observed negative-step rule |
+| Same mode-8 condition, primary is not lower | increment `DAT_0056b7dc` and `DAT_0056b798`; update the signed pair with the observed positive-step rule |
+| Any mode-8 differing comparison | raise `DAT_0056b7a4` from primary `+0x2cdc` and `DAT_0056b7a0` from secondary `+0x2cdc` when lower |
+| `DAT_00533f38 == 9`, `DAT_0056db64 == 2`, and `DAT_006a3d48 == 0` | increment `DAT_0056b7dc` and `DAT_0056b798`, then apply the positive-step rule |
+| Same mode/versus condition and `DAT_006a3d48 != 0` | increment `DAT_0056b7e0` and `DAT_0056b79c`, then apply the negative-step rule |
+
+The native `TriggerLevelEventRawStats` keeps these writes separate from any
+guessed score/team names. Tests cover both mode-8 comparison directions,
+mode-9 side branches, and suppression on the second dispatch.
+
 ## Per-frame event consumer
 
 The event state is consumed by `0x00469a30`, the per-level skater/animation
-update boundary. When the eligible player objects are in the normal/ground or
-state-7 paths, it requires `DAT_00568658 == 1`, decrements
-`DAT_00568818`, and waits for the countdown to reach zero. The same routine
-starts the state-selected idle/step-off animation for eligible state-7
-objects, so the event latch gates both the countdown and this animation-side
-work.
+update boundary. The outer gate accepts a primary skater in `(mode 0 and
+field +0x2dd4 == 0)` or mode 7, and applies the same predicate to a present
+secondary skater. While `DAT_00568658 == 1`, state-7 skaters request animation
+`0x5d` when `+0xf6 == 0`, or animation `0x5f` when `+0xf6` is `0x5d`/`0x5f`
+and byte `+0x107` is nonzero. The routine then decrements `DAT_00568818` once
+per eligible gameplay frame.
+
+For mode 7, input activity while the countdown is below `0x3c` re-arms it to
+one before the decrement. At countdown expiry the routine requests replay
+input reset for both player slots. If mode 7 is active, or no pending landed
+score is present, it clears `DAT_00568658` and calls `0x0044e0f0`. Otherwise it
+clears `DAT_00568610`, sets `DAT_00568818` to one, and conditionally transfers
+each pending `+0x2a8` score into its `+0x16c` total before clearing the pending
+word. The native frame result reports those two score transfers and reset/menu
+requests to the owning player service.
 
 At countdown expiry, the consumer has two directly observed outcomes:
 
@@ -71,22 +105,41 @@ runtime chain extends past initialization into a countdown-gated score
 commit; the owner of the surrounding presentation/stat mode remains open.
 
 The enclosing gameplay update at `0x00469de0` is a second consumer of the
-same state. While the event latch is active and the countdown is below
-`0x28`, and the primary/secondary skaters are in the eligible normal, ground,
-or state-7 paths, it adds `DAT_00568610` to camera `+0x5b4` through each
-skater's `+0x29b0` camera pointer. This proves that the event step word also
-drives a bounded camera update; it does not identify the presentation effect
-represented by that accumulator.
+same state. For non-mode-7 gameplay, while the event latch is active and the
+countdown is below `0x28`, and both present skaters pass the same eligibility
+predicate, it adds `DAT_00568610` to camera `+0x5b4` through each skater's
+`+0x29b0` camera pointer. The native frame result exposes one `0x40` delta per
+eligible camera while the countdown is in this range; it leaves application of
+the actual camera field to the camera owner.
+
+## Native contract and fixtures
+
+`LevelTriggerState::on_level_event_state()` implements the opcode's common and
+mode-specific writes. `advance_level_event_frame()` implements the observed
+per-frame gate and returns animation IDs, replay-reset count, completion
+request, score handoffs, and camera deltas. The frame input is opt-in because
+the trigger service does not own the retail player/camera pointers; when set,
+`LevelTriggerState::advance_time()` invokes it at the `LevelRuntime::tick`
+boundary.
+
+`src/trg/trg_runtime_test.cpp` uses `{0x009e, 0x0086, value, 0xffff}` to prove
+that the no-payload command reaches the following `0x0086`, repeats that proof
+through a conditional skip, and rejects a one-byte command tail. The state
+fixture covers both mode counter directions, state-7 animation requests,
+countdown/camera boundaries, pending-score re-arm and commit, mode-7 early
+completion, and final latch clearing.
 
 ## Boundary and open work
 
 The command cursor contract is independently supported by the execution and
 skip interpreters: `0x009e` has no inline payload, so a conditional skip lands
-on the following command at the same position as normal execution.
+on the following command at the same position as normal execution. A truncated
+one-byte tail still fails because the cursor requires a complete opcode word;
+no adjacent bytes are guessed as event payload.
 
-The function also contains mode/versus-dependent branches. Their player-state
-inputs and surrounding gameplay/stat service have not been assigned from this
-entry point, so this record does not claim that the byte flag is a score,
-objective, or player identifier. The useful proven seam for a recreation is the
-one-shot initialization, countdown, secondary-player field clear, and observed
-score transfer; the remaining presentation/mode policy needs a separate trace.
+The remaining uncertainty is ownership: `0x004dee50`, `0x004ab9c0`, and
+`0x0044e0f0` perform broader stat/menu work, while the player and camera owners
+must apply the returned score, replay, animation, and `+0x5b4` requests. The
+opcode shape, event state transitions, constants, and side-effect boundaries
+are confirmed by control flow and represented without renaming unresolved
+globals.
