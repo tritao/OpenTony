@@ -261,6 +261,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_gameplay_frame_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_gameplay_frame_test COMMAND opentony_gameplay_frame_test)
 
+    add_executable(opentony_player_frame_integration_test
+        src/runtime/player_frame_integration_test.cpp
+    )
+    target_link_libraries(opentony_player_frame_integration_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_player_frame_integration_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_player_frame_integration_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_player_frame_integration_test COMMAND opentony_player_frame_integration_test)
+
     add_executable(opentony_fixed_step_driver_test
         src/runtime/fixed_step_driver_test.cpp
     )

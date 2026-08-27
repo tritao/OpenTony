@@ -77,6 +77,14 @@ types:
         description: Raw eight-way physics dispatcher state; retain the numeric value alongside provisional on-ground/in-air/rail/etc. labels.
         evidence:
           - re/evidence/functions/physics.md
+      - offset: 0x3200
+        name: position_commit_bypass_gate
+        type: u32
+        confidence: observed
+        description: FUN_00496060 reads this word as a direct-commit gate. Nonzero stores proposed XYZ without collision resolution; the selected ordinary grounded and air-to-landing paths use the zero/collision branch. No writer is present in the selected traces or current split.
+        evidence:
+          - re/evidence/functions/position-write-path.md
+          - re/evidence/fixtures/player-frame-integration.json
       - offset: 0x30c4
         name: physics_state_result
         type: u32

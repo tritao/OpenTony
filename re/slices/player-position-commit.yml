@@ -23,21 +23,23 @@ artifacts:
     - re/evidence/functions/position-write-path.md
     - re/evidence/functions/collision-query.md
     - re/evidence/functions/physics.md
+    - re/evidence/functions/player-frame-integration.md
+    - re/evidence/fixtures/player-frame-integration.json
   native:
     - src/runtime/position_commit.cpp
     - src/runtime/position_commit.hpp
   tests:
     - src/runtime/position_commit_test.cpp
+    - src/runtime/psx_collision_probe_test.cpp
+    - src/runtime/player_frame_integration_test.cpp
 
 open_questions:
-  - Establish the meaning and writers of the skater field at offset 0x3200.
-  - Record which fallback candidate succeeds for grounded wall, floor, and airborne cases.
-  - Confirm the caller-side interpretation of the collision-query result.
-  - Compare the native candidate-selection sequence against retail traces.
+  - Locate the writer for the +0x3200 direct-commit gate outside the selected ordinary grounded and air-to-landing paths.
+  - Extend candidate-success observations to additional retail surfaces only when their selected path is traced.
 
 completion:
   - The position-write ABI and all accessed skater/query fields are evidence-backed.
   - Candidate ordering and fallback behavior have semantic tests.
-  - Representative retail traces identify successful candidates and bypass behavior.
-  - Native position commit reaches trace-validated progress.
+  - Representative retail traces identify the grounded and air-to-landing callers; native fixtures record desired-candidate and old-Y fallback selection.
+  - Native position commit reaches integrated progress with the optional hit record preserved for consumers.
   - The exact matching implementation remains byte-identical.

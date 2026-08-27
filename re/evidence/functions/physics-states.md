@@ -1303,3 +1303,9 @@ player-owned blocked/last-surface inputs before calling the existing
 commit-before-state-request path. This closes the disk PSX face metadata to
 in-air state transition boundary while leaving wall, rail, and special-contact
 classification outside the generic predicate.
+
+The compact [player-frame integration fixture](../fixtures/player-frame-integration.json)
+now joins that in-air boundary to the outer `GameplayFrame` order. It records
+the grounded state-0 action/history and animation request, the landing handler's
+four fixed-point candidate queries, collision consumer, state `1 -> 0` request,
+and the evidence-backed animation-5 request.

@@ -20,7 +20,7 @@ object_fields:
   - {offset: 0x08, role: position_x, access: read-write, confidence: observed}
   - {offset: 0x0c, role: position_y, access: read-write, confidence: observed}
   - {offset: 0x10, role: position_z, access: read-write, confidence: observed}
-  - {offset: 0x3200, role: collision_resolution_disable_or_bypass, access: read, confidence: inferred}
+  - {offset: 0x3200, role: position_commit_bypass_gate, access: read, confidence: observed}
 globals:
   - {address: 0x00567c7c, role: collision_query_guard, access: save-set-restore, confidence: inferred}
 paths:
@@ -31,7 +31,7 @@ paths:
   collision_resolution:
     condition: player[0x3200] == 0
     effect: test proposed/current coordinate combinations and commit an accepted candidate
-    accepted_result: local_query_result == 0
+    accepted_result: collision_query returns no hit record
     reconstructed: true
 calls:
   - {address: 0x004624d0, role: initialize collision query from segment endpoints, confidence: observed, status: asm}
@@ -50,8 +50,8 @@ evidence:
   - re/evidence/functions/position-write-path.md
   - re/evidence/functions/collision-query.md
   - re/evidence/functions/physics.md
+  - re/evidence/functions/player-frame-integration.md
+  - re/evidence/fixtures/player-frame-integration.json
 next_tests:
-  - trace player[0x3200] and the direct-commit path condition
-  - name and trace the result field returned through the collision-query local structure
-  - record which candidate succeeds for grounded wall, floor, and airborne collisions
-  - compare a semantic candidate-selection model against retail traces
+  - locate the writer for player[0x3200] and trace its nonzero direct-commit path
+  - extend candidate-success observations to additional grounded and airborne surfaces
