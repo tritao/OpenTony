@@ -52,6 +52,7 @@ _LAUNCH_FRAME_PLAYER_WORD = (0x2F34 - _RAW_PHYSICS_OFFSET) // 4
 _AIR_MOTION_X_PLAYER_WORD = (0x310C - _RAW_PHYSICS_OFFSET) // 4
 _PLAYER_FRAME_COUNTER_PLAYER_WORD = (0x2D8C - _RAW_PHYSICS_OFFSET) // 4
 _ANIMATION_STATE_TIMESTAMP_PLAYER_WORD = (0x2E28 - _RAW_PHYSICS_OFFSET) // 4
+_AIR_CONTROL_GLOBAL = 0x0056B7F0
 _VOLATILE_TIMING_FIELDS = {
     "animation_clock",
     "animation_clock_accumulator",
@@ -113,6 +114,7 @@ def _snapshot(player: int) -> dict:
             "state_raw": physics_state,
             "previous_state_raw": mem.u32(player + 0x30C0),
             "auxiliary_state_raw": mem.u32(player + 0x30C4),
+            "air_control_enabled": bool(mem.u32(_AIR_CONTROL_GLOBAL)),
         },
         "position": _vec(player + 0x08),
         "position_history": _vec(player + 0xBC),
