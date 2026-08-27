@@ -199,6 +199,18 @@ functions:
       - re/evidence/functions/collision.md
     notes: Query setup reconstructs the vertical and nonvertical short basis, including normalized horizontal/total roots, truncating signed ratios, three 0x004e3130 column products, and Q12 signed-short saturation. Linked-object +0x28/+0x2a/+0x2c scale is a later 0x004f5540 operation and is covered separately; query setup itself remains unscaled.
 
+  - address: 0x0048ea80
+    name: M3D_ReadSurfaceFlags
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: Exact hit-gated publication of the five raw face/surface flag values and winning face pointer; no-hit calls preserve the shared result state. Higher-level material names remain provisional.
+
   - address: 0x00462a20
     name: M3D_CollisionFaceTest
     slice: collision-query

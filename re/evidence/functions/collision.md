@@ -402,12 +402,13 @@ until `match/original` is available.
   `q+0x78..0x7c`, copies auxiliary normal data to globals, and returns `1`.
   With no hit it returns `0`. This is the strongest normal-output candidate,
   but the axis/sign convention is not finalized.
-- `0x0048ea80` is a result consumer immediately after several physics queries,
-  not the geometric tester. If `q+0x68` is nonzero, it reads `q+0x80` and the
-  face record's word at `+0x0c`, then derives global collision/surface flags
+- `0x0048ea80` is a 131-byte, no-callee result consumer immediately after
+  several physics queries, not the geometric tester. If `q+0x68` is nonzero,
+  it reads `q+0x80` and the face record's word at `+0x0c`, then derives the
+  five global collision/surface values
   (`DAT_0056b768`, `DAT_0056b7b8`, `DAT_0056b7a8`, `DAT_0056b7ac`, and
-  `DAT_0056b7e8`) and saves the face pointer in `_DAT_0056b77c`. These are
-  material/terrain flag candidates, not confirmed final names.
+  `DAT_0056b7e8`) and saves the face pointer in `_DAT_0056b77c`. The writes
+  are exact; only the higher-level material/terrain names remain provisional.
 
   The bit extraction is concrete even though the higher-level names are not:
 
@@ -423,6 +424,13 @@ until `match/original` is available.
   handling, wall riding, and surface-class behavior. They should be exposed
   to a later C++ reconstruction as raw flags plus a provisional decoded view,
   not yet as named materials.
+
+  The native `read_surface_flags` helper reproduces this stateful ABI: it
+  writes the masks as `0x40`/`0x80`, the inverse tests as `0`/`1`, the
+  four-bit class, and the winning `q+0x80` face pointer only when `q+0x68` is
+  nonzero. The no-hit path is an intentional no-op. Its focused tests cover
+  the five observed `collision-materials1` combinations and both inverse-bit
+  zero cases.
 
   The packaged cross-build model notes make several aliases plausible, but
   they remain aliases rather than final PC material names: base `0x10` is the
