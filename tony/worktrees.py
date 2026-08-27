@@ -205,8 +205,10 @@ def prerequisites_bootstrap(args) -> int:
     importlib.invalidate_caches()
     if args.repair or not _project_ready(ROOT):
         from .ghidra_ops import rebuild
+        from .ghidra_lock import ghidra_project_lock
 
-        rebuild(args.profile)
+        with ghidra_project_lock():
+            rebuild(args.profile)
     else:
         print(f"Canonical Ghidra project already ready: {resolve(config['project_dir'])}")
     print(f"Shared PyGhidra ready: {site}")
