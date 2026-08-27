@@ -33,6 +33,9 @@ _PHYSICS_FRAME_ADDRESS = 0x0049E680
 _SIMULATION_TIME_STORE_ADDRESS = 0x0049F1A9
 _ANIMATION_CLOCK_STORE_ADDRESS = 0x0049F169
 _LANDING_FRAME_STORE_ADDRESS = 0x00499255
+_LAUNCH_FRAME_STORE_ADDRESS = 0x0049AF14
+_AIR_MOTION_X_STORE_ADDRESS = 0x00491985
+_PLAYER_FRAME_COUNTER_STORE_ADDRESS = 0x0049E92B
 _ANIMATION_STATE_TIMESTAMP_STORE_ADDRESS = 0x0049C1E4
 # The first store's source register is not reused for control flow.  The
 # second store is followed by a comparison against DL, so changing EDX there
@@ -45,6 +48,9 @@ _SIMULATION_TIME_PLAYER_WORD = (0x2F44 - _RAW_PHYSICS_OFFSET) // 4
 _ANIMATION_CLOCK_PLAYER_WORD = (0x2DE4 - _RAW_PHYSICS_OFFSET) // 4
 _ANIMATION_TIMESTAMP_PLAYER_WORD = (0x3060 - _RAW_PHYSICS_OFFSET) // 4
 _LANDING_FRAME_PLAYER_WORD = (0x2D98 - _RAW_PHYSICS_OFFSET) // 4
+_LAUNCH_FRAME_PLAYER_WORD = (0x2F34 - _RAW_PHYSICS_OFFSET) // 4
+_AIR_MOTION_X_PLAYER_WORD = (0x310C - _RAW_PHYSICS_OFFSET) // 4
+_PLAYER_FRAME_COUNTER_PLAYER_WORD = (0x2D8C - _RAW_PHYSICS_OFFSET) // 4
 _ANIMATION_STATE_TIMESTAMP_PLAYER_WORD = (0x2E28 - _RAW_PHYSICS_OFFSET) // 4
 _VOLATILE_TIMING_FIELDS = {
     "animation_clock",
@@ -233,6 +239,9 @@ class RetailReplay:
         self.simulation_time_breakpoint = RetailReplaySimulationTimeBreakpoint(self)
         self.animation_clock_breakpoint = RetailReplayAnimationClockBreakpoint(self)
         self.landing_frame_breakpoint = RetailReplayLandingFrameBreakpoint(self)
+        self.launch_frame_breakpoint = RetailReplayLaunchFrameBreakpoint(self)
+        self.air_motion_x_breakpoint = RetailReplayAirMotionXBreakpoint(self)
+        self.player_frame_counter_breakpoint = RetailReplayPlayerFrameCounterBreakpoint(self)
         self.animation_state_timestamp_breakpoint = RetailReplayAnimationStateTimestampBreakpoint(self)
         self.animation_timestamp_breakpoints = [
             RetailReplayAnimationTimestampBreakpoint(self, address)
@@ -382,6 +391,9 @@ class RetailReplay:
         self.simulation_time_breakpoint.enabled = False
         self.animation_clock_breakpoint.enabled = False
         self.landing_frame_breakpoint.enabled = False
+        self.launch_frame_breakpoint.enabled = False
+        self.air_motion_x_breakpoint.enabled = False
+        self.player_frame_counter_breakpoint.enabled = False
         self.animation_state_timestamp_breakpoint.enabled = False
         for timestamp_breakpoint in self.animation_timestamp_breakpoints:
             timestamp_breakpoint.enabled = False
@@ -400,6 +412,9 @@ class RetailReplay:
         self.simulation_time_breakpoint.enabled = False
         self.animation_clock_breakpoint.enabled = False
         self.landing_frame_breakpoint.enabled = False
+        self.launch_frame_breakpoint.enabled = False
+        self.air_motion_x_breakpoint.enabled = False
+        self.player_frame_counter_breakpoint.enabled = False
         self.animation_state_timestamp_breakpoint.enabled = False
         for timestamp_breakpoint in self.animation_timestamp_breakpoints:
             timestamp_breakpoint.enabled = False
@@ -542,6 +557,75 @@ class RetailReplayAnimationTimestampBreakpoint(TonyBreakpoint):
         value = raw_words[_ANIMATION_TIMESTAMP_PLAYER_WORD]
         if isinstance(value, int):
             gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayLaunchFrameBreakpoint(TonyBreakpoint):
+    """Supply the recorded launch frame to its exact player-state store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_LAUNCH_FRAME_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("ebp")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _LAUNCH_FRAME_PLAYER_WORD:
+            return
+        value = raw_words[_LAUNCH_FRAME_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayAirMotionXBreakpoint(TonyBreakpoint):
+    """Supply the recorded air-motion X component to its exact store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_AIR_MOTION_X_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("esi")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _AIR_MOTION_X_PLAYER_WORD:
+            return
+        value = raw_words[_AIR_MOTION_X_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayPlayerFrameCounterBreakpoint(TonyBreakpoint):
+    """Supply the recorded player-frame counter to its conditional store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_PLAYER_FRAME_COUNTER_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("ebp")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _PLAYER_FRAME_COUNTER_PLAYER_WORD:
+            return
+        value = raw_words[_PLAYER_FRAME_COUNTER_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $eax = {value & 0xFFFFFFFF}")
 
 
 class RetailReplayAnimationStateTimestampBreakpoint(TonyBreakpoint):
