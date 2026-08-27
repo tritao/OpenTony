@@ -147,6 +147,56 @@ def test_debug_unmute_parse():
     assert args.unmute is True
 
 
+def test_retail_replay_parse():
+    args = build_parser().parse_args(
+        ["replay", "retail", "run.otrec", "--session", "warehouse", "--port", "31350"]
+    )
+    assert args.path == "run.otrec"
+    assert args.session == "warehouse"
+    assert args.port == 31350
+    assert callable(args.func)
+
+
+def test_native_replay_parse():
+    args = build_parser().parse_args(
+        [
+            "replay",
+            "native",
+            "run.otrec",
+            "--trg",
+            "warehouse.TRG",
+            "--psx",
+            "warehouse.PSX",
+            "--output",
+            "native.jsonl",
+        ]
+    )
+    assert args.path == "run.otrec"
+    assert args.trg == "warehouse.TRG"
+    assert args.psx == "warehouse.PSX"
+    assert args.output == "native.jsonl"
+    assert callable(args.func)
+
+
+def test_record_commands_parse():
+    start = build_parser().parse_args(
+        ["record", "start", "--session", "warehouse", "--output", "run.otrec", "--force"]
+    )
+    stop = build_parser().parse_args(["record", "stop", "--session", "warehouse"])
+    toggle = build_parser().parse_args(["record", "toggle", "--output", "run.otrec"])
+    status = build_parser().parse_args(["record", "status"])
+    validate = build_parser().parse_args(["record", "validate", "run.otrec"])
+
+    assert start.session == "warehouse"
+    assert start.output == "run.otrec"
+    assert start.force is True
+    assert stop.session == "warehouse"
+    assert toggle.output == "run.otrec"
+    assert status.record_command == "status"
+    assert validate.path == "run.otrec"
+    assert all(callable(args.func) for args in (start, stop, toggle, status, validate))
+
+
 def test_sessions_commands_parse():
     for command in ("list", "stop", "clean"):
         argv = ["sessions", command]

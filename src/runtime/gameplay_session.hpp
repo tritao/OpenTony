@@ -198,7 +198,8 @@ public:
         std::uint32_t elapsed_ms,
         const DirectInputKeyboardState& keyboard,
         const InputBindings& bindings,
-        LevelFrameObserver* observer = nullptr);
+        LevelFrameObserver* observer = nullptr,
+        std::optional<std::int32_t> frame_scale_override = std::nullopt);
 
     // Direct action/device path for analog controllers and deterministic
     // replay. The axes remain raw until InputState applies the retail
@@ -208,7 +209,8 @@ public:
         std::uint16_t action_mask,
         std::int8_t horizontal_axis,
         std::int8_t vertical_axis,
-        LevelFrameObserver* observer = nullptr);
+        LevelFrameObserver* observer = nullptr,
+        std::optional<std::int32_t> frame_scale_override = std::nullopt);
 
     void reset_clock() noexcept { driver_.reset(); }
 

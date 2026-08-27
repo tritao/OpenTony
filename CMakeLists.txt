@@ -106,6 +106,13 @@ target_include_directories(opentony_runtime PUBLIC src/runtime)
 target_compile_options(opentony_runtime PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(opentony_runtime PUBLIC opentony_trg)
 
+add_executable(opentony_native_replay
+    src/runtime/native_replay_main.cpp
+)
+target_link_libraries(opentony_native_replay PRIVATE opentony_runtime)
+target_compile_features(opentony_native_replay PRIVATE cxx_std_20)
+target_compile_options(opentony_native_replay PRIVATE -Wall -Wextra -Wpedantic)
+
 if(OPENTONY_BUILD_TESTS)
     enable_testing()
     include_directories(${CMAKE_CURRENT_SOURCE_DIR})

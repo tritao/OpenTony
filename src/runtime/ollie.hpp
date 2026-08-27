@@ -28,6 +28,8 @@ struct OllieImpulseInput {
     std::int32_t height_delta_metric = 0;       // (+0x2f48 - +0x2f4c) >> 12
     bool wallie = false;                        // raw state 5
     OllieImpulseRandom random{};
+    OllieImpulseRandom early_release_random{};
+    bool early_release_random_available = false;
 };
 
 struct OllieImpulseResult {
@@ -69,6 +71,12 @@ struct OlliePrePhysicsInput {
     std::int32_t current_frame = -1;
     std::int32_t global_release_mode = 0;    // DAT_00568658
     bool force_cap = false;                  // DAT_0056a890
+    OllieImpulseRandom charge_cap_random{};
+    bool charge_cap_random_available = false;
+    OllieImpulseRandom charge_cap_refresh_random{};
+    bool charge_cap_refresh_random_available = false;
+    OllieImpulseRandom early_release_random{};
+    bool early_release_random_available = false;
     OllieImpulseInput impulse{};
 };
 

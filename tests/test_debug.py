@@ -206,6 +206,52 @@ def test_recover_incomplete_trace_appends_explicit_footer(tmp_path):
     assert not (session_dir / "trace.active").exists()
 
 
+def test_recover_incomplete_recording_counts_completed_frames(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    recording_path = tmp_path / "recording.otrec"
+    recording_path.write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in (
+                {
+                    "type": "header",
+                    "format": "opentony-retail-recording-v1",
+                    "recording_id": "recording-test",
+                },
+                {"type": "initial_state", "frame": 0},
+                {"type": "frame", "frame": 0},
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "recording.active").write_text(
+        json.dumps(
+            {
+                "path": str(recording_path),
+                "recording_id": "recording-test",
+                "format": "opentony-retail-recording-v1",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    session = SimpleNamespace(path=session_dir)
+
+    assert debug._recover_incomplete_recording(session, "gdb-exited:1") is True
+    records = [json.loads(line) for line in recording_path.read_text().splitlines()]
+    assert records[-1] == {
+        "complete": False,
+        "format": "opentony-retail-recording-v1",
+        "frames": 1,
+        "reason": "gdb-exited:1",
+        "recording_id": "recording-test",
+        "type": "end",
+    }
+    assert not (session_dir / "recording.active").exists()
+
+
 def test_parent_death_signal_is_best_effort():
     # The helper is used as a subprocess pre-exec hook; it must not make
     # debugger startup fail on platforms without Linux prctl.

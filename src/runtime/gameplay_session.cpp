@@ -391,7 +391,8 @@ FixedStepAdvanceResult GameplaySession::advance(
     std::uint32_t elapsed_ms,
     const DirectInputKeyboardState& keyboard,
     const InputBindings& bindings,
-    LevelFrameObserver* observer) {
+    LevelFrameObserver* observer,
+    std::optional<std::int32_t> frame_scale_override) {
     if (!initialized()) {
         throw std::logic_error("gameplay session advanced before initialize");
     }
@@ -401,7 +402,8 @@ FixedStepAdvanceResult GameplaySession::advance(
         keyboard,
         bindings,
         hooks_,
-        &session_observer);
+        &session_observer,
+        frame_scale_override);
     if (result.stepped) {
         last_frame_ = result.last;
         update_camera_after_step();
@@ -414,7 +416,8 @@ FixedStepAdvanceResult GameplaySession::advance(
     std::uint16_t action_mask,
     std::int8_t horizontal_axis,
     std::int8_t vertical_axis,
-    LevelFrameObserver* observer) {
+    LevelFrameObserver* observer,
+    std::optional<std::int32_t> frame_scale_override) {
     if (!initialized()) {
         throw std::logic_error("gameplay session advanced before initialize");
     }
@@ -425,7 +428,8 @@ FixedStepAdvanceResult GameplaySession::advance(
         horizontal_axis,
         vertical_axis,
         hooks_,
-        &session_observer);
+        &session_observer,
+        frame_scale_override);
     if (result.stepped) {
         last_frame_ = result.last;
         update_camera_after_step();

@@ -3,42 +3,42 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from pathlib import Path
 
 import gdb
 
 from .action import ActionMaskSequenceProbe
-from .breakpoint import CountingBreakpoint, TonyBreakpoint
+from .breakpoint import Context, CountingBreakpoint, TonyBreakpoint
 from .camera import (
     ActorSubmissionProbe,
     CameraCollisionProbe,
     CameraCollisionResultProbe,
     CameraEffectProbe,
     CameraModeOverrideProbe,
-    CameraViewportControlProbe,
     CameraPointSelectProbe,
     CameraPointStateProbe,
-    CameraTimingProbe,
     CameraPositionTransformProbe,
     CameraProbe,
-    GeometrySubmissionProbe,
+    CameraTimingProbe,
+    CameraViewportControlProbe,
     GeometryRasterReturnProbe,
+    GeometrySubmissionProbe,
     TransformedVertexProbe,
-    ViewProjectionProbe,
     ViewProjectionPerturbProbe,
     ViewProjectionProbe,
 )
 from .collision import (
+    COLLISION_INIT_BOUNDARY_CASES,
     CollisionDynamicCullProbe,
     CollisionDynamicProbe,
     CollisionDynamicTransformMutationProbe,
     CollisionDynamicTransformProbe,
     CollisionFlagProbe,
-    COLLISION_INIT_BOUNDARY_CASES,
-    CollisionQueryInitBoundaryProbe,
     CollisionLoaderProbe,
     CollisionModelKindProbe,
+    CollisionQueryInitBoundaryProbe,
     CollisionQueryProbe,
 )
 from .frame import FrameBreakpoint, frame_clock
@@ -47,18 +47,29 @@ from .memory import mem
 from .physics import (
     GROUND_MOTION_CONTROL_WRITERS,
     GROUND_MOTION_CORRECTION_WRITERS,
+    GROUND_MOTION_FRAME_RANDOM_SITES,
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
+    GROUND_MOTION_THRESHOLD_RANDOM_SITES,
+    OLLIE_RANDOM_SITES,
+    VELOCITY_DAMPING_COMPONENT_SITES,
+    VELOCITY_DAMPING_RANDOM_SITES,
     OLLIE_LATCH_WRITERS,
     SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
+    AirCorrectionProbe,
     GroundMotionControlWriterProbe,
     GroundMotionProducerProbe,
     GroundMotionProfileWriterProbe,
     GroundMotionRandomProbe,
     InAirHandlerProbe,
+    MotionCorrectionProbe,
     MovementPhysicsProbe,
     OllieLatchProbe,
+    OllieRandomProbe,
+    VelocityDampingComponentProbe,
+    VelocityDampingRandomProbe,
+    ResponseCorrectionProbe,
     PhysicsProbe,
     PhysicsStateRequestProbe,
     PhysicsStateWriterProbe,
@@ -68,13 +79,21 @@ from .physics import (
 )
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
+from .recording import RecordingController, RecordingError
+from .replay import create_retail_replay
 from .snapshot import format_diff, snapshots
+from .timing import animation_timing_record
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
 from .watchpoint import watchpoints
 
 THPS2_BUILD_SHA256 = BUILD_SHA256
 THPS2_ADDRESSES = dict(known_function_addresses())
+THPS2_ADDRESSES["physics_frame"] = (
+    0x0049E680,
+    "per-frame gameplay skater action, collision, state, and position-update wrapper",
+    "re/evidence/functions/physics.md",
+)
 
 THPS2_LEVELS = {
     "hangar": 0,
@@ -100,6 +119,154 @@ ACTION_STATE_RECORDS = {
 _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
+_recording_controller = None
+_retail_replay = None
+_frontend_screen_automation = None
+
+
+_RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
+_RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
+_RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
+_RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
+
+
+def _recording_signed8(value: int) -> int:
+    return value - 0x100 if value & 0x80 else value
+
+
+def _recording_signed32(value: int) -> int:
+    return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _recording_signed16(value: int) -> int:
+    return value - 0x10000 if value & 0x8000 else value
+
+
+def _recording_vec(address: int) -> dict | None:
+    if not mem.readable(address, 0x0c):
+        return None
+    raw = list(mem.u32_vec3(address))
+    return {
+        "raw": raw,
+        "signed": [_recording_signed32(value) for value in raw],
+    }
+
+
+def _recording_short_vec(address: int) -> dict | None:
+    if not mem.readable(address, 6):
+        return None
+    raw = [mem.u16(address + offset) for offset in (0, 2, 4)]
+    return {
+        "raw": raw,
+        "signed": [_recording_signed16(value) for value in raw],
+    }
+
+
+def _recording_input(controller: RecordingController) -> tuple[dict, bool]:
+    keyboard = mem.bytes(GLOBALS["KeyboardState"], 0x100)
+    hotkey = controller.hotkey_scan_code
+    raw_axes = (
+        list(mem.bytes(_RECORDING_RAW_AXIS_ADDRESS, 4))
+        if mem.readable(_RECORDING_RAW_AXIS_ADDRESS, 4)
+        else None
+    )
+    normalized_axes = (
+        {
+            "horizontal": _recording_signed8(mem.u8(_RECORDING_NORMALIZED_AXIS_ADDRESS)),
+            "vertical": _recording_signed8(mem.u8(_RECORDING_NORMALIZED_AXIS_ADDRESS + 1)),
+        }
+        if mem.readable(_RECORDING_NORMALIZED_AXIS_ADDRESS, 2)
+        else None
+    )
+    return (
+        {
+            "action_mask": mem.u16(GLOBALS["ActionMask"]),
+            "action_mask_raw_u32": mem.u32(GLOBALS["ActionMask"]),
+            "raw_controller_sample": raw_axes,
+            "raw_axes": {
+                "device_bytes": (
+                    [{"raw": value, "signed": _recording_signed8(value)} for value in raw_axes]
+                    if raw_axes is not None
+                    else None
+                ),
+                "normalized": normalized_axes,
+            },
+            "normalized_axes": normalized_axes,
+            "keyboard_state": keyboard.hex(),
+            "held_scan_codes": [
+                code
+                for code, value in enumerate(keyboard)
+                if value & 0x80 and code != hotkey
+            ],
+            "control_hotkey_scan_code": hotkey,
+        },
+        bool(keyboard[hotkey] & 0x80),
+    )
+
+
+def _recording_player_snapshot(player: int) -> dict:
+    physics_state = mem.u32(player + 0x30B8)
+    return {
+        "player_address": f"0x{player:08x}",
+        "timing": animation_timing_record(mem),
+        "raw_physics_words": [
+            mem.u32(player + _RECORDING_RAW_PHYSICS_OFFSET + index * 4)
+            for index in range(_RECORDING_RAW_PHYSICS_WORDS)
+        ],
+        "physics_state": physics_state,
+        "physics": {
+            "state_raw": physics_state,
+            "previous_state_raw": mem.u32(player + 0x30C0),
+            "auxiliary_state_raw": mem.u32(player + 0x30C4),
+        },
+        "position": _recording_vec(player + 0x08),
+        "position_history": _recording_vec(player + 0xBC),
+        "response_velocity": _recording_vec(player + 0x4C),
+        "correction": _recording_vec(player + 0x58),
+        "air_motion": _recording_vec(player + 0x310C),
+        "turn": {
+            "accumulator_raw": mem.u32(player + 0x3144),
+            "mirror_raw": mem.u32(player + 0x3148),
+        },
+        "basis": {
+            "forward_raw": _recording_vec(player + 0x30F4),
+            "up_raw": _recording_vec(player + 0x3100),
+            "air_raw": _recording_vec(player + 0x310C),
+        },
+        "orientation": {
+            "row_0": _recording_short_vec(player + 0x2E58),
+            "row_1": _recording_short_vec(player + 0x2E5E),
+            "row_2": _recording_short_vec(player + 0x2E64),
+        },
+        "animation": {
+            "id_raw": mem.u16(player + 0xF6),
+            "frame_raw": mem.s16(player + 0xF4),
+            "fraction_raw": mem.u16(player + 0x104),
+            "rate_raw": mem.u32(player + 0x108),
+            "mode_raw": mem.u8(player + 0xF8),
+            "direction_raw": mem.s8(player + 0x100),
+            "endpoint_raw": mem.s8(player + 0x101),
+            "alternate_endpoint_raw": mem.s8(player + 0x102),
+            "finished_raw": mem.u8(player + 0x107),
+        },
+    }
+
+
+def _recording_metadata(player: int) -> dict:
+    level = mem.u32(GLOBALS["CurrentLevel"])
+    return {
+        "binary_sha256": THPS2_BUILD_SHA256,
+        "retail_executable_sha256": THPS2_BUILD_SHA256,
+        "instrumentation_version": "gdb-recording-v5",
+        "level": {
+            "index": level,
+            "name": next((name for name, index in THPS2_LEVELS.items() if index == level), None),
+        },
+        "player_identity": {
+            "slot": 0,
+            "object_address": f"0x{player:08x}",
+        },
+    }
 
 
 def _argv(arg: str, usage: str) -> list[str]:
@@ -122,6 +289,209 @@ def _integer(value: str) -> int:
 
 def _write(text: str) -> None:
     gdb.write(text + "\n")
+
+
+class _RecordingEventSink:
+    """Adapter used by existing probes to append into the active frame."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+
+    def event(self, record: dict) -> None:
+        self.controller.event(record)
+
+
+class TonyRecordingInputBreakpoint(TonyBreakpoint):
+    """Observe post-poll input and detect the recorder hotkey edge."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(THPS2_ADDRESSES["gameplay_update"][0], internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        self.controller.poll_control()
+        input_record, hotkey_down = _recording_input(self.controller)
+        try:
+            self.controller.on_input(input_record, hotkey_down=hotkey_down)
+        except RecordingError as exc:
+            self.controller.set_error(str(exc))
+
+
+class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
+    """Finalize one physics frame at the return address captured at entry."""
+
+    def __init__(
+        self,
+        controller: RecordingController,
+        address: int,
+        frame: int,
+        player: int,
+    ):
+        self.controller = controller
+        self.frame = frame
+        self.player = player
+        super().__init__(address, internal=True, temporary=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        self.enabled = False
+        if self.controller.active_frame != self.frame:
+            return
+        try:
+            self.controller.end_frame(_recording_player_snapshot(self.player))
+        except (OSError, TypeError, ValueError, RecordingError) as exc:
+            # Recording is an observer.  A malformed/unsupported probe value
+            # must end the file cleanly and never leave the gameplay thread
+            # stopped at an internal temporary breakpoint.
+            self.controller.close_incomplete(
+                f"frame-{self.frame}-finalization-failed: {exc}"
+            )
+
+
+class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
+    """Begin capture at the canonical per-player physics-frame boundary."""
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(THPS2_ADDRESSES["physics_frame"][0], internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        player = ctx.this_ptr()
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        input_record = self.controller.latest_input
+        if input_record is None:
+            input_record, _hotkey_down = _recording_input(self.controller)
+        try:
+            frame = self.controller.begin_frame(
+                _recording_player_snapshot(player),
+                input_record=input_record,
+                metadata=_recording_metadata(player),
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        if frame is None:
+            return
+        return_address = ctx.return_address()
+        if return_address == 0:
+            raise gdb.GdbError("could not install recording frame return breakpoint")
+        _runtime_breakpoints.append(
+            TonyRecordingFrameReturnBreakpoint(
+                self.controller,
+                return_address,
+                frame,
+                player,
+            )
+        )
+
+
+class TonyRecordingStart(gdb.Command):
+    """tony-record-start [FILE] [--force] -- start at the next physics frame."""
+
+    def __init__(self):
+        super().__init__("tony-record-start", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-record-start [FILE] [--force]") if arg.strip() else []
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-record-start [FILE] [--force]")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        try:
+            recording_id = _recording_controller.request_start(
+                values[0] if values else None,
+                overwrite=force,
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _write(
+            f"recording start pending: {recording_id}; "
+            f"path {_recording_controller.path}"
+        )
+
+
+class TonyRecordingStop(gdb.Command):
+    """tony-record-stop -- close after the current complete physics frame."""
+
+    def __init__(self):
+        super().__init__("tony-record-stop", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-record-stop")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        if not _recording_controller.request_stop():
+            _write("no recording is active")
+            return
+        _write("recording stop pending at the next physics-frame return")
+
+
+class TonyRecordingToggle(gdb.Command):
+    """tony-record-toggle [FILE] [--force] -- share the hotkey lifecycle."""
+
+    def __init__(self):
+        super().__init__("tony-record-toggle", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-record-toggle [FILE] [--force]") if arg.strip() else []
+        force = values[-1:] == ["--force"]
+        if force:
+            values.pop()
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-record-toggle [FILE] [--force]")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        try:
+            recording_id = _recording_controller.request_toggle(
+                values[0] if values else None,
+                overwrite=force,
+            )
+        except RecordingError as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _write(f"recording state: {_recording_controller.state.value} ({recording_id})")
+
+
+class TonyRecordingStatus(gdb.Command):
+    """tony-record-status -- print the controller's current state."""
+
+    def __init__(self):
+        super().__init__("tony-record-status", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-record-status")
+        if _recording_controller is None:
+            raise gdb.GdbError("recording controller is not initialized")
+        _write(json.dumps(_recording_controller.status(), sort_keys=True))
+
+
+class TonyRetailReplay(gdb.Command):
+    """tony-replay-retail FILE -- inject and compare one retail recording."""
+
+    def __init__(self):
+        super().__init__("tony-replay-retail", gdb.COMMAND_DATA)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-replay-retail FILE")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-replay-retail FILE")
+        global _retail_replay
+        if _retail_replay is not None:
+            raise gdb.GdbError("a retail replay is already armed")
+        try:
+            _retail_replay = create_retail_replay(values[0])
+        except (OSError, TypeError, ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
+        _retail_replay.install()
 
 
 def _snapshot_address(value: str) -> int:
@@ -400,7 +770,12 @@ class TonyTHPS2Breakpoint(gdb.Command):
 
 
 class TonySkipMovieBreakpoint(TonyBreakpoint):
-    """Return immediately from either Bink movie entry path."""
+    """Return immediately from either Bink movie entry path.
+
+    The shared setup routine is used for startup logos, level previews, and
+    level transitions.  Its callers treat a false result as "movie
+    unavailable/skipped" and continue their own state machines.
+    """
 
     def __init__(self, address: int):
         # PCMovie_PlayGameFMV (0x004e7090) is only the outer formatter/loader.
@@ -411,11 +786,18 @@ class TonySkipMovieBreakpoint(TonyBreakpoint):
 
     def on_hit(self, ctx):
         return_address = ctx.return_address()
-        # Both callers treat a false return as “movie unavailable/skipped”.
-        gdb.execute("set $eax = 0")
+        # The callers use a false result to leave the optional movie path and
+        # continue ordinary frontend/gameplay setup.  Returning success here
+        # enters the Bink surface/frame loop and does not mean "already
+        # completed".
+        result = 0
+        gdb.execute(f"set $eax = {result}")
         gdb.execute(f"set $eip = 0x{return_address:x}")
         gdb.execute(f"set $esp = 0x{ctx.esp + 4:x}")
-        _write(f"skipped movie playback; returning to 0x{return_address:08x}")
+        _write(
+            f"skipped movie playback; returning to 0x{return_address:08x} "
+            f"(result {result})"
+        )
 
 
 _movie_skip_breakpoints = []
@@ -479,6 +861,34 @@ class TonyForceLevel(gdb.Command):
         _write(f"next level launch will use {level} ({label})")
 
 
+class TonyFrontendLevelOverrideBreakpoint(CountingBreakpoint):
+    """Replace the level selected by the real frontend level-select helper."""
+
+    # The level-select handler enters here before its helper calls.  Synthetic
+    # input can make that helper take the no-selection path, so provide the
+    # desired result and resume at the original validation/store sequence.
+    LEVEL_SELECT_ENTRY = 0x0045355D
+    LEVEL_RESULT_CHECK = 0x0045359B
+
+    def __init__(self, level: int, label: str):
+        self.level = level
+        self.label = label
+        super().__init__(
+            self.LEVEL_SELECT_ENTRY,
+            count=1,
+            internal=True,
+        )
+
+    def on_count(self, _ctx):
+        gdb.execute(f"set $eax = {self.level}")
+        gdb.execute(f"set $eip = 0x{self.LEVEL_RESULT_CHECK:x}")
+        _write(
+            f"frontend level override: {self.label} ({self.level}) at "
+            f"0x{self.LEVEL_SELECT_ENTRY:08x}"
+        )
+        return True
+
+
 class TonyFrontendPlayBreakpoint(TonyBreakpoint):
     """Force PLAY_GAME in the verified main-menu result slot."""
 
@@ -487,9 +897,18 @@ class TonyFrontendPlayBreakpoint(TonyBreakpoint):
     # the real selection helper remains on the path.
     FRONTEND_RESULT_READ = 0x004532AA
     FRONTEND_RESULT_OFFSET = 0x58
-    PLAY_GAME_RESULT = 0x2A
+    # FrontEnd_Main's result dispatch sends 0x26 through the ordinary game
+    # path.  0x2a also reaches the PLAY_GAME screen, but first loads DemoA.rec
+    # and enables video-restart playback.
+    PLAY_GAME_RESULT = 0x26
 
-    def __init__(self):
+    def __init__(self, followup_enter_cycles: int = 0, level_index: int | None = None):
+        if followup_enter_cycles < 0:
+            raise ValueError("frontend follow-up cycles must not be negative")
+        if level_index is not None and not 0 <= level_index < 13:
+            raise ValueError("frontend level index must be between 0 and 12")
+        self.followup_enter_cycles = followup_enter_cycles
+        self.level_index = level_index
         super().__init__(self.FRONTEND_RESULT_READ, internal=True)
 
     def on_hit(self, ctx):
@@ -498,26 +917,128 @@ class TonyFrontendPlayBreakpoint(TonyBreakpoint):
             self.PLAY_GAME_RESULT,
         )
         self.enabled = False
+        if self.followup_enter_cycles:
+            global _frontend_screen_automation
+            if _frontend_screen_automation is None:
+                _frontend_screen_automation = TonyFrontendScreenAutomationBreakpoint(
+                    self.followup_enter_cycles,
+                    self.level_index,
+                )
         _write(
             "forced main-menu selection PLAY_GAME at result read "
-            f"0x{self.FRONTEND_RESULT_READ:08x}"
+            f"0x{self.FRONTEND_RESULT_READ:08x}; "
+            f"follow-up Enter cycles {self.followup_enter_cycles}"
+        )
+
+
+class TonyFrontendScreenAutomationBreakpoint(TonyBreakpoint):
+    """Select a known level, then arm Enter at the level-select boundary."""
+
+    SCREEN_LOG = 0x0045326B
+
+    def __init__(self, cycles: int, level_index: int | None = None):
+        if cycles <= 0:
+            raise ValueError("frontend automation cycles must be positive")
+        if level_index is not None and not 0 <= level_index < 13:
+            raise ValueError("frontend level index must be between 0 and 12")
+        self.cycles = cycles
+        self.level_index = level_index
+        self.last_screen = None
+        super().__init__(self.SCREEN_LOG, internal=True)
+
+    def _arm_enter(self) -> None:
+        _key_loop_breakpoints.append(
+            TonyKeyLoopBreakpoint(
+                0x1C,
+                press_ticks=5,
+                release_ticks=15,
+                cycles=self.cycles,
+            )
+        )
+        _write(f"frontend level selected: armed Enter cycles {self.cycles}")
+
+    def _arm_summary_enter(self) -> None:
+        breakpoint = TonyNetmenuSummaryBreakpoint(self.cycles)
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            "frontend play: waiting for NETMENU_InitSummary before final Enter "
+            f"cycles {self.cycles}"
+        )
+
+    def on_hit(self, ctx):
+        screen = ctx.register("eax")
+        if screen == self.last_screen:
+            return
+        self.last_screen = screen
+        if screen not in (2, 6):
+            return
+        if screen == 2 and self.level_index is not None:
+            label = next(
+                (name for name, index in THPS2_LEVELS.items() if index == self.level_index),
+                f"level-{self.level_index}",
+            )
+            override = TonyFrontendLevelOverrideBreakpoint(self.level_index, label)
+            _runtime_breakpoints.append(override)
+            _write(
+                f"frontend screen {screen}: real level-select result will use "
+                f"{label} ({self.level_index})"
+            )
+            self._arm_enter()
+            return
+        self._arm_enter()
+        self._arm_summary_enter()
+
+
+class TonyNetmenuSummaryBreakpoint(TonyBreakpoint):
+    """Send the final frontend confirmation after the level has loaded."""
+
+    # NETMENU_InitSummary emits its diagnostic string at this instruction,
+    # after the level/player setup and before the summary menu waits for input.
+    SUMMARY_LOG = 0x0047FB36
+
+    def __init__(self, enter_cycles: int):
+        self.enter_cycles = enter_cycles
+        super().__init__(self.SUMMARY_LOG, internal=True)
+
+    def on_hit(self, _ctx):
+        self.enabled = False
+        _key_loop_breakpoints.append(
+            TonyKeyLoopBreakpoint(
+                0x1C,
+                press_ticks=5,
+                release_ticks=15,
+                cycles=self.enter_cycles,
+            )
+        )
+        _write(
+            "frontend NETMENU_InitSummary reached: armed final Enter cycles "
+            f"{self.enter_cycles}"
         )
 
 
 class TonyFrontendPlay(gdb.Command):
-    """tony-frontend-play -- force the next main-menu selection to PLAY_GAME."""
+    """tony-frontend-play [ENTER_CYCLES] [LEVEL] -- force main-menu PLAY_GAME."""
 
     def __init__(self):
         super().__init__("tony-frontend-play", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        if arg.strip():
-            raise gdb.GdbError("usage: tony-frontend-play")
-        breakpoint = TonyFrontendPlayBreakpoint()
+        del from_tty
+        values = _argv(arg, "tony-frontend-play [ENTER_CYCLES] [LEVEL]") if arg.strip() else []
+        if len(values) > 2:
+            raise gdb.GdbError("usage: tony-frontend-play [ENTER_CYCLES] [LEVEL]")
+        try:
+            enter_cycles = _integer(values[0]) if values else 0
+            level_index = _integer(values[1]) if len(values) > 1 else None
+            breakpoint = TonyFrontendPlayBreakpoint(enter_cycles, level_index)
+        except (ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
         _runtime_breakpoints.append(breakpoint)
         _write(
             "main-menu PLAY_GAME override armed at "
-            f"0x{breakpoint.FRONTEND_RESULT_READ:08x}"
+            f"0x{breakpoint.FRONTEND_RESULT_READ:08x}; "
+            f"follow-up Enter cycles {enter_cycles}; "
+            f"level {breakpoint.level_index if breakpoint.level_index is not None else 'current'}"
         )
 
 
@@ -528,37 +1049,73 @@ class TonyFrontendConfirmBreakpoint(TonyBreakpoint):
     SELECTION_CALL_RETURN = 0x0046AF9F
     CONFIRM_SCAN_CODE = 0x10
 
-    def __init__(self):
+    def __init__(
+        self,
+        scan_code: int = CONFIRM_SCAN_CODE,
+        count: int = 1,
+        followup_enter_cycles: int = 0,
+    ):
+        if not 0 <= scan_code < 0x100:
+            raise ValueError("frontend confirmation scan code must be between 0 and 255")
+        if count <= 0:
+            raise ValueError("frontend confirmation count must be positive")
+        if followup_enter_cycles < 0:
+            raise ValueError("frontend follow-up cycles must not be negative")
+        self.scan_code = scan_code
+        self.remaining = count
+        self.followup_enter_cycles = followup_enter_cycles
         super().__init__(self.KEY_STATE_HELPER, internal=True)
 
     def on_hit(self, ctx):
         if ctx.return_address() != self.SELECTION_CALL_RETURN:
             return
         ctx.memory.write_u8(
-            GLOBALS["KeyboardState"] + self.CONFIRM_SCAN_CODE,
+            GLOBALS["KeyboardState"] + self.scan_code,
             0x80,
         )
-        self.enabled = False
+        self.remaining -= 1
+        if self.remaining <= 0:
+            self.enabled = False
+            if self.followup_enter_cycles:
+                _key_loop_breakpoints.append(
+                    TonyKeyLoopBreakpoint(
+                        0x1C,
+                        press_ticks=5,
+                        release_ticks=15,
+                        cycles=self.followup_enter_cycles,
+                    )
+                )
         _write(
             "released frontend selection loop with keyboard scan "
-            f"0x{self.CONFIRM_SCAN_CODE:02x}"
+            f"0x{self.scan_code:02x} ({self.remaining} confirmations remaining); "
+            f"follow-up Enter cycles {self.followup_enter_cycles}"
         )
 
 
 class TonyFrontendConfirm(gdb.Command):
-    """tony-frontend-confirm -- release the next frontend selection loop."""
+    """tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES] -- release frontend loops."""
 
     def __init__(self):
         super().__init__("tony-frontend-confirm", gdb.COMMAND_BREAKPOINTS)
 
     def invoke(self, arg, from_tty):
-        if arg.strip():
-            raise gdb.GdbError("usage: tony-frontend-confirm")
-        breakpoint = TonyFrontendConfirmBreakpoint()
+        del from_tty
+        values = _argv(arg, "tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES]") if arg.strip() else []
+        if len(values) > 3:
+            raise gdb.GdbError("usage: tony-frontend-confirm [SCAN] [COUNT] [ENTER_CYCLES]")
+        try:
+            scan_code = _integer(values[0]) if values else TonyFrontendConfirmBreakpoint.CONFIRM_SCAN_CODE
+            count = _integer(values[1]) if len(values) > 1 else 1
+            enter_cycles = _integer(values[2]) if len(values) > 2 else 0
+            breakpoint = TonyFrontendConfirmBreakpoint(scan_code, count, enter_cycles)
+        except (ValueError, gdb.GdbError) as exc:
+            raise gdb.GdbError(str(exc)) from exc
         _runtime_breakpoints.append(breakpoint)
         _write(
             "frontend confirmation armed at "
-            f"0x{breakpoint.KEY_STATE_HELPER:08x}"
+            f"0x{breakpoint.KEY_STATE_HELPER:08x}; "
+            f"scan 0x{breakpoint.scan_code:02x}, count {count}, "
+            f"follow-up Enter cycles {enter_cycles}"
         )
 
 
@@ -813,7 +1370,14 @@ class TonyJumpEdge(gdb.Command):
 class TonyKeyLoopBreakpoint(CountingBreakpoint):
     """Drive one DirectInput scan-code byte with a repeatable press/release loop."""
 
-    def __init__(self, scan_code: int, press_ticks: int, release_ticks: int, cycles: int):
+    def __init__(
+        self,
+        scan_code: int,
+        press_ticks: int,
+        release_ticks: int,
+        cycles: int,
+        on_complete=None,
+    ):
         period = press_ticks + release_ticks
         super().__init__(THPS2_ADDRESSES["input_state"][0], count=period * cycles, internal=True)
         self.key_address = GLOBALS["KeyboardState"] + scan_code
@@ -821,6 +1385,7 @@ class TonyKeyLoopBreakpoint(CountingBreakpoint):
         self.press_ticks = press_ticks
         self.release_ticks = release_ticks
         self.phase = 0
+        self.on_complete_callback = on_complete
 
     def on_count(self, ctx):
         del ctx
@@ -834,6 +1399,8 @@ class TonyKeyLoopBreakpoint(CountingBreakpoint):
     def on_complete(self):
         mem.write(self.key_address, b"\0")
         _write(f"keyboard loop complete for scan code {self.scan_code}")
+        if self.on_complete_callback is not None:
+            self.on_complete_callback()
 
 
 class TonyKeyLoop(gdb.Command):
@@ -966,7 +1533,7 @@ class TonyAnimationSample(gdb.Command):
 class TonyAnimationRequestBreakpoint(CountingBreakpoint):
     """Collect calls into CSuper::RunAnim for the generated player."""
 
-    def __init__(self, count: int, path: Path, writer=None):
+    def __init__(self, count: int | None, path: Path | None, writer=None):
         super().__init__(THPS2_ADDRESSES["animation_run"][0], count=count, internal=True)
         self.path = path
         self.sample = 0
@@ -1019,11 +1586,14 @@ class TonyAnimationRequestBreakpoint(CountingBreakpoint):
                 "old_anim_dir": mem.s8(player + 0x112),
             },
         }
-        try:
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(record, sort_keys=True) + "\n")
-        except OSError as exc:
-            raise gdb.GdbError(f"could not write animation request sample {self.path}: {exc}") from exc
+        if self.path is not None:
+            try:
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record, sort_keys=True) + "\n")
+            except OSError as exc:
+                raise gdb.GdbError(
+                    f"could not write animation request sample {self.path}: {exc}"
+                ) from exc
         if self.writer is not None:
             self.writer.event({"type": "animation_request", **record})
         self.sample += 1
@@ -1670,6 +2240,132 @@ class TonyGroundMotionWriters(gdb.Command):
         )
 
 
+class TonyOllieRandomProbe(gdb.Command):
+    """tony-ollie-random-probe [COUNT] -- trace prephysics RNG seams."""
+
+    def __init__(self):
+        super().__init__("tony-ollie-random-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-ollie-random-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-ollie-random-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in OLLIE_RANDOM_SITES.items():
+            probe = OllieRandomProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"ollie random probes armed {limit}")
+
+
+class TonyVelocityDampingRandomProbe(gdb.Command):
+    """tony-velocity-damping-random-probe [COUNT] -- trace damping RNG."""
+
+    def __init__(self):
+        super().__init__("tony-velocity-damping-random-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-velocity-damping-random-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-velocity-damping-random-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in VELOCITY_DAMPING_RANDOM_SITES.items():
+            probe = VelocityDampingRandomProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"velocity damping random probes armed {limit}")
+
+
+class TonyVelocityDampingComponentProbe(gdb.Command):
+    """tony-velocity-damping-component-probe [COUNT] -- trace decay producers."""
+
+    def __init__(self):
+        super().__init__("tony-velocity-damping-component-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-velocity-damping-component-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-velocity-damping-component-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
+            probe = VelocityDampingComponentProbe(
+                address, purpose, count=count, writer=_trace_writer)
+            _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits per site"
+        _write(f"velocity damping component probes armed {limit}")
+
+
+class TonyAirCorrectionProbe(gdb.Command):
+    """tony-air-correction-probe [COUNT] -- trace in-air correction operands."""
+
+    def __init__(self):
+        super().__init__("tony-air-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-air-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-air-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = AirCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"air correction probe armed {limit}")
+
+
+class TonyResponseCorrectionProbe(gdb.Command):
+    """tony-response-correction-probe [COUNT] -- trace response additions."""
+
+    def __init__(self):
+        super().__init__("tony-response-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-response-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-response-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = ResponseCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"response correction probe armed {limit}")
+
+
+class TonyMotionCorrectionProbe(gdb.Command):
+    """tony-motion-correction-probe [COUNT] -- trace outer +0x58 output."""
+
+    def __init__(self):
+        super().__init__("tony-motion-correction-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-motion-correction-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-motion-correction-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = MotionCorrectionProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} hits"
+        _write(f"motion correction probe armed {limit}")
+
+
 class TonyGroundMotionProfileProbe(gdb.Command):
     """tony-ground-motion-profile-probe [COUNT] -- trace B010 profile sources."""
 
@@ -2201,6 +2897,72 @@ class TonyType192CommandProbe(gdb.Command):
         _write(f"TRG type-192 command probe armed for {count} completed calls")
 
 
+def _install_recording_instrumentation() -> None:
+    global _recording_controller
+    if _recording_controller is not None:
+        return
+    session_dir = os.environ.get("TONY_SESSION_DIR")
+    _recording_controller = RecordingController(session_dir=session_dir)
+    sink = _RecordingEventSink(_recording_controller)
+
+    _runtime_breakpoints.extend(
+        (
+            TonyRecordingInputBreakpoint(_recording_controller),
+            TonyRecordingFrameEntryBreakpoint(_recording_controller),
+        )
+    )
+
+    collision_probe = CollisionQueryProbe(writer=sink)
+    _runtime_breakpoints.extend(
+        (collision_probe.entry, collision_probe.return_breakpoint)
+    )
+    _runtime_breakpoints.extend(
+        (
+            AirCollisionQueryProbe(writer=sink),
+            PhysicsStateRequestProbe(writer=sink),
+            PhysicsStateWriterProbe(writer=sink),
+            TonyAnimationRequestBreakpoint(None, None, writer=sink),
+        )
+    )
+    for address, label in POSITION_COMMIT_CALLS:
+        _runtime_breakpoints.append(
+            PositionCommitBreakpoint(address, label, None, writer=sink)
+        )
+    for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(address, purpose, writer=sink)
+        )
+    for address, purpose in GROUND_MOTION_THRESHOLD_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(
+                address,
+                purpose,
+                writer=sink,
+                player_register="ebp",
+            )
+        )
+    for address, purpose in GROUND_MOTION_FRAME_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(
+                address,
+                purpose,
+                writer=sink,
+                player_register="ebp",
+            )
+        )
+    for address, purpose in OLLIE_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            OllieRandomProbe(address, purpose, writer=sink)
+        )
+    for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
+        _runtime_breakpoints.append(
+            VelocityDampingComponentProbe(address, purpose, writer=sink)
+        )
+    _runtime_breakpoints.append(AirCorrectionProbe(writer=sink))
+    _runtime_breakpoints.append(ResponseCorrectionProbe(writer=sink))
+    _runtime_breakpoints.append(MotionCorrectionProbe(writer=sink))
+
+
 _registered = False
 
 
@@ -2224,6 +2986,11 @@ def register_commands() -> None:
     TonyForceLevel()
     TonyFrontendPlay()
     TonyFrontendConfirm()
+    TonyRecordingStart()
+    TonyRecordingStop()
+    TonyRecordingToggle()
+    TonyRecordingStatus()
+    TonyRetailReplay()
     TonyPlayerSample()
     TonyInputSample()
     TonyActionEdge()
@@ -2255,6 +3022,12 @@ def register_commands() -> None:
     TonyMovementPhysicsProbe()
     TonyGroundMotionProbe()
     TonyGroundMotionWriters()
+    TonyOllieRandomProbe()
+    TonyVelocityDampingRandomProbe()
+    TonyVelocityDampingComponentProbe()
+    TonyAirCorrectionProbe()
+    TonyResponseCorrectionProbe()
+    TonyMotionCorrectionProbe()
     TonyGroundMotionProfileProbe()
     TonyInAirProbe()
     TonySpecialPhysicsProbe()
@@ -2280,12 +3053,15 @@ def register_commands() -> None:
     TonyCollisionDynamicTransformProbe()
     TonyCollisionDynamicTransformMutationProbe()
     TonyType192CommandProbe()
+    _install_recording_instrumentation()
     _registered = True
     _write(
         "OpenTony GDB helpers loaded: tony-read8, tony-read16, tony-read32, tony-readf, "
         "tony-hexdump, tony-dump, tony-snapshot, tony-diff, tony-modules, tony-bp, "
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
+        "tony-record-start, tony-record-stop, tony-record-toggle, tony-record-status, "
+        "tony-replay-retail, "
         "tony-action-edge, tony-jump-edge, "
         "tony-key-loop, tony-key-clear, tony-animation-sample, tony-animation-request-sample, "
         "tony-animation-selector-sample, "
@@ -2299,6 +3075,12 @@ def register_commands() -> None:
         "tony-collision-init-boundaries, "
         "tony-movement-physics-probe, "
         "tony-ground-motion-probe, tony-ground-motion-writers, "
+        "tony-ollie-random-probe, "
+        "tony-velocity-damping-random-probe, "
+        "tony-velocity-damping-component-probe, "
+        "tony-air-correction-probe, "
+        "tony-response-correction-probe, "
+        "tony-motion-correction-probe, "
         "tony-ground-motion-profile-probe, "
         "tony-in-air-probe, tony-air-collision-probe, tony-physics-state-requests, "
         "tony-special-physics-probe, "

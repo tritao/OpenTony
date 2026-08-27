@@ -93,11 +93,11 @@ int main() {
     const auto launched = ollie_player.run_ollie_prephysics(ollie_input);
     CHECK(launched.event == opentony::runtime::OlliePrePhysicsEvent::Launched);
     CHECK(launched.state_requested);
-    CHECK(launched.requested_state == 3);
-    CHECK(launched.request_reason == opentony::runtime::kAlternateLaunchReason);
-    CHECK(ollie_player.physics_state() == 3);
+    CHECK(launched.requested_state == 1);
+    CHECK(launched.request_reason == opentony::runtime::kOrdinaryLaunchReason);
+    CHECK(ollie_player.physics_state() == 1);
     CHECK(ollie_player.last_state_request().from == 0);
-    CHECK(ollie_player.last_state_request().to == 3);
+    CHECK(ollie_player.last_state_request().to == 1);
     CHECK(ollie_player.ollie().launch_count == 1);
 
     opentony::runtime::PlayerState air_hold;

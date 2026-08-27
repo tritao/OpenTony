@@ -37,6 +37,7 @@ void PlayerState::apply_restart(
     ground_motion_animation_speed_ = 0;
     orientation_ = q12_restart_matrix(auxiliary);
     retail_basis_ = retail_basis_from_matrix(orientation_);
+    orientation_basis_normalization_pending_ = true;
     ground_turn_saved_orientation_ = orientation_;
     ground_turn_angle12_ = 0;
     ground_turn_saved_orientation_valid_ = false;
@@ -210,8 +211,12 @@ OllieImpulseResult PlayerState::apply_ollie_impulse(
     ollie_.in_progress = 1;
     ollie_.mode_latched = ollie_.mode;
     ++ollie_.launch_count;
+    const OllieImpulseRandom& release_random =
+        input.early_release_random_available
+        ? input.early_release_random
+        : input.random;
     const std::int32_t cap =
-        0xf - (input.random.first + input.random.second) / 0x14;
+        0xf - (release_random.first + release_random.second) / 0x14;
     if (input.charge < cap) {
         ++ollie_.early_release_count;
     }
@@ -227,8 +232,12 @@ OlliePrePhysicsResult PlayerState::run_ollie_prephysics(
     const OlliePrePhysicsInput& config) noexcept {
     OlliePrePhysicsResult result;
     result.charge = ollie_.charge;
+    const OllieImpulseRandom& cap_random =
+        config.charge_cap_random_available
+        ? config.charge_cap_random
+        : config.impulse.random;
     result.cap = 0xf -
-        (config.impulse.random.first + config.impulse.random.second) / 0x14;
+        (cap_random.first + cap_random.second) / 0x14;
     if (config.prephysics_blocked) {
         return result;
     }
@@ -240,6 +249,11 @@ OlliePrePhysicsResult PlayerState::run_ollie_prephysics(
         ++ollie_.charge;
         result.event = OlliePrePhysicsEvent::Charging;
         if (result.cap < ollie_.charge || config.force_cap) {
+            if (config.charge_cap_refresh_random_available) {
+                result.cap = 0xf -
+                    (config.charge_cap_refresh_random.first +
+                     config.charge_cap_refresh_random.second) / 0x14;
+            }
             ollie_.charge = result.cap;
             result.capped = true;
         }
@@ -285,6 +299,10 @@ OlliePrePhysicsResult PlayerState::run_ollie_prephysics(
     OllieImpulseInput impulse = config.impulse;
     impulse.charge = ollie_.charge;
     impulse.wallie = physics_state_ == 5;
+    if (config.early_release_random_available) {
+        impulse.early_release_random = config.early_release_random;
+        impulse.early_release_random_available = true;
+    }
     ollie_.speed_metric = impulse.horizontal_speed_metric;
     ollie_.wallie = impulse.wallie ? 1 : 0;
     static_cast<void>(apply_ollie_impulse(impulse));
@@ -293,7 +311,9 @@ OlliePrePhysicsResult PlayerState::run_ollie_prephysics(
     result.event = OlliePrePhysicsEvent::Launched;
 
     if (physics_state_ != 2) {
-        const bool alternate = ollie_.mode == 0 && physics_state_ == 0;
+        // Retail requests the ordinary air state when the latched mode is
+        // zero. A nonzero mode is the alternate launch path.
+        const bool alternate = ollie_.mode != 0 && physics_state_ == 0;
         result.requested_state = alternate ? 3 : 1;
         result.request_reason = alternate
             ? kAlternateLaunchReason
@@ -341,6 +361,25 @@ AirMotionBasisResult PlayerState::update_air_motion_basis() noexcept {
     orientation_.at(1, 2) = static_cast<std::int16_t>(retail_basis_.at_30f4[1]);
     orientation_.at(2, 2) = static_cast<std::int16_t>(retail_basis_.at_30f4[2]);
     return result;
+}
+
+void PlayerState::normalize_orientation_basis() noexcept {
+    if (!orientation_basis_normalization_pending_) {
+        return;
+    }
+    retail_basis_.at_30f4 = q12_normalize(retail_basis_.at_30f4);
+    retail_basis_.at_3100 = q12_normalize(retail_basis_.at_3100);
+    retail_basis_.at_310c = q12_normalize(retail_basis_.at_310c);
+    orientation_.at(0, 0) = static_cast<std::int16_t>(retail_basis_.at_3100[0]);
+    orientation_.at(1, 0) = static_cast<std::int16_t>(retail_basis_.at_3100[1]);
+    orientation_.at(2, 0) = static_cast<std::int16_t>(retail_basis_.at_3100[2]);
+    orientation_.at(0, 1) = static_cast<std::int16_t>(retail_basis_.at_310c[0]);
+    orientation_.at(1, 1) = static_cast<std::int16_t>(retail_basis_.at_310c[1]);
+    orientation_.at(2, 1) = static_cast<std::int16_t>(retail_basis_.at_310c[2]);
+    orientation_.at(0, 2) = static_cast<std::int16_t>(retail_basis_.at_30f4[0]);
+    orientation_.at(1, 2) = static_cast<std::int16_t>(retail_basis_.at_30f4[1]);
+    orientation_.at(2, 2) = static_cast<std::int16_t>(retail_basis_.at_30f4[2]);
+    orientation_basis_normalization_pending_ = false;
 }
 
 AirDirectionInputResult PlayerState::apply_air_direction_input(

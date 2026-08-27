@@ -18,14 +18,16 @@ FixedStepAdvanceResult FixedStepDriver::advance(
     const DirectInputKeyboardState& keyboard,
     const InputBindings& bindings,
     const PlayerPhysicsFrameHooks& physics_hooks,
-    LevelFrameObserver* observer) {
+    LevelFrameObserver* observer,
+    std::optional<std::int32_t> frame_scale_override) {
     return advance(
         elapsed_ms,
         bindings.action_mask(keyboard),
         0,
         0,
         physics_hooks,
-        observer);
+        observer,
+        frame_scale_override);
 }
 
 FixedStepAdvanceResult FixedStepDriver::advance(
@@ -34,7 +36,8 @@ FixedStepAdvanceResult FixedStepDriver::advance(
     std::int8_t horizontal_axis,
     std::int8_t vertical_axis,
     const PlayerPhysicsFrameHooks& physics_hooks,
-    LevelFrameObserver* observer) {
+    LevelFrameObserver* observer,
+    std::optional<std::int32_t> frame_scale_override) {
     FixedStepAdvanceResult result{};
     const std::uint64_t accumulated =
         static_cast<std::uint64_t>(accumulated_ms_) + elapsed_ms;
@@ -43,6 +46,8 @@ FixedStepAdvanceResult FixedStepDriver::advance(
         : static_cast<std::uint32_t>(accumulated);
 
     const std::uint32_t maximum_steps = config_.max_catch_up_steps;
+    const std::int32_t frame_scale_q8 = frame_scale_override.value_or(
+        config_.frame_scale_q8);
     while (accumulated_ms_ >= config_.simulation_step_ms
         && result.steps < maximum_steps) {
         result.last = gameplay_.step(
@@ -52,7 +57,7 @@ FixedStepAdvanceResult FixedStepDriver::advance(
             vertical_axis,
             physics_hooks,
             observer,
-            config_.frame_scale_q8);
+            frame_scale_q8);
         accumulated_ms_ -= config_.simulation_step_ms;
         ++result.steps;
         result.consumed_ms += config_.simulation_step_ms;

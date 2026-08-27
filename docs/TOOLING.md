@@ -80,6 +80,41 @@ The Ubuntu bootstrap installs these automatically. The Arch bootstrap installs t
 
 Runtime traces should record the exact `wine --version` because Wine is not byte-pinned by this repository.
 
+## Retail recordings and replay
+
+The GDB recorder starts and stops only at the canonical gameplay-frame boundary.
+Use the host commands while a named debug session is active:
+
+```bash
+tony record start --session warehouse --output build/recordings/retail/run.otrec
+tony record stop --session warehouse
+tony record validate build/recordings/retail/run.otrec
+```
+
+Retail self-replay uses the same Warehouse frontend path, injects held keys
+before the retail action-mask builder, and compares raw player state at the
+physics-frame boundary:
+
+```bash
+tony replay retail build/recordings/retail/run.otrec
+```
+
+The command stops at the first divergence and reports its frame, stage, and
+field. A divergent result is evidence about the next missing deterministic
+channel; it is not treated as a successful parity run.
+
+The native adapter consumes the same recording inputs through the portable
+`GameplaySession`, writes a generated JSONL trace under `build/parity/`, and
+compares the captured player boundary fields against the retail golden:
+
+```bash
+cmake --build build/native --target opentony_native_replay
+tony replay native build/recordings/retail/run.otrec
+```
+
+Native divergence is expected until the corresponding behavior is recovered;
+the command reports only the first captured field that differs.
+
 ## Matching Visual C++ toolchain
 
 `tony setup vc6` downloads and verifies the English Visual Studio 6.0 Professional base ISO and Visual Studio 6.0 Service Pack 3 ISO, extracts the command-line `VC98` toolchain under `.tools/vc6`, overlays the SP3 updates, and initializes a dedicated `.tools/vc6-prefix`. It does not modify or reuse the game Wine prefixes.

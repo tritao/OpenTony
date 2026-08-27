@@ -1501,18 +1501,22 @@ confidence for dataflow and medium confidence for its user-facing meaning.
 
 The frontend control problem was resolved with a narrowly scoped debug helper.
 `tony-frontend-play` breaks at `0x004532aa`, immediately after the real
-frontend selection helper returns, and writes `0x2a` (`PLAY_GAME`) to the
-caller’s result slot at `[esp+0x58]`. This preserves the normal helper and
-loader path; writing only `EAX` or using the auto-continuing generic breakpoint
-did not reliably advance the menu.
+frontend selection helper returns, and writes `0x26` (the ordinary game-entry
+result) to the caller's result slot at `[esp+0x58]`. This preserves the normal
+helper and loader path; writing only `EAX` or using the auto-continuing generic
+breakpoint did not reliably advance the menu. Result `0x2a` also reaches the
+`PLAY_GAME` screen, but is the replay/video-restart transition and must not be
+used for ordinary gameplay setup.
 
-With that control, `camera-stationary-calibration10` reached the real
-`PLAY_GAME` state and the Warehouse (`level 12`) loader. The run used the
-confirmed `0x004d0ca4` Flip clock and collected, before the bounded capture
-ended, 61 camera records, 101 view-setup records, 800 completed transformed
-vertex records, and 1,120 present records. The camera records were all level
-12, normal mode `1`, and the settled portion had one camera callback per
-present-clock step. The live view input included:
+With the former version of that control, `camera-stationary-calibration10`
+reached the `PLAY_GAME` state and the Warehouse (`level 12`) loader. That
+historical run used result `0x2a`, which also enabled the replay/video-restart
+path, so it is retained only as contaminated level-gated evidence. It used
+the confirmed `0x004d0ca4` Flip clock and collected, before the bounded
+capture ended, 61 camera records, 101 view-setup records, 800 completed
+transformed vertex records, and 1,120 present records. The camera records
+were all level 12, normal mode `1`, and the settled portion had one camera
+callback per present-clock step. The live view input included:
 
 ```text
 (640, 480, 0, 0, 10, 20512, 3410, 12, 320, 240, 0, 0, 320, 480)
@@ -1548,13 +1552,15 @@ Evidence: `build/debug/camera-stationary-calibration10.jsonl` and the helper
 implementation in `re/gdb/opentony/commands.py`.
 
 The follow-up `camera-clean-pairing` run repeated the same level-entry setup
-without freezing the view-input record. It reached Warehouse and collected 61
-camera callbacks, 51 view setups, 100 geometry submissions, 100 raster-tail
-returns, 100 transformed-vertex returns, and 824 Flip events before the same
-retail fault at `0x004cd257`. The geometry and raster probes paired at the same
-six present-clock frames (`773..778`); the 100 transformed calls also occupied
-those frames. This confirms that the normal indexed/special geometry path and
-the ordinary transform path are both live under the level-gated experiment.
+with the former `0x2a` override and without freezing the view-input record. It
+reached Warehouse and collected 61 camera callbacks, 51 view setups, 100
+geometry submissions, 100 raster-tail returns, 100 transformed-vertex
+returns, and 824 Flip events before the same retail fault at `0x004cd257`.
+The geometry and raster probes paired at the same six present-clock frames
+(`773..778`); the 100 transformed calls also occupied those frames. This
+confirms that the normal indexed/special geometry path and the ordinary
+transform path are both live under the level-gated experiment, but does not
+make the old crash path a clean gameplay fixture.
 
 It does not yet close the object pairing: the geometry probe’s `0x004d11d0`
 arguments identify changing geometry pointers and counts, while the completed

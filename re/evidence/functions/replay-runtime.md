@@ -205,6 +205,18 @@ The frontend clears the video-restart flag after `Front_LaunchGameLevel`
 returns and restores both manager slots through `0x004b18d0`, so replay asset
 state does not leak into the next ordinary session.
 
+The debug shortcut must use the ordinary game result, not merely a result that
+eventually displays the `PLAY_GAME` screen.  In the result dispatch after
+`0x004532aa`, `0x26` enters the normal game path.  `0x2a` instead loads
+`DemoA.rec`, sets the video-restart flag, and then enters the same screen with
+replay mode active.  Its next level loop dispatches replay mode (playback state
+`+0x00 == 2`) through `0x004cd750`; the frame decoder can then read a stale
+9-bit trick-object index and walk past the live `TrickObjectListHead` chain at
+`0x0056db90`, faulting at `0x004cd257` when the link becomes null.  Clearing
+the replay mode words before writing `0x2a` does not prevent the fault because
+the replay transition recreates that state.  The helper now writes `0x26` so
+the normal frontend teardown and game-launch path remain active.
+
 ## Paired replay buffers
 
 `0x0047b6e0` is the companion load path used by the replay/card state code. It
