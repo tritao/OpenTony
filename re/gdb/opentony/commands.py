@@ -47,8 +47,10 @@ from .memory import mem
 from .physics import (
     GROUND_MOTION_CONTROL_WRITERS,
     GROUND_MOTION_CORRECTION_WRITERS,
+    GROUND_MOTION_FRAME_RANDOM_SITES,
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
+    GROUND_MOTION_THRESHOLD_RANDOM_SITES,
     OLLIE_LATCH_WRITERS,
     SPECIAL_HANDLER_INFO,
     AirCollisionQueryProbe,
@@ -71,6 +73,7 @@ from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
 from .replay import create_retail_replay
 from .snapshot import format_diff, snapshots
+from .timing import animation_timing_record
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
 from .watchpoint import watchpoints
@@ -114,6 +117,8 @@ _frontend_screen_automation = None
 
 _RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
 _RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
+_RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
+_RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
 
 
 def _recording_signed8(value: int) -> int:
@@ -194,6 +199,11 @@ def _recording_player_snapshot(player: int) -> dict:
     physics_state = mem.u32(player + 0x30B8)
     return {
         "player_address": f"0x{player:08x}",
+        "timing": animation_timing_record(mem),
+        "raw_physics_words": [
+            mem.u32(player + _RECORDING_RAW_PHYSICS_OFFSET + index * 4)
+            for index in range(_RECORDING_RAW_PHYSICS_WORDS)
+        ],
         "physics_state": physics_state,
         "physics": {
             "state_raw": physics_state,
@@ -238,7 +248,7 @@ def _recording_metadata(player: int) -> dict:
     return {
         "binary_sha256": THPS2_BUILD_SHA256,
         "retail_executable_sha256": THPS2_BUILD_SHA256,
-        "instrumentation_version": "gdb-recording-v1",
+        "instrumentation_version": "gdb-recording-v5",
         "level": {
             "index": level,
             "name": next((name for name, index in THPS2_LEVELS.items() if index == level), None),
@@ -2782,6 +2792,28 @@ def _install_recording_instrumentation() -> None:
     for address, label in POSITION_COMMIT_CALLS:
         _runtime_breakpoints.append(
             PositionCommitBreakpoint(address, label, None, writer=sink)
+        )
+    for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(address, purpose, writer=sink)
+        )
+    for address, purpose in GROUND_MOTION_THRESHOLD_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(
+                address,
+                purpose,
+                writer=sink,
+                player_register="ebp",
+            )
+        )
+    for address, purpose in GROUND_MOTION_FRAME_RANDOM_SITES.items():
+        _runtime_breakpoints.append(
+            GroundMotionRandomProbe(
+                address,
+                purpose,
+                writer=sink,
+                player_register="ebp",
+            )
         )
 
 

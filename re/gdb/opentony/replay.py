@@ -11,6 +11,7 @@ import gdb
 from .breakpoint import Context, TonyBreakpoint
 from .knowledge import GLOBALS
 from .memory import mem
+from .timing import TIMING_FIELDS, animation_timing_record, timing_raw_value
 
 _ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
 _KEYBOARD_STATE_ADDRESS = GLOBALS["KeyboardState"]
@@ -25,6 +26,31 @@ _INPUT_INJECTION_ADDRESS = 0x00469DE0
 # update.  ``physics_dispatch`` is an inner state switch and can be entered
 # more than once without advancing the recording frame.
 _PHYSICS_FRAME_ADDRESS = 0x0049E680
+# The physics wrapper publishes simulation time into the player's persistent
+# frame state at this instruction.  At the store breakpoint EDX already holds
+# the value loaded by retail, so replacing EDX is narrower than racing the
+# timer callback by rewriting the global earlier in the wrapper.
+_SIMULATION_TIME_STORE_ADDRESS = 0x0049F1A9
+_ANIMATION_CLOCK_STORE_ADDRESS = 0x0049F169
+_LANDING_FRAME_STORE_ADDRESS = 0x00499255
+_ANIMATION_STATE_TIMESTAMP_STORE_ADDRESS = 0x0049C1E4
+# The first store's source register is not reused for control flow.  The
+# second store is followed by a comparison against DL, so changing EDX there
+# would alter the branch that computes brake_mode rather than merely restoring
+# the recorded timestamp.
+_PLAYER_ANIMATION_TIMESTAMP_STORES = (0x0049392B,)
+_RAW_PHYSICS_OFFSET = 0x2D80
+_RAW_PHYSICS_WORDS = 0x490 // 4
+_SIMULATION_TIME_PLAYER_WORD = (0x2F44 - _RAW_PHYSICS_OFFSET) // 4
+_ANIMATION_CLOCK_PLAYER_WORD = (0x2DE4 - _RAW_PHYSICS_OFFSET) // 4
+_ANIMATION_TIMESTAMP_PLAYER_WORD = (0x3060 - _RAW_PHYSICS_OFFSET) // 4
+_LANDING_FRAME_PLAYER_WORD = (0x2D98 - _RAW_PHYSICS_OFFSET) // 4
+_ANIMATION_STATE_TIMESTAMP_PLAYER_WORD = (0x2E28 - _RAW_PHYSICS_OFFSET) // 4
+_VOLATILE_TIMING_FIELDS = {
+    "animation_clock",
+    "animation_clock_accumulator",
+    "simulation_time",
+}
 
 
 def _signed32(value: int) -> int:
@@ -59,6 +85,11 @@ def _snapshot(player: int) -> dict:
     physics_state = mem.u32(player + 0x30B8)
     return {
         "player_address": f"0x{player:08x}",
+        "timing": animation_timing_record(mem),
+        "raw_physics_words": [
+            mem.u32(player + _RAW_PHYSICS_OFFSET + index * 4)
+            for index in range(_RAW_PHYSICS_WORDS)
+        ],
         "physics_state": physics_state,
         "physics": {
             "state_raw": physics_state,
@@ -108,6 +139,17 @@ def _without_address(value):
     if isinstance(value, list):
         return [_without_address(item) for item in value]
     return value
+
+
+def _comparison_snapshot(value):
+    """Drop process-clock observations that are not gameplay state."""
+
+    result = _without_address(value)
+    timing = result.get("timing") if isinstance(result, dict) else None
+    if isinstance(timing, dict):
+        for name in _VOLATILE_TIMING_FIELDS:
+            timing.pop(name, None)
+    return result
 
 
 def _first_difference(expected, actual, path=()):
@@ -188,6 +230,14 @@ class RetailReplay:
         self.input_breakpoint = RetailReplayInputBreakpoint(self)
         self.action_breakpoint: RetailReplayActionBuildBreakpoint | None = None
         self.entry_breakpoint = RetailReplayFrameEntryBreakpoint(self)
+        self.simulation_time_breakpoint = RetailReplaySimulationTimeBreakpoint(self)
+        self.animation_clock_breakpoint = RetailReplayAnimationClockBreakpoint(self)
+        self.landing_frame_breakpoint = RetailReplayLandingFrameBreakpoint(self)
+        self.animation_state_timestamp_breakpoint = RetailReplayAnimationStateTimestampBreakpoint(self)
+        self.animation_timestamp_breakpoints = [
+            RetailReplayAnimationTimestampBreakpoint(self, address)
+            for address in _PLAYER_ANIMATION_TIMESTAMP_STORES
+        ]
 
     def install(self) -> None:
         gdb.write(
@@ -201,6 +251,43 @@ class RetailReplay:
         mask = int(input_record.get("action_mask", 0)) & 0xFFFF
         mem.write(_ACTION_MASK_ADDRESS, mask.to_bytes(2, "little"))
         self.inject_axes(input_record)
+        self.inject_timing()
+
+    def inject_timing(self) -> None:
+        """Restore the recorded globals before the next player frame."""
+
+        if self.index >= len(self.frames):
+            return
+        expected = self.frames[self.index].get("before", {})
+        timing = expected.get("timing") if isinstance(expected, dict) else None
+        if not isinstance(timing, dict):
+            return
+        # These values are consumed by the physics wrapper itself.  The
+        # integer animation clock/accumulator are produced later in the outer
+        # loop; overwriting them here changes the order being measured.
+        for name in (
+            "animation_time_scale",
+            "animation_time_scale_square",
+            "simulation_time",
+            "timing_delta_q11",
+        ):
+            address = TIMING_FIELDS[name]
+            value = timing_raw_value(timing, name)
+            if value is not None:
+                mem.write_u32(address, value)
+
+    def inject_after_timing(self) -> None:
+        """Restore timing globals captured after the completed frame."""
+
+        if self.index >= len(self.frames):
+            return
+        expected = self.frames[self.index].get("after", {})
+        timing = expected.get("timing") if isinstance(expected, dict) else None
+        if not isinstance(timing, dict):
+            return
+        value = timing_raw_value(timing, "simulation_time")
+        if value is not None:
+            mem.write_u32(TIMING_FIELDS["simulation_time"], value)
 
     def inject_axes(self, input_record: dict) -> None:
         raw_bytes, normalized_bytes = _axis_bytes(input_record)
@@ -253,10 +340,11 @@ class RetailReplay:
         if self.index >= len(self.frames):
             self._finish()
             return
+        self.inject_timing()
         if self.index == 0 or self.index % 16 == 0:
             gdb.write(f"retail replay frame {self.index}/{len(self.frames)}\n")
-        actual = _without_address(_snapshot(player))
-        expected = _without_address(self.frames[self.index].get("before", {}))
+        expected = _comparison_snapshot(self.frames[self.index].get("before", {}))
+        actual = _comparison_snapshot(_snapshot(player))
         difference = _first_difference(expected, actual)
         if difference is not None:
             self._diverge("before", difference, self.entry_breakpoint)
@@ -275,8 +363,8 @@ class RetailReplay:
         if self._stopped or self._active_return is not breakpoint:
             return
         self._active_return = None
-        expected = _without_address(self.frames[self.index].get("after", {}))
-        actual = _without_address(after)
+        expected = _comparison_snapshot(self.frames[self.index].get("after", {}))
+        actual = _comparison_snapshot(after)
         difference = _first_difference(expected, actual)
         if difference is not None:
             self._diverge("after", difference, breakpoint)
@@ -291,6 +379,12 @@ class RetailReplay:
         if self.action_breakpoint is not None:
             self.action_breakpoint.enabled = False
         self.entry_breakpoint.enabled = False
+        self.simulation_time_breakpoint.enabled = False
+        self.animation_clock_breakpoint.enabled = False
+        self.landing_frame_breakpoint.enabled = False
+        self.animation_state_timestamp_breakpoint.enabled = False
+        for timestamp_breakpoint in self.animation_timestamp_breakpoints:
+            timestamp_breakpoint.enabled = False
         if breakpoint is not None:
             breakpoint.should_stop = True
         gdb.write(
@@ -303,6 +397,12 @@ class RetailReplay:
         if self.action_breakpoint is not None:
             self.action_breakpoint.enabled = False
         self.entry_breakpoint.enabled = False
+        self.simulation_time_breakpoint.enabled = False
+        self.animation_clock_breakpoint.enabled = False
+        self.landing_frame_breakpoint.enabled = False
+        self.animation_state_timestamp_breakpoint.enabled = False
+        for timestamp_breakpoint in self.animation_timestamp_breakpoints:
+            timestamp_breakpoint.enabled = False
         if breakpoint is not None:
             breakpoint.should_stop = True
         path, expected, actual = difference
@@ -356,6 +456,117 @@ class RetailReplayFrameEntryBreakpoint(TonyBreakpoint):
         self.replay.frame_entry(ctx)
 
 
+class RetailReplaySimulationTimeBreakpoint(TonyBreakpoint):
+    """Supply the recorded simulation time to the exact player-state store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_SIMULATION_TIME_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("ebp")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _SIMULATION_TIME_PLAYER_WORD:
+            return
+        value = raw_words[_SIMULATION_TIME_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayAnimationClockBreakpoint(TonyBreakpoint):
+    """Supply the recorded animation clock to its exact player-state store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_ANIMATION_CLOCK_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("ebp")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _ANIMATION_CLOCK_PLAYER_WORD:
+            return
+        value = raw_words[_ANIMATION_CLOCK_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $eax = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayLandingFrameBreakpoint(TonyBreakpoint):
+    """Supply the recorded landing frame to its exact player-state store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_LANDING_FRAME_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("ebp")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _LANDING_FRAME_PLAYER_WORD:
+            return
+        value = raw_words[_LANDING_FRAME_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayAnimationTimestampBreakpoint(TonyBreakpoint):
+    """Supply the recorded animation timestamp to its player-state store."""
+
+    def __init__(self, replay: RetailReplay, address: int):
+        self.replay = replay
+        super().__init__(address, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _ANIMATION_TIMESTAMP_PLAYER_WORD:
+            return
+        value = raw_words[_ANIMATION_TIMESTAMP_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $edx = {value & 0xFFFFFFFF}")
+
+
+class RetailReplayAnimationStateTimestampBreakpoint(TonyBreakpoint):
+    """Supply the recorded animation-state timestamp to its exact store."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_ANIMATION_STATE_TIMESTAMP_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or self.replay.index >= len(self.replay.frames):
+            return
+        player = ctx.register("edi")
+        current = mem.u32(GLOBALS["Player"])
+        if not mem.valid(player) or player != current:
+            return
+        expected = self.replay.frames[self.replay.index].get("after", {})
+        raw_words = expected.get("raw_physics_words") if isinstance(expected, dict) else None
+        if not isinstance(raw_words, list) or len(raw_words) <= _ANIMATION_STATE_TIMESTAMP_PLAYER_WORD:
+            return
+        value = raw_words[_ANIMATION_STATE_TIMESTAMP_PLAYER_WORD]
+        if isinstance(value, int):
+            gdb.execute(f"set $ecx = {value & 0xFFFFFFFF}")
+
+
 class RetailReplayReturnBreakpoint(TonyBreakpoint):
     def __init__(self, replay: RetailReplay, address: int, player: int):
         self.replay = replay
@@ -366,6 +577,7 @@ class RetailReplayReturnBreakpoint(TonyBreakpoint):
         self.enabled = False
         if self.replay._active_return is not self:
             return
+        self.replay.inject_after_timing()
         self.replay.frame_return(_snapshot(self.player), self)
 
 

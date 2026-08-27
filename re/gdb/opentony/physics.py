@@ -93,6 +93,19 @@ GROUND_MOTION_RANDOM_SITES = {
     0x0049B1C4: "random_seed_0xaa",
     0x0049B416: "random_seed_0xdc",
 }
+# The outer physics wrapper refreshes the persistent +0x2dc8 threshold after
+# dispatch. These are the two post-call return sites for FUN_0048f3a0(3), not
+# the B010-local rearm draws above.
+GROUND_MOTION_THRESHOLD_RANDOM_SITES = {
+    0x0049EAF2: "threshold_seed_0xdc",
+    0x0049EB2A: "threshold_seed_0xaa",
+}
+# These are the other shared-RNG draws in the outer frame prologue. The
+# state-two draw feeds +0x2dac; the ordinary frame draw feeds +0x2f3c.
+GROUND_MOTION_FRAME_RANDOM_SITES = {
+    0x0049E747: "state_two_motion_seed",
+    0x0049E836: "frame_speed_seed",
+}
 
 # The local gate is not assigned by B010 itself.  These are the static writer
 # chain discovered in the retail image: per-profile source flags, their copy
@@ -607,13 +620,21 @@ class GroundMotionControlWriterProbe(CountingBreakpoint):
 class GroundMotionRandomProbe(CountingBreakpoint):
     """Capture B010's raw 0x0048f3a0 result at each return-site use."""
 
-    def __init__(self, address: int, purpose: str, count: int | None = None, writer=None):
+    def __init__(
+        self,
+        address: int,
+        purpose: str,
+        count: int | None = None,
+        writer=None,
+        player_register: str = "esi",
+    ):
         super().__init__(address, count=count, internal=True)
         self.purpose = purpose
         self.writer = writer
+        self.player_register = player_register
 
     def on_count(self, ctx: Context) -> bool:
-        player = ctx.register("esi")
+        player = ctx.register(self.player_register)
         current = ctx.memory.ptr(GLOBALS["Player"])
         if not ctx.memory.valid(player) or player != current:
             return False

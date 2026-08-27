@@ -79,6 +79,7 @@ from opentony.physics import PhysicsProbe, PlayerDiffProbe
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
+from opentony.timing import TIMING_FIELDS, animation_timing_record, timing_raw_value
 from opentony.trace import JsonlWriter
 from opentony.watchpoint import TonyWatchpoint, WatchpointManager
 
@@ -726,6 +727,25 @@ def test_camera_timing_record_preserves_rate_producer_state():
     assert record["timing"]["simulation_delta_q8"] == 0x100
     assert record["timing"]["recent_deltas"] == [1, 2, 3]
     assert record["timing"]["ring_index"] == 2
+
+
+def test_animation_timing_record_preserves_raw_and_signed_global_words():
+    class TimingMemory:
+        def __init__(self):
+            self.values = {
+                address: 0xFFFFFFFF if name == "simulation_time" else index + 1
+                for index, (name, address) in enumerate(TIMING_FIELDS.items())
+            }
+
+        def u32(self, address):
+            return self.values[address]
+
+    record = animation_timing_record(TimingMemory())
+
+    assert set(record) == set(TIMING_FIELDS)
+    assert record["animation_clock"] == {"raw": 1, "signed": 1}
+    assert record["simulation_time"] == {"raw": 0xFFFFFFFF, "signed": -1}
+    assert timing_raw_value(record, "simulation_time") == 0xFFFFFFFF
 
 
 def test_camera_probe_samples_this_pointer_and_writes_trace_event():
