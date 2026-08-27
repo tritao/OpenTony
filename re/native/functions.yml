@@ -604,12 +604,15 @@ functions:
       - src/trg/gap_table.cpp
       - src/trg/level_trigger_state.cpp
       - src/trg/level_trigger_state.hpp
+      - src/runtime/gameplay_session.cpp
+      - src/runtime/gameplay_session.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
       - src/trg/trg_runtime_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/gap-runtime.md
-    notes: Native state joins the decoded divider to the executable definition, preserves score/name/flags, and distinguishes immediate completion from both deferred flag paths.
+    notes: Native state joins the decoded divider to the executable definition, preserves score/name/flags, distinguishes immediate completion from both deferred flag paths, and hands the selected raw +0x3014/+0x3018 slot to the gameplay session's player-state boundary.
 
   - address: 0x00414c50
     name: Gap_CompleteDefinition
@@ -618,11 +621,30 @@ functions:
     sources:
       - src/trg/level_trigger_state.cpp
       - src/trg/level_trigger_state.hpp
+      - src/runtime/gameplay_session.cpp
+      - src/runtime/gameplay_session.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/gap-runtime.md
-    notes: Deferred completion is represented as a one-shot completion event and source-pulse handoff; unresolved player/checklist ownership remains explicit.
+    notes: Deferred completion is selected by the recovered player physics state, represented as a one-shot completion event, and pulsed through the owning level session; the score/checklist record remains offset/raw-name preserving.
+
+  - address: 0x00401060
+    name: TRG_CreateScriptObject
+    slice: trg-script-object-lifecycle
+    status: tested
+    sources:
+      - src/trg/level_trigger_state.hpp
+      - src/trg/level_trigger_state.cpp
+      - src/trg/level_runtime.cpp
+    tests:
+      - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
+    evidence:
+      - re/evidence/functions/trg-runtime.md
+      - re/evidence/functions/scripting.md
+    notes: Native creation preserves the 0xcc raw record, resolved key/parameter boundary, and 0x83/0x84 identifier space; level-state reset is the explicit release boundary while retail destructor internals remain unclaimed.
 
   - address: 0x00412640
     name: TRG_ConstructTrafficObject
@@ -644,12 +666,18 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/runtime/player_state.hpp
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_replay.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
       - src/trg/trg_runtime_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; player/stat/menu owners remain explicit inputs or handoffs.
+    notes: Native 0x009e service preserves the mode-8/mode-9 raw counter branches, one-shot latch/countdown/state initialization, secondary turn-reset request, and event ordering; the returned frame side effects are now consumed by explicit player, replay-slot, and camera owners.
 
   - address: 0x00469a30
     name: Skater_UpdateAnimationObjects
@@ -658,11 +686,18 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/runtime/player_state.hpp
+      - src/runtime/level_frame.hpp
+      - src/runtime/gameplay_frame.cpp
+      - src/runtime/physics_replay.hpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition.
+    notes: Native frame model preserves the eligible-player gate, 0x5d/0x5f animation selection, countdown decrement, mode-7 input re-arm, replay-reset requests, pending-score commit handoffs, and completion latch transition; LevelEventGameplayOwner applies the promoted player/replay side effects.
 
   - address: 0x00469de0
     name: Game_GameplayUpdate
@@ -671,11 +706,16 @@ functions:
     sources:
       - src/trg/level_trigger_state.hpp
       - src/trg/level_trigger_state.cpp
+      - src/runtime/level_event_owner.hpp
+      - src/runtime/level_event_owner.cpp
+      - src/camera/camera_runtime.hpp
+      - src/camera/camera_runtime.cpp
     tests:
       - src/trg/level_trigger_state_test.cpp
+      - src/runtime/level_event_owner_test.cpp
     evidence:
       - re/evidence/functions/level-event-runtime.md
-    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots without manufacturing camera pointers.
+    notes: Native frame result retains the strict non-mode-7 countdown < 0x28 camera +0x5b4 deltas for both player slots; LevelEventGameplayOwner applies each promoted delta through CameraRuntime::apply_level_event_delta without manufacturing retail pointers.
 
   - address: 0x004c5460
     name: TRG_CreateObject

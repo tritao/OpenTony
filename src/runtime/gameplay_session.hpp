@@ -2,6 +2,7 @@
 
 #include "air_motion.hpp"
 #include "fixed_step_driver.hpp"
+#include "level_event_owner.hpp"
 #include "player_state.hpp"
 #include "psx_collision_probe.hpp"
 #include "action_sequence_builder.hpp"
@@ -103,6 +104,13 @@ struct GameplaySessionConfig {
     bool classify_retail_air_contacts{true};
     // DAT_00533f38 selects the type-12/type-14 linked traversal policy.
     std::uint32_t special_runtime_game_mode{};
+    // Optional caller-owned inputs for the decoded 0x009e level-event
+    // service. Raw comparison fields remain explicit at the PlayerState
+    // boundary; score-input activity is likewise a caller decision until its
+    // surrounding stat service is reconstructed.
+    std::optional<trg::TriggerLevelEventInputs> level_event_inputs{};
+    bool level_event_primary_score_input_active{};
+    bool level_event_secondary_score_input_active{};
 };
 
 // Stable end-to-end observation for parity traces. It deliberately contains
@@ -228,6 +236,9 @@ public:
         return camera_;
     }
     [[nodiscard]] camera::CameraRuntime& camera() noexcept { return camera_; }
+    [[nodiscard]] const PlayerReplayResetOwner& replay_reset_owner() const noexcept {
+        return replay_reset_owner_;
+    }
 
     [[nodiscard]] const GameplaySessionObservation observation() const noexcept;
 
@@ -243,6 +254,8 @@ public:
         const trg::RenderPacketBuildOptions& options = {}) const;
 
 private:
+    class FrameObserver;
+
     trg::LevelRuntime level_;
     PlayerState player_;
     GameplayFrame gameplay_;
@@ -255,10 +268,15 @@ private:
     std::vector<std::uint8_t> tricks_sequence_table_{};
     FixedStepDriver driver_;
     camera::CameraRuntime camera_;
+    PlayerReplayResetOwner replay_reset_owner_;
+    LevelEventGameplayOwner level_event_owner_;
     PlayerPhysicsFrameHooks hooks_;
     GameplayFrameResult last_frame_{};
 
     void apply_restart_events(std::size_t event_start);
+    void prepare_level_event_frame(const InputState& input) noexcept;
+    void apply_level_event_frame() noexcept;
+    void apply_deferred_gap_handoff();
     void update_camera_after_step();
     void sync_script_skater_fields() noexcept;
 };

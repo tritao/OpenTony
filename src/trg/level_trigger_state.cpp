@@ -67,6 +67,9 @@ constexpr std::array<std::uint32_t, 8> kSpecialPaletteMasks{
 } // namespace
 
 void LevelTriggerState::reset() {
+    const std::size_t released_script_objects = script_objects_.size();
+    const std::size_t previous_script_object_teardowns =
+        script_object_teardown_count_;
     const std::uint16_t configured_visible_mask = visible_mask_;
     const GapTable* configured_gap_table = gap_table_;
     const TriggerSpecialRuntimeContext configured_special_runtime_context =
@@ -84,6 +87,8 @@ void LevelTriggerState::reset() {
     const bool configured_has_level_event_frame_input =
         has_level_event_frame_input_;
     *this = LevelTriggerState{};
+    script_object_teardown_count_ =
+        previous_script_object_teardowns + released_script_objects;
     visible_mask_ = configured_visible_mask;
     gap_table_ = configured_gap_table;
     special_runtime_context_ = configured_special_runtime_context;
@@ -93,6 +98,13 @@ void LevelTriggerState::reset() {
     level_event_inputs_ = configured_level_event_inputs;
     level_event_frame_input_ = configured_level_event_frame_input;
     has_level_event_frame_input_ = configured_has_level_event_frame_input;
+}
+
+std::size_t LevelTriggerState::teardown_script_objects() noexcept {
+    const std::size_t released = script_objects_.size();
+    script_objects_.clear();
+    script_object_teardown_count_ += released;
+    return released;
 }
 
 void LevelTriggerState::set_object_identifier(std::size_t node, std::uint16_t identifier) {
@@ -231,6 +243,9 @@ void LevelTriggerState::mark_gap_complete(std::uint32_t checksum) {
         gaps_.push_back(std::move(state));
     } else {
         found->completed = true;
+        found->deferred = false;
+        found->deferred_field_3014 = false;
+        found->deferred_field_3018 = false;
         if (!found->awarded) {
             found->awarded = true;
             found->pulse_pending = true;
@@ -244,6 +259,63 @@ void LevelTriggerState::mark_gap_complete(std::uint32_t checksum) {
         0,
         checksum,
     });
+}
+
+std::optional<TriggerDeferredGapHandoff>
+LevelTriggerState::complete_deferred_gap_for_physics_state(
+    std::int32_t physics_state) {
+    TriggerDeferredGapSlot slot{};
+    if (physics_state == 4) {
+        slot = TriggerDeferredGapSlot::field_3014;
+    } else if (physics_state == 0) {
+        slot = TriggerDeferredGapSlot::field_3018;
+    } else {
+        return std::nullopt;
+    }
+
+    const auto found = std::find_if(
+        gaps_.begin(),
+        gaps_.end(),
+        [slot](const TriggerGapState& gap) {
+            return gap.definition_found
+                && ((slot == TriggerDeferredGapSlot::field_3014
+                        && gap.deferred_field_3014)
+                    || (slot == TriggerDeferredGapSlot::field_3018
+                        && gap.deferred_field_3018));
+        });
+    if (found == gaps_.end()) {
+        return std::nullopt;
+    }
+
+    TriggerDeferredGapHandoff result{
+        found->last_source,
+        found->checksum,
+        found->last_argument,
+        found->flags,
+        found->score,
+        slot,
+    };
+    if (slot == TriggerDeferredGapSlot::field_3014) {
+        found->deferred_field_3014 = false;
+    } else {
+        found->deferred_field_3018 = false;
+    }
+    found->deferred = found->deferred_field_3014
+        || found->deferred_field_3018;
+    found->completed = true;
+    if (!found->awarded) {
+        found->awarded = true;
+        found->pulse_pending = true;
+    }
+    events_.push_back(TriggerEvent{
+        TriggerEvent::Kind::GapCompleted,
+        found->last_source,
+        CommandPointRuntime::npos,
+        0x00c9,
+        found->last_argument,
+        found->checksum,
+    });
+    return result;
 }
 
 void LevelTriggerState::mark_goal_complete(std::uint16_t goal, bool complete) {
@@ -1442,10 +1514,12 @@ void LevelTriggerState::on_gap(
             state->score = definition->score;
             state->name = definition->name;
             // FUN_004c5dc0 has separate deferred branches for definition
-            // flags 0x08 and 0x40. Keep one state bit for that shared
-            // completion boundary; the player consumer still owns which
-            // deferred slot is used.
-            state->deferred = (definition->flags & 0x48U) != 0;
+            // flags 0x08 and 0x40. Preserve both pending slots so the player
+            // physics consumer can select the matching raw field.
+            state->deferred_field_3014 = (definition->flags & 0x08U) != 0;
+            state->deferred_field_3018 = (definition->flags & 0x40U) != 0;
+            state->deferred = state->deferred_field_3014
+                || state->deferred_field_3018;
             if (!state->deferred && !state->awarded) {
                 state->completed = true;
                 state->awarded = true;

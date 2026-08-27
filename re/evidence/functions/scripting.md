@@ -94,7 +94,9 @@ the native runtime preserves them as raw parameters. This branch occurs 118
 times in the extracted corpus, predominantly in restart streams; native
 `LevelTriggerState::script_objects()` now exposes the created objects when
 those restart streams execute, and `0x83`/`0x84` can address their recovered
-identifier space.
+identifier space. The native level reset clears these records and reports the
+released count as the script-object teardown boundary; no retail destructor or
+intrusive-list address is inferred from that reset.
 
 The remaining concrete PC field writers are now preserved as raw dispatcher
 state rather than left in the legacy bucket. `0x99`/`0x9a` call
@@ -344,7 +346,7 @@ The corpus contains 41 values that decode as dispatcher cases, plus two old type
 
 The native inspector now has `--dispatch-all`, which pulses every type-6 command point after load/build. Across all 32 extracted `.TRG` files this executes 3,244 command-point streams without a cursor or runtime exception. The two `0xc5a5` historical tails follow the retail unknown-command fallthrough: the native dispatcher records the unknown word, advances by its opcode only, and continues instead of rejecting the entire level.
 
-The gap path is the second strong source/runtime correlation after Warehouse node 141. Each `0xc9` record carries an aligned u32 checksum and a u16 argument. The dispatcher first compares that checksum with the command-point record at runtime `+0x0c`; a failed join does not reach gap state. It then searches the level gap table. Depending on definition flags `0x08`/`0x40`, it calls scoring/completion helpers immediately or stores the command-point source for a deferred gap action. The native boundary records `GapSeen`, emits immediate `GapCompleted`, and exposes the one-shot source pulse while retaining both deferred branches. The exact score/checklist field names remain unresolved.
+The gap path is the second strong source/runtime correlation after Warehouse node 141. Each `0xc9` record carries an aligned u32 checksum and a u16 argument. The dispatcher first compares that checksum with the command-point record at runtime `+0x0c`; a failed join does not reach gap state. It then searches the level gap table. Depending on definition flags `0x08`/`0x40`, it calls scoring/completion helpers immediately or stores the command-point source for a deferred gap action. The native boundary records `GapSeen`, emits immediate `GapCompleted`, and exposes the one-shot source pulse while retaining both deferred branches. The player physics state now selects raw `+0x3014` or `+0x3018`, completes the native checklist record, and routes the stored source pulse through the owning level session. The public score/checklist field names remain unresolved.
 
 ## Live Warehouse launch sample
 

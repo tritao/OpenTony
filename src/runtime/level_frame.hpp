@@ -7,6 +7,9 @@
 
 namespace opentony::runtime {
 
+struct PlayerPhysicsFrameResult;
+class PlayerState;
+
 class LevelFrameObserver {
 public:
     virtual ~LevelFrameObserver() = default;
@@ -25,11 +28,19 @@ public:
         std::uint32_t,
         const InputState&,
         const opentony::trg::LevelRuntime&) {}
+
+    // Called after the player physics consumer has completed for this fixed
+    // step. Deferred TRG gap ownership uses this boundary because the retail
+    // slot selection is made by the live physics state.
+    virtual void on_player_physics(
+        std::uint64_t,
+        const PlayerPhysicsFrameResult&,
+        const PlayerState&) {}
 };
 
 // Recovered high-level ordering for one level iteration:
-// poll/action mask -> input history -> level/script tick -> downstream
-// object/player/camera/render observers.
+// poll/action mask -> input history -> level/script tick -> player physics ->
+// post-physics object/player/camera/render observers.
 class LevelFrameScheduler final {
 public:
     explicit LevelFrameScheduler(opentony::trg::LevelRuntime& level) noexcept

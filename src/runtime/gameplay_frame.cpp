@@ -38,6 +38,9 @@ public:
             input,
             physics_hooks_,
             frame_scale_q8_);
+        if (downstream_ != nullptr) {
+            downstream_->on_player_physics(frame, physics_result_, player_);
+        }
     }
 
 private:

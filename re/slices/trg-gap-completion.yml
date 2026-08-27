@@ -20,16 +20,19 @@ artifacts:
     - src/trg/gap_table.cpp
     - src/trg/level_trigger_state.hpp
     - src/trg/level_trigger_state.cpp
+    - src/runtime/gameplay_session.hpp
+    - src/runtime/gameplay_session.cpp
   tests:
     - src/trg/trg_runtime_test.cpp
     - src/trg/level_trigger_state_test.cpp
+    - src/runtime/level_event_owner_test.cpp
 
 open_questions:
-  - Connect the two deferred definition flags to the player-position/checklist owner without naming the unresolved score service.
   - Confirm the runtime-selected gap table variants for career, editor, and custom-park modes.
 
 completion:
   - The executable gap record layout and divider lookup are evidence-backed.
   - Native state distinguishes checksum admission, immediate completion, and both deferred flag paths.
+  - Player physics state selects the raw +0x3014/+0x3018 deferred slot, and the owning level session pulses the stored source node after checklist completion.
   - Immediate completion records the source-correlated event and exposes a one-shot source pulse.
   - Malformed aligned payloads and checksum mismatches have deterministic regression coverage.
