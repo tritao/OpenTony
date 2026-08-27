@@ -83,5 +83,14 @@ int main() {
         opentony::runtime::AirDirectionInputConfig{100, 150});
     CHECK(opposing.motion_correction == FixedPosition({100, 200, 300}));
 
+    const auto control = opentony::runtime::apply_air_action_control(
+        {3200, 0, 0},
+        {0, 0, 0},
+        forward_basis,
+        opentony::runtime::AirActionControlConfig{
+            1000, true, true, false, false, false, false});
+    CHECK(control.applied);
+    CHECK(control.motion_correction == FixedPosition({-100, 1800, 0}));
+
     std::cout << "Air motion tests passed\n";
 }

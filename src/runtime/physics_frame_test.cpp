@@ -482,6 +482,29 @@ int main() {
     CHECK(stat_air_frame.air_direction_input->delta
         == FixedPosition({0, 0, 19500}));
 
+    PlayerState air_control_player;
+    air_control_player.set_physics_state(3);
+    air_control_player.set_collision_response({3200, 0, 0});
+    InputState air_control_input;
+    air_control_input.begin_frame(opentony::runtime::kKickActionBit);
+    PlayerPhysicsFrameHooks air_control_hooks{};
+    air_control_hooks.integrate_motion_correction = false;
+    air_control_hooks.air_action_control_input = [](
+        const PlayerState&,
+        const InputState&) {
+        return std::optional<opentony::runtime::AirActionControlConfig>{
+            opentony::runtime::AirActionControlConfig{
+                1000, true, false, false, false, false, false}};
+    };
+    const auto air_control_frame = PlayerPhysicsFrame::step(
+        air_control_player,
+        air_control_input,
+        air_control_hooks);
+    CHECK(air_control_frame.air_action_control.has_value());
+    CHECK(air_control_frame.air_action_control->applied);
+    CHECK(air_control_player.motion_correction()
+        == FixedPosition({-100, 1800, 0}));
+
     PlayerState replay_player({0, 0, 0});
     replay_player.set_physics_state(3);
     replay_player.set_collision_response({100, 0, 0});

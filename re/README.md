@@ -98,6 +98,11 @@ through `0x0055fc2c` into `0x0056a3d8`, and
 `tony-ground-motion-writers [COUNT] [--correction] [--control]` to capture
 the exact correction/rearm stores and B010 random return sites.
 
+`tony-rng-probe [COUNT]` traces every call to the shared `0x0048f3a0`
+service, including caller, selector, frame ordinal, and return value. Its
+state fields are explicitly marked unestablished until the state-advancing
+routine is identified.
+
 Dedicated state-handler observation uses `tony-special-physics-probe [COUNT]`.
 It arms entry probes for state 4 (`0x00494210`), state 5 (`0x00499710`),
 state 6 (`0x004993f0`), and state 8 (`0x004995d0`). Each event records the

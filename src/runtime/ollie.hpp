@@ -9,6 +9,8 @@ namespace opentony::runtime {
 // into a guessed controller mapping.
 inline constexpr std::uint16_t kJumpActionBit = 0x0010;
 inline constexpr std::uint16_t kKickActionBit = 0x0040;
+inline constexpr std::uint16_t kSpinLeftActionBit = 0x0004;
+inline constexpr std::uint16_t kSpinRightActionBit = 0x0008;
 inline constexpr std::uint32_t kOrdinaryLaunchReason = 0x245c;
 inline constexpr std::uint32_t kAlternateLaunchReason = 0x2457;
 inline constexpr std::uint32_t kLandingReason = 0x1fd6;

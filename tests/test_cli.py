@@ -152,9 +152,15 @@ def test_retail_replay_parse():
         ["replay", "retail", "run.otrec", "--session", "warehouse", "--port", "31350"]
     )
     assert args.path == "run.otrec"
+    assert args.mode == "assisted"
     assert args.session == "warehouse"
     assert args.port == 31350
     assert callable(args.func)
+
+    strict = build_parser().parse_args(
+        ["replay", "retail", "run.otrec", "--mode", "strict"]
+    )
+    assert strict.mode == "strict"
 
 
 def test_native_replay_parse():
@@ -176,6 +182,11 @@ def test_native_replay_parse():
     assert args.psx == "warehouse.PSX"
     assert args.output == "native.jsonl"
     assert callable(args.func)
+
+    strict = build_parser().parse_args(
+        ["replay", "native", "run.otrec", "--mode", "strict"]
+    )
+    assert strict.mode == "strict"
 
 
 def test_record_commands_parse():

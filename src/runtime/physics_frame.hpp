@@ -101,6 +101,11 @@ struct PlayerPhysicsFrameHooks {
     // applies the confirmed Up/Down producer with its default 150% scale.
     std::function<std::optional<AirSpeedConfig>(
         const PlayerState&, const InputState&)> air_speed_input;
+    // Optional pre-position action-control seam from the first
+    // 0x00497f40 block. This owns the recovered KICK/UP/DOWN/SPIN terms and
+    // stabilization while the gravity scalar/global gate remain caller data.
+    std::function<std::optional<AirActionControlConfig>(
+        const PlayerState&, const InputState&)> air_action_control_input;
     // Optional completion of FUN_00497df0's basis/orientation handoff after
     // air_gravity_input has applied its scalar update.
     bool apply_air_motion_basis{false};
@@ -209,6 +214,7 @@ struct PlayerPhysicsFrameResult {
     std::optional<GroundPhysicsResult> ground_physics;
     std::optional<AirGravityResult> air_gravity;
     std::optional<AirMotionBasisResult> air_motion_basis;
+    std::optional<AirActionControlResult> air_action_control;
     std::optional<AirDirectionInputResult> air_direction_input;
     std::optional<OlliePrePhysicsResult> ollie;
     std::optional<ActionSequenceExecutionResult> action_sequence;

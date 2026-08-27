@@ -228,12 +228,24 @@ def build_parser() -> argparse.ArgumentParser:
     replay_sub = replay.add_subparsers(dest="replay_command", required=True)
     p = replay_sub.add_parser("retail", help="replay one recording through the retail executable")
     p.add_argument("path")
+    p.add_argument(
+        "--mode",
+        choices=("assisted", "strict"),
+        default="assisted",
+        help="replay contract: allow derived-state restoration or inject external inputs only",
+    )
     p.add_argument("--session", help="named debug session; omitted generates a unique session")
     p.add_argument("--port", type=int)
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled")
     p.set_defaults(func=commands.replay_retail)
     p = replay_sub.add_parser("native", help="replay one recording through the native gameplay session")
     p.add_argument("path")
+    p.add_argument(
+        "--mode",
+        choices=("assisted", "strict"),
+        default="assisted",
+        help="replay contract: inject unresolved native seams or disable their captured inputs",
+    )
     p.add_argument("--trg", help="native level trigger asset; defaults to Warehouse")
     p.add_argument("--psx", help="native level collision/scene asset; defaults to Warehouse")
     p.add_argument("--asset-root", help="native asset directory; defaults to build/assets/all-pkr/files/data")

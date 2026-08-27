@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import struct
 
-from .breakpoint import Context, CountingBreakpoint
+from .breakpoint import Context, CountingBreakpoint, TonyBreakpoint
 from .knowledge import GLOBALS, function_address
 from .player import PlayerView
 
@@ -106,6 +106,14 @@ GROUND_MOTION_FRAME_RANDOM_SITES = {
     0x0049E747: "state_two_motion_seed",
     0x0049E836: "frame_speed_seed",
 }
+
+# 0x0048f3a0 is currently described by the surrounding reconstruction as a
+# shared RNG service.  Its body has not yet been promoted to a native model,
+# so trace the function boundary itself as well as the older consumer-local
+# return probes.  The direct disassembly presently suggests a stat/profile
+# lookup rather than a stateful PRNG; keep that distinction visible in the
+# event name until dynamic evidence settles it.
+SHARED_RANDOM_SERVICE = 0x0048F3A0
 
 # Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
 # placed after the call, where EAX contains the returned roll.  The charge
@@ -713,6 +721,112 @@ class GroundMotionRandomProbe(CountingBreakpoint):
         else:
             self.writer.event(record)
         return True
+
+
+class SharedRandomServiceReturnProbe(TonyBreakpoint):
+    """Complete one direct 0x0048f3a0 observation at its caller return."""
+
+    def __init__(self, owner, address: int, record: dict):
+        self.owner = owner
+        self.record = record
+        super().__init__(address, internal=True, temporary=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.enabled = False
+        self.record["return_value_raw"] = ctx.register("eax") & 0xFFFFFFFF
+        self.record["return_value_s32"] = _signed32(ctx.register("eax"))
+        self.owner._complete(self, self.record)
+
+
+class SharedRandomServiceProbe(TonyBreakpoint):
+    """Trace every invocation of the shared 0x0048f3a0 service.
+
+    The probe is deliberately non-invasive.  It observes the thiscall object,
+    selector argument, caller, and return value; it does not replace the
+    result.  ``frame_provider`` lets recording use the controller's canonical
+    physics-frame number even when the optional interactive frame clock is not
+    armed.
+    """
+
+    def __init__(
+        self,
+        count: int | None = None,
+        writer=None,
+        frame_provider=None,
+    ):
+        self.remaining = count
+        self.hits = 0
+        self.writer = writer
+        self.frame_provider = frame_provider
+        self._frame = None
+        self._ordinal = 0
+        self._returns = []
+        super().__init__(SHARED_RANDOM_SERVICE, internal=True)
+
+    def _current_frame(self, ctx: Context) -> int:
+        if self.frame_provider is not None:
+            frame = self.frame_provider()
+            if frame is not None:
+                return int(frame)
+        return ctx.frame
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.remaining is not None and self.remaining <= 0:
+            self.enabled = False
+            return
+
+        return_address = ctx.return_address()
+        if not return_address:
+            return
+        frame = self._current_frame(ctx)
+        if frame != self._frame:
+            self._frame = frame
+            self._ordinal = 0
+        ordinal = self._ordinal
+        self._ordinal += 1
+        selector = ctx.arg(0)
+        record = {
+            "type": "shared_random_call",
+            "function": "FUN_0048f3a0",
+            "address": f"0x{SHARED_RANDOM_SERVICE:08x}",
+            "frame": frame,
+            "ordinal_within_frame": ordinal,
+            "caller": f"0x{return_address - 5:08x}",
+            "return_address": f"0x{return_address:08x}",
+            "this": f"0x{ctx.this_ptr():08x}",
+            "argument_raw": selector & 0xFFFFFFFF,
+            "argument_s32": _signed32(selector),
+            # No PRNG state address has been established.  Explicit nulls make
+            # this a useful negative result instead of silently claiming that
+            # the caller-local object or a guessed global is RNG state.
+            "state_before": None,
+            "state_after": None,
+            "state_status": "not-established",
+        }
+        return_probe = SharedRandomServiceReturnProbe(self, return_address, record)
+        self._returns.append(return_probe)
+        if self.remaining is not None:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self.enabled = False
+
+    def _complete(self, return_probe, record: dict) -> None:
+        if return_probe in self._returns:
+            self._returns.remove(return_probe)
+        self.hits += 1
+        self._emit(record)
+
+    def disable_pending_returns(self) -> None:
+        """Stop return probes if the owning trace is closed mid-call."""
+        for return_probe in self._returns:
+            return_probe.enabled = False
+        self._returns.clear()
 
 
 class OllieRandomProbe(CountingBreakpoint):
