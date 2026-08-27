@@ -191,6 +191,10 @@ public:
     void set_air_motion(FixedPosition motion) noexcept {
         air_motion_ = motion;
     }
+    void set_orientation(Q12Matrix3 orientation) noexcept {
+        orientation_ = orientation;
+        retail_basis_ = retail_basis_from_matrix(orientation_);
+    }
     [[nodiscard]] bool set_queued_motion_command(
         std::int32_t axis,
         std::int16_t amount,

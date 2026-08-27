@@ -157,6 +157,27 @@ def test_retail_replay_parse():
     assert callable(args.func)
 
 
+def test_native_replay_parse():
+    args = build_parser().parse_args(
+        [
+            "replay",
+            "native",
+            "run.otrec",
+            "--trg",
+            "warehouse.TRG",
+            "--psx",
+            "warehouse.PSX",
+            "--output",
+            "native.jsonl",
+        ]
+    )
+    assert args.path == "run.otrec"
+    assert args.trg == "warehouse.TRG"
+    assert args.psx == "warehouse.PSX"
+    assert args.output == "native.jsonl"
+    assert callable(args.func)
+
+
 def test_record_commands_parse():
     start = build_parser().parse_args(
         ["record", "start", "--session", "warehouse", "--output", "run.otrec", "--force"]

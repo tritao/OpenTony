@@ -34,6 +34,7 @@ from .media import (
 )
 from .media_setup import install_media
 from .native_progress import native_verify
+from .native_replay import replay_native  # noqa: F401 - command handler consumed by cli.py
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
 from .recording import (
