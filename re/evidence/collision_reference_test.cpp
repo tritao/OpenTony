@@ -217,6 +217,66 @@ int main() {
     CHECK(query.hit_face_record == 0x05db3534);
     CHECK(query.hit_model_index == 132);
 
+    // These line-basis records are the compact `line_basis_s16` observations
+    // from collision-runtime-20260826-2. They exercise the nonvertical path
+    // with mixed signs and nonzero values in all three source components.
+    const auto check_basis_fixture = [](const RawVec3& start,
+                                        const RawVec3& end,
+                                        Raw expected_length,
+                                        const std::array<std::int16_t, 9>& expected_basis) {
+        QueryRecord fixture;
+        fixture.start = start;
+        fixture.end = end;
+        prepare(fixture);
+        CHECK(fixture.line_length == expected_length);
+        CHECK(fixture.line_basis == expected_basis);
+    };
+    check_basis_fixture(
+        {23928832, -6352896, 11186176},
+        {23926261, -6220058, 9440996},
+        428,
+        {-4096, 0, 9, 0, 4084, 306, -9, 306, -4084});
+    check_basis_fixture(
+        {23928832, -6352896, 11186176},
+        {24104960, -6754304, 15364096},
+        1025,
+        {4092, 0, -172, 16, 4077, 390, 171, -391, 4073});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -374133, 1597584},
+        390,
+        {4096, 0, 0, 0, 4091, -188, 0, 188, 4091});
+    check_basis_fixture(
+        {0, 0, 0},
+        {-2372780, -177737, 758952},
+        610,
+        {1244, 0, 3902, -282, 4085, 89, -3892, -295, 1240});
+    check_basis_fixture(
+        {-204550, 0, 0},
+        {409100, -541140, 2310720},
+        598,
+        {3960, 0, -1046, 232, 3993, 879, 1019, -910, 3860});
+    check_basis_fixture(
+        {204550, 0, 0},
+        {-409100, -541140, 2310720},
+        598,
+        {3958, 0, 1052, -234, 3993, 879, -1026, -910, 3858});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -342411, 1462128},
+        356,
+        {4096, 0, 0, 0, 4085, -298, 0, 298, 4085});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -355473, 1517904},
+        370,
+        {4096, 0, 0, 0, 4088, -254, 0, 254, 4088});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -332148, 1418304},
+        347,
+        {4096, 0, 0, 0, 4082, -330, 0, 330, 4082});
+
     const auto raw_query = to_query_layout(query);
     const auto round_trip = from_query_layout(raw_query);
     CHECK(round_trip.start == query.start);

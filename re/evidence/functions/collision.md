@@ -113,6 +113,20 @@ PC port's `SLineInfo`-like object rather than an ad-hoc skater-only struct.
   each component is shifted down by 12 bits. It initializes the nearest
   candidate fields to `0x7fffffff`, clears the hit pointer, and sets the
   per-query flags byte at `q+0x88` to zero.
+
+The exact nonvertical expansion is now closed. After the component deltas are
+shifted down by 12 and narrowed to signed shorts, the initializer forms
+`h = sx*sx + sz*sz` and `t = h + sy*sy` with 32-bit wrapping. Each positive
+value is sign-bit normalized, square-rooted with the retail truncation, and
+retained in normalized and unscaled forms. Signed x86 division (truncating
+toward zero) then computes `xn = (sx << (half_h+12))/root_h`,
+`zn = (sz << (half_h+12))/root_h`, `v = (sy << (half_t+12))/root_t`, and
+`u3 = (root_h << 12)/(root_t << ((half_h-half_t)&31))`. The seed is
+`[0x1000,0,0; 0,u3,-v; 0,v,u3]`; columns `[zn,0,xn]`,
+`[0,0x1000,0]`, and `[-xn,0,zn]` are multiplied through `0x004e3130`.
+Its 32-bit wrapped products are shifted and saturated to signed shorts. The
+basis produced here is unscaled; linked-object `+0x28/+0x2a/+0x2c` factors
+are consumed later by `0x004f5540`.
 - `0x00466090` takes the query pointer at `[ESP+4]` and a mode at `[ESP+8]`,
   calls `0x004660b0`, then executes `xor eax,eax; ret`. A safe tentative
   signature is therefore:
@@ -958,6 +972,11 @@ For records taking the full-word `0x0200` matrix-transform branch, the original
 consumes signed Q12 tail words at `+0x28/+0x2a/+0x2c` while constructing the
 temporary matrix. The native view accepts those factors, but the PC loader
 values and complete tail ownership remain unresolved.
+This is deliberately separate from `0x004624d0`: the query initializer's
+short basis is not scaled by linked-object tails. The runtime transform
+follow-up observed the later helper consuming those three columns; identity
+factors `[4096,4096,4096]` leave the temporary matrix unchanged, while the
+controlled signed-factor probe confirms the column mapping and Q12 arithmetic.
 `PsxScene::query_with_linked_objects` composes this dynamic result with the
 PSX zone/blockmap result at the recovered native boundary. It compares the
 shared traveled-distance field `q+0x40` and keeps the static candidate on an
