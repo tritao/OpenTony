@@ -62,3 +62,27 @@ def test_seed_ghidra_project_defers_when_canonical_project_is_missing(tmp_path, 
 
     assert not (target_root / "build/ghidra").exists()
     assert "DEFER build/ghidra" in capsys.readouterr().out
+
+
+def test_seed_ghidra_project_preserves_incomplete_target(tmp_path, monkeypatch):
+    source_root = tmp_path / "main"
+    target_root = tmp_path / "topic"
+    source = source_root / "build/ghidra"
+    target = target_root / "build/ghidra"
+    source.mkdir(parents=True)
+    target.mkdir(parents=True)
+    (source / "recovered-types.json").write_text("{}")
+    (source / "canonical").write_text("ready")
+    (target / "notes").write_text("preserve")
+    monkeypatch.setattr(worktrees, "ROOT", target_root)
+    monkeypatch.setattr(worktrees, "_project_ready", lambda root: root == source_root)
+    monkeypatch.setattr(
+        worktrees,
+        "load_yaml",
+        lambda _path: {"ghidra": {"project_dir": "build/ghidra", "project_name": "OpenTony"}},
+    )
+
+    worktrees._seed_ghidra_project(source_root)
+
+    assert (target_root / "build/ghidra/canonical").read_text() == "ready"
+    assert (target_root / "build/ghidra.incomplete/notes").read_text() == "preserve"

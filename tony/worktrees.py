@@ -89,12 +89,18 @@ def _seed_ghidra_project(source_root: Path) -> None:
     relative = Path(load_yaml("re/config/ghidra.yml")["ghidra"]["project_dir"])
     source = source_root / relative
     target = ROOT / relative
-    if target.exists():
+    if target.exists() and _project_ready(ROOT):
         print(f"READY {relative}")
         return
     if not (source / "recovered-types.json").is_file():
         print(f"DEFER {relative} (canonical project is not ready: {source})")
         return
+    if target.exists() or target.is_symlink():
+        backup = target.with_name(f"{target.name}.incomplete")
+        if backup.exists() or backup.is_symlink():
+            raise SystemExit(f"cannot preserve incomplete Ghidra project; backup already exists: {backup}")
+        target.rename(backup)
+        print(f"MOVE  {relative} -> {backup.relative_to(ROOT)}")
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target, copy_function=_copy_reflink)
     print(f"COPY  {relative} (private worktree project)")

@@ -35,7 +35,7 @@ fi
 
 if [[ ! -f "$VENV/bin/tony" ]] \
   || ! "$VENV/bin/python" -c \
-    'from pathlib import Path; import sys, tony; raise SystemExit(0 if Path(tony.__file__).resolve().parents[1] == Path(sys.argv[1]).resolve() else 1)' \
+    'from pathlib import Path; import pefile, sys, tony, yaml; raise SystemExit(0 if Path(tony.__file__).resolve().parents[1] == Path(sys.argv[1]).resolve() else 1)' \
     "$ROOT" >/dev/null 2>&1; then
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-input --force-reinstall -e "$ROOT"
 fi
