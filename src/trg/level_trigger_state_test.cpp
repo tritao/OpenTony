@@ -666,6 +666,117 @@ void test_objectives_and_timers() {
     CHECK(state.goal_complete(5));
 }
 
+void test_level_event_mode_and_frame_contract() {
+    LevelTriggerState mode8_less;
+    mode8_less.set_level_event_inputs(
+        TriggerLevelEventInputs{8, 0, false, 10, 20});
+    mode8_less.on_level_event_state();
+    const TriggerLevelEventRawStats& less_stats =
+        mode8_less.level_event_raw_stats();
+    CHECK(less_stats.word_0056b7e0 == 1);
+    CHECK(less_stats.word_0056b79c == 1);
+    CHECK(less_stats.word_0056b7b4 == 1);
+    CHECK(less_stats.word_0056b7b0 == -1);
+    CHECK(less_stats.word_0056b7a4 == 10);
+    CHECK(less_stats.word_0056b7a0 == 20);
+    mode8_less.on_level_event_state();
+    CHECK(mode8_less.level_event_raw_stats().word_0056b7e0 == 1);
+
+    LevelTriggerState mode8_greater;
+    mode8_greater.set_level_event_inputs(
+        TriggerLevelEventInputs{8, 0, false, 30, 20});
+    mode8_greater.on_level_event_state();
+    CHECK(mode8_greater.level_event_raw_stats().word_0056b7dc == 1);
+    CHECK(mode8_greater.level_event_raw_stats().word_0056b798 == 1);
+    CHECK(mode8_greater.level_event_raw_stats().word_0056b7b0 == 1);
+    CHECK(mode8_greater.level_event_raw_stats().word_0056b7b4 == -1);
+
+    LevelTriggerState mode9;
+    mode9.set_level_event_inputs(
+        TriggerLevelEventInputs{9, 2, false, 0, 0});
+    mode9.on_level_event_state();
+    CHECK(mode9.level_event_raw_stats().word_0056b7dc == 1);
+    CHECK(mode9.level_event_raw_stats().word_0056b798 == 1);
+    CHECK(mode9.level_event_raw_stats().word_0056b7b0 == 1);
+    CHECK(mode9.level_event_raw_stats().word_0056b7b4 == -1);
+
+    LevelTriggerState state;
+    state.set_level_event_inputs(TriggerLevelEventInputs{1, 0, false, 0, 0});
+    state.on_level_event_state();
+    TriggerLevelEventFrameInput frame{};
+    frame.players_eligible = true;
+    frame.secondary_present = true;
+    frame.secondary_eligible = true;
+    frame.primary_state7 = true;
+    frame.secondary_state7 = true;
+    frame.primary_animation_state = 0;
+    frame.secondary_animation_state = 0x5d;
+    frame.secondary_animation_flag_107 = true;
+    frame.primary_pending_score = 100;
+    frame.secondary_pending_score = 200;
+    frame.primary_score_input_active = true;
+    frame.secondary_score_input_active = true;
+    state.set_level_event_frame_input(frame);
+
+    LevelTriggerState tick_bridge;
+    tick_bridge.on_level_event_state();
+    TriggerLevelEventFrameInput tick_frame{};
+    tick_frame.players_eligible = true;
+    tick_bridge.set_level_event_frame_input(tick_frame);
+    tick_bridge.advance_time(0);
+    CHECK(tick_bridge.level_event_timer_value() == 0x4f);
+
+    for (int frame_index = 0; frame_index < 79; ++frame_index) {
+        const TriggerLevelEventFrameResult result =
+            state.advance_level_event_frame();
+        CHECK(result.primary_animation == 0x5d);
+        CHECK(result.secondary_animation == 0x5f);
+        CHECK(result.primary_animation_started);
+        CHECK(result.secondary_animation_started);
+    }
+    CHECK(state.level_event_timer_value() == 1);
+    CHECK(state.level_event_camera_updates() == 78);
+    CHECK(state.level_event_primary_camera_delta() == 39 * 0x40);
+    CHECK(state.level_event_secondary_camera_delta() == 39 * 0x40);
+
+    const TriggerLevelEventFrameResult committed =
+        state.advance_level_event_frame();
+    CHECK(committed.primary_score_committed == 100);
+    CHECK(committed.secondary_score_committed == 200);
+    CHECK(!committed.completion_reset_requested);
+    CHECK(state.level_event_initialized());
+    CHECK(state.level_event_mode_value() == 0);
+    CHECK(state.level_event_timer_value() == 1);
+    CHECK(state.level_event_replay_reset_requests() == 2);
+
+    frame.primary_pending_score = 0;
+    frame.secondary_pending_score = 0;
+    state.set_level_event_frame_input(frame);
+    const TriggerLevelEventFrameResult completed =
+        state.advance_level_event_frame();
+    CHECK(completed.replay_reset_requests == 2);
+    CHECK(completed.completion_reset_requested);
+    CHECK(!state.level_event_initialized());
+    CHECK(state.level_event_completion_reset_requests() == 1);
+
+    LevelTriggerState mode7;
+    mode7.set_level_event_inputs(TriggerLevelEventInputs{7, 0, false, 0, 0});
+    mode7.on_level_event_state();
+    TriggerLevelEventFrameInput mode7_frame{};
+    mode7_frame.players_eligible = true;
+    mode7_frame.mode7_input_active = false;
+    mode7.set_level_event_frame_input(mode7_frame);
+    for (int frame_index = 0; frame_index < 21; ++frame_index) {
+        (void)mode7.advance_level_event_frame();
+    }
+    mode7_frame.mode7_input_active = true;
+    mode7.set_level_event_frame_input(mode7_frame);
+    const TriggerLevelEventFrameResult mode7_result =
+        mode7.advance_level_event_frame();
+    CHECK(mode7_result.completion_reset_requested);
+    CHECK(!mode7.level_event_initialized());
+}
+
 void test_scene_registry() {
     LevelTriggerState state;
     state.on_linked_node(7, 2, 0x1111, {});
@@ -726,6 +837,7 @@ int main() {
     test_type12_type14_animation_modes();
     test_dispatcher_field_writes();
     test_objectives_and_timers();
+    test_level_event_mode_and_frame_contract();
     test_scene_registry();
     std::cout << "Level trigger state tests passed\n";
 }
