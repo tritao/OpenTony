@@ -82,6 +82,23 @@ functions:
       - re/evidence/functions/animation-runtime.md
     notes: Exact 5/3/1 signed steering-frame easing primitive; shared by the ground selector and the standalone animation cursor contract.
 
+  - address: 0x00493370
+    name: Skater_ActionPhysicsStep
+    slice: ground-turn-lean
+    status: tested
+    sources:
+      - src/runtime/ground_turn.cpp
+      - src/runtime/ground_turn.hpp
+      - src/physics_state_machine.cpp
+      - src/physics_state_machine.hpp
+    tests:
+      - src/runtime/ground_turn_test.cpp
+      - tests/physics_state_machine_test.cpp
+    evidence:
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: Grounded analog/lean target branch preserves signed +0x31a1 byte threshold 0x1a, sign-corrected SAR-7 target, weighted fixed-point response, 32-bit arithmetic boundaries, and +0x2e7c branch-selection output; queued-motion and non-ground state branches remain outside this slice.
+
   - address: 0x00480730
     name: Animation_Start
     slice: animation-endpoint-transition

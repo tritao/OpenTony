@@ -1,11 +1,57 @@
 #include "physics_state_machine.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 
 namespace opentony::physics {
 
 namespace {
+
+std::int32_t ground_wrap32(std::int64_t value) noexcept {
+    return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+}
+
+std::int32_t ground_arithmetic_shift_right(
+    std::int32_t value,
+    unsigned amount) noexcept {
+    if (amount == 0) {
+        return value;
+    }
+    if (amount >= 32) {
+        return value < 0 ? -1 : 0;
+    }
+    std::uint32_t shifted = static_cast<std::uint32_t>(value) >> amount;
+    if (value < 0) {
+        shifted |= ~std::uint32_t{0} << (32 - amount);
+    }
+    return std::bit_cast<std::int32_t>(shifted);
+}
+
+std::int32_t ground_add32(
+    std::int32_t left,
+    std::int32_t right) noexcept {
+    return ground_wrap32(static_cast<std::int64_t>(left) + right);
+}
+
+std::int32_t ground_sub32(
+    std::int32_t left,
+    std::int32_t right) noexcept {
+    return ground_wrap32(static_cast<std::int64_t>(left) - right);
+}
+
+std::int32_t ground_mul_low32(
+    std::int32_t left,
+    std::int32_t right) noexcept {
+    return ground_wrap32(static_cast<std::int64_t>(left) * right);
+}
+
+std::int32_t ground_signed_div32(
+    std::int32_t numerator,
+    std::int32_t denominator) noexcept {
+    return static_cast<std::int32_t>(
+        static_cast<std::int64_t>(numerator) / denominator);
+}
 
 std::int64_t absolute_value(std::int64_t value) noexcept {
     return value < 0 ? -value : value;
@@ -1940,8 +1986,10 @@ GroundActionStepResult PhysicsStateMachine::apply_ground_action_step(
         static_cast<std::uint8_t>(state_.ground_speed_profile);
     const std::int32_t speed_units =
         speed_profile == 0 ? 0x3c : (speed_profile == 1 ? 0x78 : 0xb4);
-    std::int32_t target_step = static_cast<std::int32_t>(
-        (static_cast<std::int64_t>(speed_units) * 0x100 * frame_delta_fixed) >>
+    std::int32_t target_step = ground_arithmetic_shift_right(
+        ground_mul_low32(
+            ground_mul_low32(speed_units, 0x100),
+            frame_delta_fixed),
         retail::kFixedPointShift);
     std::int32_t target_limit = 0x2d000;
 
@@ -1952,7 +2000,7 @@ GroundActionStepResult PhysicsStateMachine::apply_ground_action_step(
         state_.brake_mode = 0;
     } else {
         state_.brake_mode = 1;
-        target_step *= 2;
+        target_step = ground_mul_low32(target_step, 2);
         target_limit = 0x5a000;
 
         const std::int32_t fixed12_speed_squared = fixed12_dot(
@@ -1965,15 +2013,18 @@ GroundActionStepResult PhysicsStateMachine::apply_ground_action_step(
         const std::int64_t divisor =
             (static_cast<std::int64_t>(speed_length) << 6) >> 12;
         if (divisor > 0) {
-            state_.acceleration.x = static_cast<std::int32_t>(
-                static_cast<std::int64_t>(state_.acceleration.x) -
-                static_cast<std::int64_t>(state_.velocity.x) / divisor);
-            state_.acceleration.y = static_cast<std::int32_t>(
-                static_cast<std::int64_t>(state_.acceleration.y) -
-                static_cast<std::int64_t>(state_.velocity.y) / divisor);
-            state_.acceleration.z = static_cast<std::int32_t>(
-                static_cast<std::int64_t>(state_.acceleration.z) -
-                static_cast<std::int64_t>(state_.velocity.z) / divisor);
+            state_.acceleration.x = ground_sub32(
+                state_.acceleration.x,
+                static_cast<std::int32_t>(
+                    static_cast<std::int64_t>(state_.velocity.x) / divisor));
+            state_.acceleration.y = ground_sub32(
+                state_.acceleration.y,
+                static_cast<std::int32_t>(
+                    static_cast<std::int64_t>(state_.velocity.y) / divisor));
+            state_.acceleration.z = ground_sub32(
+                state_.acceleration.z,
+                static_cast<std::int32_t>(
+                    static_cast<std::int64_t>(state_.velocity.z) / divisor));
         }
     }
     result.brake_mode = state_.brake_mode != 0;
@@ -1995,44 +2046,67 @@ GroundActionStepResult PhysicsStateMachine::apply_ground_action_step(
     const auto steer_left = [&] {
         state_.steering_active = 1;
         state_.movement_target_x = clamp_target(
-            state_.movement_target_x - target_step);
+            ground_sub32(state_.movement_target_x, target_step));
     };
     const auto steer_right = [&] {
         state_.steering_active = 1;
         state_.movement_target_x = clamp_target(
-            state_.movement_target_x + target_step);
+            ground_add32(state_.movement_target_x, target_step));
     };
     const auto decay_target = [&] {
         const std::int32_t decay = state_.brake_mode != 0
-                                       ? state_.movement_target_x >> 1
-                                       : state_.movement_target_x >> 2;
-        state_.movement_target_x -= decay;
+                                       ? ground_arithmetic_shift_right(
+                                             state_.movement_target_x, 1)
+                                       : ground_arithmetic_shift_right(
+                                             state_.movement_target_x, 2);
+        state_.movement_target_x = ground_sub32(
+            state_.movement_target_x,
+            decay);
         if (is_near_zero(state_.movement_target_x) == 0) {
             state_.movement_target_x = 0;
         }
     };
     const auto analog_target = [&] {
-        const std::int32_t desired = static_cast<std::int32_t>(
-            (static_cast<std::int64_t>(target_limit) *
-             static_cast<std::int32_t>(state_.heading_input)) /
-            0x80);
+        const std::int32_t target_product = ground_mul_low32(
+            target_limit,
+            static_cast<std::int32_t>(state_.heading_input));
+        const std::int32_t desired = clamp_target(
+            ground_arithmetic_shift_right(
+                target_product < 0
+                    ? ground_add32(target_product, 0x7f)
+                    : target_product,
+                7));
         const std::int32_t denominator = (target_limit >> 12) / 2;
         if (state_.movement_target_x < desired) {
             state_.steering_active = 1;
-            const std::int64_t distance =
-                (desired - state_.movement_target_x) >> 12;
-            const std::int32_t correction = static_cast<std::int32_t>(
-                (distance * target_step) / denominator + target_step);
-            state_.movement_target_x =
-                std::min(desired, state_.movement_target_x + correction);
+            const std::int32_t distance = ground_arithmetic_shift_right(
+                ground_sub32(desired, state_.movement_target_x),
+                12);
+            const std::int32_t correction = ground_add32(
+                ground_signed_div32(
+                    ground_mul_low32(distance, target_step),
+                    denominator),
+                target_step);
+            state_.movement_target_x = ground_add32(
+                state_.movement_target_x,
+                correction);
+            if (desired < state_.movement_target_x) {
+                state_.movement_target_x = desired;
+            }
         } else if (state_.movement_target_x > desired) {
             state_.steering_active = 1;
-            const std::int64_t distance =
-                (state_.movement_target_x - desired) >> 12;
-            const std::int32_t correction = static_cast<std::int32_t>(
-                (distance * target_step) / denominator);
-            state_.movement_target_x = std::max(
-                desired, state_.movement_target_x - correction - target_step);
+            const std::int32_t distance = ground_arithmetic_shift_right(
+                ground_sub32(state_.movement_target_x, desired),
+                12);
+            const std::int32_t weighted = ground_signed_div32(
+                ground_mul_low32(distance, target_step),
+                denominator);
+            state_.movement_target_x = ground_sub32(
+                ground_sub32(state_.movement_target_x, weighted),
+                target_step);
+            if (state_.movement_target_x < desired) {
+                state_.movement_target_x = desired;
+            }
         }
     };
 

@@ -18,19 +18,21 @@ struct GroundTurnConfig {
     // FUN_00493370 uses +3144 >> 2 ordinarily and >> 1 in its alternate
     // surface branch. This selector is separate from the turn base.
     std::int32_t release_decay_shift{2};
-    // Optional signed +31a1 lean/profile byte. The ordinary digital path
-    // leaves this at zero; when its magnitude reaches 0x1a, retail moves
-    // the accumulator toward (limit * lean) >> 7.
-    std::int32_t lean{};
+    // Signed player +0x31a1 byte. The ordinary digital path leaves this at
+    // zero; when its magnitude reaches 0x1a, retail moves the accumulator
+    // toward the sign-corrected (limit * lean) >> 7 target.
+    std::int8_t lean{};
 };
 
 struct GroundTurnResult {
     std::int32_t accumulator{};
     std::int32_t mirror{};
     std::int32_t delta{};
-    // Retail +0x2e78: the wide-limit branch selected by lean/profile.
+    // Retail +0x2e78: the wide-limit branch selected by the caller's
+    // surface/profile policy.
     bool wide_profile{};
-    // Retail +0x2e7c: this frame actively changed the turn policy.
+    // Retail +0x2e7c: this frame selected an active turn/target branch. It
+    // remains true when an already-capped accumulator is pressed again.
     bool policy_changed{};
     // Wide branch applied the response-normalization write to +0x58.
     bool response_normalized{};
