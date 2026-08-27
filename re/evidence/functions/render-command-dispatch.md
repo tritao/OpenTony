@@ -105,6 +105,14 @@ ordering or list reversal is therefore represented by the caller that builds
 the input span. The upstream target's per-bucket insertion is a head prepend;
 the final bucket-head iteration order remains separate.
 
+The successful polygon slots are owned by the current render-buffer arena for
+the entire linked-list walk. `0x004d3160` reads `next` at `+0x00`, dispatches
+the current record, and advances until null; its loop has no cursor write,
+unlink, or free. A failed `0x004d2310` result is different: its caller rolls
+back the unused `0xc0` reservation before any head store, so no stale node can
+reach this consumer. The next buffer preparation resets the arena as a whole;
+that reset, rather than packet dispatch, is the storage lifetime boundary.
+
 The dispatch result is a submission description, not a displayed frame. The
 normal frame reaches the game-owned `0x004d0c30` wrapper and the
 `IDirectDrawSurface7::Flip` callsite at `0x004d0ca4`; that boundary is already
@@ -117,11 +125,15 @@ modeled separately by the camera/frame contract.
 implement the portable table and state decode. They intentionally do not
 call Direct3D, allocate retail polygon records, or infer the bucket classifier;
 the latter is covered by the packet-submission native seam.
-The test in
+The tests in
 [`render_command_dispatch_test.cpp`](../../src/trg/render_command_dispatch_test.cpp)
 covers a textured triangle with low state bits, a textured Gouraud quad, the
 variable-count `0xb0` path, a disabled command, and an uninstalled opcode
 slot while asserting source/list order and preserved raw fields.
+The arena-linked success and rollback fixtures in
+[`render_polygon_bucket_test.cpp`](../../src/trg/render_polygon_bucket_test.cpp)
+also feed the recovered prepend chain into this dispatcher and assert forward
+consumption, slot reuse, and the absence of a rejected node.
 
 Confirmed from the existing renderer evidence: linked-record consumption,
 opcode masking, no-op initialization, the handler addresses and primitive

@@ -23,9 +23,57 @@ public:
 
 inline constexpr std::uint8_t kRenderPolygonPacketFormat = 0xb0;
 inline constexpr std::size_t kRenderPolygonRecordSize = 0x30;
+inline constexpr std::size_t kRenderViewRecordSize = 0x14;
+inline constexpr std::size_t kRenderPolygonArenaSlotSize = 0xc0;
 inline constexpr std::size_t kRenderDepthBucketCount = 0x1000;
 inline constexpr std::size_t kRenderNoPolygonIndex =
     std::numeric_limits<std::size_t>::max();
+
+struct RenderPolygonArenaAllocation {
+    std::size_t slot_offset{};
+    std::size_t cursor_before{};
+    std::size_t cursor_after{};
+};
+
+// The retail polygon arena is a cursor over a per-buffer byte range. The
+// view record is placed first; every polygon construction attempt then
+// reserves one fixed 0xc0-byte slot, even though its stable packet prefix is
+// only 0x30 bytes. A failed attempt owns no bucket link and rolls back only
+// that most recent reservation.
+class RenderPolygonArena final {
+public:
+    RenderPolygonArena(std::size_t initial_cursor, std::size_t end_cursor);
+
+    [[nodiscard]] std::size_t cursor() const noexcept;
+    [[nodiscard]] std::size_t end() const noexcept;
+
+    // Models M3D_BeginRenderView's +0x14 control/view record consumption.
+    [[nodiscard]] std::size_t begin_view_record();
+
+    // Retail tests cursor < end, then advances by 0xc0. The prepared arena
+    // end is slot-aligned, so this preserves the observed condition exactly.
+    [[nodiscard]] std::optional<RenderPolygonArenaAllocation>
+    allocate_polygon();
+
+    // Publishes a successful slot. Pending slots are construction attempts;
+    // only committed slots model storage that may be linked and dispatched.
+    void commit_polygon(const RenderPolygonArenaAllocation& allocation);
+
+    [[nodiscard]] bool has_live_polygon(
+        std::size_t slot_offset) const noexcept;
+    [[nodiscard]] std::size_t live_polygon_count() const noexcept;
+
+    // Models the caller-side rollback in 0x004d1d40/0x004d20f0. It does not
+    // reclaim an accepted packet or alter any already-published bucket link.
+    void rollback_polygon();
+
+private:
+    std::size_t polygon_cursor_{};
+    std::size_t cursor_{};
+    std::size_t end_{};
+    std::vector<std::size_t> pending_slots_;
+    std::vector<std::size_t> live_slots_;
+};
 
 // The retail renderer's projection helper consumes a transformed working
 // vertex, not a PSX face directly. Keep that handoff as a callback until the

@@ -35,9 +35,10 @@ functions:
       - src/trg/render_packet_builder.cpp
     tests:
       - src/trg/render_packet_builder_test.cpp
+      - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, half-texel UV normalization, and the caller-resolved textured-quad split order; raw arena allocation is not represented as a host pointer layout.
+    notes: Native packet contract covers format 0xb0, three/four vertex count, material identity, transformed records, half-texel UV normalization, caller-resolved textured-quad split order, and the fixed 0xc0-byte per-attempt arena reservation.
 
   - address: 0x004d20f0
     name: M3D_ClipAndBucketPolygon
@@ -50,7 +51,7 @@ functions:
       - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip handoff, per-bucket head-prepend links, the 0x6000 renderer-state depth-offset selector, and the post-classifier textured material flag rewrite; arena rollback and final traversal remain adapter seams.
+    notes: Native boundary covers all/any clip classification, projected winding, partial-near-clip handoff, one-slot rollback on clip/cull rejection, per-bucket head-prepend links, the 0x6000 renderer-state depth-offset selector, and the post-classifier textured material flag rewrite; final bucket traversal remains an adapter seam.
 
   - address: 0x004d2310
     name: M3D_ClipPolygonNearPlane
@@ -63,7 +64,7 @@ functions:
       - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native reconstruction covers reciprocal-depth unprojection, circular near-plane edge ordering, three-to-six output records, final reprojection, and aggregate lateral rejection; retail arena rollback remains outside the value-based adapter.
+    notes: Native reconstruction covers reciprocal-depth unprojection, circular near-plane edge ordering, three-to-six output records, final reprojection, and aggregate lateral rejection; deterministic fixtures cover the caller's rollback when this in-place clip returns no polygon.
 
   - address: 0x004d25c0
     name: M3D_InterpolatePolygonEdge
@@ -100,10 +101,11 @@ functions:
       - src/trg/render_command_dispatch.cpp
     tests:
       - src/trg/render_command_dispatch_test.cpp
+      - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-command-dispatch.md
       - re/evidence/functions/renderer.md
-    notes: Native backend-neutral consumer preserves one-for-one linked-list order, opcode-base handler selection, fixed primitive counts, variable 0xb0 counts, and low opcode state bits; Direct3D calls and upstream bucket ordering remain adapter seams.
+    notes: Native backend-neutral consumer preserves one-for-one linked-list order, opcode-base handler selection, fixed primitive counts, variable 0xb0 counts, low opcode state bits, and arena-owned record lifetime through forward list consumption; Direct3D calls and final upstream bucket-head traversal remain adapter seams.
 
   - address: 0x004d29e0
     name: M3D_TransformVertices

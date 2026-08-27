@@ -1,6 +1,6 @@
 # Render model-to-polygon submission slice
 
-Status: tested native pre-backend boundary through near clipping, visibility/depth classification, and the caller-owned state/depth resolution; arena rollback and final bucket traversal remain separate
+Status: tested native pre-backend boundary through arena allocation/rollback, near clipping, visibility/depth classification, and caller-owned state/depth resolution; final bucket traversal remains separate
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -24,8 +24,8 @@ order, before culling/bucketing and Direct3D command consumption?
 This slice stops before Direct3D state/primitive execution and the actual
 present boundary at `0x004d0ca4`. Camera remains the producer of the projection
 and viewport values consumed by the clipper; asset-runtime remains the producer
-of material/textured state. Renderer-state/material mode resolution, arena
-rollback, and final bucket traversal remain explicit seams.
+of material/textured state. Renderer-state/material mode resolution and final
+bucket traversal remain explicit seams.
 
 ## Inputs and output records
 
@@ -105,10 +105,51 @@ v = (float(source_v) + half_texel) / float(texture_height)
 The material identity is the post-loader runtime material/checksum pair. The
 renderer does not re-resolve the original disk texture index at this stage.
 
-The runtime arena reserves a 0xc0-byte slot for each construction attempt,
-while the packet's stable prefix and copied stream occupy the fields above.
-The builder's early clip rejection rewinds the construction cursor. For a
-textured four-vertex packet, `0x004d1d40` splits the quad before calling
+## Arena allocation, rollback, and lifetime
+
+Static disassembly fixes the cursor contract rather than merely establishing
+the packet's logical prefix. Buffer preparation at `0x0042fed0` resets
+`DAT_00560fd0` from the active render buffer's arena start. The stage at
+`0x00467c90` selects the per-view `0x8000`-byte region and its bucket-head
+array. `0x0045e8e0` captures the current cursor for its view record, links that
+record into the initial head, and advances the cursor by `0x14`; therefore the
+first polygon slot begins at `cursor_before_view + 0x14`.
+
+At `0x004d1d40`, the allocator compares `DAT_00560fd0` with the exclusive end
+at `0x00568628`. When the cursor is below the end it uses the current cursor
+as the packet address and stores `cursor + 0xc0`. The decompiler's apparent
+`+0x30` increment is thirty dwords (`rep movs` copies `0x30` words), hence the
+byte reservation is exactly `0xc0`, not the stable `0x30`-byte prefix. Every
+construction attempt—including each half of the eligible textured-quad
+split—gets one slot; the second split allocation occurs only after the first
+call returns.
+
+The raw instruction sequence corroborates the generated model: the allocator
+compares the cursor/end at `0x004d1d60`, forms `cursor + 0xc0` at
+`0x004d1d81`, and stores it back to `0x00560fd0` at `0x004d1d87`. The view
+setup similarly forms `cursor + 0x14` at `0x0045e9f2` and publishes it at
+`0x0045e9f8`. The rejection branches use the inverse `cursor - 0xc0`, while
+the consumer's loop at `0x004d3449` loads the current record's `+0x00` link
+for the next iteration.
+
+The early all-near/all-side rejection in `0x004d1d40` subtracts one `0xc0`
+slot. The partial-near path enters `0x004d20f0`, which calls `0x004d2310`
+only when the near bit is present. `0x004d2310` rewrites the packet in place,
+does not allocate, and returns either the same packet address or null. The
+caller subtracts exactly one `0xc0` on null—including an all-lateral or
+fewer-than-three result—and also on a later winding rejection. A rejected
+attempt therefore never reaches the bucket-head store and its slot is
+immediately reusable by the next attempt.
+
+On success, `0x004d20f0` stores the prior bucket head at packet `+0x00` and
+publishes the packet as the new head. The slot and its link remain arena-owned
+until the next buffer reset; `0x004d3160` follows the link and reads the packet
+through dispatch without rewinding the cursor, unlinking the record, or
+freeing its storage. This establishes the lifetime as
+`buffer arena -> bucket head/link chain -> packet dispatch`; the failed path
+has no published node.
+
+For a textured four-vertex packet, `0x004d1d40` splits the quad before calling
 `0x004d20f0` when the active view state permits it. The calls are made in this
 exact order and with these three-corner packets:
 
@@ -135,7 +176,8 @@ or when all vertices share any non-near clip bit and no vertex is near-clipped
 forwarded to `0x004d20f0` with `any_flags`; a non-near partial side/far clip is
 left for the later raster path. The target calls `0x004d2310` only for the
 near bit. If that clipper returns null, the target rewinds the arena cursor by
-`0xc0` and stops.
+`0xc0` and stops; the full allocation and ownership sequence is detailed
+above.
 
 The recovered `0x004d2310` near path is a circular Sutherland-Hodgman walk over
 the packet's transformed stream. The material pointer at packet `+0x10`
@@ -261,15 +303,17 @@ guard.
 
 Therefore face/split calls remain in source order at the target boundary, but
 records sharing a bucket are traversed through a LIFO intrusive chain. The
-final caller's bucket iteration order is not promoted here until the
-`0x004d3160` caller is fully recovered.
+dispatcher preserves that linked order; the final caller's choice and
+iteration order across bucket heads are not promoted here.
 
 ## Ordering
 
 The frame-level order is established by the surrounding render stage:
 
 ```text
-0x0045e8e0  bind view, reset polygon arena, initialize bucket heads
+0x0042fed0  reset cursor to the active render buffer's arena start
+0x00467c90  select the per-view arena/bucket region
+0x0045e8e0  bind view, consume the 0x14-byte view record, seed a head
 0x0045f530  traverse object list and select model/state path
 0x004d14d0  submit one model packet and prepare transform state
 0x004d29e0  write completed transformed-vertex records
@@ -317,6 +361,13 @@ Its explicit `bucketize` seam additionally:
   the exact per-bucket head-prepend ordering without pretending that host
   vector addresses are retail arena pointers.
 
+`RenderPolygonArena` models the observed `0x14` view-record advance, fixed
+`0xc0` polygon reservations, exclusive-end test, and one-slot rollback. The
+success and failed-near-clip fixtures in `render_polygon_bucket_test.cpp`
+couple those cursor transitions to bucket-link construction and
+`RenderCommandDispatcher`, proving that accepted slots survive dispatch while
+the rejected slot is reused and never appears in the list.
+
 `split_textured_quad` models the preceding retail split as a separate
 caller-resolved operation and tests that its output records retain the exact
 `(v0,v1,v3)` then `(v3,v1,v2)` order.
@@ -327,7 +378,8 @@ cover the live Warehouse constants and projected output, the raw clip bits,
 the 0x30 polygon prefix contract, half-texel UVs, and multi-face output order
 and working-record offsets. `render_polygon_bucket_test.cpp` covers winding,
 all/any clip outcomes, near-plane output order and interpolation, depth modes
-and f32-derived bucket indices, forced state flags, and same-bucket LIFO links.
+and f32-derived bucket indices, forced state flags, same-bucket LIFO links,
+arena success/rollback, slot reuse, and dispatch lifetime.
 
 ## Confidence and exclusions
 
@@ -335,13 +387,15 @@ and f32-derived bucket indices, forced state flags, and same-bucket LIFO links.
   seven-word transformed records, ordinary projection arithmetic, polygon
   prefix/format/count, textured UV dimensions, stage ordering through polygon
   construction, clip all/any rejection, projected winding, depth quantization,
-  bucket head-prepend links, and near-plane edge/reprojection arithmetic.
+  bucket head-prepend links, near-plane edge/reprojection arithmetic, the
+  `0x14` view-record cursor advance, `0xc0` slot reservation, failed-clip
+  rollback, and arena-owned storage through linked dispatch.
 - Observed: the helper's unwritten high color byte, the alternate source-flag
   path, global/material depth-mode resolution, per-face color table details,
   and final backend state/primitive dispatch.
-- Open: arena allocation rollback around a failed clip, complete mode-selection
-  inputs across all renderer paths, final bucket-head iteration order, special
-  source-flag geometry, and Direct3D device calls.
+- Open: complete mode-selection inputs across all renderer paths, final
+  bucket-head iteration order, special source-flag geometry, and Direct3D
+  device calls.
 
 The present boundary remains the separate `0x004d0ca4` DirectDraw `Flip`
 callsite. No native packet-build event is treated as a displayed frame.

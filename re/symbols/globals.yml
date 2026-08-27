@@ -87,7 +87,7 @@ globals:
       - re/evidence/functions/level-load.md
   - address: 0x00560fd0
     name: RenderPolygonArenaCursor
-    description: current cursor in the per-view polygon arena; polygon construction advances it by 0xc0 and rejects rewind it on discard
+    description: current cursor in the per-view polygon arena; the view record advances it by 0x14, polygon construction advances it by 0xc0, and rejected attempts rewind one slot before linking
     confidence: confirmed
     evidence:
       - re/evidence/functions/render-packet-submission.md
