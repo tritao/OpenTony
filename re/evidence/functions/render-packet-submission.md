@@ -1,6 +1,6 @@
 # Render model-to-polygon submission slice
 
-Status: tested native pre-backend boundary through visibility/depth classification; near clipping, state resolution, and final bucket traversal remain separate
+Status: tested native pre-backend boundary through near clipping and visibility/depth classification; state resolution, arena rollback, and final bucket traversal remain separate
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -16,13 +16,16 @@ order, before culling/bucketing and Direct3D command consumption?
     -> 0x004d18b0  M3D_SubmitFacePolygons
        -> 0x004d1d40  M3D_BuildD3DPolygon
           -> 0x004d20f0  cull/depth/bucket boundary
+             -> 0x004d2310  near-plane polygon rewrite
+                -> 0x004d25c0  edge interpolation helper
              -> 0x004d3160  linked command-list consumer
 ```
 
 This slice stops before Direct3D state/primitive execution and the actual
-present boundary at `0x004d0ca4`. The near-plane vertex rewrite at
-`0x004d2310` and the renderer-state/material resolver that selects the depth
-mode are retained as explicit seams.
+present boundary at `0x004d0ca4`. Camera remains the producer of the projection
+and viewport values consumed by the clipper; asset-runtime remains the producer
+of material/textured state. Renderer-state/material mode resolution, arena
+rollback, and final bucket traversal remain explicit seams.
 
 ## Inputs and output records
 
@@ -134,6 +137,46 @@ left for the later raster path. The target calls `0x004d2310` only for the
 near bit. If that clipper returns null, the target rewinds the arena cursor by
 `0xc0` and stops.
 
+The recovered `0x004d2310` near path is a circular Sutherland-Hodgman walk over
+the packet's transformed stream. The material pointer at packet `+0x10`
+selects a `0x14` solid or `0x1c` textured vertex stride. For each source vertex
+it consumes the ordinary transform's reciprocal depth at stream `+0x0c`,
+computes `factor = 1.0 / reciprocal_depth`, and temporarily stores:
+
+```text
+normalized_x = f32((x - center_x) * factor)
+normalized_y = f32((y - center_y) * factor)
+view_depth   = f32(depth_scale * factor)
+```
+
+The edge walk copies an inside vertex, emits no record for an outside-to-outside
+edge, emits only an intersection for an outside-to-inside edge, and emits the
+inside vertex followed by an intersection for an inside-to-outside edge. The
+intersection helper at `0x004d25c0` sets the generated depth to the near value,
+interpolates normalized X/Y, and for textured records interpolates U/V. Its
+three color bytes at stream offsets `+0x10`, `+0x11`, and `+0x12` use unsigned
+byte differences, truncation toward zero (`__ftol`), and byte wrap on addition.
+The byte at `+0x13` is not written by the target helper.
+
+When at least three records survive, the clipper reprojects each one. It copies
+the temporary depth to projected Z, computes `reciprocal = depth_scale /
+depth`, uses the still-extended reciprocal for X, and reloads its stored f32
+value for Y. It then evaluates lateral flags against the camera-owned raw
+viewport record at `0x00563a38`, whose observed edge order is
+`[right, bottom, left, top]`:
+
+```text
+bit 0x01 if x < left       bit 0x02 if right <= x
+bit 0x04 if y < top        bit 0x08 if bottom <= y
+```
+
+If every generated vertex shares any lateral flag, the target changes the
+packet count to zero. Otherwise counts three through six are returned as the
+rewritten packet; fewer than three and more than six return null after writing
+the output count. The native adapter exposes the aggregate lateral flags and
+uses a deterministic current-vertex value for the helper's unwritten high
+color byte.
+
 For the ordinary three/four-corner packets, the target's projected winding
 operands are:
 
@@ -235,6 +278,9 @@ Its explicit `bucketize` seam additionally:
 
 - computes the retail all/any clip summary and distinguishes trivial rejection
   from a partial near-clip request;
+- performs the recovered near-plane edge walk, edge interpolation, final
+  reprojection, six-vertex bound, and aggregate lateral rejection through
+  `clip_near_plane`;
 - applies the verified projected winding tests, including the quad's two
   triangle operands and reverse-winding equality behavior;
 - models the resolved depth modes, f32 stores, near normalization, forced
@@ -252,8 +298,8 @@ The ordinary seven-word arithmetic is implemented by
 cover the live Warehouse constants and projected output, the raw clip bits,
 the 0x30 polygon prefix contract, half-texel UVs, and multi-face output order
 and working-record offsets. `render_polygon_bucket_test.cpp` covers winding,
-all/any clip outcomes, partial near clipping, depth modes and f32-derived
-bucket indices, forced state flags, and same-bucket LIFO links.
+all/any clip outcomes, near-plane output order and interpolation, depth modes
+and f32-derived bucket indices, forced state flags, and same-bucket LIFO links.
 
 ## Confidence and exclusions
 
@@ -261,13 +307,13 @@ bucket indices, forced state flags, and same-bucket LIFO links.
   seven-word transformed records, ordinary projection arithmetic, polygon
   prefix/format/count, textured UV dimensions, stage ordering through polygon
   construction, clip all/any rejection, projected winding, depth quantization,
-  and bucket head-prepend links.
-- Observed: the near-plane polygon rewrite at `0x004d2310`, the alternate
-  source-flag path, global/material depth-mode resolution, per-face color
-  table details, and final backend state/primitive dispatch.
-- Open: exact near-plane intersection field behavior and allocation rollback,
-  complete mode-selection inputs across all renderer paths, final bucket-head
-  iteration order, special source-flag geometry, and Direct3D device calls.
+  bucket head-prepend links, and near-plane edge/reprojection arithmetic.
+- Observed: the helper's unwritten high color byte, the alternate source-flag
+  path, global/material depth-mode resolution, per-face color table details,
+  and final backend state/primitive dispatch.
+- Open: arena allocation rollback around a failed clip, complete mode-selection
+  inputs across all renderer paths, final bucket-head iteration order, special
+  source-flag geometry, and Direct3D device calls.
 
 The present boundary remains the separate `0x004d0ca4` DirectDraw `Flip`
 callsite. No native packet-build event is treated as a displayed frame.

@@ -99,6 +99,29 @@ struct RenderPolygonClipSummary {
     std::uint32_t any_flags{};
 };
 
+// 0x004d2310 receives a packet whose projected reciprocal-depth field still
+// contains the ordinary transform's reciprocal. The retail viewport record is
+// laid out as [right, bottom, left, top] at 0x00563a38.
+struct RenderNearClipOptions {
+    float near_depth{10.0F};
+    float screen_center_x{320.0F};
+    float screen_center_y{240.0F};
+    float depth_scale{384.0F};
+    std::array<float, 4> viewport_edges{640.0F, 480.0F, 0.0F, 0.0F};
+    float projection_unit_scale{1.0F};
+};
+
+enum class RenderNearClipDisposition : std::uint8_t {
+    accepted,
+    rejected,
+};
+
+struct RenderNearClipResult {
+    RenderNearClipDisposition disposition{RenderNearClipDisposition::rejected};
+    std::uint8_t output_vertex_count{};
+    std::uint32_t all_lateral_clip_flags{};
+};
+
 // These are the resolved inputs to 0x004d26b0. Retail derives them from the
 // renderer state word, material flags, texture mode, and level. Keeping that
 // resolution outside this helper makes the native contract testable without
@@ -191,6 +214,14 @@ public:
     static std::vector<RenderPolygonPacket> split_textured_quad(
         const RenderPolygonPacket& polygon,
         bool split);
+
+    // Models 0x004d2310 and its 0x004d25c0 edge-intersection helper. The
+    // packet is replaced with the generated stream; a rejected result retains
+    // the target's output count (including counts below three), while the
+    // lateral-trivial-reject case exposes count zero to native callers.
+    static RenderNearClipResult clip_near_plane(
+        RenderPolygonPacket& polygon,
+        const RenderNearClipOptions& options = {});
 
     static RenderBucketDecision classify_polygon(
         RenderPolygonPacket& polygon,

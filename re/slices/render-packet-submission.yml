@@ -9,6 +9,8 @@ scope:
     - 0x004d18b0
     - 0x004d1d40
     - 0x004d20f0
+    - 0x004d2310
+    - 0x004d25c0
     - 0x004d26b0
     - 0x004d29e0
     - 0x004d3160
@@ -22,6 +24,11 @@ scope:
     - RenderWindingThreshold
     - RenderReverseWinding
     - RenderNearDepth
+    - RenderViewportEdges
+    - RenderProjectionUnitScale
+    - RenderProjectionCenterX
+    - RenderProjectionCenterY
+    - RenderProjectionDepthScale
 
 artifacts:
   evidence:
@@ -40,7 +47,7 @@ artifacts:
     - tests/test_camera_math.py
 
 open_questions:
-  - Recover the exact near-plane vertex rewrite at 0x004d2310 and its failure/arena semantics.
+  - Confirm the arena allocation rollback surrounding a failed 0x004d2310 clip.
   - Resolve the renderer-state/material inputs that select the 0x004d26b0 depth mode on each retail path.
   - Confirm whether the native flattened face adapter should be replaced by a model-wide vertex table when the runtime model identity is available.
   - Confirm the final bucket-head traversal order at the 0x004d3160 caller.
@@ -50,5 +57,5 @@ completion:
   - The ordinary seven-word transformed-vertex contract has deterministic native coverage.
   - Native packet construction preserves source face order, vertex order, format, material identity, and UV normalization.
   - Native command dispatch preserves the recorded opcode handler table and list order without treating submission as presentation.
-  - Native visibility/depth classification records source decisions and exact per-bucket prepend links while keeping near clipping and final traversal separate.
+  - Native visibility/depth classification and near clipping record source decisions, rewritten packet order, and exact per-bucket prepend links while keeping state resolution, arena rollback, and final traversal separate.
   - Exact matching work remains byte-identical where pursued.

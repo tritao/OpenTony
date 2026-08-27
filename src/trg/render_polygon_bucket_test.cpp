@@ -51,6 +51,45 @@ opentony::trg::RenderPolygonPacket make_quad() {
     return polygon;
 }
 
+opentony::trg::RenderPolygonPacket make_near_triangle() {
+    using namespace opentony::trg;
+    RenderPolygonPacket polygon{};
+    polygon.textured = true;
+    polygon.vertex_count = 3;
+    polygon.vertices.resize(3);
+    const std::array<std::array<float, 2>, 3> positions{
+        std::array<float, 2>{320.0F, 240.0F},
+        std::array<float, 2>{420.0F, 240.0F},
+        std::array<float, 2>{320.0F, 340.0F},
+    };
+    const std::array<float, 3> reciprocal_depths{
+        384.0F / 5.0F,
+        384.0F / 20.0F,
+        384.0F / 20.0F,
+    };
+    const std::array<std::uint32_t, 3> colors{
+        0x00030201U,
+        0x00060504U,
+        0x00090807U,
+    };
+    const std::array<std::array<float, 2>, 3> uv{
+        std::array<float, 2>{0.0F, 0.0F},
+        std::array<float, 2>{3.0F, 6.0F},
+        std::array<float, 2>{6.0F, 9.0F},
+    };
+    for (std::size_t index = 0; index < polygon.vertices.size(); ++index) {
+        polygon.vertices[index].projected.x = positions[index][0];
+        polygon.vertices[index].projected.y = positions[index][1];
+        polygon.vertices[index].projected.z =
+            index == 0 ? 5.0F : 20.0F;
+        polygon.vertices[index].projected.reciprocal_depth =
+            reciprocal_depths[index];
+        polygon.vertices[index].color = colors[index];
+        polygon.vertices[index].uv = uv[index];
+    }
+    return polygon;
+}
+
 } // namespace
 
 int main() {
@@ -171,6 +210,57 @@ int main() {
     CHECK(buckets.next_polygon[1] == 0);
     CHECK(buckets.bucket_heads[5] == 2);
     CHECK(buckets.next_polygon[2] == kRenderNoPolygonIndex);
+
+    RenderPolygonPacket near_triangle = make_near_triangle();
+    const RenderNearClipResult near_result =
+        RenderPacketBuilder::clip_near_plane(near_triangle);
+    CHECK(near_result.disposition == RenderNearClipDisposition::accepted);
+    CHECK(near_result.output_vertex_count == 4);
+    CHECK(near_result.all_lateral_clip_flags == 0);
+    CHECK(near_triangle.vertex_count == 4);
+    CHECK(near_triangle.vertices.size() == 4);
+    CHECK(std::fabs(near_triangle.vertices[0].projected.x - 386.66666F)
+          < 0.0001F);
+    CHECK(std::fabs(near_triangle.vertices[0].projected.y - 240.0F)
+          < 0.0001F);
+    CHECK(std::fabs(near_triangle.vertices[0].projected.z - 10.0F)
+          < 0.0001F);
+    CHECK(std::fabs(
+              near_triangle.vertices[0].projected.reciprocal_depth - 38.4F)
+          < 0.0001F);
+    CHECK(near_triangle.vertices[0].color == 0x00040302U);
+    CHECK(std::fabs(near_triangle.vertices[0].uv[0] - 1.0F) < 0.0001F);
+    CHECK(std::fabs(near_triangle.vertices[0].uv[1] - 2.0F) < 0.0001F);
+    CHECK(near_triangle.vertices[1].projected.x == 420.0F);
+    CHECK(near_triangle.vertices[2].projected.y == 340.0F);
+    CHECK(std::fabs(near_triangle.vertices[3].projected.y - 306.66666F)
+          < 0.0001F);
+    CHECK(near_triangle.vertices[3].color == 0x00050403U);
+    for (const RenderPolygonVertex& vertex : near_triangle.vertices) {
+        CHECK(vertex.projected.clip_flags == 0);
+    }
+
+    RenderPolygonPacket all_near_triangle = make_near_triangle();
+    for (RenderPolygonVertex& vertex : all_near_triangle.vertices) {
+        vertex.projected.reciprocal_depth = 384.0F / 5.0F;
+    }
+    const RenderNearClipResult all_near_result =
+        RenderPacketBuilder::clip_near_plane(all_near_triangle);
+    CHECK(all_near_result.disposition == RenderNearClipDisposition::rejected);
+    CHECK(all_near_result.output_vertex_count == 0);
+    CHECK(all_near_triangle.vertex_count == 0);
+    CHECK(all_near_triangle.vertices.empty());
+
+    RenderPolygonPacket lateral_reject = make_near_triangle();
+    RenderNearClipOptions narrow_view;
+    narrow_view.viewport_edges = {50.0F, 480.0F, 0.0F, 0.0F};
+    const RenderNearClipResult lateral_result =
+        RenderPacketBuilder::clip_near_plane(lateral_reject, narrow_view);
+    CHECK(lateral_result.disposition == RenderNearClipDisposition::rejected);
+    CHECK(lateral_result.output_vertex_count == 0);
+    CHECK(lateral_result.all_lateral_clip_flags == 0x02U);
+    CHECK(lateral_reject.vertex_count == 0);
+    CHECK(lateral_reject.vertices.empty());
 
     return 0;
 }

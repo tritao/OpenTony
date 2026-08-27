@@ -74,6 +74,87 @@ void validate_polygon(const RenderPolygonPacket& polygon) {
     }
 }
 
+struct NearClipVertex {
+    RenderPolygonVertex vertex{};
+    float clip_depth{};
+};
+
+[[nodiscard]] std::uint8_t color_byte(
+    std::uint32_t color,
+    unsigned shift) {
+    return static_cast<std::uint8_t>((color >> shift) & 0xffU);
+}
+
+void set_color_byte(
+    std::uint32_t& color,
+    unsigned shift,
+    std::uint8_t value) {
+    const std::uint32_t mask = 0xffU << shift;
+    color = (color & ~mask) | (static_cast<std::uint32_t>(value) << shift);
+}
+
+[[nodiscard]] std::uint8_t interpolate_color_byte(
+    std::uint8_t current,
+    std::uint8_t next,
+    long double factor) {
+    // The retail helper loads both bytes as unsigned integers, calls the
+    // truncating __ftol, and adds the result to the current byte in AL.
+    const int delta = static_cast<int>(std::trunc(
+        (static_cast<long double>(next) - current) * factor));
+    return static_cast<std::uint8_t>(
+        static_cast<unsigned int>(current + delta));
+}
+
+[[nodiscard]] NearClipVertex interpolate_near_edge(
+    const NearClipVertex& current,
+    const NearClipVertex& next,
+    float near_depth,
+    bool textured) {
+    const long double factor =
+        (static_cast<long double>(near_depth) - current.clip_depth)
+        / (static_cast<long double>(next.clip_depth) - current.clip_depth);
+    NearClipVertex result = current;
+    result.clip_depth = near_depth;
+    result.vertex.projected.x = store_f32(
+        (static_cast<long double>(next.vertex.projected.x)
+         - current.vertex.projected.x)
+            * factor
+        + current.vertex.projected.x);
+    result.vertex.projected.y = store_f32(
+        (static_cast<long double>(next.vertex.projected.y)
+         - current.vertex.projected.y)
+            * factor
+        + current.vertex.projected.y);
+    result.vertex.projected.reciprocal_depth = near_depth;
+
+    for (const unsigned shift : {0U, 8U, 16U}) {
+        set_color_byte(
+            result.vertex.color,
+            shift,
+            interpolate_color_byte(
+                color_byte(current.vertex.color, shift),
+                color_byte(next.vertex.color, shift),
+                factor));
+    }
+    // The byte at stream offset +0x13 is not written by 0x004d25c0. Keeping
+    // the current native byte is deterministic while retaining that target
+    // field as an unresolved/stale-byte seam.
+
+    if (textured) {
+        result.vertex.uv[0] = store_f32(
+            (static_cast<long double>(next.vertex.uv[0])
+             - current.vertex.uv[0])
+                * factor
+            + current.vertex.uv[0]);
+        result.vertex.uv[1] = store_f32(
+            (static_cast<long double>(next.vertex.uv[1])
+             - current.vertex.uv[1])
+                * factor
+            + current.vertex.uv[1]);
+    }
+    return result;
+}
+
 [[nodiscard]] long double winding_determinant(
     const RenderPolygonPacket& polygon,
     std::size_t origin_index,
@@ -335,6 +416,128 @@ std::vector<RenderPolygonPacket> RenderPacketBuilder::split_textured_quad(
     second.vertices = {polygon.vertices[3], polygon.vertices[1],
                       polygon.vertices[2]};
     return {std::move(first), std::move(second)};
+}
+
+RenderNearClipResult RenderPacketBuilder::clip_near_plane(
+    RenderPolygonPacket& polygon,
+    const RenderNearClipOptions& options) {
+    validate_polygon(polygon);
+
+    const bool textured = polygon.textured;
+    std::vector<NearClipVertex> source;
+    source.reserve(polygon.vertices.size());
+    for (const RenderPolygonVertex& input : polygon.vertices) {
+        NearClipVertex transformed{input, 0.0F};
+        const long double reciprocal =
+            static_cast<long double>(options.projection_unit_scale)
+            / static_cast<long double>(input.projected.reciprocal_depth);
+        transformed.vertex.projected.x = store_f32(
+            (static_cast<long double>(input.projected.x)
+             - options.screen_center_x)
+            * reciprocal);
+        transformed.vertex.projected.y = store_f32(
+            (static_cast<long double>(input.projected.y)
+             - options.screen_center_y)
+            * reciprocal);
+        transformed.clip_depth = store_f32(
+            static_cast<long double>(options.depth_scale) * reciprocal);
+        // The clipper uses +0xc as view depth until its final reprojection.
+        transformed.vertex.projected.reciprocal_depth =
+            transformed.clip_depth;
+        source.push_back(transformed);
+    }
+
+    std::vector<NearClipVertex> output;
+    output.reserve(6);
+    for (std::size_t index = 0; index < source.size(); ++index) {
+        const NearClipVertex& current = source[index];
+        const NearClipVertex& next = source[(index + 1) % source.size()];
+        const bool current_outside = current.clip_depth < options.near_depth;
+        const bool next_outside = next.clip_depth < options.near_depth;
+
+        // 0x004d2310 walks current -> next in source order. An inside vertex
+        // is copied before an inside transition's intersection; an outside
+        // to inside transition emits only the intersection.
+        if (current_outside) {
+            if (!next_outside) {
+                output.push_back(interpolate_near_edge(
+                    current, next, options.near_depth, textured));
+            }
+        } else {
+            output.push_back(current);
+            if (next_outside) {
+                output.push_back(interpolate_near_edge(
+                    current, next, options.near_depth, textured));
+            }
+        }
+    }
+
+    const std::size_t output_count = output.size();
+    RenderNearClipResult result;
+    result.output_vertex_count = static_cast<std::uint8_t>(output_count);
+
+    if (output_count > 2) {
+        std::uint32_t all_lateral_flags = 0;
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            NearClipVertex& vertex = output[index];
+            const float clip_depth = vertex.vertex.projected.reciprocal_depth;
+            vertex.vertex.projected.z = clip_depth;
+
+            // Retail keeps this reciprocal extended for X, stores it to +0xc,
+            // then reloads that f32 for Y.
+            const long double reciprocal_extended =
+                static_cast<long double>(options.depth_scale)
+                / static_cast<long double>(clip_depth);
+            const float reciprocal = store_f32(reciprocal_extended);
+            vertex.vertex.projected.reciprocal_depth = reciprocal;
+            vertex.vertex.projected.x = store_f32(
+                reciprocal_extended
+                    * static_cast<long double>(vertex.vertex.projected.x)
+                + options.screen_center_x);
+            vertex.vertex.projected.y = store_f32(
+                static_cast<long double>(vertex.vertex.projected.y)
+                    * static_cast<long double>(reciprocal)
+                + options.screen_center_y);
+
+            std::uint32_t lateral_flags = 0;
+            if (vertex.vertex.projected.x < options.viewport_edges[2]) {
+                lateral_flags |= 0x01U;
+            }
+            if (options.viewport_edges[0] <= vertex.vertex.projected.x) {
+                lateral_flags |= 0x02U;
+            }
+            if (vertex.vertex.projected.y < options.viewport_edges[3]) {
+                lateral_flags |= 0x04U;
+            }
+            if (options.viewport_edges[1] <= vertex.vertex.projected.y) {
+                lateral_flags |= 0x08U;
+            }
+            vertex.vertex.projected.clip_flags = lateral_flags;
+            all_lateral_flags = index == 0
+                ? lateral_flags
+                : all_lateral_flags & lateral_flags;
+        }
+        result.all_lateral_clip_flags = all_lateral_flags;
+        if (all_lateral_flags != 0) {
+            polygon.vertices.clear();
+            polygon.vertex_count = 0;
+            result.output_vertex_count = 0;
+            return result;
+        }
+    }
+
+    polygon.vertices.clear();
+    polygon.vertices.reserve(output.size());
+    for (NearClipVertex& vertex : output) {
+        polygon.vertices.push_back(std::move(vertex.vertex));
+    }
+    polygon.vertex_count = static_cast<std::uint8_t>(output_count);
+
+    if (output_count < 3 || output_count > 6) {
+        return result;
+    }
+    result.disposition = RenderNearClipDisposition::accepted;
+    return result;
 }
 
 RenderBucketDecision RenderPacketBuilder::classify_polygon(

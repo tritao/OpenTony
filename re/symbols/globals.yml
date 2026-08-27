@@ -121,6 +121,41 @@ globals:
     confidence: confirmed
     evidence:
       - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a38
+    name: RenderViewportEdges
+    description: pointer to the active raw viewport record; the clipper reads edges as [right, bottom, left, top]
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x00518d70
+    name: RenderProjectionUnitScale
+    description: unit numerator used when the near clipper inverts ordinary reciprocal depth; live value is 1.0
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a0
+    name: RenderProjectionCenterX
+    description: screen-space projection center X consumed by ordinary and near-clipped vertex paths; live value is 320
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a4
+    name: RenderProjectionCenterY
+    description: screen-space projection center Y consumed by ordinary and near-clipped vertex paths; live value is 240
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
+  - address: 0x005808a8
+    name: RenderProjectionDepthScale
+    description: reciprocal-depth projection scale consumed by ordinary and near-clipped vertex paths; live value is 384
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+      - re/evidence/functions/camera-system.md
   - address: 0x0056ad00
     name: MmuManager
     description: active PC save/card compatibility manager used by the MMU setup and frontend state machine

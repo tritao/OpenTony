@@ -50,7 +50,33 @@ functions:
       - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip seam, and per-bucket head-prepend links; retail near-plane vertex rewriting and global/material state resolution remain explicit seams.
+    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip handoff, and per-bucket head-prepend links; near-plane rewriting and global/material state resolution are exposed as separate caller seams.
+
+  - address: 0x004d2310
+    name: M3D_ClipPolygonNearPlane
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native reconstruction covers reciprocal-depth unprojection, circular near-plane edge ordering, three-to-six output records, final reprojection, and aggregate lateral rejection; retail arena rollback remains outside the value-based adapter.
+
+  - address: 0x004d25c0
+    name: M3D_InterpolatePolygonEdge
+    slice: render-packet-submission
+    status: tested
+    sources:
+      - src/trg/render_packet_builder.hpp
+      - src/trg/render_packet_builder.cpp
+    tests:
+      - src/trg/render_polygon_bucket_test.cpp
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+    notes: Native edge interpolation preserves f32 X/Y and textured UV stores, unsigned RGB-byte truncation/wrap, and the target's unwritten high color-byte seam.
 
   - address: 0x004d26b0
     name: M3D_ClassifyPolygonDepth
