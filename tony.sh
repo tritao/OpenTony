@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
 VENV="$ROOT/.tools/venv"
 GIT_COMMON="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 GHIDRA_VERSION="$(awk -F'"' '/^  version: "/ {print $2; exit}' "$ROOT/re/config/ghidra.yml")"
@@ -36,7 +37,7 @@ if [[ ! -f "$VENV/bin/tony" ]] \
   || ! "$VENV/bin/python" -c \
     'from pathlib import Path; import sys, tony; raise SystemExit(0 if Path(tony.__file__).resolve().parents[1] == Path(sys.argv[1]).resolve() else 1)' \
     "$ROOT" >/dev/null 2>&1; then
-  "$VENV/bin/python" -m pip install --disable-pip-version-check --no-input --no-deps --force-reinstall -e "$ROOT"
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --no-input --force-reinstall -e "$ROOT"
 fi
 
 if [[ -n "$SHARED_PYGHIDRA" ]]; then
