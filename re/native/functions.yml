@@ -82,6 +82,20 @@ functions:
       - re/evidence/functions/animation-runtime.md
     notes: Exact 5/3/1 signed steering-frame easing primitive; shared by the ground selector and the standalone animation cursor contract.
 
+  - address: 0x00492f20
+    name: Skater_UpdateHeading
+    slice: animation-ground-turn-selector
+    status: tested
+    sources:
+      - src/runtime/ground_animation.hpp
+      - src/runtime/ground_animation.cpp
+    tests:
+      - src/runtime/ground_animation_test.cpp
+    evidence:
+      - re/evidence/functions/animation-ground-turn-selector.md
+      - re/evidence/functions/animation.md
+    notes: Selector model preserves grounded/special branch integer targets, alternate-positive pre-increment, crouched state-to-target seating, zero-turn release wrappers, wrapper rate reset, and post-request completion ordering; FUN_004902e0 and FUN_00496280 services remain explicit seams.
+
   - address: 0x00493370
     name: Skater_ActionPhysicsStep
     slice: ground-turn-lean
