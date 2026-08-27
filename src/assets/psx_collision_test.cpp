@@ -107,6 +107,18 @@ int main() {
     CHECK(world.faces().size() == 1);
     CHECK(world.grids().size() == 1);
     CHECK(world.grids()[0].cells[0].faces.size() == 1);
+    // The face flag is a later material/filter input. The geometry builder
+    // must retain it instead of silently assigning bit 0x80 an exclusion
+    // meaning.
+    auto flagged_bytes = synthetic_archive();
+    constexpr std::size_t synthetic_face_offset = 124;
+    put16(flagged_bytes, synthetic_face_offset, 0x0080U);
+    const auto flagged_archive = opentony::assets::PsxArchive::parse(
+        flagged_bytes, "collision-face-flag.psx");
+    const auto flagged_world = opentony::assets::PsxCollisionWorld::build(
+        flagged_archive);
+    CHECK(flagged_world.faces().size() == 1);
+    CHECK(flagged_world.faces()[0].face_flags == 0x0080U);
     const std::array<std::int32_t, 3> expected_vertex{
         -0x1000000,
         0,
@@ -172,6 +184,24 @@ int main() {
     CHECK(populated_retail_masks.apply_retail_plane_test);
     CHECK(populated_retail_masks.reject_mask == 0);
     CHECK(populated_retail_masks.accept_mask == 0xffedffffU);
+    for (std::uint32_t input_bits = 0; input_bits < 32; ++input_bits) {
+        const auto masks = opentony::assets::make_retail_collision_query_options({
+            (input_bits & 0x01U) != 0,
+            (input_bits & 0x02U) != 0,
+            (input_bits & 0x04U) != 0,
+            (input_bits & 0x08U) != 0,
+            (input_bits & 0x10U) != 0,
+        });
+        const std::uint32_t expected_reject =
+            (((input_bits & 0x01U) != 0 ? 0x00400000U : 0U)
+             ^ ((input_bits & 0x02U) != 0 ? 0x00400000U : 0U)
+             ^ ((input_bits & 0x04U) == 0 ? 0x00200000U : 0U));
+        const std::uint32_t expected_accept =
+            ((input_bits & 0x08U) != 0 ? 0xffefffffU : 0xffffffffU)
+            ^ ((input_bits & 0x10U) != 0 ? 0x00020000U : 0U);
+        CHECK(masks.reject_mask == expected_reject);
+        CHECK(masks.accept_mask == expected_accept);
+    }
     CHECK(!world.trace_segment(
         {0, 4096, 0},
         {0, -4096, 0},

@@ -22,6 +22,15 @@ COLLISION_ZONE_TABLE = 0x00567F80
 COLLISION_CANDIDATE_TABLE = 0x00567FA0
 COLLISION_FACE_CACHE = 0x005643B0
 COLLISION_MODEL_CACHE = 0x00567A70
+COLLISION_REJECT_MASK = 0x00567A60
+COLLISION_ACCEPT_MASK = 0x00567A68
+COLLISION_FILTER_INPUTS = {
+    "dat_00567c84": 0x00567C84,
+    "dat_00567c7c": 0x00567C7C,
+    "dat_00567c78": 0x00567C78,
+    "dat_00567c74": 0x00567C74,
+    "dat_00567c80": 0x00567C80,
+}
 ZONE_LOADER = 0x004667E0
 ZONE_LOADER_AFTER_ARGS = 0x0046682E
 ZONE_LOADER_FIRST_CELL = 0x0046697A
@@ -211,6 +220,14 @@ def _scene_roots(memory) -> dict:
     linked_root = _global_u32(COLLISION_LINKED_ROOT, memory)
     linked_root_aux = _global_u32(COLLISION_LINKED_ROOT_AUX, memory)
     return {
+        "face_filter": {
+            "reject_mask": _global_u32(COLLISION_REJECT_MASK, memory),
+            "accept_mask": _global_u32(COLLISION_ACCEPT_MASK, memory),
+            "startup_inputs": {
+                name: _global_u32(address, memory)
+                for name, address in COLLISION_FILTER_INPUTS.items()
+            },
+        },
         "linked_root_value": linked_root,
         "linked_objects": _linked_object_snapshots(linked_root, memory),
         "linked_root_aux_value": linked_root_aux,

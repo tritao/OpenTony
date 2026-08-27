@@ -229,9 +229,6 @@ PsxCollisionWorld PsxCollisionWorld::build(const PsxArchive& archive) {
         const PsxModel& model = archive.models()[model_index];
         for (std::size_t face_index = 0; face_index < model.faces.size(); ++face_index) {
             const PsxFace& source_face = model.faces[face_index];
-            if ((source_face.flags & 0x0080U) != 0) {
-                continue;
-            }
             PsxCollisionFace face{};
             face.object_index = object_index;
             face.model_index = model_index;

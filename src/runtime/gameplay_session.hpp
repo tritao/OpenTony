@@ -76,7 +76,12 @@ struct GameplaySessionConfig {
     std::array<std::uint8_t, kRetailMappedSelectionSlotCount>
         tricks_mapped_mapping_indices{
         0xff, 0xff, 0xff, 0xff, 0xff};
-    assets::PsxCollisionQueryOptions collision_query_options{};
+    // Ordinary player movement uses the masks and oriented plane test built
+    // by retail FUN_004660b0/FUN_00462a20. Special raycasts can replace this
+    // with an explicitly constructed query policy; the older unfiltered
+    // compatibility behavior remains available with value-initialization.
+    assets::PsxCollisionQueryOptions collision_query_options =
+        assets::make_retail_collision_query_options({}, true);
     // Use the recovered fixed-point PsxScene query at the physics boundary.
     // Leave this opt-in until frame-by-frame parity against the legacy asset
     // wrapper is measured.

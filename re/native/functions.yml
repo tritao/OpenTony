@@ -318,7 +318,7 @@ functions:
       - src/assets/psx_collision_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: Geometry and nearest-hit arithmetic are tested; exact retail face filters remain open.
+    notes: Geometry, nearest-hit arithmetic, and the four-stage raw face-word selector are tested; higher-level material names remain provisional.
 
   - address: 0x004638d0
     name: M3D_CollisionCell
@@ -335,8 +335,8 @@ functions:
       - re/evidence/functions/blockmap-collision.md
     notes: >-
       Native coverage reproduces the recovered signed-short basis layout,
-      model-face fixed-point AABB generation, and scene traversal boundary;
-      the PC heap linked-list loader and exact retail face filters remain
+      model-face fixed-point AABB generation, signed 2-D zone walk, and the
+      separate zone/candidate-table ownership; the PC heap allocator remains
       outside this adapter.
 
   - address: 0x00466090
@@ -352,7 +352,63 @@ functions:
       - src/runtime/psx_collision_probe_test.cpp
     evidence:
       - re/evidence/functions/collision.md
-    notes: Caller-prepared query records are populated through the native scene wrapper, which returns zero unconditionally like retail; mode-gated linked traversal and static blockmap behavior are covered, while unresolved retail zone ownership remains outside the native scene adapter.
+    notes: Caller-prepared query records are populated through the native scene wrapper, which returns zero unconditionally like retail; mode-gated linked traversal, static blockmap behavior, and the resolved face policy are covered.
+
+  - address: 0x004628f0
+    name: M3D_PrepareCollisionObjectList
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: >-
+      Linked nodes use the recovered low-byte admission gate, object-space
+      bounds/reflection, caller-supplied model-kind/index and transform tail,
+      then dynamic projected-face nearest-distance ordering.
+
+  - address: 0x00463d50
+    name: M3D_CommitCollisionSurface
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+      - src/runtime/psx_collision_probe.cpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+    notes: >-
+      Result publication keeps body, contact, normal, face, model, travel,
+      parameter, and query-mask sideband distinct; the outer wrapper's return
+      value remains zero rather than a hit boolean.
+
+  - address: 0x004660b0
+    name: M3D_ZoneCollisionBroadphase
+    slice: collision-query
+    status: tested
+    sources:
+      - re/evidence/collision_reference.hpp
+      - src/collision/psx_scene.hpp
+      - src/runtime/psx_collision_probe.cpp
+    tests:
+      - re/evidence/collision_reference_test.cpp
+      - src/collision/psx_scene_test.cpp
+      - src/runtime/psx_collision_probe_test.cpp
+    evidence:
+      - re/evidence/functions/collision.md
+      - re/evidence/functions/blockmap-collision.md
+    notes: >-
+      Scene traversal separates mode-gated linked objects from static zone
+      candidates, applies the retail face policy, and compares the shared
+      traveled-distance field while preserving the static result on ties.
 
   - address: 0x004b2450
     name: PSX_ParseEnvironment

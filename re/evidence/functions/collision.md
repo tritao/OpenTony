@@ -193,6 +193,47 @@ the wrapper; the query does not parse a file on each call.
   unknown. This is the strongest recovered zone/candidate-table ownership
   boundary; it still does not expose the file serialization or allocator
   interface.
+
+### Closed face and zone selection policy
+
+The face selector is now closed at the raw packed surface word. At the normal
+startup state, `0x004660b0` produces `DAT_00567a60 = 0x00200000` and
+`DAT_00567a68 = 0xffffffff`; the five source bytes and toggle order are
+retained in `make_retail_collision_query_options()`. A face reaches the
+geometric tester only when all four predicates hold:
+
+```text
+(surface_word & DAT_00567a60) == 0
+(surface_word | DAT_00567a68) == 0xffffffff
+((surface_word ^ 0x00010000) & 0x00030000) != 0
+q+0x88 != 0 || (surface_word & 0x00020000) == 0
+```
+
+The last decision is per query, not model or zone state. In the dynamic face
+branch a `0x20000` face admitted by `q+0x88` records the model selector
+sideband and does not publish `q+0x68` as a physical hit. The native
+`CollisionFaceFilter` uses the same defaults; callers that need the old
+unfiltered asset comparison must explicitly disable the filter.
+
+Zone selection and model resolution are separate products. The active-zone
+table at `DAT_00567f80` owns presence, inclusive X/Z bounds, divisor, and
+signed cell counts at a `0x660`-byte record stride. The candidate-pointer table
+at `DAT_00567fa0` owns one 32-bit pointer per
+`zone*0x198 + cell_x*0x14 + cell_z` entry; each pointer names a null-terminated
+array of linked-object-list heads. The candidate table is therefore not the
+zone record and is not the global linked root `DAT_0056af40`. The model/object
+products are owned by the kind-strided region tables at `DAT_0056d438` and
+`DAT_0056d43c`; a linked node supplies its resolved `+0x1a` model index and
+`+0x1f` kind to the query.
+
+The dynamic query consumes the linked node's `+0x04` flags, `+0x08` position,
+`+0x14` angles, `+0x1a` model index, and `+0x20` link. Only full-word `0x0200`
+selects the matrix-transform path; that path consumes signed Q12 columns at
+`+0x28/+0x2a/+0x2c`. The PSX native seam keeps those values caller-owned and
+does not derive them from TRG entities or the static blockmap. The compact
+boundary cases and representative floor/wall/air/moving observations are
+tracked in
+[`collision-selection-policy.json`](../fixtures/collision-selection-policy.json).
 - A targeted runtime probe confirmed that boundary in the Hangar load. The
   call from `0x004b29e6` returned at `0x004b29eb` with source buffer
   `0x05dd2dfc`; after the loader's diagnostic/argument setup, `ESI=0` and
@@ -1017,7 +1058,8 @@ no-hit state into that record, gates the optional linked-object pass on the
 mode argument, and returns zero in every case. Its synthetic scene test covers
 both a hit and a no-hit record, including the unchanged query stamp and the
 initialized `0x7fffffff` sentinels. The wrapper is therefore native-tested;
-complete retail zone/global ownership remains a separate boundary.
+the remaining boundary is the PC loader's complete zone serialization and
+heap-cache construction, not the recovered table split or query/result ABI.
 
 ## Open questions / falsifiers
 

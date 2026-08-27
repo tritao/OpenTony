@@ -25,9 +25,19 @@ int main() {
         return 0;
     }
 
-    opentony::runtime::GameplaySessionConfig config{};
+    opentony::runtime::GameplaySessionConfig default_config{};
+    CHECK(default_config.collision_query_options.apply_retail_face_filter);
+    CHECK(default_config.collision_query_options.apply_retail_plane_test);
+    CHECK(default_config.collision_query_options.reject_mask == 0x00200000U);
+    CHECK(default_config.collision_query_options.accept_mask == 0xffffffffU);
+
+    opentony::runtime::GameplaySessionConfig config = default_config;
     config.fixed_step.max_catch_up_steps = 2;
     config.fixed_step.frame_scale_q8 = 0x80;
+    // The first fixture compares the legacy asset-world adapter and uses its
+    // explicit unfiltered compatibility policy. Ordinary session defaults
+    // remain covered by default_config above.
+    config.collision_query_options = {};
     config.update_camera = true;
     config.camera_target.follow_offset = {0, 0, -0x4000};
     config.camera_target.tripod_state = 1;
@@ -54,6 +64,8 @@ int main() {
     CHECK(session.level().texture_runtime() != nullptr);
 
     opentony::runtime::GameplaySessionConfig recovered_config = config;
+    recovered_config.collision_query_options =
+        opentony::assets::make_retail_collision_query_options({}, true);
     recovered_config.use_recovered_collision_scene = true;
     opentony::runtime::GameplaySession recovered_session(
         trg,
