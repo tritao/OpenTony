@@ -1477,6 +1477,38 @@ void test_ground_action_target_step() {
     CHECK(analog.state().movement_target_x == 0xf000);
     CHECK(analog.state().movement_target_z == 0xf000);
 
+    PhysicsStateMachine lean_boundary;
+    lean_boundary.state().raw_state = 0;
+    lean_boundary.state().heading_input = 0x1a;
+    const auto analog_boundary = lean_boundary.apply_ground_action_step(0x100);
+    CHECK(analog_boundary.steering_active);
+    CHECK(lean_boundary.state().movement_target_x == 0x548b);
+
+    PhysicsStateMachine release_boundary;
+    release_boundary.state().raw_state = 0;
+    release_boundary.state().heading_input = 0x19;
+    release_boundary.state().movement_target_x = 0x4000;
+    const auto release_boundary_result =
+        release_boundary.apply_ground_action_step(0x100);
+    CHECK(!release_boundary_result.steering_active);
+    CHECK(release_boundary.state().movement_target_x == 0x3000);
+
+    PhysicsStateMachine negative_lean;
+    negative_lean.state().raw_state = 0;
+    negative_lean.state().heading_input = -0x1a;
+    const auto negative_lean_step =
+        negative_lean.apply_ground_action_step(0x100);
+    CHECK(negative_lean_step.steering_active);
+    CHECK(negative_lean.state().movement_target_x == -0x548b);
+
+    PhysicsStateMachine capped_turn;
+    capped_turn.state().raw_state = 0;
+    capped_turn.state().movement_target_x = 0x2d000;
+    capped_turn.update_action_mask(retail::kRightActionBit);
+    const auto capped_turn_result = capped_turn.apply_ground_action_step(0x100);
+    CHECK(capped_turn_result.steering_active);
+    CHECK(capped_turn.state().movement_target_x == 0x2d000);
+
     PhysicsStateMachine braking;
     braking.state().raw_state = 0;
     braking.state().heading_deadband = 31;

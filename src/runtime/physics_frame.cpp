@@ -35,8 +35,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     }
 
     // FUN_00493370 runs before the correction reset and the state dispatcher.
-    // The native turn producer is deliberately opt-out because its remaining
-    // release/analog branches still depend on unrecovered stat fields.
+    // The grounded turn producer includes the recovered signed +0x31a1
+    // analog target; this caller still owns the limit/profile inputs and the
+    // non-ground branches.
     if (hooks.apply_ground_turn
         && (player.physics_state() == 0 || player.physics_state() == 7)) {
         GroundTurnConfig turn_config = hooks.ground_turn_config;

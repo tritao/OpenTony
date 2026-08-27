@@ -95,12 +95,14 @@ types:
         name: brake_mode
         type: i32
         confidence: observed
+        description: Grounded action step's wide-limit/brake selector; state 0/7 uses it to choose the doubled turn step and +/-0x5a000 limit.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2e7c
         name: steering_active
         type: i32
         confidence: observed
+        description: Grounded action step clears this at entry and sets it when a digital or analog target branch is selected, including a repeated input at a turn cap.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2dc8
@@ -206,7 +208,8 @@ types:
       - offset: 0x31a1
         name: heading_input
         type: i8
-        confidence: observed
+        confidence: confirmed
+        description: Signed controller lean byte consumed by the grounded analog target branch; magnitude 0x1a is the inclusive response threshold.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x31a2
