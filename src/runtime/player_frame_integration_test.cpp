@@ -2,19 +2,129 @@
 
 #include "tests/test_check.hpp"
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace {
 
-[[nodiscard]] std::string asset_path(const char* relative) {
-    const std::filesystem::path root =
-        "/home/joao/dev/OpenTony/build/assets/all-pkr/files/data";
-    return (root / relative).string();
+void put16(
+    std::vector<std::byte>& bytes,
+    std::size_t offset,
+    std::uint16_t value) {
+    bytes[offset] = static_cast<std::byte>(value & 0xffU);
+    bytes[offset + 1] = static_cast<std::byte>(value >> 8U);
 }
+
+void put32(
+    std::vector<std::byte>& bytes,
+    std::size_t offset,
+    std::uint32_t value) {
+    put16(bytes, offset, static_cast<std::uint16_t>(value));
+    put16(bytes, offset + 2, static_cast<std::uint16_t>(value >> 16U));
+}
+
+[[nodiscard]] std::vector<std::byte> synthetic_trg() {
+    // One retail terminator node is enough to exercise the level scheduler;
+    // the frame fixture deliberately supplies collision results at its own
+    // recovered caller seam.
+    std::vector<std::byte> bytes(18, std::byte{0});
+    bytes[0] = std::byte{'_'};
+    bytes[1] = std::byte{'T'};
+    bytes[2] = std::byte{'R'};
+    bytes[3] = std::byte{'G'};
+    put32(bytes, 4, 2);
+    put32(bytes, 8, 1);
+    put32(bytes, 12, 16);
+    put16(bytes, 16, 0xff);
+    return bytes;
+}
+
+[[nodiscard]] std::vector<std::byte> synthetic_psx() {
+    // Version 4, one object, one empty model, and a valid tag terminator.
+    // This is the smallest archive accepted by LevelRuntime's real loader,
+    // scene registry, collision world, and inline texture finalizer.
+    constexpr std::size_t object_offset = 12;
+    constexpr std::size_t model_count_offset = object_offset + 36;
+    constexpr std::size_t model_table_offset = model_count_offset + 4;
+    constexpr std::size_t model_offset = model_table_offset + 4;
+    constexpr std::size_t tag_offset = model_offset + 28;
+    constexpr std::size_t model_name_offset = tag_offset + 4;
+    // After the terminator and model name, the parser reads a zero texture
+    // name count, two zero palette counts, and a zero texture count.
+    std::vector<std::byte> bytes(model_name_offset + 20, std::byte{0});
+    put16(bytes, 0, 4);
+    put16(bytes, 2, 2);
+    put32(bytes, 4, static_cast<std::uint32_t>(tag_offset));
+    put32(bytes, 8, 1);
+    put16(bytes, object_offset + 26, 0);
+    put32(bytes, model_count_offset, 1);
+    put32(bytes, model_table_offset, static_cast<std::uint32_t>(model_offset));
+    put16(bytes, model_offset + 0, 0);
+    put16(bytes, model_offset + 2, 0);
+    put16(bytes, model_offset + 4, 0);
+    put16(bytes, model_offset + 6, 0);
+    put32(bytes, model_offset + 8, 0);
+    put32(bytes, model_offset + 24, 0);
+    put32(bytes, tag_offset, 0xffffffffU);
+    put32(bytes, model_name_offset, 0xdecafbadU);
+    return bytes;
+}
+
+class TemporaryLevelAssets final {
+public:
+    TemporaryLevelAssets() {
+        const auto stamp = std::chrono::high_resolution_clock::now()
+            .time_since_epoch().count();
+        root_ = std::filesystem::temp_directory_path()
+            / ("opentony-player-frame-integration-"
+                + std::to_string(static_cast<unsigned long long>(stamp)));
+        trg_ = root_;
+        trg_ += ".TRG";
+        psx_ = root_;
+        psx_ += ".PSX";
+        write(trg_, synthetic_trg());
+        write(psx_, synthetic_psx());
+    }
+
+    ~TemporaryLevelAssets() {
+        std::error_code error;
+        std::filesystem::remove(trg_, error);
+        std::filesystem::remove(psx_, error);
+    }
+
+    TemporaryLevelAssets(const TemporaryLevelAssets&) = delete;
+    TemporaryLevelAssets& operator=(const TemporaryLevelAssets&) = delete;
+
+    [[nodiscard]] std::string trg() const { return trg_.string(); }
+    [[nodiscard]] std::string psx() const { return psx_.string(); }
+
+private:
+    std::filesystem::path root_;
+    std::filesystem::path trg_;
+    std::filesystem::path psx_;
+
+    static void write(
+        const std::filesystem::path& path,
+        const std::vector<std::byte>& bytes) {
+        std::ofstream output(path, std::ios::binary);
+        if (!output) {
+            throw std::runtime_error("cannot create native frame fixture: "
+                + path.string());
+        }
+        output.write(
+            reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+        if (!output) {
+            throw std::runtime_error("cannot write native frame fixture: "
+                + path.string());
+        }
+    }
+};
 
 class Observer final : public opentony::runtime::LevelFrameObserver {
 public:
@@ -50,15 +160,8 @@ int main() {
     using opentony::runtime::PositionCommitCandidate;
     using opentony::runtime::movement_bit;
 
-    const std::string trg = asset_path("SKWARE_T.TRG");
-    const std::string psx = asset_path("SKWARE.PSX");
-    if (!std::filesystem::is_regular_file(trg)
-        || !std::filesystem::is_regular_file(psx)) {
-        std::cout << "fixture unavailable\n";
-        return 0;
-    }
-
-    opentony::trg::LevelRuntime level(trg, psx);
+    const TemporaryLevelAssets assets;
+    opentony::trg::LevelRuntime level(assets.trg(), assets.psx());
     level.initialize();
 
     PlayerState player({0, 0x2000, 0});

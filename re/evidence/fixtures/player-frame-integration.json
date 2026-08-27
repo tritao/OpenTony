@@ -95,6 +95,7 @@
   },
   "native_fixture": {
     "test": "src/runtime/player_frame_integration_test.cpp",
+    "assets": "self-contained synthetic TRG/PSX files loaded through LevelRuntime",
     "frame_scale_q8": "0x100",
     "grounded": {
       "input_mask": "0x2000",
@@ -121,6 +122,13 @@
         [0, 4096, 0]
       ],
       "query_count": 4,
+      "collision_hit": {
+        "position_q12": [0, 0, 0],
+        "normal_q12": [0, 4096, 0],
+        "face_flags": "0x80",
+        "surface_flags": "0x200",
+        "retail_ground_contact": true
+      },
       "selected_candidate": 4,
       "state_before": 1,
       "state_after": 0,
@@ -145,7 +153,9 @@
       "action-history",
       "action-stream",
       "stage-in-air",
-      "collision-query x3",
+      "collision-query",
+      "collision-query",
+      "collision-query",
       "collision-query",
       "collision-consumer",
       "air-contact",

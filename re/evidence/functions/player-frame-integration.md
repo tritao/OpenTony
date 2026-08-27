@@ -36,8 +36,10 @@ and preserves the first hit for the collision consumer and landing predicate.
 
 ## Native execution boundary
 
-`GameplayFrame` now provides an executable two-step fixture over the real TRG
-level scheduler. The callback order is input history, level tick, action
+`GameplayFrame` now provides an executable two-step fixture over the real
+`LevelRuntime` scheduler using self-contained synthetic TRG/PSX files. The
+fixture does not depend on installed retail assets or silently skip. The
+callback order is input history, level tick, action
 history publication, action stream consumer, dispatcher stage entry, collision
 query/commit, collision consumer, accepted air contact, and landing animation
 request. The fixture uses Q12 positions and Q8 frame scale `0x100`:
@@ -48,9 +50,11 @@ request. The fixture uses Q12 positions and Q8 frame scale `0x100`:
   range `[1,1]`.
 - In-air state 1 with neutral input publishes action 4 released at timestamp
   2. Desired `[0,-8192,0]` is rejected three times; old Y candidate 4
-  `[0,4096,0]` is accepted. The hit normal is `{0,4096,0}`, the standard
-  ground predicate accepts it, state changes to 0 with reason `0x1fd6`, and
-  the evidence-backed animation-5 request is emitted.
+  `[0,4096,0]` is accepted. The four query calls and their fixed-point
+  endpoints are retained in the fixture; the collision consumer sees hit
+  normal `{0,4096,0}`, the standard ground predicate accepts it, state changes
+  to 0 with reason `0x1fd6`, and the evidence-backed animation-5 request is
+  emitted.
 
 The fixture does not add a writer for skater `+0x3200`. Static matching proves
 that a nonzero value selects direct proposed-XYZ stores and the selected
