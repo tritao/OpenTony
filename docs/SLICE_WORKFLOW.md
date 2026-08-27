@@ -14,12 +14,17 @@ Detailed policy lives in `docs/RECONSTRUCTION_WORKFLOW.md` and
 ```bash
 tony verify
 tony slice list
+tony slice status
 tony slice prompt ID
 tony slice claim ID
 tony slice show ID
 tony ghidra gaps --slice ID
 tony ghidra inspect ADDRESS
 ```
+
+`tony slice status [ID]` is read-only and combines manifest status, native
+coverage, lease owner/age/liveness, current branch cleanliness, and the next
+recorded open question.
 
 Follow the checklist printed by `tony slice show ID`. Work on one coherent
 scoped target: confirm its boundary and ABI, record evidence and accessed

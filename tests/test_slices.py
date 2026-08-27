@@ -37,6 +37,53 @@ def test_slice_verify_reports_repository_summary(monkeypatch, capsys):
     assert "2 total, 1 active" in capsys.readouterr().out
 
 
+def test_slice_status_reports_progress_lease_and_next_question(monkeypatch, capsys):
+    monkeypatch.setattr(
+        slices,
+        "load_slices",
+        lambda: {
+            "render": {
+                "status": "active",
+                "subsystem": "renderer",
+                "scope": {"functions": [0x10, 0x20]},
+                "open_questions": ["Recover the bucket classifier."],
+            }
+        },
+    )
+    monkeypatch.setattr(slices, "load_native_progress", lambda: {0x10: {"status": "tested"}})
+    monkeypatch.setattr(slices, "_read_lease", lambda _slice_id: None)
+    monkeypatch.setattr(
+        slices,
+        "capture",
+        lambda command: (0, "re/render\n" if "branch" in command else " M src/render.cpp\n"),
+    )
+
+    assert slices.slice_status(SimpleNamespace(slice_id=None)) == 0
+    output = capsys.readouterr().out
+    assert "branch re/render  dirty:1" in output
+    assert "render" in output
+    assert "1/2" in output
+    assert "unclaimed" in output
+    assert "Recover the bucket classifier." in output
+
+
+def test_slice_status_one_id_prints_native_detail(monkeypatch, capsys):
+    document = {
+        "status": "active",
+        "subsystem": "renderer",
+        "scope": {"functions": [0x10]},
+        "open_questions": [],
+    }
+    monkeypatch.setattr(slices, "load_slices", lambda: {"render": document})
+    monkeypatch.setattr(slices, "_require_slice", lambda _slice_id: document)
+    monkeypatch.setattr(slices, "load_native_progress", lambda: {0x10: {"status": "tested"}})
+    monkeypatch.setattr(slices, "_read_lease", lambda _slice_id: None)
+    monkeypatch.setattr(slices, "capture", lambda _command: (0, ""))
+
+    assert slices.slice_status(SimpleNamespace(slice_id="render")) == 0
+    assert "native-status tested:1" in capsys.readouterr().out
+
+
 def test_lease_root_uses_git_common_directory(monkeypatch):
     monkeypatch.setattr(slices, "LEASE_ROOT", None)
     monkeypatch.setattr(slices, "capture", lambda _command: (0, "/repo/.git\n"))
