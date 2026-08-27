@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -22,6 +23,9 @@ public:
 
 inline constexpr std::uint8_t kRenderPolygonPacketFormat = 0xb0;
 inline constexpr std::size_t kRenderPolygonRecordSize = 0x30;
+inline constexpr std::size_t kRenderDepthBucketCount = 0x1000;
+inline constexpr std::size_t kRenderNoPolygonIndex =
+    std::numeric_limits<std::size_t>::max();
 
 // The retail renderer's projection helper consumes a transformed working
 // vertex, not a PSX face directly. Keep that handoff as a callback until the
@@ -71,13 +75,113 @@ struct RenderPolygonPacket {
     std::size_t model_index{CommandPointRuntime::npos};
     std::size_t face_index{};
     std::uint8_t format{};
-    std::uint16_t flags{};
+    // Retail stores the complete state word at record +0x08. In particular,
+    // the forced-depth path sets bit 31, so this is intentionally wider than
+    // the source face's usual low flag bits.
+    std::uint32_t flags{};
     std::size_t material_index{CommandPointRuntime::npos};
     std::uint32_t material_checksum{};
     bool textured{};
     std::uint8_t vertex_count{};
     std::size_t working_vertex_offset{};
     std::vector<RenderPolygonVertex> vertices;
+};
+
+enum class RenderBucketDisposition : std::uint8_t {
+    accepted,
+    rejected_clip,
+    rejected_winding,
+    requires_near_clip,
+};
+
+struct RenderPolygonClipSummary {
+    std::uint32_t all_flags{};
+    std::uint32_t any_flags{};
+};
+
+// 0x004d2310 receives a packet whose projected reciprocal-depth field still
+// contains the ordinary transform's reciprocal. The retail viewport record is
+// laid out as [right, bottom, left, top] at 0x00563a38.
+struct RenderNearClipOptions {
+    float near_depth{10.0F};
+    float screen_center_x{320.0F};
+    float screen_center_y{240.0F};
+    float depth_scale{384.0F};
+    std::array<float, 4> viewport_edges{640.0F, 480.0F, 0.0F, 0.0F};
+    float projection_unit_scale{1.0F};
+};
+
+enum class RenderNearClipDisposition : std::uint8_t {
+    accepted,
+    rejected,
+};
+
+struct RenderNearClipResult {
+    RenderNearClipDisposition disposition{RenderNearClipDisposition::rejected};
+    std::uint8_t output_vertex_count{};
+    std::uint32_t all_lateral_clip_flags{};
+};
+
+// These are the resolved inputs to 0x004d26b0. Retail derives them from the
+// renderer state word, material flags, texture mode, and level. Keeping that
+// resolution outside this helper makes the native contract testable without
+// claiming ownership of camera or asset-runtime state.
+enum class RenderDepthBucketMode : std::uint8_t {
+    base = 0,
+    scaled_nearest = 1,
+    scaled_farthest = 2,
+    offset_farthest = 3,
+    forced_offset = 4,
+};
+
+struct RenderDepthBucketOptions {
+    RenderDepthBucketMode mode{RenderDepthBucketMode::base};
+    float depth_offset{};
+    float mode3_offset{};
+    float mode2_multiplier{0.7F};
+    bool choose_nearest_depth{};
+    bool display_rect_depth{};
+    bool reverse_winding{};
+    float winding_threshold{};
+    float near_depth{10.0F};
+    float reciprocal_depth_cap{0.99F};
+};
+
+// Inputs resolved by M3D_ClipAndBucketPolygon (0x004d20f0) immediately before
+// it calls M3D_ClassifyPolygonDepth (0x004d26b0). The three offsets are the
+// renderer-state values copied into 0x00563a64, 0x00563a7c, and 0x00563a88;
+// material_runtime_flags is supplied by the already-resolved runtime material
+// record rather than parsed by this renderer adapter.
+struct RenderDepthStateInputs {
+    std::uint32_t renderer_state_word{};
+    float depth_offset_2000{};
+    float depth_offset_4000{};
+    float depth_offset_6000{};
+    std::uint32_t current_level{};
+    std::uint32_t material_runtime_flags{};
+};
+
+struct RenderDepthStateResolution {
+    std::uint32_t selected_state_mask{};
+    float depth_offset{};
+    std::uint32_t packet_flags{};
+};
+
+struct RenderBucketDecision {
+    RenderBucketDisposition disposition{RenderBucketDisposition::rejected_clip};
+    std::size_t bucket_index{kRenderNoPolygonIndex};
+    float first_winding_determinant{};
+    float second_winding_determinant{};
+    float selected_depth{};
+};
+
+struct RenderBucketBuildResult {
+    // These indices model the retail pointer links without exposing the
+    // process-local polygon arena. Each accepted polygon prepends to its
+    // bucket head, so `next_polygon` is the exact per-bucket link chain.
+    std::array<std::size_t, kRenderDepthBucketCount> bucket_heads{};
+    std::vector<std::size_t> next_polygon;
+    std::vector<RenderBucketDecision> decisions;
 };
 
 struct RenderPacketBuildOptions {
@@ -115,6 +219,46 @@ public:
         const camera::CameraStateRaw& camera,
         const RenderProjector& projector,
         const RenderPacketBuildOptions& options = {});
+
+    // Models the 0x004d1d40 -> 0x004d20f0 boundary and the lower
+    // 0x004d26b0 depth classifier. Near-plane clipping itself remains a
+    // separate native seam; a partial near clip is reported rather than
+    // silently accepted.
+    static RenderPolygonClipSummary summarize_clip(
+        const RenderPolygonPacket& polygon);
+
+    // 0x004d1d40 emits these two packets for an eligible textured quad before
+    // invoking 0x004d20f0. The caller supplies the already-resolved view-state
+    // condition because the global display/view selector is outside this
+    // portable packet type.
+    static std::vector<RenderPolygonPacket> split_textured_quad(
+        const RenderPolygonPacket& polygon,
+        bool split);
+
+    // Models 0x004d2310 and its 0x004d25c0 edge-intersection helper. The
+    // packet is replaced with the generated stream; a rejected result retains
+    // the target's output count (including counts below three), while the
+    // lateral-trivial-reject case exposes count zero to native callers.
+    static RenderNearClipResult clip_near_plane(
+        RenderPolygonPacket& polygon,
+        const RenderNearClipOptions& options = {});
+
+    // Reconstructs the caller-owned state resolution at 0x004d20f0. The
+    // offset selection uses (renderer_state_word & 0x6000) with exact matches
+    // for 0x2000, 0x4000, and 0x6000; all other values select zero. The packet
+    // flag rewrite is the post-0x004d26b0 textured-material exception.
+    static RenderDepthStateResolution resolve_depth_state(
+        const RenderPolygonPacket& polygon,
+        const RenderDepthStateInputs& inputs);
+
+    static RenderBucketDecision classify_polygon(
+        RenderPolygonPacket& polygon,
+        const RenderPolygonClipSummary& clip,
+        const RenderDepthBucketOptions& options = {});
+
+    static RenderBucketBuildResult bucketize(
+        std::span<RenderPolygonPacket> polygons,
+        const RenderDepthBucketOptions& options = {});
 };
 
 } // namespace opentony::trg
