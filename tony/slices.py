@@ -136,6 +136,78 @@ def slice_list(_args) -> int:
     return 0
 
 
+def _lease_summary(lease: dict | None) -> tuple[str, str, str]:
+    if not lease:
+        return "-", "-", "unclaimed"
+    owner = str(lease.get("owner", "-"))
+    age = "unknown"
+    try:
+        started = datetime.fromisoformat(str(lease["started_at"]))
+        seconds = max(0, int((datetime.now(UTC) - started).total_seconds()))
+        if seconds < 60:
+            age = f"{seconds}s"
+        elif seconds < 3600:
+            age = f"{seconds // 60}m"
+        elif seconds < 86400:
+            age = f"{seconds // 3600}h"
+        else:
+            age = f"{seconds // 86400}d"
+    except (KeyError, TypeError, ValueError):
+        pass
+    state = "remote"
+    if lease.get("host") == socket.gethostname() and isinstance(lease.get("pid"), int):
+        try:
+            os.kill(lease["pid"], 0)
+            state = "live"
+        except ProcessLookupError:
+            state = "stale"
+        except PermissionError:
+            state = "live"
+    return owner, age, state
+
+
+def _native_slice_progress(document: dict, progress: dict[int, dict]) -> tuple[int, int, str]:
+    addresses = [int(value) for value in document.get("scope", {}).get("functions", [])]
+    entries = [progress[address] for address in addresses if address in progress]
+    statuses: dict[str, int] = {}
+    for entry in entries:
+        status = str(entry.get("status", "unknown"))
+        statuses[status] = statuses.get(status, 0) + 1
+    detail = ",".join(f"{name}:{count}" for name, count in sorted(statuses.items())) or "none"
+    return len(entries), len(addresses), detail
+
+
+def slice_status(args) -> int:
+    documents = load_slices()
+    if args.slice_id:
+        documents = {args.slice_id: _require_slice(args.slice_id)}
+    progress = load_native_progress()
+    branch_code, branch = capture(["git", "branch", "--show-current"])
+    dirty_code, dirty = capture(["git", "status", "--short"])
+    branch = branch.strip() if branch_code == 0 and branch.strip() else "detached"
+    dirty_count = len(dirty.splitlines()) if dirty_code == 0 and dirty else 0
+    print(f"worktree {ROOT}  branch {branch}  {'clean' if dirty_count == 0 else f'dirty:{dirty_count}'}")
+    print(f"{'slice':<28} {'manifest':<9} {'native':<9} {'lease':<18} {'age':<7} {'state':<9} next")
+    for slice_id, document in documents.items():
+        lease = _read_lease(slice_id)
+        owner, age, lease_state = _lease_summary(lease)
+        done, total, detail = _native_slice_progress(document, progress)
+        questions = document.get("open_questions", [])
+        next_question = questions[0] if questions else "completion criteria"
+        print(
+            f"{slice_id:<28} {document['status']:<9} {f'{done}/{total}':<9} "
+            f"{owner[:18]:<18} {age:<7} {lease_state:<9} {next_question}"
+        )
+        if args.slice_id:
+            print(f"native-status {detail}")
+            if lease:
+                print(
+                    f"lease-host {lease.get('host', '-')}  pid {lease.get('pid', '-')}  "
+                    f"base {str(lease.get('base_commit', '-'))[:12]}"
+                )
+    return 0
+
+
 def slice_show(args) -> int:
     document = _require_slice(args.slice_id)
     printable = {key: value for key, value in document.items() if key != "_path"}
