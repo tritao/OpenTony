@@ -314,12 +314,12 @@ polygon_uv_v = (float(face_uv_v) + DAT_00519948) / (float)texture->+0x16
 This independently confirms that the scene-material pointer is consumed after
 PSX parsing and that the renderer does not use the original disk texture-table
 index at this stage. A face with source flags selecting three vertices emits a
-three-vertex polygon; otherwise the builder emits four vertices, and quads may
-later be split by `0x004d20f0`.
-Quads may be split into two triangle submissions by `0x004d20f0`; that helper
-performs the projected-space winding/depth tests and links accepted polygons
-into the renderer's bucketed list. The final list consumer is `0x004d3160`;
-whose concrete opcode handlers are described above.
+three-vertex polygon; otherwise the builder emits four vertices. For an
+eligible textured quad, `0x004d1d40` makes two triangle submissions in the
+order `(v0,v1,v3)` then `(v3,v1,v2)` before calling `0x004d20f0` for each.
+That helper performs the projected-space winding/depth tests and links
+accepted polygons into the renderer's bucketed list. The final list consumer
+is `0x004d3160`, whose concrete opcode handlers are described above.
 
 The indexed/special path at `0x004d11d0` has a separate color-packet contract:
 it walks eight-byte records, checks their flags, and expands indexed color
