@@ -48,14 +48,17 @@ PlayerResourceSpool::PlayerResourceSpool() noexcept {
 }
 
 void PlayerResourceSpool::reset() noexcept {
-    raw_.fill(std::byte{0});
     request_sizes_.fill(0);
-    request_flags_.fill(0);
     for (std::size_t index = 0; index < kPlayerSpoolEntryCount; ++index) {
-        loaded_[index].reset();
-        write_u8(entry_offset(index) + 0x04U, 0);
-        write_u32(entry_offset(index) + 0x1cU, 0xffffffffU);
+        // Retail reset first processes a pending platform request, then calls
+        // ReleaseEntry for every slot. Native loads are synchronous, so there
+        // is no platform request to process here; keep the per-entry release
+        // semantics exact and clear only the manager state below.
+        release(index);
     }
+    write_u32(0xa04U, 0);
+    write_u32(0xa08U, 0);
+    write_u32(0xa0cU, 0);
 }
 
 std::size_t PlayerResourceSpool::entry_offset(std::size_t index) const {
@@ -98,11 +101,14 @@ std::size_t PlayerResourceSpool::enqueue(
     std::string_view base_name,
     PlayerSpoolResourceKind resource_kind,
     std::int32_t heap,
-    std::uint32_t request_size,
-    std::uint8_t flags) {
+    std::uint32_t request_size) {
     if (base_name.empty() || base_name.size() > 8U) {
         throw std::invalid_argument(
             "player spool resource name must fit the retail eight-byte base");
+    }
+    if (heap != 0 && heap != 1) {
+        throw std::invalid_argument(
+            "player spool heap selector must be zero or one");
     }
     const std::size_t count = queued_count();
     if (count >= kPlayerSpoolEntryCount) {
@@ -121,7 +127,6 @@ std::size_t PlayerResourceSpool::enqueue(
     write_u32(offset + 0x1cU, 0xffffffffU);
     write_u32(offset + 0x24U, static_cast<std::uint32_t>(heap));
     request_sizes_[count] = request_size;
-    request_flags_[count] = flags;
     write_u32(0xa04U, static_cast<std::uint32_t>(count + 1U));
     return count;
 }
@@ -190,6 +195,17 @@ std::size_t PlayerResourceSpool::load_current(
     // a malformed PSH/PSX can never publish a partial runtime object.
     const std::size_t loaded_size = loader.open(resource_path);
     const assets::ResourceSourceKind source_kind = loader.source_kind();
+    std::size_t allocation_size = loaded_size;
+    const std::uint32_t requested_size = request_size_staging(index);
+    if (resource_kind == PlayerSpoolResourceKind::DirectPsx
+        && requested_size != 0U
+        && requested_size != kPlayerSpoolNoPadSize) {
+        if (loaded_size > requested_size) {
+            throw assets::ResourceRuntimeError(
+                "specified player spool pad size is smaller than the resource");
+        }
+        allocation_size = requested_size;
+    }
     std::vector<std::byte> bytes(loaded_size);
     loader.load(bytes);
     loader.synchronize();
@@ -198,6 +214,7 @@ std::size_t PlayerResourceSpool::load_current(
     resource.queue_index = index;
     resource.kind = resource_kind;
     resource.source_kind = source_kind;
+    resource.allocation_size = allocation_size;
     if (resource_kind == PlayerSpoolResourceKind::PshRegion) {
         resource.psh = assets::PshManifest::parse(
             std::move(bytes), std::string(resource_path), base);
@@ -223,9 +240,17 @@ void PlayerResourceSpool::complete_current() {
 
 void PlayerResourceSpool::release(std::size_t queue_index) {
     (void)entry_offset(queue_index);
+    if (!processed(queue_index)) {
+        loaded_[queue_index].reset();
+        return;
+    }
     loaded_[queue_index].reset();
+    if (kind(queue_index) != PlayerSpoolResourceKind::PshRegion) {
+        write_u32(entry_offset(queue_index) + 0x20U, 0);
+        write_u8(entry_offset(queue_index) + 0x04U, 0);
+        return;
+    }
     write_u32(entry_offset(queue_index) + 0x1cU, 0xffffffffU);
-    write_u32(entry_offset(queue_index) + 0x20U, 0);
 }
 
 std::size_t PlayerResourceSpool::queued_count() const noexcept {
@@ -270,13 +295,6 @@ PlayerSpoolResourceKind PlayerResourceSpool::kind(std::size_t index) const {
 std::int32_t PlayerResourceSpool::heap_selector(std::size_t index) const {
     return static_cast<std::int32_t>(
         read_u32(entry_offset(index) + 0x24U));
-}
-
-std::uint8_t PlayerResourceSpool::request_flags(std::size_t index) const {
-    if (index >= kPlayerSpoolEntryCount) {
-        throw std::out_of_range("player spool flag index is outside the manager");
-    }
-    return request_flags_[index];
 }
 
 std::uint32_t PlayerResourceSpool::request_size_staging(

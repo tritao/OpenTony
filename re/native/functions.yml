@@ -643,7 +643,7 @@ functions:
       - src/runtime/player_resource_spool_test.cpp
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
-    notes: Reset releases every owned parsed result and restores queue counters, entry handles, and request side channels.
+    notes: Reset applies the per-entry release cleanup, then restores queue counters/state; native synchronous loading leaves no platform pending operation to process.
 
   - address: 0x004b5370
     name: PlayerSpool_QueueResource
@@ -656,7 +656,7 @@ functions:
       - src/runtime/player_resource_spool_test.cpp
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
-    notes: Queue insertion preserves the eight-byte base-name bound, 0x28-byte entry stride, mode, heap, flags, and next-stride request-size staging.
+    notes: Queue insertion preserves the eight-byte base-name bound, 0x28-byte entry stride, mode, zero/one heap selector, and next-stride pad-size staging.
 
   - address: 0x004b5580
     name: PlayerSpool_ForceFinalize
@@ -709,7 +709,7 @@ functions:
       - src/runtime/player_resource_spool_test.cpp
     evidence:
       - re/evidence/functions/skater-asset-runtime.md
-    notes: Native release drops one stable per-entry parsed resource and restores the observed handle/pointer cleanup words.
+    notes: Native release drops one stable per-entry parsed resource and preserves the observed processed-bit difference between direct-file and PSH cleanup.
 
   - address: 0x00480cd0
     name: Skater_AssignModelPartOrder

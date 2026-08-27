@@ -50,7 +50,7 @@ artifacts:
 
 open_questions:
   - Confirm the backend slot capacity and exact path normalization rules.
-  - Confirm the retail asynchronous spool error cleanup and the individual stream flag bits.
+  - Confirm the PSX-region backend failure cleanup and the individual stream flag bits.
   - Confirm the count-prefix allocation header used by the platform allocator.
 
 completion:

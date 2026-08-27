@@ -8,6 +8,7 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -143,6 +144,19 @@ int main() {
     const std::vector<std::byte> psh_bytes = make_psh();
     const std::vector<std::byte> psx_bytes = make_psx();
 
+    bool rejected = false;
+    try {
+        opentony::runtime::PlayerResourceSpool invalid_heap;
+        (void)invalid_heap.enqueue(
+            "PLAYER",
+            opentony::runtime::PlayerSpoolResourceKind::PshRegion,
+            2,
+            opentony::runtime::kPlayerSpoolNoPadSize);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    CHECK(rejected);
+
     // A package load owns its parsed runtime result after the package image
     // goes away. The source kind records which side of the common resource
     // boundary supplied the bytes.
@@ -150,10 +164,14 @@ int main() {
         opentony::runtime::PlayerResourceSpool packaged;
         CHECK(packaged.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::PshRegion) == 0);
+            opentony::runtime::PlayerSpoolResourceKind::PshRegion,
+            0,
+            opentony::runtime::kPlayerSpoolNoPadSize) == 0);
         CHECK(packaged.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::DirectPsx) == 1);
+            opentony::runtime::PlayerSpoolResourceKind::DirectPsx,
+            1,
+            0x10800) == 1);
         {
             const auto package = opentony::assets::PkrArchive::parse(
                 make_package(psh_bytes, psx_bytes), "player.pkr");
@@ -168,6 +186,7 @@ int main() {
             CHECK(packaged.loaded(1)->source_kind
                 == opentony::assets::ResourceSourceKind::PkrPackage);
             CHECK(packaged.loaded(1)->psx->objects().size() == 1);
+            CHECK(packaged.loaded(1)->allocation_size == 0x10800);
             packaged.complete_current();
         }
         CHECK(packaged.state() == 0);
@@ -177,6 +196,12 @@ int main() {
         packaged.release(1);
         CHECK(packaged.loaded(0) == nullptr);
         CHECK(packaged.loaded(1) == nullptr);
+        CHECK(packaged.processed(0));
+        CHECK(!packaged.processed(1));
+        packaged.reset();
+        CHECK(packaged.queued_count() == 0);
+        CHECK(packaged.state() == 0);
+        CHECK(packaged.processed(0));
     }
 
     // PRE payload spans are borrowed only during the copy. The parsed PSH and
@@ -187,10 +212,14 @@ int main() {
         opentony::runtime::PlayerResourceSpool from_pre;
         CHECK(from_pre.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::PshRegion) == 0);
+            opentony::runtime::PlayerSpoolResourceKind::PshRegion,
+            0,
+            opentony::runtime::kPlayerSpoolNoPadSize) == 0);
         CHECK(from_pre.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::DirectPsx) == 1);
+            opentony::runtime::PlayerSpoolResourceKind::DirectPsx,
+            1,
+            0x10800) == 1);
         CHECK(from_pre.start_next());
         CHECK(from_pre.load_current("", &pre) == 0);
         CHECK(from_pre.loaded(0)->source_kind
@@ -200,6 +229,7 @@ int main() {
         CHECK(from_pre.load_current("", &pre) == 1);
         CHECK(from_pre.loaded(1)->source_kind
             == opentony::assets::ResourceSourceKind::PreEmbedded);
+        CHECK(from_pre.loaded(1)->allocation_size == 0x10800);
         from_pre.complete_current();
         pre.unload("player.pre");
         CHECK(from_pre.loaded(0)->psh->parts().front().name == "BODY");
@@ -219,7 +249,9 @@ int main() {
         opentony::runtime::PlayerResourceSpool failed;
         CHECK(failed.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::PshRegion) == 0);
+            opentony::runtime::PlayerSpoolResourceKind::PshRegion,
+            0,
+            opentony::runtime::kPlayerSpoolNoPadSize) == 0);
         CHECK(failed.start_next());
         bool rejected = false;
         try {
@@ -250,7 +282,9 @@ int main() {
         opentony::runtime::PlayerResourceSpool failed;
         CHECK(failed.enqueue(
             "PLAYER",
-            opentony::runtime::PlayerSpoolResourceKind::DirectPsx) == 0);
+            opentony::runtime::PlayerSpoolResourceKind::DirectPsx,
+            1,
+            0x10800) == 0);
         CHECK(failed.start_next());
         bool rejected = false;
         try {
@@ -267,6 +301,31 @@ int main() {
         CHECK(failed.loaded(0) == nullptr);
     }
 
+    // A direct resource whose file size exceeds the requested pad/capacity
+    // fails before allocation/publication, matching the spool assertion path.
+    {
+        const auto package = opentony::assets::PkrArchive::parse(
+            make_package(psh_bytes, psx_bytes), "small-pad.pkr");
+        opentony::runtime::PlayerResourceSpool failed;
+        CHECK(failed.enqueue(
+            "PLAYER",
+            opentony::runtime::PlayerSpoolResourceKind::DirectPsx,
+            1,
+            4) == 0);
+        CHECK(failed.start_next());
+        rejected = false;
+        try {
+            (void)failed.load_current(package);
+        } catch (const opentony::assets::ResourceRuntimeError&) {
+            rejected = true;
+        }
+        CHECK(rejected);
+        CHECK(failed.state() == 1);
+        CHECK(!failed.processed(0));
+        CHECK(failed.loaded(0) == nullptr);
+        failed.reset();
+    }
+
     if (std::filesystem::is_regular_file(
             std::filesystem::path(asset_root()) / "HAWK2.PSH")
         && std::filesystem::is_regular_file(
@@ -276,24 +335,22 @@ int main() {
     const std::size_t psh = spool.enqueue(
         "HAWK2",
         opentony::runtime::PlayerSpoolResourceKind::PshRegion,
-        1,
-        0x10800,
-        0xff);
+        0,
+        opentony::runtime::kPlayerSpoolNoPadSize);
     const std::size_t psx = spool.enqueue(
         "HAWK2",
         opentony::runtime::PlayerSpoolResourceKind::DirectPsx,
         1,
-        0x10800,
-        0);
+        0x10800);
     CHECK(psh == 0);
     CHECK(psx == 1);
     CHECK(spool.queued_count() == 2);
     CHECK(spool.name(0) == "HAWK2");
     CHECK(spool.kind(0)
         == opentony::runtime::PlayerSpoolResourceKind::PshRegion);
-    CHECK(spool.heap_selector(0) == 1);
-    CHECK(spool.request_flags(0) == 0xff);
-    CHECK(spool.request_size_staging(0) == 0x10800);
+    CHECK(spool.heap_selector(0) == 0);
+    CHECK(spool.request_size_staging(0)
+        == opentony::runtime::kPlayerSpoolNoPadSize);
     CHECK(!spool.processed(0));
 
     CHECK(spool.start_next());
