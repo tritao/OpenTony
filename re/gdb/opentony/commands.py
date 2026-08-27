@@ -35,6 +35,8 @@ from .collision import (
     CollisionDynamicTransformMutationProbe,
     CollisionDynamicTransformProbe,
     CollisionFlagProbe,
+    COLLISION_INIT_BOUNDARY_CASES,
+    CollisionQueryInitBoundaryProbe,
     CollisionLoaderProbe,
     CollisionModelKindProbe,
     CollisionQueryProbe,
@@ -516,6 +518,47 @@ class TonyFrontendPlay(gdb.Command):
         _write(
             "main-menu PLAY_GAME override armed at "
             f"0x{breakpoint.FRONTEND_RESULT_READ:08x}"
+        )
+
+
+class TonyFrontendConfirmBreakpoint(TonyBreakpoint):
+    """Release the verified frontend selection loop at its key-state read."""
+
+    KEY_STATE_HELPER = 0x004E41B0
+    SELECTION_CALL_RETURN = 0x0046AF9F
+    CONFIRM_SCAN_CODE = 0x10
+
+    def __init__(self):
+        super().__init__(self.KEY_STATE_HELPER, internal=True)
+
+    def on_hit(self, ctx):
+        if ctx.return_address() != self.SELECTION_CALL_RETURN:
+            return
+        ctx.memory.write_u8(
+            GLOBALS["KeyboardState"] + self.CONFIRM_SCAN_CODE,
+            0x80,
+        )
+        self.enabled = False
+        _write(
+            "released frontend selection loop with keyboard scan "
+            f"0x{self.CONFIRM_SCAN_CODE:02x}"
+        )
+
+
+class TonyFrontendConfirm(gdb.Command):
+    """tony-frontend-confirm -- release the next frontend selection loop."""
+
+    def __init__(self):
+        super().__init__("tony-frontend-confirm", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        if arg.strip():
+            raise gdb.GdbError("usage: tony-frontend-confirm")
+        breakpoint = TonyFrontendConfirmBreakpoint()
+        _runtime_breakpoints.append(breakpoint)
+        _write(
+            "frontend confirmation armed at "
+            f"0x{breakpoint.KEY_STATE_HELPER:08x}"
         )
 
 
@@ -1959,6 +2002,32 @@ class TonyCollisionProbe(gdb.Command):
         _write(f"collision query probe armed for {count} completed calls")
 
 
+class TonyCollisionInitBoundaryProbe(gdb.Command):
+    """tony-collision-init-boundaries [COUNT] -- probe setup basis boundaries."""
+
+    def __init__(self):
+        super().__init__("tony-collision-init-boundaries", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        values = _argv(
+            arg,
+            "tony-collision-init-boundaries [COUNT]",
+        ) if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-collision-init-boundaries [COUNT]")
+        count = _integer(values[0]) if values else len(COLLISION_INIT_BOUNDARY_CASES)
+        if count <= 0 or count > len(COLLISION_INIT_BOUNDARY_CASES):
+            raise gdb.GdbError(
+                "COUNT must be between 1 and "
+                f"{len(COLLISION_INIT_BOUNDARY_CASES)}"
+            )
+        probe = CollisionQueryInitBoundaryProbe(count, writer=_trace_writer)
+        _runtime_breakpoints.extend(probe.breakpoints)
+        _write(
+            f"collision init boundary probe armed for {count} completed calls"
+        )
+
+
 class TonyCollisionLoaderProbe(gdb.Command):
     """tony-collision-loader-probe [COUNT] -- log zone-loader handoffs."""
 
@@ -2154,6 +2223,7 @@ def register_commands() -> None:
     TonySkipMovies()
     TonyForceLevel()
     TonyFrontendPlay()
+    TonyFrontendConfirm()
     TonyPlayerSample()
     TonyInputSample()
     TonyActionEdge()
@@ -2201,6 +2271,7 @@ def register_commands() -> None:
     TonyPlayerDiff()
     TonyPositionCommitProbe()
     TonyCollisionProbe()
+    TonyCollisionInitBoundaryProbe()
     TonyCollisionLoaderProbe()
     TonyCollisionModelKindProbe()
     TonyCollisionFlagsProbe()
@@ -2225,6 +2296,7 @@ def register_commands() -> None:
         "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "
         "tony-player-diff, tony-position-commit, "
         "tony-collision-probe, "
+        "tony-collision-init-boundaries, "
         "tony-movement-physics-probe, "
         "tony-ground-motion-probe, tony-ground-motion-writers, "
         "tony-ground-motion-profile-probe, "
@@ -2238,7 +2310,7 @@ def register_commands() -> None:
         "tony-collision-dynamic-probe, tony-collision-dynamic-cull-probe, "
         "tony-collision-transform-probe, tony-collision-transform-mutate, "
         "tony-trg-type192-probe, "
-        "tony-skip-movies, tony-force-level, tony-frontend-play, "
+        "tony-skip-movies, tony-force-level, tony-frontend-play, tony-frontend-confirm, "
         "tony-player-sample, tony-input-sample, "
         "tony-action-sequence, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "

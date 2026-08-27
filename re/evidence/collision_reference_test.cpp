@@ -217,6 +217,66 @@ int main() {
     CHECK(query.hit_face_record == 0x05db3534);
     CHECK(query.hit_model_index == 132);
 
+    // These line-basis records are the compact `line_basis_s16` observations
+    // from collision-runtime-20260826-2. They exercise the nonvertical path
+    // with mixed signs and nonzero values in all three source components.
+    const auto check_basis_fixture = [](const RawVec3& start,
+                                        const RawVec3& end,
+                                        Raw expected_length,
+                                        const std::array<std::int16_t, 9>& expected_basis) {
+        QueryRecord fixture;
+        fixture.start = start;
+        fixture.end = end;
+        prepare(fixture);
+        CHECK(fixture.line_length == expected_length);
+        CHECK(fixture.line_basis == expected_basis);
+    };
+    check_basis_fixture(
+        {23928832, -6352896, 11186176},
+        {23926261, -6220058, 9440996},
+        428,
+        {-4096, 0, 9, 0, 4084, 306, -9, 306, -4084});
+    check_basis_fixture(
+        {23928832, -6352896, 11186176},
+        {24104960, -6754304, 15364096},
+        1025,
+        {4092, 0, -172, 16, 4077, 390, 171, -391, 4073});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -374133, 1597584},
+        390,
+        {4096, 0, 0, 0, 4091, -188, 0, 188, 4091});
+    check_basis_fixture(
+        {0, 0, 0},
+        {-2372780, -177737, 758952},
+        610,
+        {1244, 0, 3902, -282, 4085, 89, -3892, -295, 1240});
+    check_basis_fixture(
+        {-204550, 0, 0},
+        {409100, -541140, 2310720},
+        598,
+        {3960, 0, -1046, 232, 3993, 879, 1019, -910, 3860});
+    check_basis_fixture(
+        {204550, 0, 0},
+        {-409100, -541140, 2310720},
+        598,
+        {3958, 0, 1052, -234, 3993, 879, -1026, -910, 3858});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -342411, 1462128},
+        356,
+        {4096, 0, 0, 0, 4085, -298, 0, 298, 4085});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -355473, 1517904},
+        370,
+        {4096, 0, 0, 0, 4088, -254, 0, 254, 4088});
+    check_basis_fixture(
+        {0, -450560, 0},
+        {0, -332148, 1418304},
+        347,
+        {4096, 0, 0, 0, 4082, -330, 0, 330, 4082});
+
     const auto raw_query = to_query_layout(query);
     const auto round_trip = from_query_layout(raw_query);
     CHECK(round_trip.start == query.start);
@@ -556,6 +616,54 @@ int main() {
     CHECK(surface_flags.surface_large_polygon);
     CHECK(surface_flags.surface_wallrideable);
     CHECK(surface_flags.surface_class == 2);
+
+    // M3D_ReadSurfaceFlags (0x0048ea80) publishes raw masks and preserves
+    // the shared state when q+0x68 does not identify a hit.
+    CollisionResultSurfaceFlags preserved_flags{
+        .surface_bit_40 = 0xaaaaaaaau,
+        .inverse_bit_24 = 0x11111111u,
+        .inverse_bit_23 = 0x22222222u,
+        .face_bit_80 = 0x33333333u,
+        .surface_class = 0x44444444u,
+        .face_record = 0x55555555u,
+    };
+    QueryRecord no_surface_hit;
+    read_surface_flags(no_surface_hit, 0x1083u, 0x04400000u,
+                       preserved_flags);
+    CHECK(preserved_flags.surface_bit_40 == 0xaaaaaaaau);
+    CHECK(preserved_flags.inverse_bit_24 == 0x11111111u);
+    CHECK(preserved_flags.inverse_bit_23 == 0x22222222u);
+    CHECK(preserved_flags.face_bit_80 == 0x33333333u);
+    CHECK(preserved_flags.surface_class == 0x44444444u);
+    CHECK(preserved_flags.face_record == 0x55555555u);
+
+    const auto check_surface_fixture =
+        [](std::uint32_t base_word, std::uint32_t surface_word,
+           std::uint32_t expected_surface_bit_40,
+           std::uint32_t expected_inverse_bit_24,
+           std::uint32_t expected_inverse_bit_23,
+           std::uint32_t expected_face_bit_80,
+           std::uint32_t expected_surface_class) {
+            QueryRecord surface_hit;
+            surface_hit.hit_body = 0x12345678u;
+            surface_hit.hit_face_record = 0x87654321u;
+            CollisionResultSurfaceFlags decoded;
+            read_surface_flags(surface_hit, base_word, surface_word, decoded);
+            CHECK(decoded.surface_bit_40 == expected_surface_bit_40);
+            CHECK(decoded.inverse_bit_24 == expected_inverse_bit_24);
+            CHECK(decoded.inverse_bit_23 == expected_inverse_bit_23);
+            CHECK(decoded.face_bit_80 == expected_face_bit_80);
+            CHECK(decoded.surface_class == expected_surface_class);
+            CHECK(decoded.face_record == 0x87654321u);
+        };
+    // These combinations are the raw/derived rows from the runtime
+    // collision-materials1 capture.
+    check_surface_fixture(0x1083u, 0x00100000u, 0, 1, 1, 0x80, 0);
+    check_surface_fixture(0x18a3u, 0x04000000u, 0, 1, 1, 0x80, 2);
+    check_surface_fixture(0x18a3u, 0x04200000u, 0, 1, 1, 0x80, 2);
+    check_surface_fixture(0x0823u, 0x04400000u, 0x40, 1, 1, 0, 2);
+    // Set source bits 23 and 24 to exercise both inverse-zero results.
+    check_surface_fixture(0, 0x01800000u, 0, 0, 0, 0, 0);
 
     std::cout << "collision reference checks passed\n";
 }

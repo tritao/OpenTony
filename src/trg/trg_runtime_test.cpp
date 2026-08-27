@@ -102,6 +102,7 @@ struct Recorder final : TriggerServices {
     std::vector<std::tuple<std::uint16_t, std::uint32_t, std::size_t>> unknown_commands;
     std::vector<std::pair<std::uint16_t, std::vector<std::uint16_t>>> suspend_activate_lists;
     std::vector<std::vector<std::uint16_t>> signal_lists;
+    std::size_t level_event_updates{};
 
     void on_object_node(std::size_t) override { ++objects; }
     void on_pickup_node(std::size_t) override { ++pickups; }
@@ -146,6 +147,7 @@ struct Recorder final : TriggerServices {
     void on_signal(std::size_t, std::span<const std::uint16_t> links) override {
         signal_lists.emplace_back(links.begin(), links.end());
     }
+    void on_level_event_state() override { ++level_event_updates; }
     void on_gap(std::size_t, std::uint32_t checksum, std::uint16_t argument) override {
         gaps.emplace_back(checksum, argument);
     }
@@ -744,6 +746,64 @@ void test_unknown_opcode_matches_retail_fallthrough() {
     CHECK(runtime.command_point(0)->initialized == 1);
 }
 
+void test_level_event_opcode_is_operand_free_and_bounded() {
+    std::vector<std::byte> stream;
+    u16(stream, 0x009e);
+    u16(stream, 0x0086);
+    u16(stream, 7);
+    u16(stream, 0xffff);
+
+    Recorder recorder;
+    TriggerRuntime runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, stream),
+        {std::byte{0xff}, std::byte{0}},
+    })), recorder);
+    runtime.build();
+    runtime.pulse_node(0);
+    CHECK(recorder.level_event_updates == 1);
+    CHECK(runtime.command_point(0)->state == 7);
+
+    // Conditional scanning must treat 0x009e as opcode-only and reach the
+    // following 0x0086 after skipping the whole block.
+    std::vector<std::byte> skipped;
+    u16(skipped, 0x0094);
+    u16(skipped, 0);
+    u16(skipped, 0x009e);
+    u16(skipped, 0x0086);
+    u16(skipped, 9);
+    u16(skipped, 0x0095);
+    u16(skipped, 0x0086);
+    u16(skipped, 11);
+    u16(skipped, 0xffff);
+    Recorder skipped_recorder;
+    TriggerRuntime skipped_runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, skipped),
+        {std::byte{0xff}, std::byte{0}},
+    })), skipped_recorder);
+    skipped_runtime.build();
+    skipped_runtime.pulse_node(0);
+    CHECK(skipped_recorder.level_event_updates == 0);
+    CHECK(skipped_runtime.command_point(0)->state == 11);
+
+    // A one-byte tail is not a valid opcode, even though 0x009e itself has no
+    // operand. The containing command stream remains strictly bounded.
+    const std::vector<std::byte> truncated{std::byte{0x9e}};
+    Recorder truncated_recorder;
+    TriggerRuntime truncated_runtime(TrgFile::parse(trg_file({
+        type6_node({}, 0, truncated),
+        {std::byte{0xff}, std::byte{0}},
+    })), truncated_recorder);
+    truncated_runtime.build();
+    bool threw = false;
+    try {
+        truncated_runtime.pulse_node(0);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(truncated_recorder.level_event_updates == 0);
+}
+
 } // namespace
 
 int main() {
@@ -765,5 +825,6 @@ int main() {
     test_type10_type11_runtime_list_state();
     test_restart_view_and_autoexec();
     test_unknown_opcode_matches_retail_fallthrough();
+    test_level_event_opcode_is_operand_free_and_bounded();
     std::cout << "TRG runtime tests passed\n";
 }

@@ -239,6 +239,18 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/trg-runtime.md
+  - address: 0x00533f38
+    name: LevelEventGameModeSelector
+    description: mode selector read by the 0x00466c10 level-event branch and 0x00469a30/0x00469de0 consumers
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056db64
+    name: LevelEventVersusStateSelector
+    description: secondary mode selector compared with two by the mode-9 level-event branch
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
   - address: 0x00568610
     name: LevelEventStateWord
     description: level-event step/state word initialized to 0x40 and cleared when the countdown finalizes a pending score
@@ -261,6 +273,60 @@ globals:
     name: LevelEventFlag
     description: byte flag set by the first-call level-event initialization path
     confidence: confirmed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x006a3d48
+    name: LevelEventMode9SideFlag
+    description: byte selecting the mode-9 level-event counter branch when versus state is 2
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b798
+    name: LevelEventRawWord_0056b798
+    description: raw mode-8/mode-9 level-event counter word incremented by one branch of 0x00466c10
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b79c
+    name: LevelEventRawWord_0056b79c
+    description: raw mode-8/mode-9 level-event counter word incremented by the complementary branch
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7a0
+    name: LevelEventRawWord_0056b7a0
+    description: raw level-event maximum word updated from the secondary player +0x2cdc value
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7a4
+    name: LevelEventRawWord_0056b7a4
+    description: raw level-event maximum word updated from the primary player +0x2cdc value
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7b0
+    name: LevelEventRawWord_0056b7b0
+    description: raw signed level-event step word updated by the mode-8/mode-9 counter branches
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7b4
+    name: LevelEventRawWord_0056b7b4
+    description: raw signed level-event step word updated by the complementary mode-8/mode-9 branches
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7dc
+    name: LevelEventRawWord_0056b7dc
+    description: raw mode-8/mode-9 level-event counter word incremented by one branch of 0x00466c10
+    confidence: observed
+    evidence:
+      - re/evidence/functions/level-event-runtime.md
+  - address: 0x0056b7e0
+    name: LevelEventRawWord_0056b7e0
+    description: raw mode-8/mode-9 level-event counter word incremented by the complementary branch
+    confidence: observed
     evidence:
       - re/evidence/functions/level-event-runtime.md
   - address: 0x006a3f1c

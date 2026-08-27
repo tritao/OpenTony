@@ -69,7 +69,10 @@ from opentony.camera import (
     geometry_submission_record,
     transformed_vertex_record,
 )
-from opentony.collision import CollisionDynamicTransformMutationProbe
+from opentony.collision import (
+    CollisionDynamicTransformMutationProbe,
+    CollisionQueryInitBoundaryProbe,
+)
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
 from opentony.physics import PhysicsProbe, PlayerDiffProbe
@@ -525,6 +528,83 @@ def test_camera_collision_record_keeps_world_query_raw_and_camera_inputs():
     assert result["hit_face_raw"] == 1
     assert result["candidate_segment"]["start"]["raw"] == [0x10000, 0, 0]
     assert result["candidate_segment"]["end"]["raw"] == [0x20000, 0, 0]
+
+
+def test_collision_query_init_boundary_probe_restores_query_and_globals():
+    class SparseInferior:
+        def __init__(self):
+            self.data = {}
+
+        def put(self, address, data):
+            self.data.update(
+                (address + index, value) for index, value in enumerate(data)
+            )
+
+        def read_memory(self, address, size):
+            return bytes(self.data.get(address + index, 0) for index in range(size))
+
+        def write_memory(self, address, data):
+            self.put(address, bytes(data))
+
+    inferior = SparseInferior()
+    memory = Memory(inferior)
+    query = 0x1000
+    original_query = bytearray((index * 11) & 0xFF for index in range(0x90))
+    original_query[0:0x0C] = struct.pack("<3I", 0x10000, 0x20000, 0x30000)
+    original_end = struct.pack("<3I", 0x18000, 0x28000, 0x38000)
+    original_query[0x0C:0x18] = original_end
+    memory.write(query, original_query)
+    original_basis = struct.pack("<9h", *range(-4, 5))
+    original_scratch = struct.pack("<9h", *range(10, 19))
+    memory.write(0x006A3E10, original_basis)
+    memory.write(0x00567BB0, original_scratch)
+    memory.write_u32(0x100, 0x0049F000)
+    memory.write_u32(0x104, query)
+
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    probe = CollisionQueryInitBoundaryProbe(count=1, writer=Writer())
+    entry_context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "eip": 0x004624D0},
+        ),
+        memory,
+    )
+    probe.begin(entry_context)
+    assert memory.u32(query + 0x0C) == 0x11000
+    assert memory.u32(query + 0x10) == 0x22000
+    assert memory.u32(query + 0x14) == 0x33000
+
+    memory.write_u32(query + 0x44, 0x1234)
+    memory.write(query + 0x48, struct.pack("<9h", *range(1, 10)))
+    memory.write_u8(query + 0x89, 1)
+    memory.write_u16(query + 0x8A, 7)
+    return_context = Context(
+        CallContext(
+            memory,
+            registers={"esp": 0x100, "eip": 0x004628E5},
+        ),
+        memory,
+    )
+    probe.finish(return_context)
+
+    assert probe.hits == 1
+    assert events[0]["case"] == "unit_xyz"
+    assert events[0]["delta_q4"] == [1, 2, 3]
+    assert events[0]["observed"]["line_length"] == 0x1234
+    assert events[0]["observed"]["line_basis_s16"] == list(range(1, 10))
+    assert events[0]["restored"] == {
+        "query_input": True,
+        "published_basis": True,
+        "scratch": True,
+    }
+    assert inferior.read_memory(query + 0x0C, 0x0C) == original_end
+    assert memory.u32(query + 0x44) == 0x1234
 
 
 def test_collision_transform_mutation_restores_object_tail_and_matrix():

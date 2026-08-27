@@ -7,7 +7,7 @@ The first six words are two XYZ endpoints. Its reviewed 120-byte prefix:
 - derives fixed-point endpoint deltas by shifting each component by 12;
 - clears fields at `+0x68`, `+0x80`, `+0x88`, and `+0x89`;
 - installs `-1` at `+0x84`;
-- branches to a special axis-aligned construction path when the squared X/Y
+- branches to a special axis-aligned construction path when the squared X/Z
   delta is zero.
 
 The remainder normalizes the horizontal delta, constructs and rotates a 3x3
@@ -15,6 +15,28 @@ fixed-point basis, publishes that basis to the collision globals, derives
 component-wise endpoint bounds at offsets `+0x18–+0x2c`, calls `0x00462490`,
 and stores the resulting word at `+0x8a`. The complete 1,046-byte function is
 matching assembly with no `incbin`.
+
+The nonvertical arithmetic is now closed. After the component deltas are
+shifted down by 12 and narrowed to signed shorts, the initializer forms
+`h = sx*sx + sz*sz` and `t = h + sy*sy` with 32-bit wrapping. Each positive
+value is normalized by shifting its sign bit into place, taking the truncated
+integer square root of `value << (lead_minus_one & 0x1e)`, and retaining both
+the normalized root and the root shifted back by `lead_minus_one >> 1`. It
+then computes, with signed x86 division truncating toward zero,
+`xn = (sx << (half_h + 12))/root_h`,
+`zn = (sz << (half_h + 12))/root_h`,
+`v = (sy << (half_t + 12))/root_t`, and
+`u3 = (root_h << 12)/(root_t << ((half_h-half_t) & 31))`.
+The seed is `[0x1000,0,0; 0,u3,-v; 0,v,u3]`; columns
+`[zn,0,xn]`, `[0,0x1000,0]`, and `[-xn,0,zn]` are multiplied through
+`0x004e3130`. Its products/additions wrap as 32-bit values before the
+arithmetic shift and signed-short saturation. The query basis is therefore
+unscaled; linked-object tail scales at `+0x28/+0x2a/+0x2c` belong to the
+later `0x004f5540` matrix operation.
+
+The 12-record `collision-runtime-20260826-2` basis capture (including its
+duplicate records) is reproduced by the native tests as nine unique
+nonvertical cases plus the vertical branch.
 
 `0x00466090–0x004660a5` is not the collision implementation. It forwards its
 two arguments unchanged to `0x004660b0`, repairs the caller stack, clears EAX,
@@ -33,3 +55,38 @@ sentinel, `0x00463d50` finalizes the query object. Exact semantic names for the
 partition and cell structures still require dynamic confirmation.
 
 The complete 1,827-byte engine is matching assembly with no `incbin`.
+
+## Short-basis boundary fixture
+
+The compact [collision-query-init-boundaries fixture](../fixtures/collision-query-init-boundaries.json)
+records a controlled retail run of `0x004624d0` at build
+`f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669`. At the
+entry breakpoint, the probe replaced the second endpoint with the first
+endpoint plus each selected Q4 delta, then captured `q+0x44`, the nine signed
+shorts at `q+0x48`, `q+0x89`, and the query generation stamp at return. The
+injected endpoint words and both basis/scratch globals were restored after
+every case; the retail-produced query outputs were left intact for the
+caller.
+
+These observations discriminate the competing constructions:
+
+- Proportional `(1,2,3)` and `(2,4,6)` deltas produce the identical basis
+  `[3885,0,-1295; -693,3461,-2077; 1094,2189,3282]`; only the integer total
+  length changes from `3` to `7`. This confirms normalization through the
+  shared integer-magnitude path, not an unnormalized cross product.
+- Sign changes alter the expected signed/rounded short components. The
+  asymmetric cases preserve the same horizontal magnitudes while exposing
+  one-unit truncation differences such as `1094/-1095` and `-2077/2076`.
+- Horizontal-zero is a dedicated branch, including the exact zero vector:
+  `(0,0,0)` and `(0,+1,0)` both produce
+  `[4096,0,0; 0,0,-4096; 0,4096,0]` with direction flag `1`; `(0,-1,0)`
+  flips the final 2x2 signs and clears the flag. This rules out normalizing a
+  zero vector or reusing the prior basis.
+- The horizontal X-axis and signed-short boundary cases produce the same
+  axis basis with the sign determined by the signed post-shift component,
+  including the asymmetric `-32768` case.
+
+The runtime result confirms the decompiled integer construction and its
+dedicated horizontal-degenerate branch. It does not by itself assign final
+native matrix names or prove behavior outside the tested signed-short and
+small-delta boundaries.
