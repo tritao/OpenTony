@@ -126,6 +126,14 @@ has no top-level `SKATER_ANIM_ROLL`, and no separate straight-roll selector
 was found. A stable ID `0` after pushing is a static-path conclusion for the
 simple grounded branch, not a claim about every grounded state.
 
+The concrete `0x00493370 -> 0x00492f20` grounded-turn path is recorded in
+[animation-ground-turn-selector.md](animation-ground-turn-selector.md). The
+decompiled selector has one alternate-positive extra frame increment, seats
+the target frame when changing ordinary turn state `6/7` into crouched turn
+state `9/10`, and performs a final zero-turn release request. Every request
+wrapper resets `+0x108` to `0x10000` before `RunAnim`; the special-turn
+completion check follows that request rather than preceding it.
+
 The complete static enum-name inventory is present in `SKATE2.TAG` under
 `mech.h`; it is useful for future selector work, but the tag's source line
 numbers are not a verified PC numeric enum layout. The names are:

@@ -78,6 +78,34 @@ types:
         description: Appearance resource handle returned by the manager lookup for resource id 0x12.
         evidence:
           - re/evidence/functions/player-runtime.md
+      - offset: 0x2cdc
+        name: field_2cdc
+        type: i32
+        confidence: observed
+        description: Value compared between the primary and secondary skaters by LevelEvent_InitializeAndDispatch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: 0x2dd4
+        name: field_2dd4
+        type: i32
+        confidence: observed
+        description: Eligibility word tested by the level-event per-frame update alongside physics_state.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: 0xf6
+        name: field_f6
+        type: u16
+        confidence: observed
+        description: Animation identifier read by the level-event state-7 idle/step-off branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
+      - offset: 0x107
+        name: field_107
+        type: u8
+        confidence: observed
+        description: Byte tested by the level-event state-selected animation branch.
+        evidence:
+          - re/evidence/functions/level-event-runtime.md
       - offset: 0x30b8
         name: physics_state
         type: u32

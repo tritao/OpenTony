@@ -41,6 +41,12 @@ types:
       - {offset: 0x4fc, name: effect_phase_s16, type: "array<i16,3>", confidence: observed, overlay_group: effect_phase}
       - {offset: 0x504, name: camera_mode, type: u32, confidence: observed}
       - {offset: 0x510, name: update_tick, type: u32, confidence: observed}
+      - {offset: 0x530, name: effect_sample_vertical_s16, type: i16, confidence: observed}
+      - {offset: 0x534, name: effect_sample_magnitude_s16, type: i16, confidence: observed}
+      - {offset: 0x544, name: effect_sample_fallback_s16, type: i16, confidence: observed}
+      - {offset: 0x550, name: effect_sample_phase_u8, type: u8, confidence: observed}
+      - {offset: 0x554, name: effect_sample_counter, type: i32, confidence: observed}
+      - {offset: 0x558, name: effect_sample_distance, type: i32, confidence: observed}
       - {offset: 0x570, name: death_camera_tick, type: u32, confidence: observed}
       - {offset: 0x5b4, name: field_5b4, type: i32, confidence: observed}
       - {offset: 0x5b8, name: field_5b8, type: "array<i32,3>", confidence: observed}

@@ -318,25 +318,42 @@ rail/camera attachment and dust placement.
 ## Spool queue and PSH-to-PSX handoff
 
 `0x004b5370` is the bounded player spool queue insertion point. It accepts a
-resource name, a PSH/PSX mode, a heap/size argument, and a final request flag;
+resource filename, a mode, a heap selector, and a final pad/capacity argument;
 it rejects more than `0x40` queued items and stores each item on a `0x28`-byte
-stride. The active player path calls it with the same base name twice:
+stride. The active player path constructs and passes the two filenames with
+these exact arguments:
 
 ```text
-<name>.psh -> mode 0, final argument -1
-<name>.psx -> mode 1, heap selector 1, size/flags 0x10800
+<name>.psh -> 0x004b5370(name, mode=0, heap=0, pad=0xffffffff)
+<name>.psx -> 0x004b5370(name, mode=1, heap=1, pad=0x10800)
 ```
 
-`0x004b5620` consumes one queue item. The PSX item uses the normal
-`0x00449030` open, `0x0046f490` allocation, and `0x00449230` read handoff,
-then stores the loaded buffer in the spool record. The PSH-side branch calls
-`0x004b37a0`, which registers/queues the associated PSX region and appends the
-`.psx` suffix through `0x004b3750`. `0x004b37a0` searches the 20 named PSX
-region slots first, otherwise writes a bounded region name, a request flag,
-and a queue entry. It rejects a base name that would exceed eight characters,
-then writes the base name plus `.psx` into the queue's 13-byte name field.
-Its queue entries are 0x11 bytes and carry active, mode, region-slot, and
-request-flag bytes after the name.
+The queue helper validates the filename through its first dot. With mode zero,
+the `.psh`/`.psx` extension selects the corresponding internal branch and a
+PSH request is stored as the base name for the later region queue. A nonzero
+mode stores the direct-file branch. The only accepted heap selectors are zero
+and one. Its final argument is written at the next entry stride's base word;
+the direct-file consumer treats `0xffffffff` as no requested pad and otherwise
+requires the resource to fit the requested capacity.
+
+These call arguments and the inverse-facing stored mode are from the canonical
+Ghidra decompilation of `0x004a6bf0` and `0x004b5370`; the native enum names the
+stored consumer mode (`PshRegion=1`, `DirectPsx=0`) rather than the producer's
+mode argument.
+
+`0x004b5620` consumes one queue item. The PSX item calls the normal
+`0x00449030` open, checks the staged pad/capacity, calls `0x0046f490` with the
+entry heap selector, stores the resulting buffer at `+0x20`, and hands it to
+`0x00449230`. Its assertions identify the failure boundaries: a non-positive
+open result reports `file %s not found`, a resource larger than a requested
+pad reports `Specified pad size is smaller than file size!`, and a null buffer
+reports `not enough memory for %s`. The PSH-side branch calls `0x004b37a0`,
+which registers/queues the associated PSX region and appends the `.psx` suffix
+through `0x004b3750`. `0x004b37a0` searches the 20 named PSX region slots first,
+otherwise writes a bounded region name and queue entry. It rejects a base name
+that would exceed eight characters, then writes the base name plus `.psx` into
+the queue's 13-byte name field. Its queue entries are 0x11 bytes and carry
+active, mode, region-slot, and request-flag bytes after the name.
 
 ### Player spool lifecycle
 
@@ -360,7 +377,9 @@ including its terminator). The mode discriminator at `+0x18` is `1` for a
 PSH/region request and `0` for a direct PSX file. The heap selector passed to
 the allocator is stored at `+0x24`.
 
-`0x004b5580` starts the first pending item and sets state to `1`;
+`0x004b5580` starts the first pending item, sets state to `1`, sets the shared
+busy flag, and immediately calls `0x004b5620`; `0x004b5350` repeats that same
+transition when state is `2`.
 `0x004b5300` completes the current item, either draining the PSX region
 spooler (`0x004b3df0`) for a PSH request or synchronizing the direct file
 read (`0x00449660`), then advances the consume index through `0x004b57d0`.
@@ -368,23 +387,28 @@ When the index reaches `queued_count`, state returns to zero. A nonzero state
 remaining after a normal finalize is promoted to state `2`, which is the
 observable wait/synchronization state used by `0x004b5350`.
 
-For direct PSX entries, `0x004b5a00` releases the allocated `+0x20` buffer via
-`0x0046f4d0`, clears the pointer, and marks the entry processed. For PSH
-entries it requires the associated region load to have completed, publishes
-the region through `0x004b2450`, removes/clears the named region through
-`0x004b3270`, drains the shared PSX spooler, and resets the entry's `+0x1c`
-handle to `-1`. `0x004b3270` performs a case-insensitive name lookup through
+For direct PSX entries, `0x004b5a00` acts only on a processed entry, asserts
+that the allocated `+0x20` buffer exists, releases it via `0x0046f4d0`, clears
+the pointer, and clears the processed byte. For PSH entries it requires the
+associated region load to have completed, publishes the region through
+`0x004b2450`, removes/clears the named region through `0x004b3270`, drains the
+shared PSX spooler, and resets the entry's `+0x1c` handle to `-1`; its processed
+byte remains set. `0x004b3270` performs a case-insensitive name lookup through
 `0x004b3230`; if the matching region is active, it delegates the actual slot
-clear to `0x004b32f0`. The manager reset `0x004b52b0` releases all 0x40 entry
-indices and resets the counters and global spool-busy flag.
+clear to `0x004b32f0`. The manager reset `0x004b52b0` first processes a state-1
+request, then releases all 0x40 entry indices and resets the counters and
+global spool-busy flag. Since the PSH release branch does not clear its
+processed byte, that byte can remain set after reset until the slot is reused;
+the direct-file branch clears it while freeing its buffer.
 
 One implementation detail should remain explicit in a recreation: the
-requested-size/limit argument supplied to `0x004b5370` is written at the
-*next stride's base word* (`manager + (entry_index + 1) * 0x28`), and the
-consumer reads it from that same location. This is an observed staging-word
-layout, not evidence for an ordinary `entry.request_size` field inside the
-0x28-byte entry. The shared `DAT_005615dc` flag is set while a spool operation
-is pending and cleared at synchronization/completion boundaries.
+pad/capacity argument supplied to `0x004b5370` is written at the *next
+stride's base word* (`manager + (entry_index + 1) * 0x28`), and the consumer
+reads it from that same location before allocating the direct-file buffer.
+This is an observed staging-word layout, not evidence for an ordinary
+`entry.request_size` field inside the 0x28-byte entry. The shared
+`DAT_005615dc` flag is set while a spool operation is pending and cleared at
+synchronization/completion boundaries.
 
 This connects the text manifest and binary region at the runtime boundary:
 
@@ -446,11 +470,27 @@ entries at 0x28-byte stride, processed/name/mode/handle/heap offsets, the
 separate requested-size staging word, and the loading/wait/idle state
 transitions. `load_current()` dispatches the proven PSH versus direct-PSX
 file path into the native manifest/archive readers and retains the parsed
-resource until completion. A native test uses the real HAWK2 pair and checks
-the manager counters, entry fields, file-read result, and reset behavior.
-The same queue now has a package-backed load overload: it selects the
-case-insensitive `DATA/HAWK2.PSH` or `DATA/HAWK2.PSX` entry from `ALL.PKR`,
-decodes it through the common PKR backend, and retains the parsed manifest or
-archive in the queue's loaded-resource record. This preserves the direct-file
-versus PSH-region dispatch while making the loose-file and packaged player
-paths converge.
+resource until an explicit release. Each queue index has one stable owned
+runtime-result slot, so appending another request cannot invalidate a loaded
+object. The same queue now routes direct, package, and PRE-backed requests
+through `ResourceLoader`: the resource bytes are copied and synchronized
+before PSH/PSX parsing, and the resulting manifest/archive owns its own bytes.
+The source kind and the direct-file allocation/pad size are retained on that
+result for the direct/PKR/PRE boundary. The native request fixture uses the
+confirmed PSH `(heap=0, pad=0xffffffff)` and PSX `(heap=1, pad=0x10800)`
+arguments; unsupported heap selectors and undersized direct pads are rejected
+before publication.
+
+Malformed PKR or PRE payloads therefore fail before the queue's processed bit
+or loaded-result slot is published. The native adapter leaves the current
+request in its pending state so a caller can retry after replacing the source;
+`reset()` is the explicit whole-manager failure cleanup, while `release()`
+models the observed per-entry `0x004b5a00` cleanup after completion. These
+exception-safety and retry semantics are native ownership guarantees, not a
+claim that the retail executable recovers from every fatal file error.
+
+The test uses a deterministic one-object PSX and one-part PSH fixture to cover
+both PKR and PRE paths, destroys the package/PRE owner after loading, verifies
+the parsed runtime objects remain usable, and checks malformed payloads do not
+publish partial state. The real HAWK2 pair remains an additional corpus
+witness when the extracted files are available.

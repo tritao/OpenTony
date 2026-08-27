@@ -201,10 +201,10 @@ dispatcher selects the dedicated `0x00494210` handler and the bundled PSX
 the raw transition path, but it does not by itself prove that every state-4
 entry is a rail entry or that `0x00494210` is fully equivalent across builds.
 The native `enter_state4_from_collision()` and `leave_state4_to_air()` methods
-therefore preserve the exact request and shared off-ground reset boundaries;
-rail geometry,
-collision selection, and the state-4 handler's large orientation/contact body
-remain explicit caller-owned seams.
+remain compatibility seams for the independently observed raw request/exit
+path. The natural post-landing StartGrind entry is now modeled separately by
+`try_ground_to_rail()`; its TRG inputs, external services, and the state-4
+handler's large orientation/contact body remain explicit caller-owned seams.
 
 #### Dedicated special-state runtime probe
 
@@ -544,10 +544,64 @@ branch calls `FUN_004904d0` at `0x004916a9`, clears short `+0x29f2`, increments
 `recovery_reset_requested` and retains the nested off-ground request.
 
 If that reset is not selected, `+0x2c70` is set when `+0x2c68` is nonzero, then
-`FUN_004925e0` scans the action-history/trick data. A nonzero `+0x3064` would
-dispatch `FUN_00490ef0` with a deterministic geometry hint. The native model
-reports both external calls and the hint but leaves their action/animation
-effects caller-owned.
+`FUN_004925e0` scans the action-history/trick data. A nonzero `+0x3064`
+dispatches `FUN_00490ef0` at the call instruction `0x00491684`. This is the
+exact invocation predicate after the preceding landing/recovery gates; the
+native frame callback keeps the trick recognizer that produces `+0x3064` outside
+the state machine. The second argument is a separate geometry hint with strict
+signed tests:
+
+```text
++0x50   < 0
+abs(+0x3110) < 3000
++0x30f8 > 0x800
+abs(s16(+0x82)) < 0x5dc
+abs(+0x3104) < 0x800
+```
+
+Equality at any bound rejects the hint. Static Ghidra decompilation and the
+instruction slice `build/ghidra/decomp/air-ground-disassembly.txt` identify
+`FUN_00490ef0` as the bounded StartGrind entry. Its deterministic ordering is:
+
+1. Negate `+0x2eb4` in place and request the external animation service
+   `FUN_004903f0(0xe, 0x9d5)`.
+2. When the hint is nonzero, clear `+0x2c78`, `+0x2c7c`, the nine words
+   `+0x2c94..+0x2cb4`, and `+0x2de0`.
+3. Clear `+0x2eec`; copy `+0x2ea8` to live position `+0x08`, `+0x0c`,
+   `+0x10`, subtract `0x19000` from Y, clear `+0x2e94`, set `+0x2e90`, and
+   publish the relocated position to `+0x2ee0` and `+0x2ecc`.
+4. Advance `+0x2efc` by `+0x28000` when the node is unchanged, otherwise
+   subtract it with a zero clamp, copy `+0x2e9c` to `+0x2e98`, and clear
+   `+0x2ef4`. Two type-7 random draws then update `+0x2ef4`; `+0x2c68`,
+   `+0x2e88`, `+0x3070`, and `+0x304c` are updated in the same block.
+5. Write the relative vector at `+0x2e18`, derive the perpendicular dot,
+   tangent/rail dots, and update the turn/stance/normal flags at
+   `+0x2bf0`, `+0x2bf4`, `+0x2bf8`, `+0x2be8`, and `+0x2bec`. Then copy the
+   current node to `+0x2ec8`.
+6. Consume the external `TrickInput_DerivePattern()` result, derive
+   `+0x2c04` from `+0x2bfc`, `+0x2c00`, and the turn flag, set `+0x2ed8 = 1`,
+   and clear `+0x2c0c`. Trick script execution and the rail-type sound switch
+   remain external services at this point.
+7. Request raw state `4` through `0x004900b0` with reason `0x0b1c`; the exact
+   request instruction is `0x004913dd`.
+8. Project velocity onto the negated direction, add the type-3 random vector
+   adjustment using ordinary multiply/divide-by-ten arithmetic, then negate
+   `+0x2eb4` again to restore the original direction.
+
+The native `try_ground_to_rail()` records these nine boundaries and exposes
+the exact raw effects while taking TRG positions/nodes/direction, random draws,
+and the trick-pattern result as explicit inputs. This is intentionally a
+post-landing state-4 entry boundary, not a claim that every raw-4 request has
+the same producer. On the following dispatcher pass, case 4 sets `+0x30c4 = 0`,
+calls only `Skater_UpdateRailPhysics` at `0x00494210`, and returns; rail-node
+integration and its ledge/wall exit branches remain in the rail handler seam.
+
+The producer/consumer contract is therefore: TRG/collision code publishes
+`+0x2ea8`, `+0x2e9c`, and `+0x2eb4`; TrickInput publishes `+0x3064` and its
+pattern result; animation consumes the `0xe/0x9d5` request; trick scripting
+consumes the derived pattern/state words; StartGrind owns the state-4 request
+and entry velocity; and the next frame's case-4 dispatcher consumes the
+relocated rail record through `0x00494210`.
 
 ### Raw in-air contact result
 
@@ -661,6 +715,7 @@ are useful trace labels, not final semantic enum names.
 | `0x00496550` ground/collision response, request call `0x00497479` | `0` | `0x19bf`, `0x1b19` | ground recovery paths |
 | `0x00497f40` in-air contact branch | `0` | `0x1fd6` | accepted contact after collision tests; exact call `0x004991fe` |
 | `0x0049db80` dispatcher case 0 | `1` | `0x2ba1` | terminal/ground condition that requests a leave-ground state |
+| `0x00490ef0` StartGrind entry from `0x00491684` | `4` | `0x0b1c` | post-landing `+0x3064` trick dispatch; exact request call `0x004913dd` |
 | `0x0049db80` dispatcher case 3 timeout | `1` | `0x2bf2` | raw state-3 timeout recovery |
 | `0x0049df00` ground-physics path | `0` | `0x2c0f`, `0x2c21` | state-7 recovery paths |
 | `0x0049df00` ground-physics path | `7` | `0x2c56` | special ground/rail transition candidate |

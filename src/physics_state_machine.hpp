@@ -100,6 +100,9 @@ constexpr std::uint32_t kLandingAuxiliaryClear = 0x004991b3;
 constexpr std::uint32_t kLandingEffectWriter = 0x004991d4;
 constexpr std::uint32_t kLandingContactIdentityWriter = 0x004991f8;
 constexpr std::uint32_t kLandingFrameWriter = 0x00499255;
+constexpr std::uint32_t kStartGrind = 0x00490ef0;
+constexpr std::uint32_t kStartGrindCaller = 0x00491684;
+constexpr std::uint32_t kRailPhysicsHandler = 0x00494210;
 constexpr std::uint32_t kAuxiliaryCase2Writer = 0x0049dea8;
 constexpr std::uint32_t kAuxiliaryClearWriter = 0x0049dd21;
 constexpr std::uint32_t kOllieLatchWriterGround = 0x0049a640;
@@ -170,6 +173,14 @@ constexpr std::uint32_t kCollisionTransientExitCallsite = 0x00497479;
 // debugger (0x004913e2 and 0x004905b0 respectively).
 constexpr std::uint32_t kState4EnterReason = 0x0b1c;
 constexpr std::uint32_t kState4EnterRequestCallsite = 0x004913dd;
+constexpr std::int32_t kStartGrindPositionYOffset = 0x19000;
+constexpr std::int32_t kStartGrindNormalDotThreshold = 0x0b33;
+constexpr std::int32_t kStartGrindVelocityYThreshold = 0x800;
+constexpr std::int32_t kStartGrindSlopeAbsThreshold = 3000;
+constexpr std::int32_t kStartGrindTargetNormalAbsThreshold = 0x5dc;
+constexpr std::int32_t kStartGrindRailBasisAbsThreshold = 0x800;
+constexpr std::uint32_t kStartGrindRequestCallsite =
+    kState4EnterRequestCallsite;
 constexpr std::uint32_t kOffGroundReason = 0x0715;
 constexpr std::uint32_t kOffGroundStateRequestCallsite = 0x004905ab;
 constexpr std::uint32_t kState4ExitReason = kOffGroundReason;
@@ -469,6 +480,39 @@ struct OffGroundBookkeeping {
     std::int32_t marker_3204 = 0;
 };
 
+// The deterministic player-field portion of FUN_00490ef0 (the StartGrind
+// entry reached from FUN_004914d0).  Names retain retail offsets where the
+// TRG/animation meaning is not established; these are entry products, not a
+// claim that the rail-node producer or the rail handler has been reconstructed.
+struct RailEntryBookkeeping {
+    FixedVec3 direction_2eb4{};
+    FixedVec3 rail_position_2ea8{};
+    FixedVec3 relative_vector_2e18{};
+    FixedVec3 relocated_position_2ee0{};
+    FixedVec3 entry_position_2ecc{};
+    std::int32_t node_previous_2e98 = 0;
+    std::int32_t node_current_2e9c = 0;
+    std::int32_t speed_2efc = 0;
+    std::int32_t speed_delta_2ef4 = 0;
+    std::int32_t animation_marker_2eec = 0;
+    std::int32_t vector_gate_2c78 = 0;
+    std::int32_t vector_gate_2c7c = 0;
+    std::int32_t sequence_count_2e88 = 0;
+    std::int32_t update_count_3070 = 0;
+    std::int32_t update_count_304c = 0;
+    std::int32_t turn_flag_2bf0 = 0;
+    std::int32_t turn_flag_2bf4 = 0;
+    std::int32_t stance_flag_2bf8 = 0;
+    std::int32_t normal_flag_2be8 = 0;
+    std::int32_t normal_direction_flag_2bec = 0;
+    std::int32_t derived_pattern_2c04 = 0;
+    std::int32_t pattern_source_2bfc = 0;
+    std::int32_t pattern_state_2c00 = 0;
+    std::int32_t mode_2ed8 = 0;
+    std::int32_t effect_2c0c = 0;
+    std::array<std::int32_t, 9> pending_motion_2c94_2cb4{};
+};
+
 // The non-collision action portion of Skater_DoPhysicsInAir (0x00497f40)
 // adds/subtracts orientation axes from acceleration before the position
 // integration. The caller supplies the already-published basis because the
@@ -556,6 +600,7 @@ struct PhysicsState {
     std::int32_t phase_state = 0;    // retail player +0x30c0
     std::int32_t auxiliary = 0;      // retail player +0x30c4
     std::int32_t prephysics_blocked = 0; // retail player +0x2f64
+    std::uint8_t object_flags_d8 = 0; // retail object +0xd8
     FixedVec3 position{};
     FixedVec3 old_position{};
     FixedVec3 position_history{};  // retail player +0xbc/+0xc0/+0xc4
@@ -608,6 +653,7 @@ struct PhysicsState {
         action_history_events{};
     std::uint32_t action_history_write_index = 0;
     OffGroundBookkeeping off_ground{};
+    RailEntryBookkeeping rail{};
 
     struct OllieBookkeeping {
         std::int32_t charge = 0;       // +0x2de8
@@ -686,6 +732,59 @@ struct LandingCleanupResult {
     bool returned_early = false;
     OffGroundTransitionResult off_ground{};
 };
+
+// FUN_004914d0 reaches FUN_00490ef0 only after its exact landing/recovery
+// gates and the +0x3064 trick-dispatch flag have passed.  The caller supplies
+// the shared RNG stream; the state machine owns the writes and request order.
+struct GroundRailTransitionInput {
+    bool trick_dispatch_requested = false; // player +0x3064 != 0
+    std::int32_t random_speed_primary = 0; // FUN_0048f3a0(7), first draw
+    std::int32_t random_speed_secondary = 0; // FUN_0048f3a0(7), second draw
+    std::int32_t random_velocity_adjustment = 0; // FUN_0048f3a0(3)
+    std::int32_t derived_pattern = 0; // return from TrickInput_DerivePattern
+};
+
+enum class GroundRailEntryStage {
+    DirectionNegated,
+    GeometryHintResets,
+    PositionRelocated,
+    RailKinematicsUpdated,
+    DirectionFlagsUpdated,
+    TrickServicesPrepared,
+    StateRequested,
+    VelocityShaped,
+    DirectionRestored,
+};
+
+struct GroundRailTransitionResult {
+    bool predicate_evaluated = false;
+    bool eligible = false;
+    bool transitioned = false;
+    bool geometry_hint = false;
+    bool pending_vectors_cleared = false;
+    bool position_relocated = false;
+    bool velocity_projected = false;
+    bool direction_restored = false;
+    bool speed_formula_applied = false;
+    std::int32_t derived_pattern = 0;
+    std::array<GroundRailEntryStage, 9> stages{};
+    std::size_t stage_count = 0;
+    StateRequest request{};
+};
+
+// Exact strict geometry selector passed to FUN_00490ef0 as its second
+// argument.  The +0x3064 invocation gate is intentionally separate because
+// it is produced by the unresolved trick recognizer in FUN_004925e0.
+struct GroundRailGeometryInput {
+    std::int32_t velocity_y = 0; // player +0x50
+    std::int32_t slope_y = 0; // player +0x3110
+    std::int32_t up_basis_y = 0; // player +0x30f8
+    std::int32_t target_normal_y = 0; // player +0x82, signed short
+    std::int32_t rail_basis_y = 0; // player +0x3104
+};
+
+bool ground_to_rail_geometry_hint(
+    const GroundRailGeometryInput& input) noexcept;
 
 // The post-helper case-0 tail in 0x0049db80 can leave a grounded player for
 // raw state 1 without going through the ollie path. Collision/normal
@@ -929,6 +1028,10 @@ struct DispatchResult {
     // standalone dispatch() call has no caller-owned slope/recovery producer,
     // so it leaves this result at its default value.
     GroundAirTransitionResult ground_leave_air{};
+    // Populated by step_frame() after FUN_004914d0's caller-owned cleanup
+    // callback. This is the post-trick +0x3064 handoff into FUN_00490ef0;
+    // the next frame's dispatch observes raw state 4 independently.
+    GroundRailTransitionResult ground_to_rail{};
 };
 
 using DispatchCallback = void (*)(PhysicsState&, const DispatchResult&, void*);
@@ -946,6 +1049,11 @@ using State6PreAirCallback = void (*)(PhysicsStateMachine&, void*);
 // request, reset, and marker ordering after it returns true.
 using GroundAirTransitionInputCallback = bool (*)(
     PhysicsStateMachine&, GroundAirTransitionInput&, void*);
+// FUN_004914d0 supplies the +0x3064 result after trick recognition; this
+// callback supplies the shared RNG values while the native method owns the
+// StartGrind writes, state request, and velocity shaping.
+using GroundRailTransitionInputCallback = bool (*)(
+    PhysicsStateMachine&, GroundRailTransitionInput&, void*);
 
 struct PhysicsFrameCallbacks {
     // 0x0049e680 publishes +0x2dac before the action/ollie stage. The
@@ -995,6 +1103,9 @@ struct PhysicsFrameCallbacks {
     // the same helper at its in-air landing branch.
     FrameStageCallback landing_collision_preparation = nullptr;
     FrameStageCallback landing_cleanup = nullptr;
+    // The call at 0x00491684 is inside the landing-cleanup helper, after its
+    // +0x3064 predicate and before the outer frame's final velocity work.
+    GroundRailTransitionInputCallback ground_to_rail_input = nullptr;
     PositionCommitCallback position_commit = nullptr;
     // 0x0049e680 integrates acceleration into velocity at 0x0049f206 before
     // entering 0x0049d480. The callback supplies the runtime frame delta.
@@ -1100,6 +1211,14 @@ public:
     // velocity; the collision/slope producer remains caller-owned.
     GroundAirTransitionResult try_ground_to_air(
         const GroundAirTransitionInput& input);
+
+    // Execute the deterministic StartGrind entry at 0x00490ef0 after the
+    // landing/trick producer has asserted +0x3064. This owns the entry field
+    // mutations, exact request metadata, velocity projection, and direction
+    // restoration; TRG, trick, animation, audio, and script producers stay in
+    // the explicit input/callback seams.
+    GroundRailTransitionResult try_ground_to_rail(
+        const GroundRailTransitionInput& input);
 
     // Apply the recovered +0x50 impulse and launch bookkeeping without
     // selecting raw state 1/3. This mirrors the ordering in which the retail

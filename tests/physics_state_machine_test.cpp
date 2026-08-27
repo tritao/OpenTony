@@ -25,6 +25,10 @@ bool frame_ground_leave_air_rejected(PhysicsStateMachine&,
                                      GroundAirTransitionInput&, void*);
 bool frame_ground_leave_air_missing(PhysicsStateMachine&,
                                     GroundAirTransitionInput&, void*);
+void frame_ground_to_rail_landing_cleanup(PhysicsStateMachine&, void*);
+bool frame_ground_to_rail_input(PhysicsStateMachine&,
+                                GroundRailTransitionInput&, void*);
+void frame_ground_to_rail_velocity(PhysicsStateMachine&, void*);
 
 void test_retail_fixed12_math_and_orientation_layout() {
     CHECK(fixed12_dot(FixedVec3{2048, 0, 0}, FixedVec3{1, 0, 0}) == 0);
@@ -335,6 +339,185 @@ void test_observed_state4_transition_path() {
     CHECK(machine.requests()[3].reason == retail::kLandingReason);
     CHECK(machine.requests()[3].request_callsite ==
            retail::kLandingRequestCallsite);
+}
+
+void test_ground_to_rail_entry_contract() {
+    const GroundRailGeometryInput valid{-1, 2999, 0x801, 0x5db, 0x7ff};
+    CHECK(ground_to_rail_geometry_hint(valid));
+
+    auto boundary = valid;
+    boundary.velocity_y = 0;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary = valid;
+    boundary.slope_y = retail::kStartGrindSlopeAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary.slope_y = -retail::kStartGrindSlopeAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary = valid;
+    boundary.up_basis_y = retail::kStartGrindVelocityYThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary = valid;
+    boundary.target_normal_y = retail::kStartGrindTargetNormalAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary.target_normal_y = -retail::kStartGrindTargetNormalAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary = valid;
+    boundary.rail_basis_y = retail::kStartGrindRailBasisAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+    boundary.rail_basis_y = -retail::kStartGrindRailBasisAbsThreshold;
+    CHECK(!ground_to_rail_geometry_hint(boundary));
+
+    PhysicsStateMachine machine;
+    machine.state().raw_state = retail::kPhysicsOnInvisible;
+    machine.state().rail.direction_2eb4 = FixedVec3{0x1000, 0, 0};
+    machine.state().rail.rail_position_2ea8 = FixedVec3{100, 200, 300};
+    machine.state().rail.node_previous_2e98 = 7;
+    machine.state().rail.node_current_2e9c = 7;
+    machine.state().rail.speed_delta_2ef4 = 100;
+    machine.state().rail.pending_motion_2c94_2cb4.fill(9);
+    machine.state().rail.vector_gate_2c78 = 4;
+    machine.state().rail.vector_gate_2c7c = 5;
+    machine.state().rail.pattern_source_2bfc = 6;
+    machine.state().rail.pattern_state_2c00 = 0;
+    machine.state().object_flags_d8 = 2;
+    machine.state().velocity = FixedVec3{0x1000, 0, 0};
+    machine.state().velocity.y = -1;
+    machine.state().basis_310c.y = 100;
+    machine.state().basis_30f4.y = 0x1000;
+    machine.state().basis_3100.y = 0;
+    machine.state().off_ground.word_82 = 0;
+    machine.state().off_ground.word_2ec8 = 4;
+    machine.state().off_ground.word_2e90 = 8;
+    machine.state().off_ground.word_2e94 = 8;
+    machine.state().ollie.latched = 1;
+
+    const auto rejected = machine.try_ground_to_rail(
+        GroundRailTransitionInput{});
+    CHECK(rejected.predicate_evaluated);
+    CHECK(!rejected.eligible);
+    CHECK(machine.state().raw_state == retail::kPhysicsOnInvisible);
+    CHECK(machine.requests().empty());
+    CHECK((machine.state().rail.direction_2eb4 == FixedVec3{0x1000, 0, 0}));
+
+    const auto entered = machine.try_ground_to_rail(
+        GroundRailTransitionInput{true, 0, 0, 0, 5});
+    CHECK(entered.predicate_evaluated);
+    CHECK(entered.eligible);
+    CHECK(entered.transitioned);
+    CHECK(entered.geometry_hint);
+    CHECK(entered.pending_vectors_cleared);
+    CHECK(entered.position_relocated);
+    CHECK(entered.velocity_projected);
+    CHECK(entered.direction_restored);
+    CHECK(entered.speed_formula_applied);
+    CHECK(entered.derived_pattern == 5);
+    CHECK(entered.stage_count == 9);
+    CHECK(entered.stages[0] == GroundRailEntryStage::DirectionNegated);
+    CHECK(entered.stages[1] == GroundRailEntryStage::GeometryHintResets);
+    CHECK(entered.stages[2] == GroundRailEntryStage::PositionRelocated);
+    CHECK(entered.stages[3] == GroundRailEntryStage::RailKinematicsUpdated);
+    CHECK(entered.stages[4] == GroundRailEntryStage::DirectionFlagsUpdated);
+    CHECK(entered.stages[5] == GroundRailEntryStage::TrickServicesPrepared);
+    CHECK(entered.stages[6] == GroundRailEntryStage::StateRequested);
+    CHECK(entered.stages[7] == GroundRailEntryStage::VelocityShaped);
+    CHECK(entered.stages[8] == GroundRailEntryStage::DirectionRestored);
+    CHECK(entered.request.from == retail::kPhysicsOnInvisible);
+    CHECK(entered.request.to == retail::kPhysicsOnRail);
+    CHECK(entered.request.reason == retail::kState4EnterReason);
+    CHECK(entered.request.writer_pc == retail::kStateWriter);
+    CHECK(entered.request.request_callsite ==
+           retail::kStartGrindRequestCallsite);
+    CHECK(machine.state().raw_state == retail::kPhysicsOnRail);
+    CHECK(machine.state().phase_state == retail::kPhysicsOnInvisible);
+    CHECK((machine.state().rail.direction_2eb4 == FixedVec3{0x1000, 0, 0}));
+    CHECK((machine.state().position == FixedVec3{100, 200 - 0x19000, 300}));
+    CHECK(machine.state().rail.relocated_position_2ee0 ==
+           machine.state().position);
+    CHECK(machine.state().rail.entry_position_2ecc ==
+           machine.state().position);
+    CHECK(machine.state().off_ground.word_2e90 == 1);
+    CHECK(machine.state().off_ground.word_2e94 == 0);
+    CHECK(machine.state().rail.speed_2efc == 0x28000);
+    CHECK(machine.state().rail.speed_delta_2ef4 == 42);
+    CHECK(machine.state().ollie.recovery_latch == 1);
+    CHECK(machine.state().rail.sequence_count_2e88 == 1);
+    CHECK(machine.state().rail.update_count_3070 == 1);
+    CHECK(machine.state().rail.update_count_304c == 1);
+    CHECK(machine.state().rail.vector_gate_2c78 == 0);
+    CHECK(machine.state().rail.vector_gate_2c7c == 0);
+    for (const auto value : machine.state().rail.pending_motion_2c94_2cb4) {
+        CHECK(value == 0);
+    }
+    CHECK(machine.state().ollie.latched == 0);
+    CHECK(machine.state().off_ground.word_2ec8 == 7);
+    CHECK(machine.state().rail.turn_flag_2bf0 == 1);
+    CHECK(machine.state().rail.stance_flag_2bf8 == 1);
+    CHECK(machine.state().rail.turn_flag_2bf4 == 0);
+    CHECK(machine.state().rail.normal_flag_2be8 == 1);
+    CHECK(machine.state().rail.normal_direction_flag_2bec == 0);
+    CHECK(machine.state().rail.derived_pattern_2c04 == 2);
+    CHECK(machine.state().rail.mode_2ed8 == 1);
+    CHECK(machine.state().rail.effect_2c0c == 0);
+    CHECK((machine.state().velocity == FixedVec3{-0x4000, 0, 0}));
+
+    const auto dispatch = machine.dispatch();
+    CHECK(dispatch.kind == DispatchKind::State4);
+    CHECK(dispatch.handler_count == 1);
+    CHECK(dispatch.handler_pcs[0] == retail::kRailPhysicsHandler);
+
+    PhysicsStateMachine node_change;
+    node_change.state().raw_state = retail::kPhysicsOnInvisible;
+    node_change.state().rail.direction_2eb4 = FixedVec3{0x1000, 0, 0};
+    node_change.state().rail.node_previous_2e98 = 9;
+    node_change.state().rail.node_current_2e9c = 10;
+    node_change.state().rail.speed_2efc = 0x1000;
+    node_change.state().rail.speed_delta_2ef4 = 77;
+    node_change.state().rail.vector_gate_2c78 = 6;
+    node_change.state().rail.pending_motion_2c94_2cb4.fill(6);
+    node_change.state().basis_3100.x =
+        retail::kStartGrindNormalDotThreshold;
+    const auto changed = node_change.try_ground_to_rail(
+        GroundRailTransitionInput{true, 0, 0, 0, 0});
+    CHECK(changed.eligible);
+    CHECK(node_change.state().rail.speed_2efc == 0);
+    CHECK(node_change.state().rail.speed_delta_2ef4 == 0);
+    CHECK(node_change.state().rail.node_previous_2e98 == 10);
+    CHECK(node_change.state().off_ground.word_2ec8 == 10);
+    CHECK(node_change.state().rail.vector_gate_2c78 == 6);
+    CHECK(node_change.state().rail.pending_motion_2c94_2cb4[0] == 6);
+    // abs(dot(direction, basis_3100)) == 0xb33 takes the >= branch, so the
+    // normal-alignment flag stays clear while the negative dot sets direction.
+    CHECK(node_change.state().rail.normal_flag_2be8 == 0);
+    CHECK(node_change.state().rail.normal_direction_flag_2bec == 1);
+}
+
+void test_ground_to_rail_frame_dispatch_boundary() {
+    PhysicsStateMachine machine;
+    machine.state().raw_state = retail::kPhysicsOnInvisible;
+    machine.state().jump.held = 1;
+    machine.state().off_ground.word_2e94 = 1;
+    machine.state().off_ground.word_3064 = 1;
+    machine.state().rail.direction_2eb4 = FixedVec3{0x1000, 0, 0};
+    machine.state().rail.rail_position_2ea8 = FixedVec3{1, 2, 3};
+    machine.state().rail.node_current_2e9c = 1;
+    machine.state().velocity = FixedVec3{0x1000, 0, 0};
+
+    CallbackLog log;
+    PhysicsFrameCallbacks callbacks;
+    callbacks.landing_cleanup = frame_ground_to_rail_landing_cleanup;
+    callbacks.ground_to_rail_input = frame_ground_to_rail_input;
+    callbacks.velocity_integration = frame_ground_to_rail_velocity;
+
+    const auto result = machine.step_frame(retail::kJumpActionBit, callbacks, &log);
+    CHECK(result.raw_state == retail::kPhysicsOnInvisible);
+    CHECK(result.kind == DispatchKind::CollisionTransient);
+    CHECK(result.ground_to_rail.predicate_evaluated);
+    CHECK(result.ground_to_rail.eligible);
+    CHECK(result.ground_to_rail.request.from == retail::kPhysicsOnInvisible);
+    CHECK(result.ground_to_rail.request.to == retail::kPhysicsOnRail);
+    CHECK((log.frame_stages == std::vector<int>{40, 41, 42}));
+    CHECK(machine.state().raw_state == retail::kPhysicsOnRail);
+    CHECK(machine.requests().size() == 1);
 }
 
 void test_ground_to_air_leave_ground_transition() {
@@ -1002,6 +1185,32 @@ void frame_landing_cleanup(PhysicsStateMachine& machine, void* opaque) {
     CHECK(machine.state().raw_state == retail::kPhysicsOnGround);
     const auto result = machine.apply_landing_cleanup();
     CHECK(result.handled);
+}
+
+void frame_ground_to_rail_landing_cleanup(PhysicsStateMachine& machine,
+                                          void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(40);
+    CHECK(machine.state().raw_state == retail::kPhysicsOnInvisible);
+    const auto result = machine.apply_landing_cleanup();
+    CHECK(result.handled);
+    CHECK(result.trick_dispatch_requested);
+}
+
+bool frame_ground_to_rail_input(PhysicsStateMachine& machine,
+                                GroundRailTransitionInput& input,
+                                void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(41);
+    CHECK(machine.state().raw_state == retail::kPhysicsOnInvisible);
+    input = GroundRailTransitionInput{true, 0, 0, 0, 5};
+    return true;
+}
+
+void frame_ground_to_rail_velocity(PhysicsStateMachine& machine, void* opaque) {
+    auto& log = *static_cast<CallbackLog*>(opaque);
+    log.frame_stages.push_back(42);
+    CHECK(machine.state().raw_state == retail::kPhysicsOnRail);
 }
 
 void frame_landing_collision_preparation(PhysicsStateMachine& machine,
@@ -1877,6 +2086,8 @@ int main() {
     test_collision_recovery_window();
     test_cross_build_physics_state_labels();
     test_observed_state4_transition_path();
+    test_ground_to_rail_entry_contract();
+    test_ground_to_rail_frame_dispatch_boundary();
     test_ground_to_air_leave_ground_transition();
     test_ground_to_air_predicate_boundaries();
     test_ground_leave_air_frame_dispatch_boundary();

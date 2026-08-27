@@ -6,6 +6,7 @@ status: active
 scope:
   functions:
     - 0x0040f850
+    - 0x0040c370
   types:
     - CCamera
   globals: []
@@ -20,12 +21,13 @@ artifacts:
   tests:
     - tests/test_camera_update.py
     - tests/test_camera_system.py
+    - src/camera/camera_runtime_test.cpp
 
 open_questions:
   - Capture live mode-25 scalar/basis producer values; the camera-side arithmetic, helper ordering, and probe inputs are now wired.
   - Separate the update mode and state branches without guessing semantic names.
   - Establish the target, anchor, smoothing, and viewport relationships.
-  - Determine which recovered behavior belongs in the existing native camera math boundary.
+  - Promote the secondary tripod/vertical effect producers and later transform composition branches with their own runtime fixtures.
 
 completion:
   - The Camera_Update boundary, ABI, callers, and callees are evidence-backed.

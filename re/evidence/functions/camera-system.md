@@ -1035,6 +1035,60 @@ sampled interval kept the special producer inputs mostly at zero while
 developed nonzero values, confirming that the effect boundary is live even
 when the capture does not exercise a shake/death branch.
 
+### Selected `Camera_ApplyEffects` periodic collision sample
+
+The private Ghidra project is now available through the repository wrapper;
+`./tony.sh ghidra decompile 0x0040c370` resolves the selected producer far
+enough to promote one narrow branch. Before doing any work, the function
+returns when `DAT_00561c04`, `DAT_0056a8e0`, or `DAT_0056a86c` is nonzero, or
+when camera `+0x510` is below `0x0d`. On an eligible call it increments the
+byte at `camera +0x550`; a post-increment value above `2` resets that byte to
+zero and increments `camera +0x554`. Only post-increment phase `2` runs the
+periodic primary query. The non-primary tripod path remains outside this
+promotion.
+
+For the primary query (`tripod +0x30c4 == 0`), a miss writes distance
+`camera +0x558 = -1` and selects magnitude `0x200` when tripod physics state
+`+0x30b8` is `1`, otherwise restoring the previous magnitude saved at
+`camera +0x544`. A hit writes the raw distance and computes the signed-short
+magnitude at `camera +0x534` as:
+
+```text
+i       = ((0x78 - hit_distance) * 0x1000) / 0x78
+i^2_q12 = (i * i) >> 12
+magnitude = (i^2_q12 * 0x200) >> 12
+```
+
+All products wrap at 32 bits before the arithmetic shifts. This is now the
+explicit `advance_camera_effect_sample` producer in the native camera
+contract. Its input carries the collision result and guard values; collision
+query construction and the secondary `+0x30c4 != 0` response remain external.
+
+The runtime boundary is visible in
+`build/debug/camera-present-validation2.jsonl`: at frame `4303`, update
+`14`, the effect-entry record has phase `1` and the old zero result; at frame
+`4304`, update `15`, the entry has phase `2`, hit distance `97`, and magnitude
+`18`. The next entry is phase `0`, counter `1`, while magnitude `18` remains
+latched. Later hit distance `90` produces magnitude `32`, and distance `91`
+produces `29`, matching the fixed-point formula. The trace fields are sampled
+at function entry, so the effect produced by the phase-2 call is visible one
+camera update later; the native result reports both pre/post phase values to
+keep that timing boundary explicit.
+
+The same commit path now exposes the exact camera-produced portion of the
+view record. `Camera_CommitViewportEffects 0x0040be70` writes the active
+record at `DAT_0055f7c8 + DAT_0055fa3c * 0xa4`: camera position Q4 at
+`+0x04..+0x0c`, look target Q4 at `+0x14..+0x1c`, and the row-ordered
+transform matrix at `+0x34..+0x44`. `Render_SetViewProjection 0x0045e8e0`
+consumes this record as `param_1`, then owns the transpose into its `+0x54`
+renderer scratch block. `CameraRenderViewRecordRaw` mirrors only these
+camera-produced fields and is covered by the native runtime fixture.
+
+Confidence is high for the selected primary phase/query arithmetic and its
+one-update trace timing. The full `Camera_ApplyEffects` function remains
+partial: vertical/side samples, the `+0x30c4 != 0` tripod query, and the later
+transform-composition branches still require their own producer traces.
+
 Static callers/callees: `0x0040ecb8` and `0x0040ecee` are the two callsites in
 `0x0040e090`; both call `0x004e85a0`, whose three outputs are written in
 matrix-row order `1,2,0`. Runtime hit frequency: one position/effect pair per

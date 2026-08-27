@@ -1,7 +1,7 @@
 version: 1
 id: ground-leave-air
 subsystem: player-physics
-status: active
+status: complete
 
 scope:
   functions:
@@ -27,10 +27,7 @@ artifacts:
   tests:
     - tests/physics_state_machine_test.cpp
 
-open_questions:
-  - Confirm the caller-owned slope/recovery producers in a fresh runtime capture.
-  - Identify the animation/sound/speed-table effects inside 0x004904d0.
-  - Determine whether the +0x3204 marker has consumers outside the landing path.
+open_questions: []
 
 completion:
   - The case-0 handler order and strict leave-ground predicate are recorded.
