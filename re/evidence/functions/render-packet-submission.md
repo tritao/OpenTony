@@ -1,6 +1,6 @@
 # Render model-to-polygon submission slice
 
-Status: tested native pre-backend boundary through near clipping and visibility/depth classification; state resolution, arena rollback, and final bucket traversal remain separate
+Status: tested native pre-backend boundary through near clipping, visibility/depth classification, and the caller-owned state/depth resolution; arena rollback and final bucket traversal remain separate
 
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 
@@ -196,8 +196,21 @@ opposite triangle sides keep the quad. This preserves the unusual operand
 order and the equality behavior rather than substituting a host cross-product
 convention.
 
-The lower classifier at `0x004d26b0` receives a resolved depth offset and
-returns a bucket index. Its ordinary path first applies the selected mode:
+Immediately before the lower classifier, `0x004d20f0` resolves the depth
+offset from the renderer state word at `0x0058f30c`. It masks with `0x6000`
+and selects only these exact values:
+
+```text
+0x2000 -> 0x00563a64
+0x4000 -> 0x00563a7c
+0x6000 -> 0x00563a88
+anything else -> offset 0
+```
+
+The selected value is passed as the third argument to `0x004d26b0`, after the
+polygon pointer and caller state word. The lower classifier then receives a
+resolved depth offset and returns a bucket index. Its ordinary path first
+applies the selected mode:
 
 ```text
 mode 0: z' = f32((depth_offset + z) * 1.00)
@@ -230,6 +243,21 @@ slot at `0x0056433c`:
 packet->next = bucket_heads[bucket]
 bucket_heads[bucket] = packet
 ```
+
+After `0x004d26b0` returns, the same caller applies a textured-material state
+rewrite. It is taken only when the current level is neither 6 nor 10, the
+packet state satisfies `(flags & 0x1c0) == 0x40`, and the runtime material
+record reached through packet `+0x10`, `+0x14`, and then `+0x10` has no bits
+`0x110`. The resulting packet state is `(flags & ~0x40) | 0x80`; solid
+packets, excluded levels, nonmatching state, or material flags leave it
+unchanged. This write precedes the packet's prepend into the selected bucket
+head.
+
+The native `RenderDepthStateInputs`/`RenderDepthStateResolution` seam records
+these exact inputs and outputs without taking ownership of camera production,
+material parsing, or the lower classifier's already-resolved mode. Tests cover
+all three exact mask values, the zero-offset default, and each flag-rewrite
+guard.
 
 Therefore face/split calls remain in source order at the target boundary, but
 records sharing a bucket are traversed through a LIFO intrusive chain. The

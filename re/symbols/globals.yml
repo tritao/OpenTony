@@ -115,6 +115,30 @@ globals:
     confidence: observed
     evidence:
       - re/evidence/functions/render-packet-submission.md
+  - address: 0x0058f30c
+    name: RenderDepthModeSelector
+    description: renderer state word whose masked 0x6000 value selects the caller-resolved depth offset before 0x004d26b0
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a64
+    name: RenderDepthOffset2000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x2000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a7c
+    name: RenderDepthOffset4000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x4000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
+  - address: 0x00563a88
+    name: RenderDepthOffset6000
+    description: caller-resolved depth offset selected when the renderer state mask equals 0x6000
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/render-packet-submission.md
   - address: 0x0058089c
     name: RenderNearDepth
     description: near-depth clamp used by the depth classifier and ordinary transform clip test; live value is 10

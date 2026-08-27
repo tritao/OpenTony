@@ -50,7 +50,7 @@ functions:
       - src/trg/render_polygon_bucket_test.cpp
     evidence:
       - re/evidence/functions/render-packet-submission.md
-    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip handoff, and per-bucket head-prepend links; near-plane rewriting and global/material state resolution are exposed as separate caller seams.
+    notes: Native boundary covers all/any clip classification, projected winding, the partial-near-clip handoff, per-bucket head-prepend links, the 0x6000 renderer-state depth-offset selector, and the post-classifier textured material flag rewrite; arena rollback and final traversal remain adapter seams.
 
   - address: 0x004d2310
     name: M3D_ClipPolygonNearPlane

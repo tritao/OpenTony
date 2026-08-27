@@ -195,6 +195,70 @@ int main() {
     CHECK(forced_decision.selected_depth == 16383.0F);
     CHECK(forced_decision.bucket_index == 0xfff);
 
+    RenderDepthStateInputs state_inputs;
+    state_inputs.depth_offset_2000 = 11.0F;
+    state_inputs.depth_offset_4000 = 22.0F;
+    state_inputs.depth_offset_6000 = 33.0F;
+    state_inputs.current_level = 5;
+    RenderPolygonPacket textured_state = make_triangle({20.0F, 80.0F, 40.0F});
+    textured_state.textured = true;
+    textured_state.flags = 0x40U;
+    const RenderDepthStateResolution state_2000 =
+        RenderPacketBuilder::resolve_depth_state(
+            textured_state,
+            RenderDepthStateInputs{
+                0xa000U,
+                state_inputs.depth_offset_2000,
+                state_inputs.depth_offset_4000,
+                state_inputs.depth_offset_6000,
+                state_inputs.current_level,
+                0U,
+            });
+    CHECK(state_2000.selected_state_mask == 0x2000U);
+    CHECK(state_2000.depth_offset == 11.0F);
+    CHECK(state_2000.packet_flags == 0x80U);
+
+    state_inputs.renderer_state_word = 0x4000U;
+    const RenderDepthStateResolution state_4000 =
+        RenderPacketBuilder::resolve_depth_state(textured_state, state_inputs);
+    CHECK(state_4000.selected_state_mask == 0x4000U);
+    CHECK(state_4000.depth_offset == 22.0F);
+    state_inputs.renderer_state_word = 0x6000U;
+    const RenderDepthStateResolution state_6000 =
+        RenderPacketBuilder::resolve_depth_state(textured_state, state_inputs);
+    CHECK(state_6000.selected_state_mask == 0x6000U);
+    CHECK(state_6000.depth_offset == 33.0F);
+    state_inputs.renderer_state_word = 0x8000U;
+    const RenderDepthStateResolution state_default =
+        RenderPacketBuilder::resolve_depth_state(textured_state, state_inputs);
+    CHECK(state_default.selected_state_mask == 0U);
+    CHECK(state_default.depth_offset == 0.0F);
+
+    RenderPolygonPacket nonmatching_flags = textured_state;
+    nonmatching_flags.flags = 0x140U;
+    CHECK(RenderPacketBuilder::resolve_depth_state(
+              nonmatching_flags, state_inputs)
+              .packet_flags
+          == 0x140U);
+    RenderDepthStateInputs material_state = state_inputs;
+    material_state.material_runtime_flags = 0x10U;
+    CHECK(RenderPacketBuilder::resolve_depth_state(
+              textured_state, material_state)
+              .packet_flags
+          == 0x40U);
+    material_state.material_runtime_flags = 0U;
+    material_state.current_level = 6U;
+    CHECK(RenderPacketBuilder::resolve_depth_state(
+              textured_state, material_state)
+              .packet_flags
+          == 0x40U);
+    RenderPolygonPacket solid_state = textured_state;
+    solid_state.textured = false;
+    CHECK(RenderPacketBuilder::resolve_depth_state(
+              solid_state, state_inputs)
+              .packet_flags
+          == 0x40U);
+
     std::vector<RenderPolygonPacket> source_order{
         make_triangle({10.0F, 10.0F, 10.0F}),
         make_triangle({11.0F, 11.0F, 11.0F}),

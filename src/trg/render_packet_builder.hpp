@@ -147,6 +147,26 @@ struct RenderDepthBucketOptions {
     float reciprocal_depth_cap{0.99F};
 };
 
+// Inputs resolved by M3D_ClipAndBucketPolygon (0x004d20f0) immediately before
+// it calls M3D_ClassifyPolygonDepth (0x004d26b0). The three offsets are the
+// renderer-state values copied into 0x00563a64, 0x00563a7c, and 0x00563a88;
+// material_runtime_flags is supplied by the already-resolved runtime material
+// record rather than parsed by this renderer adapter.
+struct RenderDepthStateInputs {
+    std::uint32_t renderer_state_word{};
+    float depth_offset_2000{};
+    float depth_offset_4000{};
+    float depth_offset_6000{};
+    std::uint32_t current_level{};
+    std::uint32_t material_runtime_flags{};
+};
+
+struct RenderDepthStateResolution {
+    std::uint32_t selected_state_mask{};
+    float depth_offset{};
+    std::uint32_t packet_flags{};
+};
+
 struct RenderBucketDecision {
     RenderBucketDisposition disposition{RenderBucketDisposition::rejected_clip};
     std::size_t bucket_index{kRenderNoPolygonIndex};
@@ -222,6 +242,14 @@ public:
     static RenderNearClipResult clip_near_plane(
         RenderPolygonPacket& polygon,
         const RenderNearClipOptions& options = {});
+
+    // Reconstructs the caller-owned state resolution at 0x004d20f0. The
+    // offset selection uses (renderer_state_word & 0x6000) with exact matches
+    // for 0x2000, 0x4000, and 0x6000; all other values select zero. The packet
+    // flag rewrite is the post-0x004d26b0 textured-material exception.
+    static RenderDepthStateResolution resolve_depth_state(
+        const RenderPolygonPacket& polygon,
+        const RenderDepthStateInputs& inputs);
 
     static RenderBucketDecision classify_polygon(
         RenderPolygonPacket& polygon,

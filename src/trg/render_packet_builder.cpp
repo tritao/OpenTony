@@ -540,6 +540,45 @@ RenderNearClipResult RenderPacketBuilder::clip_near_plane(
     return result;
 }
 
+RenderDepthStateResolution RenderPacketBuilder::resolve_depth_state(
+    const RenderPolygonPacket& polygon,
+    const RenderDepthStateInputs& inputs) {
+    const std::uint32_t selected_state_mask =
+        inputs.renderer_state_word & 0x6000U;
+    float depth_offset = 0.0F;
+    switch (selected_state_mask) {
+    case 0x2000U:
+        depth_offset = inputs.depth_offset_2000;
+        break;
+    case 0x4000U:
+        depth_offset = inputs.depth_offset_4000;
+        break;
+    case 0x6000U:
+        depth_offset = inputs.depth_offset_6000;
+        break;
+    default:
+        break;
+    }
+
+    // 0x004d20f0 performs this write after 0x004d26b0 returns. Keep the
+    // result separate from the input packet so callers can apply the depth
+    // offset before classification and the packet flags afterward.
+    std::uint32_t packet_flags = polygon.flags;
+    if (polygon.textured
+        && inputs.current_level != 6U
+        && inputs.current_level != 10U
+        && (packet_flags & 0x1c0U) == 0x40U
+        && (inputs.material_runtime_flags & 0x110U) == 0U) {
+        packet_flags = (packet_flags & ~0x40U) | 0x80U;
+    }
+
+    return {
+        selected_state_mask,
+        depth_offset,
+        packet_flags,
+    };
+}
+
 RenderBucketDecision RenderPacketBuilder::classify_polygon(
     RenderPolygonPacket& polygon,
     const RenderPolygonClipSummary& clip,
