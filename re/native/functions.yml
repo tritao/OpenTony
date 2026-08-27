@@ -619,6 +619,98 @@ functions:
       - re/evidence/functions/skater-asset-runtime.md
     notes: Native PSH parser preserves trailing runtime labels, model prefixes, contiguous indices, and the SK2ANIM1 alias case.
 
+  - address: 0x004b5200
+    name: PlayerSpool_Construct
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native value-owned manager preserves the observed 0xa10 allocation, forty-entry queue, and initialized entry state.
+
+  - address: 0x004b52b0
+    name: PlayerSpool_Reset
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Reset releases every owned parsed result and restores queue counters, entry handles, and request side channels.
+
+  - address: 0x004b5370
+    name: PlayerSpool_QueueResource
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Queue insertion preserves the eight-byte base-name bound, 0x28-byte entry stride, mode, heap, flags, and next-stride request-size staging.
+
+  - address: 0x004b5580
+    name: PlayerSpool_ForceFinalize
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native start_next adapter exposes the observed idle-to-pending transition without claiming the retail scheduler implementation.
+
+  - address: 0x004b5620
+    name: PlayerSpool_LoadQueuedItem
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+      - re/evidence/functions/fileio-runtime.md
+    notes: PSH/PSX loads use ResourceLoader for direct, PKR, and PRE sources; bytes are synchronized before parsing and only complete parsed objects are published.
+
+  - address: 0x004b57d0
+    name: PlayerSpool_AdvanceEntry
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Completion advances the consume index and preserves the loaded result until the explicit release boundary.
+
+  - address: 0x004b5a00
+    name: PlayerSpool_ReleaseEntry
+    slice: resource-stream-runtime
+    status: tested
+    sources:
+      - src/runtime/player_resource_spool.hpp
+      - src/runtime/player_resource_spool.cpp
+    tests:
+      - src/runtime/player_resource_spool_test.cpp
+    evidence:
+      - re/evidence/functions/skater-asset-runtime.md
+    notes: Native release drops one stable per-entry parsed resource and restores the observed handle/pointer cleanup words.
+
   - address: 0x00480cd0
     name: Skater_AssignModelPartOrder
     slice: asset-runtime

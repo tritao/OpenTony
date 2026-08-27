@@ -51,8 +51,8 @@ void PlayerResourceSpool::reset() noexcept {
     raw_.fill(std::byte{0});
     request_sizes_.fill(0);
     request_flags_.fill(0);
-    loaded_.clear();
     for (std::size_t index = 0; index < kPlayerSpoolEntryCount; ++index) {
+        loaded_[index].reset();
         write_u8(entry_offset(index) + 0x04U, 0);
         write_u32(entry_offset(index) + 0x1cU, 0xffffffffU);
     }
@@ -135,56 +135,77 @@ bool PlayerResourceSpool::start_next() {
     return true;
 }
 
-std::size_t PlayerResourceSpool::load_current(const std::string& asset_root) {
+std::size_t PlayerResourceSpool::load_current(
+    const std::string& asset_root,
+    const assets::PreRuntimeManager* pre) {
     if (state() != 1U || current_index() >= queued_count()) {
         throw std::logic_error("player spool has no active load");
     }
+    assets::ResourceBackend backend{std::filesystem::path(asset_root)};
     const std::size_t index = current_index();
-    const std::string base = name(index);
-    const std::filesystem::path root(asset_root);
-    PlayerSpoolLoadedResource resource{};
-    resource.queue_index = index;
-    resource.kind = kind(index);
-    if (resource.kind == PlayerSpoolResourceKind::PshRegion) {
-        resource.psh = assets::PshManifest::load(
-            (root / (base + ".PSH")).string());
-    } else {
-        resource.psx = assets::PsxArchive::load(
-            (root / (base + ".PSX")).string());
-    }
-    loaded_.push_back(std::move(resource));
-    write_u8(entry_offset(index) + 0x04U, 1);
-    write_u32(0xa0cU, 2);
-    return index;
+    const std::string extension = kind(index) == PlayerSpoolResourceKind::PshRegion
+        ? ".PSH"
+        : ".PSX";
+    return load_current(backend, name(index) + extension, pre);
 }
 
 std::size_t PlayerResourceSpool::load_current(
-    const assets::PkrArchive& package) {
+    const assets::PkrArchive& package,
+    const assets::PreRuntimeManager* pre) {
     if (state() != 1U || current_index() >= queued_count()) {
         throw std::logic_error("player spool has no active load");
     }
     const std::size_t index = current_index();
     const std::string base = name(index);
-    PlayerSpoolLoadedResource resource{};
-    resource.queue_index = index;
-    resource.kind = kind(index);
-    const std::string extension = resource.kind == PlayerSpoolResourceKind::PshRegion
+    const std::string extension = kind(index) == PlayerSpoolResourceKind::PshRegion
         ? ".PSH"
         : ".PSX";
-    const auto entry = package_resource_entry(package, base, extension);
-    if (!entry.has_value()) {
-        throw std::runtime_error(
-            "player spool package resource was not found: " + base + extension);
+    std::string resource_path = base + extension;
+    if (pre == nullptr || !pre->find_embedded(resource_path).has_value()) {
+        const auto entry = package_resource_entry(package, base, extension);
+        if (!entry.has_value()) {
+            throw std::runtime_error(
+                "player spool package resource was not found: " + resource_path);
+        }
+        resource_path = package.entry(*entry).archive_path();
     }
-    const std::string source = package.entry(*entry).archive_path();
-    if (resource.kind == PlayerSpoolResourceKind::PshRegion) {
+    assets::ResourceBackend backend(package);
+    return load_current(backend, resource_path, pre);
+}
+
+std::size_t PlayerResourceSpool::load_current(
+    assets::ResourceBackend& backend,
+    std::string_view resource_path,
+    const assets::PreRuntimeManager* pre) {
+    if (state() != 1U || current_index() >= queued_count()) {
+        throw std::logic_error("player spool has no active load");
+    }
+    const std::size_t index = current_index();
+    const std::string base = name(index);
+    const PlayerSpoolResourceKind resource_kind = kind(index);
+    assets::ResourceLoader loader(backend, pre);
+
+    // ResourceLoader owns the active backend/PRE handoff until the bytes have
+    // been copied. Parsing happens only after that handle is synchronized, so
+    // a malformed PSH/PSX can never publish a partial runtime object.
+    const std::size_t loaded_size = loader.open(resource_path);
+    const assets::ResourceSourceKind source_kind = loader.source_kind();
+    std::vector<std::byte> bytes(loaded_size);
+    loader.load(bytes);
+    loader.synchronize();
+
+    PlayerSpoolLoadedResource resource{};
+    resource.queue_index = index;
+    resource.kind = resource_kind;
+    resource.source_kind = source_kind;
+    if (resource_kind == PlayerSpoolResourceKind::PshRegion) {
         resource.psh = assets::PshManifest::parse(
-            package.decode(*entry), source, base);
+            std::move(bytes), std::string(resource_path), base);
     } else {
         resource.psx = assets::PsxArchive::parse(
-            package.decode(*entry), source);
+            std::move(bytes), std::string(resource_path));
     }
-    loaded_.push_back(std::move(resource));
+    loaded_[index].emplace(std::move(resource));
     write_u8(entry_offset(index) + 0x04U, 1);
     write_u32(0xa0cU, 2);
     return index;
@@ -198,6 +219,13 @@ void PlayerResourceSpool::complete_current() {
     write_u32(entry_offset(index) + 0x1cU, 0xffffffffU);
     write_u32(0xa08U, static_cast<std::uint32_t>(index + 1U));
     write_u32(0xa0cU, consume_index() >= queued_count() ? 0U : 2U);
+}
+
+void PlayerResourceSpool::release(std::size_t queue_index) {
+    (void)entry_offset(queue_index);
+    loaded_[queue_index].reset();
+    write_u32(entry_offset(queue_index) + 0x1cU, 0xffffffffU);
+    write_u32(entry_offset(queue_index) + 0x20U, 0);
 }
 
 std::size_t PlayerResourceSpool::queued_count() const noexcept {
@@ -261,12 +289,10 @@ std::uint32_t PlayerResourceSpool::request_size_staging(
 
 const PlayerSpoolLoadedResource* PlayerResourceSpool::loaded(
     std::size_t queue_index) const noexcept {
-    for (const PlayerSpoolLoadedResource& resource : loaded_) {
-        if (resource.queue_index == queue_index) {
-            return &resource;
-        }
+    if (queue_index >= loaded_.size() || !loaded_[queue_index].has_value()) {
+        return nullptr;
     }
-    return nullptr;
+    return &*loaded_[queue_index];
 }
 
 } // namespace opentony::runtime

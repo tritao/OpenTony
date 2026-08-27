@@ -446,11 +446,23 @@ entries at 0x28-byte stride, processed/name/mode/handle/heap offsets, the
 separate requested-size staging word, and the loading/wait/idle state
 transitions. `load_current()` dispatches the proven PSH versus direct-PSX
 file path into the native manifest/archive readers and retains the parsed
-resource until completion. A native test uses the real HAWK2 pair and checks
-the manager counters, entry fields, file-read result, and reset behavior.
-The same queue now has a package-backed load overload: it selects the
-case-insensitive `DATA/HAWK2.PSH` or `DATA/HAWK2.PSX` entry from `ALL.PKR`,
-decodes it through the common PKR backend, and retains the parsed manifest or
-archive in the queue's loaded-resource record. This preserves the direct-file
-versus PSH-region dispatch while making the loose-file and packaged player
-paths converge.
+resource until an explicit release. Each queue index has one stable owned
+runtime-result slot, so appending another request cannot invalidate a loaded
+object. The same queue now routes direct, package, and PRE-backed requests
+through `ResourceLoader`: the resource bytes are copied and synchronized
+before PSH/PSX parsing, and the resulting manifest/archive owns its own bytes.
+The source kind is retained on that result for the direct/PKR/PRE boundary.
+
+Malformed PKR or PRE payloads therefore fail before the queue's processed bit
+or loaded-result slot is published. The native adapter leaves the current
+request in its pending state so a caller can retry after replacing the source;
+`reset()` is the explicit whole-manager failure cleanup, while `release()`
+models the observed per-entry `0x004b5a00` cleanup after completion. These
+exception-safety and retry semantics are native ownership guarantees, not a
+claim that the retail executable recovers from every fatal file error.
+
+The test uses a deterministic one-object PSX and one-part PSH fixture to cover
+both PKR and PRE paths, destroys the package/PRE owner after loading, verifies
+the parsed runtime objects remain usable, and checks malformed payloads do not
+publish partial state. The real HAWK2 pair remains an additional corpus
+witness when the extracted files are available.

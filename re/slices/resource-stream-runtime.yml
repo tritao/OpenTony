@@ -20,6 +20,13 @@ scope:
     - 0x0046f490
     - 0x00449230
     - 0x00449660
+    - 0x004b5200
+    - 0x004b52b0
+    - 0x004b5370
+    - 0x004b5580
+    - 0x004b5620
+    - 0x004b57d0
+    - 0x004b5a00
   types:
     - RuntimeResourceStream
     - RuntimePkrFileRecord
@@ -28,18 +35,22 @@ scope:
 artifacts:
   evidence:
     - re/evidence/functions/fileio-runtime.md
+    - re/evidence/functions/skater-asset-runtime.md
   native:
     - src/assets/resource_runtime.hpp
     - src/assets/resource_runtime.cpp
+    - src/runtime/player_resource_spool.hpp
+    - src/runtime/player_resource_spool.cpp
     - src/trg/level_runtime.cpp
     - re/native/functions.yml
   tests:
     - src/assets/resource_runtime_test.cpp
+    - src/runtime/player_resource_spool_test.cpp
     - src/trg/level_runtime_test.cpp
 
 open_questions:
   - Confirm the backend slot capacity and exact path normalization rules.
-  - Recover asynchronous spool error cleanup and the individual stream flag bits.
+  - Confirm the retail asynchronous spool error cleanup and the individual stream flag bits.
   - Confirm the count-prefix allocation header used by the platform allocator.
 
 completion:
@@ -47,4 +58,7 @@ completion:
   - PRE short-name lookup and package/file fallback share one caller-owned load buffer.
   - Stream element reads preserve checked multiplication and cursor advancement.
   - Loaded bytes reach PSX and FNT parsers without retaining backend or PRE storage.
+  - Player PSH/PSX requests use the common PKR/PRE handoff and retain one owned runtime result per queue entry.
+  - Malformed PKR/PRE player payloads publish no partial result and leave the request retryable.
+  - Completed player results have an explicit release boundary matching the observed entry cleanup path.
   - Platform file handles, allocator internals, and asynchronous scheduling remain explicit adapters.
