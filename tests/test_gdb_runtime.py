@@ -46,26 +46,25 @@ generated_knowledge.FUNCTIONS_ALIASES = {
 generated_knowledge.GLOBALS_ALIASES = {}
 sys.modules["knowledge"] = generated_knowledge
 
-from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.action import ActionMaskSequenceProbe
+from opentony.breakpoint import Context, CountingBreakpoint
 from opentony.calling import CallContext
 from opentony.camera import (
-    camera_effect_record,
-    camera_collision_record,
-    camera_collision_result_record,
-    camera_point_select_record,
-    camera_timing_record,
-    CameraPointSelectProbe,
     CameraPositionTransformProbe,
     CameraProbe,
     CameraViewportControlProbe,
     GeometrySubmissionProbe,
-    ViewProjectionProbe,
     ViewProjectionPerturbProbe,
+    ViewProjectionProbe,
     actor_submission_record,
+    camera_collision_record,
+    camera_collision_result_record,
+    camera_effect_record,
+    camera_point_select_record,
     camera_position_transform_record,
-    geometry_raster_return_record,
     camera_record,
+    camera_timing_record,
+    geometry_raster_return_record,
     geometry_submission_record,
     transformed_vertex_record,
 )
@@ -75,7 +74,12 @@ from opentony.collision import (
 )
 from opentony.frame import FrameBreakpoint, FrameClock
 from opentony.memory import Memory
-from opentony.physics import PhysicsProbe, PlayerDiffProbe, SharedRandomServiceProbe
+from opentony.physics import (
+    PhysicsProbe,
+    PlayerDiffProbe,
+    SharedRandomServiceProbe,
+    SimulationTimeStoreProbe,
+)
 from opentony.player import PlayerView
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
@@ -401,6 +405,87 @@ def test_shared_random_service_probe_records_call_and_return():
             "return_value_s32": 187,
         }
     ]
+
+
+def test_simulation_time_store_probe_records_source_and_target():
+    player = 0x400
+
+    class StoreMemory:
+        def __init__(self):
+            self.values = {
+                generated_knowledge.GLOBALS["Player"]: player,
+                player + 0x2F44: 41,
+                player + 0x30B8: 0,
+                player + 0x3110: 0xFFFFF128,
+                player + 0x2DE4: 17,
+                0x100: 0x0049F1B5,
+                0x1D0: 0x0049E680,
+            }
+            self.values.update(
+                {address: index + 1 for index, address in enumerate(TIMING_FIELDS.values())}
+            )
+
+        def ptr(self, address):
+            return self.values[address]
+
+        def valid(self, address):
+            return address == player
+
+        def u32(self, address):
+            return self.values[address]
+
+        def s32(self, address):
+            value = self.u32(address)
+            return value - 0x100000000 if value & 0x80000000 else value
+
+        def readable(self, address, size=1):
+            return size == 4 and address in self.values
+
+    memory = StoreMemory()
+    events = []
+
+    class Writer:
+        def event(self, record):
+            events.append(record)
+
+    context = Context(
+        CallContext(
+            memory,
+            registers={
+                "esp": 0x100,
+                "ebp": player,
+                "edx": 0x12345678,
+                "eax": 0x9ABCDEF0,
+                "eip": SimulationTimeStoreProbe.ADDRESS,
+            },
+        ),
+        memory,
+    )
+    probe = SimulationTimeStoreProbe(
+        count=1,
+        writer=Writer(),
+        frame_provider=lambda: 241,
+    )
+
+    probe.on_hit(context)
+
+    assert probe.hits == 1
+    assert probe.remaining == 0
+    event = events[0]
+    assert event["type"] == "simulation_time_store"
+    assert event["writer_pc"] == "0x0049f1a9"
+    assert event["caller"] == "0x0049e680"
+    assert event["frame"] == 241
+    assert event["stack_return_slot_raw"] == 0x0049F1B5
+    assert event["function_return_offset"] == "0x00d0"
+    assert event["field_offset"] == "0x2f44"
+    assert event["field_before_raw"] == 41
+    assert event["source_global_raw"] == list(TIMING_FIELDS).index("simulation_time") + 1
+    assert event["source_register_raw"] == 0x12345678
+    assert event["store_value_raw"] == 0x12345678
+    assert event["source_matches_global"] is False
+    assert event["next_store_value_raw"] == 0x9ABCDEF0
+    assert event["timing"]["simulation_time"]["raw"] == list(TIMING_FIELDS).index("simulation_time") + 1
 
 
 def test_player_diff_probe_records_changed_relative_words():

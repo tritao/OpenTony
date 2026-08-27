@@ -74,6 +74,7 @@ from .physics import (
     PlayerDiffProbe,
     ResponseCorrectionProbe,
     SharedRandomServiceProbe,
+    SimulationTimeStoreProbe,
     SpecialPhysicsHandlerProbe,
     SyntheticPhysicsStateForceProbe,
     VelocityDampingComponentProbe,
@@ -2194,6 +2195,29 @@ class TonyMovementPhysicsProbe(gdb.Command):
         _write(f"movement physics probe armed {limit} at 0x{probe.address:08x}")
 
 
+class TonySimulationTimeProbe(gdb.Command):
+    """tony-simulation-time-probe [COUNT] -- trace the +0x2f44 time store."""
+
+    def __init__(self):
+        super().__init__("tony-simulation-time-probe", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(arg, "tony-simulation-time-probe [COUNT]") if arg.strip() else []
+        if len(values) > 1:
+            raise gdb.GdbError("usage: tony-simulation-time-probe [COUNT]")
+        count = _integer(values[0]) if values else None
+        if count is not None and count <= 0:
+            raise gdb.GdbError("COUNT must be positive")
+        probe = SimulationTimeStoreProbe(count=count, writer=_trace_writer)
+        _runtime_breakpoints.append(probe)
+        limit = "until disabled" if count is None else f"for {count} stores"
+        _write(
+            f"simulation-time store probe armed {limit} at "
+            f"0x{probe.address:08x}"
+        )
+
+
 class TonyGroundMotionProbe(gdb.Command):
     """tony-ground-motion-probe [COUNT] -- log B010 producer inputs."""
 
@@ -2963,6 +2987,16 @@ def _install_recording_instrumentation() -> None:
             ),
         )
     )
+    _runtime_breakpoints.append(
+        SimulationTimeStoreProbe(
+            writer=sink,
+            frame_provider=lambda: (
+                _recording_controller.active_frame
+                if _recording_controller is not None
+                else None
+            ),
+        )
+    )
 
     collision_probe = CollisionQueryProbe(writer=sink)
     _runtime_breakpoints.extend(
@@ -3061,6 +3095,7 @@ def register_commands() -> None:
     TonyTraceOpen()
     TonyTraceClose()
     TonyFrameClock()
+    TonySimulationTimeProbe()
     TonyPhysicsProbe()
     TonyForcePhysicsState()
     TonyCameraProbe()
@@ -3120,6 +3155,7 @@ def register_commands() -> None:
         "tony-animation-selector-sample, "
         "tony-watch, tony-watch-once, tony-watch-batch, tony-watch-log, tony-watch-clear, "
         "tony-trace-open, tony-trace-close, tony-frame-clock, tony-physics-probe, "
+        "tony-simulation-time-probe, "
         "tony-force-physics-state, "
         "tony-camera-probe, tony-camera-effects-probe, tony-view-probe, tony-view-perturb, "
         "tony-camera-position-probe, tony-actor-probe, tony-geometry-probe, "

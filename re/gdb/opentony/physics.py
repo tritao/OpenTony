@@ -7,6 +7,7 @@ import struct
 from .breakpoint import Context, CountingBreakpoint, TonyBreakpoint
 from .knowledge import GLOBALS, function_address
 from .player import PlayerView
+from .timing import TIMING_FIELDS, animation_timing_record
 
 PLAYER_DIFF_SIZE = 0x3208
 
@@ -114,6 +115,12 @@ GROUND_MOTION_FRAME_RANDOM_SITES = {
 # lookup rather than a stateful PRNG; keep that distinction visible in the
 # event name until dynamic evidence settles it.
 SHARED_RANDOM_SERVICE = 0x0048F3A0
+
+# The physics wrapper loads the simulation clock at 0x0049f1a0 and publishes
+# it to Player+0x2f44 at 0x0049f1a9.  Keep the probe on the store itself so it
+# observes the exact value about to be committed without changing the path.
+SIMULATION_TIME_STORE_ADDRESS = 0x0049F1A9
+SIMULATION_TIME_PLAYER_OFFSET = 0x2F44
 
 # Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
 # placed after the call, where EAX contains the returned roll.  The charge
@@ -528,6 +535,88 @@ class MovementPhysicsProbe(CountingBreakpoint):
             "heading_input": ctx.memory.s8(player + 0x31A1),
             "heading_deadband": ctx.memory.s8(player + 0x31A2),
             **_input_observation(ctx.memory),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class SimulationTimeStoreProbe(CountingBreakpoint):
+    """Trace the exact store of the physics wrapper's simulation time."""
+
+    ADDRESS = SIMULATION_TIME_STORE_ADDRESS
+    SOURCE_ADDRESS = TIMING_FIELDS["simulation_time"]
+    PLAYER_REGISTER = "ebp"
+    # 0x0049e680's initial push of EBP is consumed by its first helper before
+    # this store. Four saved registers therefore remain below the 0xc0-byte
+    # local area, putting the saved caller return address at ESP+0xd0.
+    FUNCTION_RETURN_OFFSET = 0xD0
+
+    def __init__(self, count: int | None = None, writer=None, frame_provider=None):
+        super().__init__(self.ADDRESS, count=count, internal=True)
+        self.writer = writer
+        self.frame_provider = frame_provider
+
+    def _current_frame(self, ctx: Context) -> int:
+        if self.frame_provider is None:
+            return ctx.frame
+        frame = self.frame_provider()
+        return ctx.frame if frame is None else int(frame)
+
+    @classmethod
+    def _function_return_address(cls, ctx: Context) -> int | None:
+        address = ctx.esp + cls.FUNCTION_RETURN_OFFSET
+        if not ctx.memory.readable(address, 4):
+            return None
+        return ctx.memory.u32(address)
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.register(self.PLAYER_REGISTER)
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+
+        source_register = ctx.register("edx")
+        source_global = ctx.memory.u32(self.SOURCE_ADDRESS)
+        before = ctx.memory.u32(player + SIMULATION_TIME_PLAYER_OFFSET)
+        return_address = self._function_return_address(ctx)
+        record = {
+            "type": "simulation_time_store",
+            "function": "Skater_PhysicsFrame",
+            "eip": f"0x{ctx.eip:08x}",
+            "caller": None if return_address is None else f"0x{return_address:08x}",
+            "frame": self._current_frame(ctx),
+            "player": f"0x{player:08x}",
+            "writer_pc": f"0x{self.ADDRESS:08x}",
+            "source_pc": "0x0049f1a0",
+            "field": "simulation_time",
+            "field_offset": f"0x{SIMULATION_TIME_PLAYER_OFFSET:04x}",
+            "field_before_raw": before,
+            "field_before_s32": _signed32(before),
+            "source_global": f"0x{self.SOURCE_ADDRESS:08x}",
+            "source_global_raw": source_global,
+            "source_global_s32": _signed32(source_global),
+            "source_register": "edx",
+            "source_register_raw": source_register & 0xFFFFFFFF,
+            "source_register_s32": _signed32(source_register),
+            "store_value_raw": source_register & 0xFFFFFFFF,
+            "store_value_s32": _signed32(source_register),
+            "source_matches_global": (source_register & 0xFFFFFFFF) == source_global,
+            "stack_return_slot_raw": (
+                ctx.memory.u32(ctx.esp)
+                if ctx.memory.readable(ctx.esp, 4)
+                else None
+            ),
+            "function_return_offset": f"0x{self.FUNCTION_RETURN_OFFSET:04x}",
+            "next_store_value_raw": ctx.register("eax") & 0xFFFFFFFF,
+            "next_store_value_s32": _signed32(ctx.register("eax")),
+            "physics_state": ctx.memory.u32(player + 0x30B8),
+            "gate_3110_raw": ctx.memory.u32(player + 0x3110),
+            "gate_3110_s32": ctx.memory.s32(player + 0x3110),
+            "player_animation_clock_raw": ctx.memory.u32(player + 0x2DE4),
+            "timing": animation_timing_record(ctx.memory),
         }
         if self.writer is None:
             self.emit(record)
