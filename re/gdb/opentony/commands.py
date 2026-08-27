@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import struct
 from pathlib import Path
 
 import gdb
@@ -86,6 +87,15 @@ from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
 from .replay import REPLAY_MODES, create_retail_replay
 from .snapshot import format_diff, snapshots
+from .timer import (
+    TIMER_PAUSE_GATE_A,
+    TIMER_PAUSE_GATE_B,
+    TIMER_PUBLIC_ACCUMULATOR,
+    TIMER_PUBLIC_TICK,
+    TIMER_SIMULATION_ACCUMULATOR,
+    TIMER_SIMULATION_TIME,
+    TIMER_STATE_ADDRESS,
+)
 from .timing import animation_timing_record
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
@@ -275,6 +285,47 @@ def _recording_metadata(player: int) -> dict:
     }
 
 
+def _recording_timer_state() -> dict | None:
+    """Capture the callback-owned timer state once per recording.
+
+    This is initialization state, not a replayed clock value.  Subsequent
+    timer values are reconstructed from the recorded delivery events.
+    """
+
+    if not mem.readable(TIMER_STATE_ADDRESS, 0x14):
+        return None
+    record = {
+        name: mem.u32(TIMER_STATE_ADDRESS + offset)
+        for name, offset in (
+            ("timer_handle", 0x00),
+            ("interval_ms", 0x04),
+            ("opaque_08", 0x08),
+            ("accumulated_ms", 0x0C),
+            ("opaque_10", 0x10),
+        )
+    }
+    for name, address in (
+        ("public_accumulator", TIMER_PUBLIC_ACCUMULATOR),
+        ("simulation_accumulator", TIMER_SIMULATION_ACCUMULATOR),
+    ):
+        if not mem.readable(address, 8):
+            return None
+        raw = int.from_bytes(mem.bytes(address, 8), "little")
+        record[name] = {
+            "raw": raw,
+            "value": struct.unpack("<d", raw.to_bytes(8, "little"))[0],
+        }
+    record.update(
+        {
+            "public_tick": mem.u32(TIMER_PUBLIC_TICK),
+            "simulation_time": mem.u32(TIMER_SIMULATION_TIME),
+            "simulation_pause_gate_a": bool(mem.u32(TIMER_PAUSE_GATE_A)),
+            "simulation_pause_gate_b": bool(mem.u32(TIMER_PAUSE_GATE_B)),
+        }
+    )
+    return record
+
+
 def _argv(arg: str, usage: str) -> list[str]:
     try:
         values = shlex.split(arg)
@@ -368,11 +419,16 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
         input_record = self.controller.latest_input
         if input_record is None:
             input_record, _hotkey_down = _recording_input(self.controller)
+        metadata = _recording_metadata(player)
+        if self.controller.current_frame_index == 0:
+            initial_timer_state = _recording_timer_state()
+            if initial_timer_state is not None:
+                metadata["initial_timer_state"] = initial_timer_state
         try:
             frame = self.controller.begin_frame(
                 _recording_player_snapshot(player),
                 input_record=input_record,
-                metadata=_recording_metadata(player),
+                metadata=metadata,
             )
         except RecordingError as exc:
             raise gdb.GdbError(str(exc)) from exc

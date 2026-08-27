@@ -11,6 +11,7 @@ import gdb
 from .breakpoint import Context, TonyBreakpoint
 from .knowledge import GLOBALS
 from .memory import mem
+from .timer import TimerReplayService
 from .timing import TIMING_FIELDS, animation_timing_record, timing_raw_value
 
 _ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
@@ -58,6 +59,11 @@ _VOLATILE_TIMING_FIELDS = {
     "animation_clock_accumulator",
     "simulation_time",
 }
+# The callback breakpoint is intentionally kept on the already validated
+# final integer store.  At that point the callback's state transition is
+# complete, but the pending store can still be supplied with the deterministic
+# modeled result without tracing Wine's timer thread entry.
+_TIMER_CALLBACK_STORE_ADDRESS = 0x004DAD68
 
 REPLAY_MODES = ("assisted", "strict")
 _DERIVED_REPLAY_CHANNELS = (
@@ -255,6 +261,10 @@ class RetailReplay:
         self._previous_held_keys: set[int] = set()
         self._active_return: RetailReplayReturnBreakpoint | None = None
         self._stopped = False
+        initial_timer_state = TimerReplayService.initial_from_recording(
+            self.header, self.frames
+        )
+        self.timer_service = TimerReplayService(initial_timer_state)
         self.input_breakpoint = RetailReplayInputBreakpoint(self)
         self.action_breakpoint: RetailReplayActionBuildBreakpoint | None = None
         self.entry_breakpoint = RetailReplayFrameEntryBreakpoint(self)
@@ -269,6 +279,10 @@ class RetailReplay:
             RetailReplayAnimationTimestampBreakpoint(self, address)
             for address in _PLAYER_ANIMATION_TIMESTAMP_STORES
         ]
+        self.timer_callback_breakpoint = RetailReplayTimerCallbackBreakpoint(self)
+        self.timer_callback_breakpoint.enabled = (
+            self.mode == "strict" and self.timer_service.available
+        )
         self._derived_breakpoints = (
             self.simulation_time_breakpoint,
             self.animation_clock_breakpoint,
@@ -296,6 +310,16 @@ class RetailReplay:
             )
         else:
             gdb.write("injected derived channels: none\n")
+        if self.mode == "strict":
+            if self.timer_service.available:
+                gdb.write(
+                    "deterministic timer deliveries: enabled\n"
+                )
+            else:
+                gdb.write(
+                    "deterministic timer deliveries: unavailable "
+                    "(recording has no initial timer state)\n"
+                )
 
     def inject_input(self) -> None:
         if self._stopped or self.index >= len(self.frames):
@@ -397,6 +421,16 @@ class RetailReplay:
         if self.index >= len(self.frames):
             self._finish()
             return
+        if self.mode == "strict" and self.timer_service.available:
+            try:
+                self.timer_service.apply_frame(self.frames[self.index], mem)
+            except (TypeError, ValueError) as exc:
+                self._diverge(
+                    "timer",
+                    (("events",), "valid timer deliveries", str(exc)),
+                    self.entry_breakpoint,
+                )
+                return
         self.inject_timing()
         if self.index == 0 or self.index % 16 == 0:
             gdb.write(f"retail replay frame {self.index}/{len(self.frames)}\n")
@@ -436,6 +470,7 @@ class RetailReplay:
         if self.action_breakpoint is not None:
             self.action_breakpoint.enabled = False
         self.entry_breakpoint.enabled = False
+        self.timer_callback_breakpoint.enabled = False
         self.simulation_time_breakpoint.enabled = False
         self.animation_clock_breakpoint.enabled = False
         self.landing_frame_breakpoint.enabled = False
@@ -460,6 +495,7 @@ class RetailReplay:
         if self.action_breakpoint is not None:
             self.action_breakpoint.enabled = False
         self.entry_breakpoint.enabled = False
+        self.timer_callback_breakpoint.enabled = False
         self.simulation_time_breakpoint.enabled = False
         self.animation_clock_breakpoint.enabled = False
         self.landing_frame_breakpoint.enabled = False
@@ -483,6 +519,24 @@ class RetailReplay:
             f"matching: {self.index}\n"
             f"mode: {self.mode}\n"
             "result: divergent\n"
+        )
+
+    def suppress_live_timer_callback(self, ctx: Context) -> None:
+        """Neutralize one uncontrolled Wine callback delivery.
+
+        The replay service has already applied the recorded deliveries at the
+        frame boundary.  A real multimedia callback may still fire on Wine's
+        timer thread; restore the modeled state immediately before its final
+        integer store and let that store execute with the modeled EAX value.
+        """
+
+        if self._stopped or self.mode != "strict":
+            return
+        self.timer_service.suppress_live_callback(
+            ctx.memory,
+            result_register_setter=lambda value: gdb.execute(
+                f"set $eax = {value & 0xFFFFFFFF}"
+            ),
         )
 
 
@@ -521,6 +575,17 @@ class RetailReplayFrameEntryBreakpoint(TonyBreakpoint):
 
     def on_hit(self, ctx: Context) -> None:
         self.replay.frame_entry(ctx)
+
+
+class RetailReplayTimerCallbackBreakpoint(TonyBreakpoint):
+    """Gate the final store of Wine's asynchronous timer callback."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_TIMER_CALLBACK_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.replay.suppress_live_timer_callback(ctx)
 
 
 class RetailReplaySimulationTimeBreakpoint(TonyBreakpoint):

@@ -27,13 +27,15 @@ artifacts:
     - tests/test_camera_system.py
     - tests/test_gdb_runtime.py
     - tests/test_recording.py
+    - tests/test_timer_replay.py
 
 open_questions:
   - Characterize callback count, ordering, interval, and pause-gate behavior across repeated idle Warehouse recordings.
   - Confirm that initial timer state plus ordered callback deliveries reproduces all observed integer and floating clock outputs.
-  - Add deterministic replay service control only after the callback model passes long-recording fixtures.
+  - Validate deterministic timer replay over long idle Warehouse recordings; runtime fixtures still need to be captured.
 
 completion:
   - The callback boundary and timer-state fields read/written by 0x004dace0 are recorded.
   - Recording events represent callback delivery as an external input while retaining derived clocks as observations.
   - The offline native model covers the callback transition, x87-style publication, 16 ms deliveries, and both pause gates.
+  - Strict replay has a deterministic timer service and suppresses uncontrolled callback stores without injecting derived clock values.

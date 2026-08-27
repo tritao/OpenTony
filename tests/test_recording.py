@@ -113,6 +113,28 @@ def test_async_simulation_time_store_waits_for_next_frame(tmp_path):
     ]
 
 
+def test_timer_delivery_during_frame_is_queued_for_next_boundary(tmp_path):
+    path = tmp_path / "timer-boundary.otrec"
+    controller = RecordingController(
+        writer_factory=RecordingWriter,
+        clock=lambda: "2026-08-27T12:00:00.000+00:00",
+    )
+    controller.request_start(path)
+    controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.event({"type": "timer_callback_delivery", "interval_ms": 16})
+    controller.end_frame(_snapshot(1))
+    controller.request_stop()
+    controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(2))
+
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    frames = [record for record in records if record["type"] == "frame"]
+    assert frames[0]["events"] == []
+    assert frames[1]["events"] == [
+        {"type": "timer_callback_delivery", "interval_ms": 16}
+    ]
+
+
 def test_hotkey_is_rising_edge_only_and_does_not_enter_input_record(tmp_path):
     controller = RecordingController()
     controller.DEFAULT_DIRECTORY = tmp_path

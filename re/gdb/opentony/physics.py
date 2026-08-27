@@ -130,6 +130,8 @@ SIMULATION_TIME_TIMER_STATE = 0x006A05A0
 TIMER_PUBLIC_ACCUMULATOR = 0x006A0590
 TIMER_SIMULATION_ACCUMULATOR = 0x006A0598
 TIMER_PUBLIC_TICK = 0x0056E31C
+TIMER_PAUSE_GATE_A = 0x00561C04
+TIMER_PAUSE_GATE_B = 0x0056A8E0
 
 # Return sites for FUN_0048f3a0 draws owned by FUN_0049a280.  Breakpoints are
 # placed after the call, where EAX contains the returned roll.  The charge
@@ -720,6 +722,8 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
         simulation_accumulator = self._read_optional_double(
             memory, TIMER_SIMULATION_ACCUMULATOR
         )
+        pause_gate_a = self._read_optional(memory, TIMER_PAUSE_GATE_A)
+        pause_gate_b = self._read_optional(memory, TIMER_PAUSE_GATE_B)
         record = {
             "type": "timer_callback_delivery",
             "function": "SimulationTimeTimerCallback",
@@ -762,6 +766,12 @@ class SimulationTimeAccumulatorProbe(CountingBreakpoint):
             "public_tick_before_raw": memory.u32(TIMER_PUBLIC_TICK),
             "public_accumulator_after": public_accumulator,
             "simulation_accumulator_after": simulation_accumulator,
+            "simulation_pause_gate_a": (
+                bool(pause_gate_a) if pause_gate_a is not None else None
+            ),
+            "simulation_pause_gate_b": (
+                bool(pause_gate_b) if pause_gate_b is not None else None
+            ),
             "callback_cleanup_bytes": f"0x{self.CALLBACK_CLEANUP_BYTES:04x}",
         }
         if self.writer is None:

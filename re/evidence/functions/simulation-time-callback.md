@@ -31,7 +31,15 @@ callback ordinal within the observed gameplay frame, callback arguments, timer
 state before/after (with the `+0x0c` pre-value reconstructed from the retail
 add), and the floating/integer outputs. The event is queued across frame
 boundaries as an external input; none of its derived clock values are restored
-during strict replay.
+during strict replay. New recordings also retain the callback-owned initial
+timer state in the header.
+
+Strict replay now owns a `TimerReplayService`. At each gameplay-frame boundary
+it applies exactly the recorded delivery events through the same transition
+model, publishes the resulting timer state, and leaves `DAT_0056e320` to the
+retail player load/store chain. A breakpoint at the callback's final integer
+store restores the modeled state and supplies only the modeled EAX result, so
+an uncontrolled Wine timer thread cannot add an unrecorded delivery.
 
 The offline `advance_timer` model in `src/camera/camera_timing.hpp` mirrors the
 callback's state transition and x87-style double-to-integer publication. Its
