@@ -1,0 +1,55 @@
+{
+  "format": "opentony-collision-selection-policy-v1",
+  "binary_sha256": "f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669",
+  "face_filter": {
+    "builder": "0x004660b0",
+    "tester": "0x00462a20",
+    "startup_inputs": {
+      "0x00567c84": false,
+      "0x00567c7c": false,
+      "0x00567c78": false,
+      "0x00567c74": false,
+      "0x00567c80": false
+    },
+    "default_masks": {
+      "reject_mask": "0x00200000",
+      "accept_mask": "0xffffffff"
+    },
+    "predicates": [
+      "(surface_word & reject_mask) == 0",
+      "(surface_word | accept_mask) == 0xffffffff",
+      "((surface_word ^ 0x00010000) & 0x00030000) != 0",
+      "query_mask_mode || (surface_word & 0x00020000) == 0"
+    ],
+    "cases": [
+      {"name": "ordinary_trace_face", "surface_word": "0x00100020", "query_mask_mode": false, "accepted": true},
+      {"name": "class_0x10000", "surface_word": "0x00010000", "query_mask_mode": false, "accepted": false},
+      {"name": "query_mask_face_ordinary_mode", "surface_word": "0x00020000", "query_mask_mode": false, "accepted": false},
+      {"name": "query_mask_face_query_mode", "surface_word": "0x00020000", "query_mask_mode": true, "accepted": true, "physical_hit": false, "sideband": "model selector"},
+      {"name": "startup_rejected_bit", "surface_word": "0x00200000", "query_mask_mode": false, "accepted": false}
+    ]
+  },
+  "zone_selection": {
+    "zone_table": {"address": "0x00567f80", "record_stride_bytes": "0x660", "presence_offset": "0x00", "bounds_offsets": ["0x04", "0x08", "0x0c", "0x10"], "divisor_offset": "0x14", "count_offsets": ["0x1c", "0x1e"]},
+    "candidate_pointer_table": {"address": "0x00567fa0", "index": "zone*0x198 + cell_x*0x14 + cell_z", "entry_bytes": 4, "group_entries": "0x198"},
+    "zone_overlap": "inclusive X/Z endpoint test; Y is deferred to face AABBs",
+    "boundary_cases": [
+      {"zone": 3, "cell_x": 4, "cell_z": 5, "candidate_index": 1309},
+      {"zone": 3, "point": "max_x,max_z", "cell_x": 19, "cell_z": 9, "candidate_index": 1613},
+      {"zone": 3, "point": "max_x+1,max_z", "visited": false}
+    ],
+    "runtime_hangar": {"bounds": [-29581312, -43610112, 73199628, 59170828], "cell_divisor": 5139047, "counts": [20, 20], "source_first_candidate": "source+0x20"}
+  },
+  "ownership": {
+    "model_tables": {"objects": "0x0056d438[kind*0x11]", "models": "0x0056d43c[kind*0x11]", "model_index": "runtime node +0x1a", "model_kind": "runtime node +0x1f"},
+    "zone_candidates": "0x00567fa0 cell pointers resolve to null-terminated linked-object-head arrays; they are separate from 0x0056af40",
+    "dynamic_inputs": {"flags": "+0x04", "position": "+0x08", "angles": "+0x14", "model_index": "+0x1a", "next": "+0x20", "matrix_scale_q12": ["+0x28", "+0x2a", "+0x2c"], "transform_gate": "full-word 0x0200"},
+    "query_result": {"body": "q+0x68", "contact": "q+0x6c..0x74", "normal": "q+0x78..0x7c", "face": "q+0x80", "model_index": "q+0x84", "travel": "q+0x40", "parameter": "q+0x8c"}
+  },
+  "representative_queries": [
+    {"name": "floor_or_airborne_hit", "evidence": "collision-air4.trace.ndjson", "line_length": 71, "parameter": 2101, "distance": 9},
+    {"name": "wall_oriented_face", "evidence": "collision-face2.trace.ndjson", "surface_word": "0x00100020"},
+    {"name": "airborne_miss", "evidence": "collision-air4.trace.ndjson", "result": "hit_body=0, hit_distance=0x7fffffff"},
+    {"name": "moving_geometry", "evidence": "collision-dynamic-positive5.trace.ndjson", "flags": "0x0110", "model_kind": 6, "model_index": 171, "matrix_scale_q12": [4096, 4096, 4096], "dynamic_distance": 29}
+  ]
+}

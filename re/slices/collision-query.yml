@@ -27,17 +27,20 @@ artifacts:
   evidence:
     - re/evidence/functions/collision.md
     - re/evidence/functions/blockmap-collision.md
+    - re/evidence/fixtures/collision-selection-policy.json
   native:
     - re/evidence/collision_reference.hpp
+    - src/collision/psx_scene.hpp
     - src/assets/psx_collision.cpp
     - src/runtime/psx_collision_probe.cpp
   tests:
     - re/evidence/collision_reference_test.cpp
+    - src/collision/psx_scene_test.cpp
     - src/assets/psx_collision_test.cpp
     - src/runtime/psx_collision_probe_test.cpp
 
 open_questions:
-  - Establish the complete retail face-filtering and zone-selection policy.
+  - Capture a natural non-injected moving-prop query to replace the controlled transform replay; the selection and transform-input policy is established.
 
 completion:
   - All scoped function boundaries and ABIs are evidence-backed.

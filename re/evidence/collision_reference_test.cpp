@@ -403,6 +403,24 @@ int main() {
     const RawVec3 expected_model_contact{4096, 4096, 0};
     CHECK(model_query.hit_position == expected_model_contact);
 
+    // The retail face selector is a four-stage predicate. The default
+    // startup inputs reject 0x200000, require no additional bits, reject the
+    // 0x10000/0x30000 class, and exclude 0x20000 unless q+0x88 is enabled.
+    CollisionFaceFilter retail_filter;
+    CHECK(retail_filter.accepts(0x00100020));
+    CHECK(!retail_filter.accepts(0x00010000));
+    CHECK(!retail_filter.accepts(0x00020000));
+    CHECK(!retail_filter.accepts(0x00200000));
+    retail_filter.query_mask_mode = true;
+    CHECK(retail_filter.accepts(0x00020000));
+    retail_filter.query_mask_mode = false;
+    retail_filter.reject_mask = 0x00400000;
+    CHECK(!retail_filter.accepts(0x00400000));
+    retail_filter.reject_mask = 0;
+    retail_filter.required_bits = 0xfffffffe;
+    CHECK(!retail_filter.accepts(0x00100020));
+    CHECK(retail_filter.accepts(0x00100021));
+
     std::array<DynamicVertexRecord, 4> transformed_vertices{};
     const std::array<std::int16_t, 9> identity_q12{
         0x1000, 0, 0, 0, 0x1000, 0, 0, 0, 0x1000};
@@ -548,6 +566,39 @@ int main() {
     CHECK(zone_overlaps_query(zone, model_query));
     CHECK(zone_candidate_index(3, 4, 5, zone) == 3 * 0x198 + 4 * 0x14 + 5);
     CHECK(!zone_candidate_index(3, 20, 0, zone));
+
+    const CollisionZoneGrid boundary_zone{
+        .min_x = 0,
+        .min_z = 0,
+        .max_x = 200,
+        .max_z = 100,
+        .cell_divisor = 10,
+        .cell_count_x = 20,
+        .cell_count_z = 10,
+    };
+    QueryRecord zone_boundary_query;
+    zone_boundary_query.start = {200, 0, 100};
+    zone_boundary_query.end = zone_boundary_query.start;
+    prepare(zone_boundary_query);
+    std::vector<std::size_t> boundary_cells;
+    visit_zone_cells(zone_boundary_query, 3, boundary_zone,
+                     [&boundary_cells](std::size_t index, std::int32_t,
+                                       std::int32_t) {
+                         boundary_cells.push_back(index);
+                     });
+    CHECK(boundary_cells.size() == 1);
+    CHECK(boundary_cells.front() == 3 * 0x198 + 19 * 0x14 + 9);
+    QueryRecord outside_zone_query;
+    outside_zone_query.start = {201, 0, 100};
+    outside_zone_query.end = outside_zone_query.start;
+    prepare(outside_zone_query);
+    boundary_cells.clear();
+    visit_zone_cells(outside_zone_query, 3, boundary_zone,
+                     [&boundary_cells](std::size_t index, std::int32_t,
+                                       std::int32_t) {
+                         boundary_cells.push_back(index);
+                     });
+    CHECK(boundary_cells.empty());
 
     CollisionZoneGrid walk_zone{
         .min_x = 0,

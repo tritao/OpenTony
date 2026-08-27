@@ -132,7 +132,8 @@ faces to a hit result. The native replay resolves that dynamic candidate as
 model face 5, with final normal `[1, -4093, -160]` and surface/normal word
 `0x00100028`.
 
-Static loader ownership is now partly separated as well. `0x004667e0`, called
+Static collision-table ownership is now separated even though the complete
+loader serialization remains open. `0x004667e0`, called
 from `0x0043e03c` and `0x004b29e6` and carrying `m3dzone.cpp` diagnostics,
 initializes the live zone record and fills the per-cell candidate-pointer
 table. Its serialized input has four fixed-point bounds words and a packed
