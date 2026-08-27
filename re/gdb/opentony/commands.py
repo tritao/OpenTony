@@ -134,6 +134,7 @@ _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
 _recording_controller = None
+_recording_timer_probe = None
 _retail_replay = None
 _frontend_screen_automation = None
 
@@ -434,6 +435,12 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
             raise gdb.GdbError(str(exc)) from exc
         if frame is None:
             return
+        # Wine's multimedia timer thread is active during menu/level startup;
+        # inserting a breakpoint into that thread before gameplay can trigger
+        # GDB's remote step-over race.  Arm the callback probe only after the
+        # first canonical gameplay frame has opened the recording.
+        if frame == 0 and _recording_timer_probe is not None:
+            _recording_timer_probe.enabled = True
         return_address = ctx.return_address()
         if return_address == 0:
             raise gdb.GdbError("could not install recording frame return breakpoint")
@@ -3080,7 +3087,7 @@ class TonyType192CommandProbe(gdb.Command):
 
 
 def _install_recording_instrumentation() -> None:
-    global _recording_controller
+    global _recording_controller, _recording_timer_probe
     if _recording_controller is not None:
         return
     session_dir = os.environ.get("TONY_SESSION_DIR")
@@ -3116,16 +3123,16 @@ def _install_recording_instrumentation() -> None:
     # Multimedia timer callbacks arrive on Wine's timer thread and can land
     # between gameplay-frame boundaries. Record the delivery as an external
     # event; its integer clocks remain observations, never replay inputs.
-    _runtime_breakpoints.append(
-        SimulationTimeAccumulatorProbe(
-            writer=sink,
-            frame_provider=lambda: (
-                _recording_controller.active_frame
-                if _recording_controller is not None
-                else None
-            ),
-        )
+    _recording_timer_probe = SimulationTimeAccumulatorProbe(
+        writer=sink,
+        frame_provider=lambda: (
+            _recording_controller.active_frame
+            if _recording_controller is not None
+            else None
+        ),
     )
+    _recording_timer_probe.enabled = False
+    _runtime_breakpoints.append(_recording_timer_probe)
     collision_probe = CollisionQueryProbe(writer=sink)
     _runtime_breakpoints.extend(
         (collision_probe.entry, collision_probe.return_breakpoint)
