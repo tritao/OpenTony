@@ -1,6 +1,6 @@
 # TRG level-event runtime initialization
 
-Status: confirmed opcode boundary, mode-8/mode-9 first-call writes, eligible-frame countdown/score/camera side effects, and native handoff model; menu/stat/player ownership remains open
+Status: confirmed opcode boundary, mode-8/mode-9 first-call writes, eligible-frame countdown/score/camera side effects, and native player/replay/camera ownership; broader menu/stat ownership remains open
 Build: `f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c`
 Branch: `re/scripting`
 Addresses: `0x004c5dc0`, `0x00466c10`, `0x00469a30`, `0x00469de0`, `0x0044e0f0`, `0x00568658`, `0x00568818`, `0x00568610`, `0x006a3d48`, `0x006a3d49`, `0x0056b798`, `0x0056b79c`, `0x0056b7a0`, `0x0056b7a4`, `0x0056b7b0`, `0x0056b7b4`, `0x0056b7dc`, `0x0056b7e0`
@@ -137,9 +137,27 @@ on the following command at the same position as normal execution. A truncated
 one-byte tail still fails because the cursor requires a complete opcode word;
 no adjacent bytes are guessed as event payload.
 
-The remaining uncertainty is ownership: `0x004dee50`, `0x004ab9c0`, and
-`0x0044e0f0` perform broader stat/menu work, while the player and camera owners
-must apply the returned score, replay, animation, and `+0x5b4` requests. The
-opcode shape, event state transitions, constants, and side-effect boundaries
-are confirmed by control flow and represented without renaming unresolved
-globals.
+The remaining uncertainty is limited to ownership of the broader services:
+`0x004dee50`, `0x004ab9c0`, and `0x0044e0f0` perform stat/menu work outside this
+slice. The player, replay-slot, and camera side effects are now connected to
+their concrete native owners without renaming unresolved globals.
+
+## Promoted native ownership
+
+The static call chain and the native fixture now agree on the following
+boundaries:
+
+| Retail result/write | Native owner | Native side effect |
+| --- | --- | --- |
+| `0x00469a30` animation ID `0x5d`/`0x5f` | `LevelEventGameplayOwner -> PlayerState` | records an animation-service request while preserving the raw `+0xf6` selector input |
+| replay reset for slots 0 and 1 | `LevelEventGameplayOwner -> PlayerReplayResetOwner` | records one reset per slot, including the null-secondary one-player slot |
+| pending `+0x2a8 -> +0x16c` transfer | `LevelEventGameplayOwner -> PlayerState` | adds the returned value to raw `+0x16c` and clears raw `+0x2a8` |
+| `0x00469de0` camera delta to `+0x5b4` | `LevelEventGameplayOwner -> CameraRuntime` | applies the 16-bit camera field update through `CameraRuntime::apply_level_event_delta` |
+
+The deterministic `src/runtime/level_event_owner_test.cpp` fixture drives the
+native boundary reached by decoded `0x009e`, advances the recovered `0x50`
+countdown, and checks all four side-effect owners at expiry/window boundaries.
+Together with the existing `src/trg/trg_runtime_test.cpp` cursor fixture it
+keeps command dispatch and gameplay ownership separate. The owner fixture also
+checks the two raw deferred-gap slots and script-object reset lifecycle, so no
+parser expansion is needed to establish this event-to-gameplay chain.

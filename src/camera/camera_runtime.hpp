@@ -36,6 +36,11 @@ public:
 
     void reset() noexcept;
     void reset(const CameraTargetRaw& target, std::uint32_t mode = 1) noexcept;
+    // The level-event gameplay update writes the camera object field at
+    // +0x5b4 after the event countdown enters its final window. Keep that
+    // write behind the camera owner instead of exposing it as a trigger-side
+    // mutation.
+    void apply_level_event_delta(std::int32_t delta) noexcept;
 
     [[nodiscard]] bool configured() const noexcept { return configured_; }
     [[nodiscard]] bool has_commit() const noexcept { return has_commit_; }

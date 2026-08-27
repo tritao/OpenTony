@@ -93,6 +93,13 @@ and physics paths continue to receive the `0x3538` skater pointer. In
 two-player mode, the skater objects link through `+0x29bc`; this is separate
 from the camera's parent link.
 
+The level-event chain now stops at this proven player boundary rather than
+leaving the returned writes in trigger state. `LevelEventGameplayOwner` reads
+the raw `+0x2dd4`, `+0xf6`, `+0x107`, and `+0x2a8` fields from `PlayerState`,
+records the `0x00480730` animation request, and applies the observed pending
+score transfer from `+0x2a8` to `+0x16c`. These accessors retain offset names;
+they do not promote the surrounding score/stat service.
+
 ## Loaded-region handoff into the object
 
 The player spool path is described in

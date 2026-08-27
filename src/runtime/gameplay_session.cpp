@@ -6,6 +6,51 @@
 
 namespace opentony::runtime {
 
+class GameplaySession::FrameObserver final : public LevelFrameObserver {
+public:
+    FrameObserver(
+        GameplaySession& session,
+        LevelFrameObserver* downstream) noexcept
+        : session_(session), downstream_(downstream) {}
+
+    void on_input_frame(
+        std::uint64_t frame,
+        const InputState& input) override {
+        session_.prepare_level_event_frame(input);
+        if (downstream_ != nullptr) {
+            downstream_->on_input_frame(frame, input);
+        }
+    }
+
+    void on_level_tick(
+        std::uint64_t frame,
+        std::uint32_t milliseconds,
+        const InputState& input,
+        const trg::LevelRuntime& level) override {
+        // LevelRuntime::tick has already advanced the TRG event state. Apply
+        // its player/camera/replay result before GameplayFrame enters the
+        // physics step, matching the recovered consumer ordering.
+        session_.apply_level_event_frame();
+        if (downstream_ != nullptr) {
+            downstream_->on_level_tick(frame, milliseconds, input, level);
+        }
+    }
+
+    void on_player_physics(
+        std::uint64_t frame,
+        const PlayerPhysicsFrameResult& result,
+        const PlayerState& player) override {
+        session_.apply_deferred_gap_handoff();
+        if (downstream_ != nullptr) {
+            downstream_->on_player_physics(frame, result, player);
+        }
+    }
+
+private:
+    GameplaySession& session_;
+    LevelFrameObserver* downstream_{};
+};
+
 GameplaySession::GameplaySession(
     const std::string& trg_path,
     const std::string& psx_path,
@@ -18,6 +63,8 @@ GameplaySession::GameplaySession(
       config_(config),
       driver_(gameplay_, config_.fixed_step),
       camera_(),
+      replay_reset_owner_(),
+      level_event_owner_(player_, camera_, replay_reset_owner_),
       hooks_() {
     if (config_.use_recovered_collision_scene) {
         std::string error;
@@ -188,6 +235,13 @@ void GameplaySession::initialize(
     // an autoexec pulse observes the same mode gate as retail.
     level_.state().set_special_runtime_game_mode(
         config_.special_runtime_game_mode);
+    if (config_.level_event_inputs.has_value()) {
+        level_.state().set_level_event_inputs(*config_.level_event_inputs);
+    }
+    level_event_owner_.set_score_input_active(
+        config_.level_event_primary_score_input_active,
+        config_.level_event_secondary_score_input_active);
+    replay_reset_owner_.reset();
     level_.initialize(two_player, gap_table);
     // Front_LoadGame calls FUN_004c4e30 after the TRG autoexec/object pass.
     // That routine applies the restart selected by 0x8c/0xb0, including its
@@ -284,6 +338,33 @@ void GameplaySession::apply_restart_events(std::size_t event_start) {
     }
 }
 
+void GameplaySession::prepare_level_event_frame(
+    const InputState& input) noexcept {
+    level_event_owner_.set_score_input_active(
+        config_.level_event_primary_score_input_active,
+        config_.level_event_secondary_score_input_active);
+    level_.state().set_level_event_frame_input(
+        level_event_owner_.frame_input(
+            level_.state().level_event_inputs(),
+            input.action_mask() != 0));
+}
+
+void GameplaySession::apply_level_event_frame() noexcept {
+    level_event_owner_.apply(level_.state().last_level_event_frame());
+}
+
+void GameplaySession::apply_deferred_gap_handoff() {
+    const auto handoff = level_.state().complete_deferred_gap_for_physics_state(
+        player_.physics_state());
+    if (!handoff.has_value()
+        || handoff->source_node == trg::CommandPointRuntime::npos) {
+        return;
+    }
+    // The player physics branch selects the deferred slot; the source node is
+    // then pulsed through the normal level owner, preserving script ordering.
+    pulse_node(handoff->source_node);
+}
+
 void GameplaySession::update_camera_after_step() {
     if (!config_.update_camera) {
         return;
@@ -314,12 +395,13 @@ FixedStepAdvanceResult GameplaySession::advance(
     if (!initialized()) {
         throw std::logic_error("gameplay session advanced before initialize");
     }
+    FrameObserver session_observer(*this, observer);
     FixedStepAdvanceResult result = driver_.advance(
         elapsed_ms,
         keyboard,
         bindings,
         hooks_,
-        observer);
+        &session_observer);
     if (result.stepped) {
         last_frame_ = result.last;
         update_camera_after_step();
@@ -336,13 +418,14 @@ FixedStepAdvanceResult GameplaySession::advance(
     if (!initialized()) {
         throw std::logic_error("gameplay session advanced before initialize");
     }
+    FrameObserver session_observer(*this, observer);
     FixedStepAdvanceResult result = driver_.advance(
         elapsed_ms,
         action_mask,
         horizontal_axis,
         vertical_axis,
         hooks_,
-        observer);
+        &session_observer);
     if (result.stepped) {
         last_frame_ = result.last;
         update_camera_after_step();

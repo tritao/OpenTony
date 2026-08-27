@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -241,8 +242,26 @@ struct TriggerGapState {
     std::int16_t score{};
     std::string name;
     bool deferred{};
+    // The two bits are retained separately because the retail player
+    // dispatcher consumes +0x3014 and +0x3018 in different physics states.
+    bool deferred_field_3014{};
+    bool deferred_field_3018{};
     bool awarded{};
     bool pulse_pending{};
+};
+
+enum class TriggerDeferredGapSlot : std::uint16_t {
+    field_3014 = 0x3014,
+    field_3018 = 0x3018,
+};
+
+struct TriggerDeferredGapHandoff {
+    std::size_t source_node{CommandPointRuntime::npos};
+    std::uint32_t checksum{};
+    std::uint16_t argument{};
+    std::uint16_t flags{};
+    std::int16_t score{};
+    TriggerDeferredGapSlot slot{TriggerDeferredGapSlot::field_3018};
 };
 
 struct TriggerResourceRequest {
@@ -460,6 +479,11 @@ public:
         std::uint16_t phase_ec = 0x0032,
         std::uint8_t global_fade_flags = 0);
     void mark_gap_complete(std::uint32_t checksum);
+    // Completes the deferred definition selected by the live player physics
+    // state. This is the native handoff for retail +0x3014/+0x3018; the
+    // caller owns the source-node pulse after receiving the record.
+    [[nodiscard]] std::optional<TriggerDeferredGapHandoff>
+    complete_deferred_gap_for_physics_state(std::int32_t physics_state);
     void mark_goal_complete(std::uint16_t goal, bool complete = true);
     void set_level_event_inputs(TriggerLevelEventInputs inputs) noexcept {
         level_event_inputs_ = inputs;
@@ -486,6 +510,14 @@ public:
     [[nodiscard]] const std::vector<TriggerScriptObjectState>& script_objects() const noexcept {
         return script_objects_;
     }
+    // LevelRuntime::initialize/reset is the proven native release boundary
+    // for the 0xcc script-object records. The retail destructor internals are
+    // not claimed; this count makes the teardown visible to deterministic
+    // lifecycle tests.
+    [[nodiscard]] std::size_t script_object_teardown_count() const noexcept {
+        return script_object_teardown_count_;
+    }
+    [[nodiscard]] std::size_t teardown_script_objects() noexcept;
     [[nodiscard]] const std::vector<TriggerRestartState>& restarts() const noexcept { return restarts_; }
     [[nodiscard]] const std::vector<TriggerTimerState>& timers() const noexcept { return timers_; }
     [[nodiscard]] std::size_t timer_reset_requests() const noexcept {
@@ -554,6 +586,9 @@ public:
     }
     [[nodiscard]] const TriggerLevelEventRawStats& level_event_raw_stats() const noexcept {
         return level_event_raw_stats_;
+    }
+    [[nodiscard]] const TriggerLevelEventInputs& level_event_inputs() const noexcept {
+        return level_event_inputs_;
     }
     [[nodiscard]] const TriggerLevelEventFrameResult& last_level_event_frame() const noexcept {
         return last_level_event_frame_;
@@ -690,6 +725,7 @@ private:
     std::uint16_t visible_mask_{0x41};
     std::vector<TriggerObjectState> objects_;
     std::vector<TriggerScriptObjectState> script_objects_;
+    std::size_t script_object_teardown_count_{};
     std::vector<TriggerRestartState> restarts_;
     std::vector<TriggerTimerState> timers_;
     std::vector<TriggerGapState> gaps_;

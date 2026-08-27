@@ -321,6 +321,12 @@ player has the `+0x2dd4`/`+0x3018` conditions, it sets camera `+0x504` to
 This is a producer boundary, not a request to reimplement the surrounding
 physics dispatcher inside the camera class.
 
+The level-event path is a separate confirmed camera write: after
+`0x00469de0` returns its countdown-window delta, `LevelEventGameplayOwner`
+calls `CameraRuntime::apply_level_event_delta` on the contained camera object.
+The native method preserves the signed 16-bit `+0x5b4` boundary and does not
+turn the retail skater/camera pointers into trigger-owned pointers.
+
 The direct camera-side producer is stronger evidence for the update contract:
 the `0x0040ff2b` branch compares the linked tripod's `+0x3110` and
 `+0x30b8` fields immediately before the mode-dispatch continuation. The

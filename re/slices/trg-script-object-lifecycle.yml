@@ -1,0 +1,30 @@
+version: 1
+id: trg-script-object-lifecycle
+subsystem: scripting
+status: complete
+
+scope:
+  functions:
+    - 0x00401060
+  types:
+    - RuntimeTriggerScriptObject0xab
+  globals: []
+
+artifacts:
+  evidence:
+    - re/evidence/functions/trg-runtime.md
+    - re/evidence/functions/scripting.md
+  native:
+    - src/trg/level_trigger_state.hpp
+    - src/trg/level_trigger_state.cpp
+    - src/trg/level_runtime.cpp
+  tests:
+    - src/trg/level_trigger_state_test.cpp
+    - src/runtime/level_event_owner_test.cpp
+
+open_questions: []
+
+completion:
+  - The 0xab command's aligned key/parameter boundary, 0xcc record, raw links, and identifier address space are preserved.
+  - Script objects are owned by LevelTriggerState and released at the proven level-state reset boundary.
+  - Retail destructor internals and process-local intrusive pointer values remain explicitly outside the native claim.

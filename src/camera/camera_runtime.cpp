@@ -28,6 +28,12 @@ void CameraRuntime::reset(const CameraTargetRaw& target, std::uint32_t mode) noe
     has_commit_ = false;
 }
 
+void CameraRuntime::apply_level_event_delta(std::int32_t delta) noexcept {
+    state_.follow_rotation_raw = static_cast<std::int16_t>(
+        static_cast<std::uint16_t>(
+            static_cast<std::int32_t>(state_.follow_rotation_raw) + delta));
+}
+
 bool CameraRuntime::prepare_viewport_projection(
     ViewportInputRaw input,
     std::uint16_t state_selector,
