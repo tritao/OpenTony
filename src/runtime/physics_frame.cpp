@@ -217,6 +217,17 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             }
 
             if (stage == PhysicsDispatchStage::InAir_97f40 &&
+                hooks.air_action_control_input) {
+                const std::optional<AirActionControlConfig> control_input =
+                    hooks.air_action_control_input(current_player, input);
+                if (control_input.has_value()) {
+                    result.air_action_control =
+                        current_player.apply_air_action_control(
+                            input,
+                            *control_input);
+                }
+            }
+            if (stage == PhysicsDispatchStage::InAir_97f40 &&
                 hooks.air_direction_input) {
                 const std::optional<AirDirectionInputConfig> direction_input =
                     hooks.air_direction_input(current_player, input);

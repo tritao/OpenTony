@@ -109,4 +109,82 @@ AirDirectionInputResult apply_air_direction_input(
     return AirDirectionInputResult{delta, result, up, down};
 }
 
+AirActionControlResult apply_air_action_control(
+    const FixedPosition& velocity,
+    const FixedPosition& motion_correction,
+    const RetailBasis& basis,
+    AirActionControlConfig config) noexcept {
+    AirActionControlResult result{motion_correction, false};
+    if (!config.control_enabled) {
+        return result;
+    }
+
+    const auto scaled_axis = [gravity = config.gravity_acceleration](
+                                  const FixedPosition& axis,
+                                  std::int32_t percent) {
+        const std::int32_t scale = static_cast<std::int32_t>(
+            (static_cast<std::int64_t>(gravity) * percent) / 100);
+        return FixedPosition{
+            static_cast<std::int32_t>(
+                (static_cast<std::int64_t>(axis[0]) * scale) >> 12),
+            static_cast<std::int32_t>(
+                (static_cast<std::int64_t>(axis[1]) * scale) >> 12),
+            static_cast<std::int32_t>(
+                (static_cast<std::int64_t>(axis[2]) * scale) >> 12),
+        };
+    };
+    const auto add = [&result](const FixedPosition& value) {
+        for (std::size_t index = 0;
+             index < result.motion_correction.size();
+             ++index) {
+            result.motion_correction[index] += value[index];
+        }
+    };
+    const auto subtract = [&result](const FixedPosition& value) {
+        for (std::size_t index = 0;
+             index < result.motion_correction.size();
+             ++index) {
+            result.motion_correction[index] -= value[index];
+        }
+    };
+
+    // Preserve the retail order. In particular, opposing records cancel
+    // after each fixed-point term has been rounded independently.
+    if (config.kick_held) {
+        add(scaled_axis(basis.at_310c, 0xb4));
+    }
+    if (config.up_held) {
+        subtract(scaled_axis(basis.at_30f4, 0x96));
+    }
+    if (config.down_held) {
+        add(scaled_axis(basis.at_30f4, 0x96));
+    }
+    if (config.spin_left_held) {
+        add(scaled_axis(basis.at_3100, 0x96));
+    }
+    if (config.spin_right_held) {
+        subtract(scaled_axis(basis.at_3100, 0x96));
+    }
+
+    // The stabilization tail projects response velocity onto basis +0x3100,
+    // divides each component by 0x20 with IDIV, then subtracts it.
+    const std::int32_t velocity_along_spin_axis = fixed_dot_q12(
+        velocity, basis.at_3100);
+    const FixedPosition projection{
+        fixed_multiply_q12(
+            velocity_along_spin_axis, basis.at_3100[0]),
+        fixed_multiply_q12(
+            velocity_along_spin_axis, basis.at_3100[1]),
+        fixed_multiply_q12(
+            velocity_along_spin_axis, basis.at_3100[2]),
+    };
+    subtract({
+        projection[0] / 0x20,
+        projection[1] / 0x20,
+        projection[2] / 0x20,
+    });
+    result.applied = true;
+    return result;
+}
+
 } // namespace opentony::runtime

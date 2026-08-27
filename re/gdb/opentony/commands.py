@@ -128,6 +128,7 @@ _RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
 _RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
 _RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
 _RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
+_RECORDING_AIR_CONTROL_GLOBAL = 0x0056B7F0
 
 
 def _recording_signed8(value: int) -> int:
@@ -218,6 +219,7 @@ def _recording_player_snapshot(player: int) -> dict:
             "state_raw": physics_state,
             "previous_state_raw": mem.u32(player + 0x30C0),
             "auxiliary_state_raw": mem.u32(player + 0x30C4),
+            "air_control_enabled": bool(mem.u32(_RECORDING_AIR_CONTROL_GLOBAL)),
         },
         "position": _recording_vec(player + 0x08),
         "position_history": _recording_vec(player + 0xBC),
@@ -257,7 +259,7 @@ def _recording_metadata(player: int) -> dict:
     return {
         "binary_sha256": THPS2_BUILD_SHA256,
         "retail_executable_sha256": THPS2_BUILD_SHA256,
-        "instrumentation_version": "gdb-recording-v5",
+        "instrumentation_version": "gdb-recording-v6",
         "level": {
             "index": level,
             "name": next((name for name, index in THPS2_LEVELS.items() if index == level), None),

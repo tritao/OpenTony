@@ -208,6 +208,29 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             else [0, 0, 0]
         )
     response_available = int(response_event is not None)
+    before_snapshot = frame.get("before")
+    physics_snapshot = (
+        before_snapshot.get("physics")
+        if isinstance(before_snapshot, dict)
+        else None
+    )
+    raw_physics_words = (
+        before_snapshot.get("raw_physics_words")
+        if isinstance(before_snapshot, dict)
+        else None
+    )
+    gravity_acceleration = 0
+    air_control_available = 0
+    if isinstance(raw_physics_words, list) and len(raw_physics_words) > 11:
+        gravity_acceleration = _signed(int(raw_physics_words[11]), 32)
+        if isinstance(physics_snapshot, dict) and isinstance(
+            physics_snapshot.get("air_control_enabled"), bool
+        ):
+            air_control_available = 1
+    air_control_enabled = int(
+        isinstance(physics_snapshot, dict)
+        and bool(physics_snapshot.get("air_control_enabled", False))
+    )
     return "frame " + " ".join(
         str(value)
         for value in (
@@ -225,12 +248,15 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             *motion_values,
             response_available,
             *response_values,
+            air_control_available,
+            gravity_acceleration,
+            air_control_enabled,
         )
     )
 
 
 def _wire_input(initial: dict[str, Any], frames: list[dict[str, Any]]) -> str:
-    lines = ["version 1", _initial_wire(initial)]
+    lines = ["version 2", _initial_wire(initial)]
     lines.extend(_frame_wire(frame) for frame in frames)
     lines.append("end")
     return "\n".join(lines) + "\n"

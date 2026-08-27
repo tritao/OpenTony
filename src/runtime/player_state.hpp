@@ -374,6 +374,13 @@ public:
         AirSpeedConfig speed_config,
         std::int32_t scale_percent = 150) noexcept;
 
+    // Applies the recovered pre-position in-air action-control block to the
+    // temporary +0x58 correction. The caller supplies the raw gravity scalar
+    // and global gate; action records are read from InputState here.
+    [[nodiscard]] AirActionControlResult apply_air_action_control(
+        const InputState& input,
+        AirActionControlConfig config) noexcept;
+
     // The in-air handler requests ground state only after its caller has
     // classified a contact as acceptable. This keeps wall/rail filtering out
     // of the raw state transition while preserving the commit-before-request

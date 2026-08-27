@@ -54,6 +54,9 @@ struct ReplayFrame final {
     FixedPosition motion_correction{};
     bool response_correction_available{};
     FixedPosition response_correction{};
+    bool air_action_control_available{};
+    std::int32_t gravity_acceleration{};
+    bool air_control_enabled{};
 };
 
 template <typename T>
@@ -148,6 +151,12 @@ ReplayFrame read_frame(std::istringstream& input) {
     frame.response_correction_available =
         read_value<std::uint8_t>(input, "response correction availability") != 0;
     frame.response_correction = read_position(input, "response correction");
+    frame.air_action_control_available =
+        read_value<std::uint8_t>(input, "air action-control availability") != 0;
+    frame.gravity_acceleration = read_value<std::int32_t>(
+        input, "air gravity acceleration");
+    frame.air_control_enabled =
+        read_value<std::uint8_t>(input, "air control gate") != 0;
     return frame;
 }
 
@@ -295,6 +304,18 @@ int run(int argc, char** argv) {
             return std::optional<FixedPosition>{};
         }
         return std::optional<FixedPosition>{active_frame->response_correction};
+    };
+    session.physics_hooks().air_action_control_input = [&active_frame](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&) {
+        if (active_frame == nullptr
+            || !active_frame->air_action_control_available) {
+            return std::optional<opentony::runtime::AirActionControlConfig>{};
+        }
+        opentony::runtime::AirActionControlConfig input{};
+        input.gravity_acceleration = active_frame->gravity_acceleration;
+        input.control_enabled = active_frame->air_control_enabled;
+        return std::optional<opentony::runtime::AirActionControlConfig>{input};
     };
     apply_initial_state(session, initial);
     session.reset_clock();

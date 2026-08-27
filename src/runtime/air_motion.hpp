@@ -71,6 +71,35 @@ struct AirDirectionInputResult {
         const AirDirectionInputResult&) = default;
 };
 
+// The first control block in retail Skater_DoPhysicsInAir (0x00497f40)
+// writes the temporary +0x58 acceleration before the shared position step.
+// The scalar and gate belong to the surrounding player/stat service, so keep
+// them explicit while retaining the recovered action ordering here.
+struct AirActionControlConfig {
+    std::int32_t gravity_acceleration{}; // player +0x2dac
+    bool control_enabled{}; // DAT_0056b7f0
+    bool kick_held{}; // action record +0x30
+    bool up_held{}; // action record +0xa0
+    bool down_held{}; // action record +0xb0
+    bool spin_left_held{}; // action record +0x40
+    bool spin_right_held{}; // action record +0x60
+};
+
+struct AirActionControlResult {
+    FixedPosition motion_correction{};
+    bool applied{};
+
+    friend bool operator==(
+        const AirActionControlResult&,
+        const AirActionControlResult&) = default;
+};
+
+[[nodiscard]] AirActionControlResult apply_air_action_control(
+    const FixedPosition& velocity,
+    const FixedPosition& motion_correction,
+    const RetailBasis& basis,
+    AirActionControlConfig config) noexcept;
+
 // Reconstructs the scalar part of retail FUN_00497df0. The basis operation
 // below mirrors its subsequent FUN_004e2ff0/FUN_00465f60 handoff.
 [[nodiscard]] AirGravityResult apply_air_gravity(

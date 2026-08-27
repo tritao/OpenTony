@@ -408,6 +408,26 @@ AirDirectionInputResult PlayerState::apply_air_direction_input(
         });
 }
 
+AirActionControlResult PlayerState::apply_air_action_control(
+    const InputState& input,
+    AirActionControlConfig config) noexcept {
+    config.kick_held = input.action(kKickActionBit).held;
+    config.up_held = input.held(movement_bit(MovementAction::Up));
+    config.down_held = input.held(movement_bit(MovementAction::Down));
+    // The spin records are non-directional action records in the retail
+    // action table and therefore use the low action-mask bits.
+    config.spin_left_held = input.action(kSpinLeftActionBit).held;
+    config.spin_right_held = input.action(kSpinRightActionBit).held;
+    const AirActionControlResult result =
+        opentony::runtime::apply_air_action_control(
+            collision_response_,
+            motion_correction_,
+            retail_basis_,
+            config);
+    motion_correction_ = result.motion_correction;
+    return result;
+}
+
 bool PlayerState::accept_air_contact(
     FixedPosition contact_position) noexcept {
     if (physics_state_ != 1 && physics_state_ != 3) {
