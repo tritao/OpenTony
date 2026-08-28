@@ -91,6 +91,20 @@ tony record stop --session warehouse
 tony record validate build/recordings/retail/run.otrec
 ```
 
+Normal recordings install only the input, timer-boundary, and canonical
+player-frame capture boundaries. If the first strict replay divergence needs
+more evidence, arm only the relevant forensic family in the GDB session before
+starting the recapture, for example:
+
+```text
+tony-record-forensic collision
+tony-record-forensic clear
+```
+
+Available families are `collision`, `service`, `rng`, `animation`,
+`correction`, `state`, `position`, `timing`, and `all`. The selected probes
+append events to the same recording; they are not installed by default.
+
 Retail self-replay uses the same Warehouse frontend path, injects held keys
 before the retail action-mask builder, and compares raw player state at the
 physics-frame boundary:

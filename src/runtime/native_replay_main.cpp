@@ -1,4 +1,6 @@
 #include "gameplay_session.hpp"
+#include "animation_cursor.hpp"
+#include "../assets/psx_animation.hpp"
 
 #include <array>
 #include <cstdint>
@@ -28,6 +30,7 @@ struct InitialState final {
     std::int32_t ground_physics_mode{};
     std::int32_t turn_accumulator{};
     Q12Matrix3 orientation{};
+    opentony::runtime::AnimationCursor animation{};
 };
 
 struct ReplayFrame final {
@@ -93,6 +96,24 @@ InitialState read_initial(std::istringstream& input) {
     for (std::int16_t& value : state.orientation.values) {
         value = read_value<std::int16_t>(input, "initial orientation");
     }
+    state.animation.id = read_value<std::uint16_t>(
+        input, "initial animation ID");
+    state.animation.frame = read_value<std::int16_t>(
+        input, "initial animation frame");
+    state.animation.fraction = read_value<std::uint16_t>(
+        input, "initial animation fraction");
+    state.animation.rate = read_value<std::uint32_t>(
+        input, "initial animation rate");
+    state.animation.mode = read_value<std::uint8_t>(
+        input, "initial animation mode");
+    state.animation.direction = read_value<std::int8_t>(
+        input, "initial animation direction");
+    state.animation.endpoint = read_value<std::int8_t>(
+        input, "initial animation endpoint");
+    state.animation.alternate_endpoint = read_value<std::int8_t>(
+        input, "initial animation alternate endpoint");
+    state.animation.finished = read_value<std::uint8_t>(
+        input, "initial animation finished") != 0;
     return state;
 }
 
@@ -201,6 +222,8 @@ void apply_initial_state(GameplaySession& session, const InitialState& state) {
     player.set_ground_physics_mode(state.ground_physics_mode);
     player.set_turn_accumulator(state.turn_accumulator);
     player.set_orientation(state.orientation);
+    player.set_animation_state(state.animation.id);
+    player.set_animation_frame(state.animation.frame);
 }
 
 int run(int argc, char** argv) {
@@ -243,6 +266,11 @@ int run(int argc, char** argv) {
     config.fixed_step.simulation_step_ms = 16;
     config.fixed_step.frame_scale_q8 = 0x100;
     config.apply_air_gravity = true;
+    // Warehouse's selected B010 profile-table entry is nonzero. Enable the
+    // recovered grounded correction producer so native replay exercises the
+    // same animation-5e scale-8 correction that retail writes at frame 7.
+    config.apply_ground_motion = true;
+    config.ground_motion_profile_table_value_nonzero = true;
     config.classify_retail_air_contacts = true;
     GameplaySession session(
         trg.string(),
@@ -255,7 +283,40 @@ int run(int argc, char** argv) {
     // grounded turn profile as 1 (the 0x78 branch). This is configuration,
     // not an inferred replacement for the recorded frame state.
     session.physics_hooks().ground_turn_config.turn_profile = 1;
+    // Warehouse's grounded 0x00496550 tail has the profile gate open. The
+    // response/surface predicate remains an explicit replay configuration;
+    // the projection and frame-scaled correction are produced natively.
+    session.physics_hooks().apply_ground_basis_correction = true;
+    session.physics_hooks().apply_ground_basis_forward_term = true;
+    opentony::runtime::AnimationCursor animation = initial.animation;
+    const opentony::assets::PsxAnimationTable animation_table =
+        opentony::assets::PsxAnimationTable::load(
+            (asset_root / "SK2ANIM.PSX").string());
+    const opentony::runtime::AnimationTableView animation_view{
+        animation_table.frame_counts()};
     const ReplayFrame* active_frame = nullptr;
+    session.physics_hooks().on_ollie_animation_request = [
+        &animation,
+        animation_view
+    ](
+        opentony::runtime::PlayerState& player,
+        const opentony::runtime::OlliePrePhysicsResult& result) {
+        opentony::runtime::GroundAnimationRequest request{};
+        request.issued = result.animation_request_issued;
+        request.wrapper =
+            opentony::runtime::GroundAnimationRequestWrapper::Full;
+        request.animation = result.animation_request_id;
+        request.start = result.animation_request_start;
+        request.end = result.animation_request_end;
+        request.alternate = result.animation_request_alternate;
+        request.resets_rate = true;
+        static_cast<void>(opentony::runtime::apply_ground_animation_request(
+            animation,
+            animation_view,
+            request));
+        player.set_animation_state(animation.id);
+        player.set_animation_frame(animation.frame);
+    };
     session.physics_hooks().ollie_input = [&active_frame](
         const opentony::runtime::PlayerState&,
         const opentony::runtime::InputState&) {
@@ -317,19 +378,35 @@ int run(int argc, char** argv) {
         input.control_enabled = active_frame->air_control_enabled;
         return std::optional<opentony::runtime::AirActionControlConfig>{input};
     };
+    session.physics_hooks().air_gravity_acceleration_input = [&active_frame](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&) {
+        if (active_frame == nullptr
+            || !active_frame->air_action_control_available) {
+            return std::optional<std::int32_t>{};
+        }
+        return std::optional<std::int32_t>{active_frame->gravity_acceleration};
+    };
     apply_initial_state(session, initial);
     session.reset_clock();
 
     std::cout << "native-replay-v1\n";
     for (const ReplayFrame& frame : frames) {
         active_frame = &frame;
-        static_cast<void>(session.advance(
+        // Retail updates the animation cursor between gameplay frames. The
+        // first recording frame carries the startup scale (normally zero),
+        // so applying this at frame entry preserves the observed before-frame
+        // cursor while still making the next frame's B010 gates causal.
+        (void)animation.advance(frame.frame_scale_q8);
+        session.player().set_animation_state(animation.id);
+        session.player().set_animation_frame(animation.frame);
+        const auto advance_result = session.advance(
             config.fixed_step.simulation_step_ms,
             frame.action_mask,
             frame.horizontal_axis,
             frame.vertical_axis,
             nullptr,
-            frame.frame_scale_q8));
+            frame.frame_scale_q8);
         write_snapshot(std::cout, frame, session);
     }
     return 0;

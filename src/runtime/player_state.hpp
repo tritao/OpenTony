@@ -318,6 +318,12 @@ public:
         turn_accumulator_ = value;
         turn_mirror_ = value;
     }
+    void set_animation_state(std::uint16_t value) noexcept {
+        animation_state_ = value;
+    }
+    void set_animation_frame(std::int16_t value) noexcept {
+        animation_frame_ = value;
+    }
     void set_ground_motion_cooldown(std::int32_t value) noexcept {
         ground_motion_cooldown_ = value < 0 ? 0 : value;
     }
@@ -355,6 +361,11 @@ public:
     // the candidate +310c/+3110/+3114 air-motion vector.
     [[nodiscard]] AirGravityResult apply_air_gravity(
         AirGravityConfig config = {}) noexcept;
+
+    // The common-air fallthrough at retail 0x004992f0 adds the current
+    // +0x2dac scalar to the temporary +0x58 correction after the air handler
+    // has completed its position/contact work.
+    void apply_air_gravity_acceleration(std::int32_t acceleration) noexcept;
 
     // Completes the orientation/basis portion of retail FUN_00497df0 after
     // its scalar gravity update. The direction is normalized in +310c and
@@ -481,13 +492,13 @@ public:
         const FixedPosition& source_vector,
         std::int32_t source_magnitude_q12) noexcept;
 
-    // Ground collision FUN_00496550 removes the motion component along the
-    // +3100 basis vector from the temporary +58 correction. A separate,
-    // configurable forward-basis term covers the branch that is known to use
-    // the observed factor 8; ownership/surface conditions remain outside this
-    // raw boundary.
+    // Ground collision FUN_00496550 removes the response component along the
+    // +3100 basis vector. When its profile/speed gate is open, a separate
+    // forward-basis term subtracts the observed factor 8, scaled by the
+    // current frame clock, into the temporary +58 correction.
     void prepare_ground_basis_correction(
         bool apply_forward_term,
+        std::int32_t frame_scale_q8 = 0x100,
         std::int32_t forward_scale = 8) noexcept;
 
     // The outer FUN_0049e680 frame applies +58/+5c/+60 back into +4c/+50/+54

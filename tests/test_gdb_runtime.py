@@ -81,7 +81,7 @@ from opentony.physics import (
     SimulationTimeAccumulatorProbe,
     SimulationTimeStoreProbe,
 )
-from opentony.player import PlayerView
+from opentony.player import PlayerView, canonical_player_snapshot
 from opentony.position import PositionCommitBreakpoint
 from opentony.snapshot import SnapshotStore, format_diff
 from opentony.timing import TIMING_FIELDS, animation_timing_record, timing_raw_value
@@ -356,6 +356,47 @@ def test_player_view_exposes_fixed_position_and_integer_state_fields():
     assert events[0]["position_history_fixed"] == [0.25, 0.75, 16672.0]
     assert events[0]["physics_state"] == 1
     assert "candidate_position" not in events[0]
+
+
+def test_canonical_player_snapshot_bulk_reads_player_once():
+    player = 0x1000
+    blob = bytearray(index & 0xFF for index in range(0x3210))
+    struct.pack_into("<3I", blob, 0x08, 101, 102, 103)
+    struct.pack_into("<I", blob, 0x30B8, 4)
+    struct.pack_into("<I", blob, 0x30C0, 9)
+    struct.pack_into("<I", blob, 0x30C4, 10)
+    struct.pack_into("<I", blob, 0x2D80, 0x12345678)
+    struct.pack_into("<I", blob, 0x320C, 0x9ABCDEF0)
+
+    class BulkMemory:
+        def __init__(self):
+            self.bytes_calls = []
+            self.u32_calls = []
+
+        def bytes(self, address, size):
+            self.bytes_calls.append((address, size))
+            assert address == player
+            assert size == 0x3210
+            return bytes(blob)
+
+        def u32(self, address):
+            self.u32_calls.append(address)
+            return 1
+
+    memory = BulkMemory()
+    snapshot = canonical_player_snapshot(player, memory)
+
+    assert memory.bytes_calls == [(player, 0x3210)]
+    assert len(snapshot["raw_physics_words"]) == 0x490 // 4
+    assert snapshot["raw_physics_words"][0] == 0x12345678
+    assert snapshot["raw_physics_words"][-1] == 0x9ABCDEF0
+    assert snapshot["position"]["raw"] == [101, 102, 103]
+    assert snapshot["physics"] == {
+        "state_raw": 4,
+        "previous_state_raw": 9,
+        "auxiliary_state_raw": 10,
+        "air_control_enabled": True,
+    }
 
 
 def test_shared_random_service_probe_records_call_and_return():

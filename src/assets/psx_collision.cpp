@@ -53,11 +53,14 @@ constexpr double kEpsilon = 1.0e-9;
     const std::int64_t end_value = plane_value(integer_end);
     const std::int64_t start_value = plane_value(integer_start);
     // FUN_00462a20 accepts the oriented crossing used by the retail query:
-    // endpoint >= 0, start <= 0, with a small quantized tolerance branch.
-    return end_value >= 0
-        && start_value < 1
-        && (end_value >= 0x800
-            || (start_value != 0 && start_value < -0x7ff));
+    // reject plane_start < 0 or plane_end > 0, reject coplanar endpoints,
+    // and require a quantized separation of 0x800 when the start is close to
+    // the plane. This orientation matters for a floor whose normal is -Y:
+    // the player starts below the plane and crosses toward positive Y.
+    return start_value >= 0
+        && end_value < 1
+        && (start_value >= 0x800
+            || (end_value != 0 && end_value < -0x7ff));
 }
 
 [[nodiscard]] std::array<double, 3> subtract(

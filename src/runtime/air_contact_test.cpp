@@ -56,6 +56,8 @@ int main() {
         player, input, hooks);
     CHECK(frame.landed);
     CHECK(player.physics_state() == 0);
+    CHECK((player.position() == opentony::runtime::FixedPosition{
+        0, 0x1e000, 0}));
 
     std::cout << "Air contact tests passed\n";
 }

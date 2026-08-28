@@ -229,11 +229,14 @@ GroundMotionResult apply_ground_motion(
             return correction;
         }
 
-        // 0x0049b2c1: metric <= 0x4e20 and basis Y < 0x1f4 are both
-        // required before the ordinary scale-1 correction is written.
-        if (input.response_speed_metric <= 0x4e20 &&
-            below_threshold &&
-            input.forward_basis_y < 0x1f4) {
+        // 0x0049b2c1: the uphill gate only suppresses the ordinary write
+        // while the metric is at or below 0x4e20. Once the metric is above
+        // that value, retail takes the write regardless of basis Y, subject
+        // to the later threshold check.
+        if (input.animation_state != 0x5e &&
+            (input.response_speed_metric > 0x4e20 ||
+             input.forward_basis_y < 0x1f4) &&
+            below_threshold) {
             GroundMotionResult correction = write_basis_correction(
                 motion_correction,
                 basis.at_30f4,

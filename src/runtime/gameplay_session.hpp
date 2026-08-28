@@ -100,7 +100,9 @@ struct GameplaySessionConfig {
     camera::CameraUpdateHooks camera_hooks{};
     camera::CameraModeInputRaw camera_mode_input{};
     camera::CameraMode25ProducerInputRaw camera_mode25_input{};
-    // Enable the recovered strict normal-Y floor split for airborne hits.
+    // Enable the recovered ordinary retail material/state landing predicate
+    // for airborne hits. The earlier strict normal-Y split is only an
+    // internal branch and is not itself a landing classifier.
     bool classify_retail_air_contacts{true};
     // DAT_00533f38 selects the type-12/type-14 linked traversal policy.
     std::uint32_t special_runtime_game_mode{};

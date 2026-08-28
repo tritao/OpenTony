@@ -102,6 +102,14 @@ struct OlliePrePhysicsResult {
     bool state_requested = false;
     std::int32_t requested_state = 0;
     std::uint32_t request_reason = 0;
+    // FUN_0049a280 requests the neutral grounded animation on the first
+    // held kick frame before the later release/launch path. Keep this as a
+    // causal request; the animation cursor/service remains caller-owned.
+    bool animation_request_issued = false;
+    std::uint16_t animation_request_id = 0;
+    std::int32_t animation_request_start = -1;
+    std::int32_t animation_request_end = -1;
+    std::int32_t animation_request_alternate = -1;
 
     friend bool operator==(
         const OlliePrePhysicsResult&,

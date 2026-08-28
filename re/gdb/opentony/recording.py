@@ -57,7 +57,7 @@ def _json_safe(value):
 
 
 class RecordingWriter:
-    """Write one immutable retail recording as flushed JSONL records."""
+    """Write one immutable retail recording as buffered JSONL records."""
 
     FORMAT = "opentony-retail-recording-v1"
     FORMAT_VERSION = 1
@@ -70,12 +70,17 @@ class RecordingWriter:
         *,
         overwrite: bool = False,
         event_handler: Callable[[dict], None] | None = None,
+        flush_interval_records: int = 16,
     ):
+        if flush_interval_records <= 0:
+            raise ValueError("flush interval must be positive")
         self.path = Path(path).expanduser()
         self.metadata = dict(metadata)
         self.overwrite = overwrite
         self.event_handler = event_handler
+        self.flush_interval_records = flush_interval_records
         self._stream = None
+        self._buffer: list[str] = []
         self._closed = False
 
     def _marker_path(self) -> Path | None:
@@ -124,16 +129,29 @@ class RecordingWriter:
                 **self.metadata,
             }
         )
+        # Keep the marker recoverable even if the process dies before the
+        # first normal batch reaches the configured flush threshold.
+        self.flush()
 
     def write(self, record: dict) -> None:
         if self._closed:
             raise OSError(f"recording writer is closed: {self.path}")
         if self._stream is None:
             self.open()
-        self._stream.write(
+        self._buffer.append(
             json.dumps(_json_safe(record), sort_keys=True, allow_nan=False) + "\n"
         )
+        if len(self._buffer) >= self.flush_interval_records:
+            self.flush()
+
+    def flush(self) -> None:
+        """Publish buffered records without closing the recording."""
+
+        if self._stream is None or not self._buffer:
+            return
+        self._stream.writelines(self._buffer)
         self._stream.flush()
+        self._buffer.clear()
 
     def event(self, record: dict) -> None:
         """Forward a probe event to the active frame accumulator."""
@@ -162,10 +180,15 @@ class RecordingWriter:
         }
         if reason is not None:
             footer["reason"] = reason
-        self.write(footer)
-        self._stream.close()
-        self._closed = True
-        self._clear_marker()
+        try:
+            self.write(footer)
+            # Stop and error paths must make the footer and all preceding
+            # frames visible before the debugger resumes or exits.
+            self.flush()
+        finally:
+            self._stream.close()
+            self._closed = True
+            self._clear_marker()
 
 
 class RecordingController:
@@ -173,6 +196,7 @@ class RecordingController:
 
     DEFAULT_HOTKEY_SCAN_CODE = 0x58  # DIK_F12; not used by TH2_OPT.CFG.
     DEFAULT_DIRECTORY = Path("build/recordings/retail")
+    DEFAULT_STATUS_INTERVAL_FRAMES = 16
     # Accept the pre-Phase-1 name while reading/finishing older captures;
     # newly emitted events use the causal external-service name below.
     PENDING_ASYNC_EVENT_TYPES = frozenset(
@@ -191,13 +215,17 @@ class RecordingController:
         session_dir: str | Path | None = None,
         clock: Callable[[], str] = _timestamp,
         writer_factory=RecordingWriter,
+        status_interval_frames: int = DEFAULT_STATUS_INTERVAL_FRAMES,
     ):
         if not 0 <= hotkey_scan_code < 0x100:
             raise ValueError("hotkey scan code must be between 0 and 255")
+        if status_interval_frames <= 0:
+            raise ValueError("status interval must be positive")
         self.hotkey_scan_code = hotkey_scan_code
         self.session_dir = Path(session_dir) if session_dir else None
         self.clock = clock
         self.writer_factory = writer_factory
+        self.status_interval_frames = status_interval_frames
         self.state = RecordingState.IDLE
         self.recording_id: str | None = None
         self.current_frame_index = 0
@@ -211,7 +239,9 @@ class RecordingController:
         self._stop_after_frame = False
         self._last_error: str | None = None
         self._pending_metadata: dict = {}
-        self._write_status()
+        self._status_last_frame: int | None = None
+        self._status_last_state: RecordingState | None = None
+        self._write_status(force=True)
 
     @property
     def writer(self) -> RecordingWriter | None:
@@ -243,12 +273,21 @@ class RecordingController:
             "frames": self.current_frame_index,
             "active_frame": self.active_frame,
             "hotkey_scan_code": self.hotkey_scan_code,
+            "status_interval_frames": self.status_interval_frames,
             "last_error": self._last_error,
         }
 
-    def _write_status(self) -> None:
+    def _write_status(self, *, force: bool = False) -> None:
         if self.session_dir is None:
             return
+        if not force:
+            state_changed = self.state is not self._status_last_state
+            frame_due = (
+                self._status_last_frame != self.current_frame_index
+                and self.current_frame_index % self.status_interval_frames == 0
+            )
+            if not state_changed and not frame_due:
+                return
         target = self.session_dir / "recording.status.json"
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -263,6 +302,8 @@ class RecordingController:
                     json.dump(self._status(), stream, indent=2, sort_keys=True)
                     stream.write("\n")
                 os.replace(temporary, target)
+                self._status_last_frame = self.current_frame_index
+                self._status_last_state = self.state
             finally:
                 temporary.unlink(missing_ok=True)
         except OSError as exc:
@@ -272,7 +313,12 @@ class RecordingController:
         """Publish an instrumentation error without exposing status internals."""
 
         self._last_error = str(message)
-        self._write_status()
+        if self._writer is not None:
+            try:
+                self._writer.flush()
+            except OSError as exc:
+                self._last_error = f"{self._last_error}; flush failed: {exc}"
+        self._write_status(force=True)
 
     def _new_id(self) -> str:
         return f"recording-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
@@ -310,7 +356,7 @@ class RecordingController:
         self._last_error = None
         self._pending_metadata = dict(metadata or {})
         self.state = RecordingState.START_PENDING
-        self._write_status()
+        self._write_status(force=True)
         return recording_id
 
     def request_stop(self) -> bool:
@@ -318,7 +364,7 @@ class RecordingController:
             return False
         self.state = RecordingState.STOP_PENDING
         self._stop_after_frame = True
-        self._write_status()
+        self._write_status(force=True)
         return True
 
     def request_toggle(
@@ -336,7 +382,7 @@ class RecordingController:
         if self.state is RecordingState.STOP_PENDING:
             self.state = RecordingState.RECORDING
             self._stop_after_frame = False
-            self._write_status()
+            self._write_status(force=True)
             return self.recording_id
         self.request_stop()
         return self.recording_id
@@ -372,7 +418,7 @@ class RecordingController:
             except (OSError, TypeError, ValueError, RecordingError) as exc:
                 command_path.unlink(missing_ok=True)
                 self._last_error = str(exc)
-                self._write_status()
+                self._write_status(force=True)
 
     def on_input(self, input_record: dict, *, hotkey_down: bool = False) -> bool:
         """Latch post-poll input and apply a rising-edge toggle."""
@@ -430,7 +476,7 @@ class RecordingController:
                 self._last_error = str(exc)
                 self._writer = None
                 self.state = RecordingState.IDLE
-                self._write_status()
+                self._write_status(force=True)
                 raise RecordingError(str(exc)) from exc
         if self.state is RecordingState.START_PENDING:
             self.state = RecordingState.RECORDING
@@ -504,7 +550,7 @@ class RecordingController:
         self._active_frame = None
         self.state = RecordingState.IDLE
         self._last_error = reason
-        self._write_status()
+        self._write_status(force=True)
 
     def status(self) -> dict:
         return self._status()

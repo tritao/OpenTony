@@ -210,11 +210,18 @@ GameplaySession::GameplaySession(
     }
 
     if (config_.classify_retail_air_contacts) {
-        hooks_.on_air_contact = [](
-            PlayerState&,
-            const PositionCollisionHit& hit,
-            const PositionCommitResult&) {
-            return accepts_retail_ground_contact(hit);
+        // The signed-normal comparison is only the first branch inside the
+        // airborne handler.  It is not the final landing decision: the
+        // ordinary path then evaluates the packed face/material and player
+        // state gates in FUN_0048ea80.  In particular, Warehouse's floor has
+        // a -Y normal and is a valid landing, so using that first split as a
+        // boolean landing classifier rejects the exact retail contact.
+        hooks_.standard_air_contact_input = [](
+            const PlayerState&,
+            const InputState&,
+            const PositionCollisionHit&)
+            -> std::optional<StandardAirContactInput> {
+            return StandardAirContactInput{};
         };
     }
 

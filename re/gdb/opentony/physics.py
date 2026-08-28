@@ -1267,6 +1267,69 @@ class ResponseCorrectionProbe(CountingBreakpoint):
         return True
 
 
+MOTION_CORRECTION_ADD_SITES = {
+    # State-4 and in-air helpers use the same vector-add service, but a
+    # breakpoint on the service entry is prohibitively noisy under WineDbg.
+    # These are the gameplay call instructions whose destination is the
+    # player's transient +0x58 correction field.
+    0x004944D1: "state4",
+    0x004975EE: "in_air",
+    0x00497655: "in_air",
+    0x00497FF4: "in_air",
+    0x0049810A: "in_air",
+    0x00498187: "in_air",
+    0x004983C0: "in_air",
+    0x004992FA: "in_air",
+    0x00499909: "special",
+    0x0049A902: "state5",
+}
+
+
+class MotionCorrectionAddProbe(CountingBreakpoint):
+    """Capture a vector before a known transient-correction addition."""
+
+    def __init__(self, address: int, site: str, count: int | None = None, writer=None):
+        super().__init__(address, count=count, internal=True)
+        self.site = site
+        self.writer = writer
+
+    def on_count(self, ctx: Context) -> bool:
+        destination = ctx.register("ecx")
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(destination) or destination != current + 0x58:
+            return False
+        # This breakpoint is on the call instruction, before CALL pushes its
+        # return address.  The one cdecl vector argument is therefore [ESP].
+        source = ctx.memory.u32(ctx.esp)
+        operand_raw = (
+            list(ctx.memory.u32_vec3(source))
+            if ctx.memory.readable(source, 0x0C)
+            else None
+        )
+        record = {
+            "type": "motion_correction_add",
+            "function": "Skater_PhysicsFrame",
+            "eip": f"0x{ctx.eip:08x}",
+            "site": self.site,
+            "frame": ctx.frame,
+            "player": f"0x{current:08x}",
+            "source": f"0x{source:08x}",
+            "operand_raw": operand_raw,
+            "operand_s32": (
+                [_signed32(value) for value in operand_raw]
+                if operand_raw is not None
+                else None
+            ),
+            "correction_before": list(ctx.memory.u32_vec3(destination)),
+            "physics_state": ctx.memory.u32(current + 0x30B8),
+        }
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
 class MotionCorrectionProbe(CountingBreakpoint):
     """Capture the completed outer-frame +0x58 correction producer."""
 

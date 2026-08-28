@@ -214,11 +214,11 @@ int main() {
     opentony::assets::PsxCollisionQueryOptions retail_geometry{};
     retail_geometry.apply_retail_face_filter = true;
     retail_geometry.apply_retail_plane_test = true;
-    CHECK(!world.trace_segment(
+    CHECK(world.trace_segment(
         {0, 4096, 0},
         {0, -4096, 0},
         retail_geometry).has_value());
-    CHECK(world.trace_segment(
+    CHECK(!world.trace_segment(
         {0, -4096, 0},
         {0, 4096, 0},
         retail_geometry).has_value());

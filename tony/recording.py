@@ -181,20 +181,9 @@ def validate_recording(path: str | Path) -> tuple[dict, list[dict]]:
             errors.append({"frame": frame.get("frame"), "error": "after is not an object"})
         if not isinstance(frame.get("events", []), list):
             errors.append({"frame": frame.get("frame"), "error": "events is not an array"})
-        else:
-            for event_type in (
-                "motion_correction_input",
-                "response_correction_input",
-            ):
-                count = sum(
-                    isinstance(event, dict) and event.get("type") == event_type
-                    for event in frame["events"]
-                )
-                if count != 1:
-                    errors.append({
-                        "frame": frame.get("frame"),
-                        "error": f"expected one {event_type} event, found {count}",
-                    })
+        # Diagnostic probe families are deliberately optional.  Canonical
+        # recordings carry no correction/RNG/collision events; forensic
+        # recaptures may add whichever family is relevant to a divergence.
 
     if end.get("type") == "end" and end.get("frames") != len(frames):
         errors.append({

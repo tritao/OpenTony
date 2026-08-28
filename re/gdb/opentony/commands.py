@@ -52,6 +52,7 @@ from .physics import (
     GROUND_MOTION_PROFILE_WRITERS,
     GROUND_MOTION_RANDOM_SITES,
     GROUND_MOTION_THRESHOLD_RANDOM_SITES,
+    MOTION_CORRECTION_ADD_SITES,
     OLLIE_LATCH_WRITERS,
     OLLIE_RANDOM_SITES,
     SHARED_RANDOM_SERVICE,
@@ -65,6 +66,7 @@ from .physics import (
     GroundMotionProfileWriterProbe,
     GroundMotionRandomProbe,
     InAirHandlerProbe,
+    MotionCorrectionAddProbe,
     MotionCorrectionProbe,
     MovementPhysicsProbe,
     OllieLatchProbe,
@@ -83,6 +85,7 @@ from .physics import (
     VelocityDampingRandomProbe,
 )
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
+from .player import canonical_player_snapshot
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
 from .replay import create_retail_replay
@@ -98,7 +101,6 @@ from .timer import (
     infer_completed_timer_deliveries,
     infer_timer_delivery_count,
 )
-from .timing import animation_timing_record
 from .trace import JsonlWriter
 from .trg import Type192CommandProbe
 from .watchpoint import watchpoints
@@ -136,6 +138,9 @@ _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
 _recording_controller = None
+_recording_event_sink = None
+_recording_forensic_families: set[str] = set()
+_recording_forensic_breakpoints = []
 _recording_timer_initial_state = None
 _recording_timer_recording_id = None
 _retail_replay = None
@@ -144,9 +149,6 @@ _frontend_screen_automation = None
 
 _RECORDING_RAW_AXIS_ADDRESS = 0x0056AFBD
 _RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
-_RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
-_RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
-_RECORDING_AIR_CONTROL_GLOBAL = 0x0056B7F0
 _RECORDING_TIMING_PREVIOUS_TIME = 0x00568604
 _RECORDING_TIMING_RING_INDEX = 0x0056A934
 _RECORDING_TIMING_DELTA = 0x0056A93C
@@ -488,34 +490,6 @@ def _recording_signed8(value: int) -> int:
     return value - 0x100 if value & 0x80 else value
 
 
-def _recording_signed32(value: int) -> int:
-    return value - 0x100000000 if value & 0x80000000 else value
-
-
-def _recording_signed16(value: int) -> int:
-    return value - 0x10000 if value & 0x8000 else value
-
-
-def _recording_vec(address: int) -> dict | None:
-    if not mem.readable(address, 0x0c):
-        return None
-    raw = list(mem.u32_vec3(address))
-    return {
-        "raw": raw,
-        "signed": [_recording_signed32(value) for value in raw],
-    }
-
-
-def _recording_short_vec(address: int) -> dict | None:
-    if not mem.readable(address, 6):
-        return None
-    raw = [mem.u16(address + offset) for offset in (0, 2, 4)]
-    return {
-        "raw": raw,
-        "signed": [_recording_signed16(value) for value in raw],
-    }
-
-
 def _recording_input(controller: RecordingController) -> tuple[dict, bool]:
     keyboard = mem.bytes(GLOBALS["KeyboardState"], 0x100)
     hotkey = controller.hotkey_scan_code
@@ -559,52 +533,7 @@ def _recording_input(controller: RecordingController) -> tuple[dict, bool]:
 
 
 def _recording_player_snapshot(player: int) -> dict:
-    physics_state = mem.u32(player + 0x30B8)
-    return {
-        "player_address": f"0x{player:08x}",
-        "timing": animation_timing_record(mem),
-        "raw_physics_words": [
-            mem.u32(player + _RECORDING_RAW_PHYSICS_OFFSET + index * 4)
-            for index in range(_RECORDING_RAW_PHYSICS_WORDS)
-        ],
-        "physics_state": physics_state,
-        "physics": {
-            "state_raw": physics_state,
-            "previous_state_raw": mem.u32(player + 0x30C0),
-            "auxiliary_state_raw": mem.u32(player + 0x30C4),
-            "air_control_enabled": bool(mem.u32(_RECORDING_AIR_CONTROL_GLOBAL)),
-        },
-        "position": _recording_vec(player + 0x08),
-        "position_history": _recording_vec(player + 0xBC),
-        "response_velocity": _recording_vec(player + 0x4C),
-        "correction": _recording_vec(player + 0x58),
-        "air_motion": _recording_vec(player + 0x310C),
-        "turn": {
-            "accumulator_raw": mem.u32(player + 0x3144),
-            "mirror_raw": mem.u32(player + 0x3148),
-        },
-        "basis": {
-            "forward_raw": _recording_vec(player + 0x30F4),
-            "up_raw": _recording_vec(player + 0x3100),
-            "air_raw": _recording_vec(player + 0x310C),
-        },
-        "orientation": {
-            "row_0": _recording_short_vec(player + 0x2E58),
-            "row_1": _recording_short_vec(player + 0x2E5E),
-            "row_2": _recording_short_vec(player + 0x2E64),
-        },
-        "animation": {
-            "id_raw": mem.u16(player + 0xF6),
-            "frame_raw": mem.s16(player + 0xF4),
-            "fraction_raw": mem.u16(player + 0x104),
-            "rate_raw": mem.u32(player + 0x108),
-            "mode_raw": mem.u8(player + 0xF8),
-            "direction_raw": mem.s8(player + 0x100),
-            "endpoint_raw": mem.s8(player + 0x101),
-            "alternate_endpoint_raw": mem.s8(player + 0x102),
-            "finished_raw": mem.u8(player + 0x107),
-        },
-    }
+    return canonical_player_snapshot(player, mem)
 
 
 def _recording_metadata(player: int) -> dict:
@@ -738,6 +667,194 @@ class _RecordingEventSink:
         self.controller.event(record)
 
 
+_RECORDING_FORENSIC_FAMILIES = (
+    "collision",
+    "service",
+    "rng",
+    "animation",
+    "correction",
+    "state",
+    "position",
+    "timing",
+)
+_RECORDING_FORENSIC_ALIASES = {
+    "shared-service": "service",
+    "state-transition": "state",
+}
+
+
+def _recording_frame_provider() -> int | None:
+    if _recording_controller is None:
+        return None
+    return _recording_controller.active_frame
+
+
+def _recording_append_forensic(*breakpoints) -> int:
+    for breakpoint in breakpoints:
+        _runtime_breakpoints.append(breakpoint)
+        _recording_forensic_breakpoints.append(breakpoint)
+    return len(breakpoints)
+
+
+class _RecordingCorrectionWatchArm(TonyBreakpoint):
+    """Arm exact transient-correction watches once the player exists."""
+
+    PHYSICS_FRAME_ENTRY = 0x0049E680
+    CORRECTION_OFFSETS = (0x58, 0x5C, 0x60)
+
+    def __init__(self, writer):
+        self.writer = writer
+        self.armed = False
+        super().__init__(self.PHYSICS_FRAME_ENTRY, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.armed:
+            return
+        player = ctx.this_ptr()
+        if not ctx.memory.valid(player):
+            return
+        if watchpoints.available() < len(self.CORRECTION_OFFSETS):
+            _write(
+                "could not arm recording correction watches: "
+                f"need {len(self.CORRECTION_OFFSETS)} hardware slots"
+            )
+            self.enabled = False
+            return
+        for offset in self.CORRECTION_OFFSETS:
+            watchpoints.arm(
+                player + offset,
+                size=4,
+                label=f"recording.correction+0x{offset:02x}",
+                limit=1000,
+                writer=self.writer,
+            )
+        self.armed = True
+        self.enabled = False
+        _write(
+            "armed recording correction watches at "
+            f"0x{player:08x}+0x58/0x5c/0x60"
+        )
+
+
+def _recording_arm_forensic_family(family: str) -> int:
+    """Arm one diagnostic family against the canonical recording sink."""
+
+    if family in _recording_forensic_families:
+        return 0
+    if _recording_event_sink is None:
+        raise gdb.GdbError("recording instrumentation is not initialized")
+    sink = _recording_event_sink
+    count = 0
+    if family == "collision":
+        probe = CollisionQueryProbe(writer=sink)
+        count += _recording_append_forensic(
+            probe.entry,
+            probe.return_breakpoint,
+            AirCollisionQueryProbe(writer=sink),
+        )
+    elif family == "service":
+        count += _recording_append_forensic(
+            SharedRandomServiceProbe(
+                writer=sink,
+                frame_provider=_recording_frame_provider,
+            )
+        )
+    elif family == "rng":
+        for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
+            count += _recording_append_forensic(
+                GroundMotionRandomProbe(address, purpose, writer=sink)
+            )
+        for address, purpose in GROUND_MOTION_THRESHOLD_RANDOM_SITES.items():
+            count += _recording_append_forensic(
+                GroundMotionRandomProbe(
+                    address, purpose, writer=sink, player_register="ebp"
+                )
+            )
+        for address, purpose in GROUND_MOTION_FRAME_RANDOM_SITES.items():
+            count += _recording_append_forensic(
+                GroundMotionRandomProbe(
+                    address, purpose, writer=sink, player_register="ebp"
+                )
+            )
+        for address, purpose in OLLIE_RANDOM_SITES.items():
+            count += _recording_append_forensic(
+                OllieRandomProbe(address, purpose, writer=sink)
+            )
+        for address, purpose in VELOCITY_DAMPING_RANDOM_SITES.items():
+            count += _recording_append_forensic(
+                VelocityDampingRandomProbe(address, purpose, writer=sink)
+            )
+        for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
+            count += _recording_append_forensic(
+                VelocityDampingComponentProbe(address, purpose, writer=sink)
+            )
+    elif family == "animation":
+        count += _recording_append_forensic(
+            TonyAnimationRequestBreakpoint(None, None, writer=sink)
+        )
+    elif family == "correction":
+        count += _recording_append_forensic(
+            AirCorrectionProbe(writer=sink),
+            ResponseCorrectionProbe(writer=sink),
+            MotionCorrectionProbe(writer=sink),
+        )
+        for address, site in MOTION_CORRECTION_ADD_SITES.items():
+            count += _recording_append_forensic(
+                MotionCorrectionAddProbe(address, site, writer=sink)
+            )
+        count += _recording_append_forensic(_RecordingCorrectionWatchArm(sink))
+        for address, spec in GROUND_MOTION_CORRECTION_WRITERS.items():
+            count += _recording_append_forensic(
+                GroundMotionCorrectionWriterProbe(address, spec, writer=sink)
+            )
+    elif family == "state":
+        count += _recording_append_forensic(
+            PhysicsStateRequestProbe(writer=sink),
+            PhysicsStateWriterProbe(writer=sink),
+            InAirHandlerProbe(writer=sink),
+        )
+        for address in SPECIAL_HANDLER_INFO:
+            count += _recording_append_forensic(
+                SpecialPhysicsHandlerProbe(address, writer=sink)
+            )
+        for address in OLLIE_LATCH_WRITERS:
+            count += _recording_append_forensic(
+                OllieLatchProbe(address, writer=sink)
+            )
+    elif family == "position":
+        for address, label in POSITION_COMMIT_CALLS:
+            count += _recording_append_forensic(
+                PositionCommitBreakpoint(address, label, None, writer=sink)
+            )
+    elif family == "timing":
+        count += _recording_append_forensic(
+            TonyRecordingTimerProducerReadBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerDeltaReadBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerOutputBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerPreviousStoreBreakpoint(_recording_controller),
+            SimulationTimeStoreProbe(
+                writer=sink,
+                frame_provider=_recording_frame_provider,
+            ),
+        )
+    else:
+        raise gdb.GdbError(
+            f"unknown forensic family {family!r}; choose from "
+            + ", ".join((*_RECORDING_FORENSIC_FAMILIES, "all", "clear"))
+        )
+    _recording_forensic_families.add(family)
+    return count
+
+
+def _recording_clear_forensic() -> int:
+    for breakpoint in _recording_forensic_breakpoints:
+        breakpoint.enabled = False
+    count = len(_recording_forensic_breakpoints)
+    _recording_forensic_breakpoints.clear()
+    _recording_forensic_families.clear()
+    return count
+
+
 class TonyRecordingInputBreakpoint(TonyBreakpoint):
     """Observe post-poll input and detect the recorder hotkey edge."""
 
@@ -812,8 +929,10 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
         input_record = self.controller.latest_input
         if input_record is None:
             input_record, _hotkey_down = _recording_input(self.controller)
-        metadata = _recording_metadata(player)
         frame_index = self.controller.current_frame_index
+        # The metadata is written only with the first header. Avoid rereading
+        # the level/global identity on every subsequent frame.
+        metadata = _recording_metadata(player) if frame_index == 0 else None
         timer_state = _recording_timer_boundary_state()
         if frame_index == 0:
             # The input boundary latches the canonical initial state before
@@ -944,6 +1063,42 @@ class TonyRecordingStatus(gdb.Command):
         if _recording_controller is None:
             raise gdb.GdbError("recording controller is not initialized")
         _write(json.dumps(_recording_controller.status(), sort_keys=True))
+
+
+class TonyRecordingForensic(gdb.Command):
+    """tony-record-forensic FAMILY... -- add selected diagnostic probes."""
+
+    def __init__(self):
+        super().__init__("tony-record-forensic", gdb.COMMAND_BREAKPOINTS)
+
+    def invoke(self, arg, from_tty):
+        del from_tty
+        values = _argv(
+            arg,
+            "tony-record-forensic FAMILY... | clear",
+        )
+        if values == ["clear"]:
+            _write(
+                f"disabled {_recording_clear_forensic()} recording forensic breakpoints"
+            )
+            return
+        if "clear" in values:
+            raise gdb.GdbError("clear cannot be combined with a forensic family")
+        families = []
+        for value in values:
+            family = _RECORDING_FORENSIC_ALIASES.get(value.casefold(), value.casefold())
+            if family == "all":
+                families.extend(_RECORDING_FORENSIC_FAMILIES)
+            else:
+                families.append(family)
+        armed = 0
+        for family in dict.fromkeys(families):
+            armed += _recording_arm_forensic_family(family)
+        selected = ", ".join(dict.fromkeys(families))
+        _write(
+            f"recording forensic families armed: {selected} "
+            f"({armed} breakpoints)"
+        )
 
 
 class TonyRetailReplay(gdb.Command):
@@ -3480,98 +3635,25 @@ class TonyType192CommandProbe(gdb.Command):
 
 
 def _install_recording_instrumentation() -> None:
-    global _recording_controller
+    global _recording_controller, _recording_event_sink
     if _recording_controller is not None:
         return
     session_dir = os.environ.get("TONY_SESSION_DIR")
     _recording_controller = RecordingController(session_dir=session_dir)
-    sink = _RecordingEventSink(_recording_controller)
+    _recording_event_sink = _RecordingEventSink(_recording_controller)
 
     _runtime_breakpoints.extend(
         (
             TonyRecordingInputBreakpoint(_recording_controller),
             TonyRecordingFrameEntryBreakpoint(_recording_controller),
             TonyRecordingTimerUpdateBreakpoint(_recording_controller),
-            TonyRecordingTimerProducerReadBreakpoint(_recording_controller),
-            TonyRecordingTimerProducerDeltaReadBreakpoint(_recording_controller),
-            TonyRecordingTimerProducerOutputBreakpoint(_recording_controller),
-            TonyRecordingTimerProducerPreviousStoreBreakpoint(_recording_controller),
+            TonyRecordingTimerClockReadBreakpoint(_recording_controller),
         )
     )
-    _runtime_breakpoints.append(
-        SharedRandomServiceProbe(
-            writer=sink,
-            frame_provider=lambda: (
-                _recording_controller.active_frame
-                if _recording_controller is not None
-                else None
-            ),
-        )
-    )
-    _runtime_breakpoints.append(
-        SimulationTimeStoreProbe(
-            writer=sink,
-            frame_provider=lambda: (
-                _recording_controller.active_frame
-                if _recording_controller is not None
-                else None
-            ),
-        )
-    )
-    _runtime_breakpoints.append(TonyRecordingTimerClockReadBreakpoint(_recording_controller))
     # Multimedia timer callbacks arrive on Wine's timer thread.  Recording
     # samples the callback-owned accumulated-millisecond counter at gameplay
     # boundaries; the sampler emits causal timer_callback_delivery events
     # without inserting a breakpoint into the asynchronous thread.
-    collision_probe = CollisionQueryProbe(writer=sink)
-    _runtime_breakpoints.extend(
-        (collision_probe.entry, collision_probe.return_breakpoint)
-    )
-    _runtime_breakpoints.extend(
-        (
-            AirCollisionQueryProbe(writer=sink),
-            PhysicsStateRequestProbe(writer=sink),
-            PhysicsStateWriterProbe(writer=sink),
-            TonyAnimationRequestBreakpoint(None, None, writer=sink),
-        )
-    )
-    for address, label in POSITION_COMMIT_CALLS:
-        _runtime_breakpoints.append(
-            PositionCommitBreakpoint(address, label, None, writer=sink)
-        )
-    for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
-        _runtime_breakpoints.append(
-            GroundMotionRandomProbe(address, purpose, writer=sink)
-        )
-    for address, purpose in GROUND_MOTION_THRESHOLD_RANDOM_SITES.items():
-        _runtime_breakpoints.append(
-            GroundMotionRandomProbe(
-                address,
-                purpose,
-                writer=sink,
-                player_register="ebp",
-            )
-        )
-    for address, purpose in GROUND_MOTION_FRAME_RANDOM_SITES.items():
-        _runtime_breakpoints.append(
-            GroundMotionRandomProbe(
-                address,
-                purpose,
-                writer=sink,
-                player_register="ebp",
-            )
-        )
-    for address, purpose in OLLIE_RANDOM_SITES.items():
-        _runtime_breakpoints.append(
-            OllieRandomProbe(address, purpose, writer=sink)
-        )
-    for address, purpose in VELOCITY_DAMPING_COMPONENT_SITES.items():
-        _runtime_breakpoints.append(
-            VelocityDampingComponentProbe(address, purpose, writer=sink)
-        )
-    _runtime_breakpoints.append(AirCorrectionProbe(writer=sink))
-    _runtime_breakpoints.append(ResponseCorrectionProbe(writer=sink))
-    _runtime_breakpoints.append(MotionCorrectionProbe(writer=sink))
 
 
 _registered = False
@@ -3601,6 +3683,7 @@ def register_commands() -> None:
     TonyRecordingStop()
     TonyRecordingToggle()
     TonyRecordingStatus()
+    TonyRecordingForensic()
     TonyRetailReplay()
     TonyPlayerSample()
     TonyInputSample()
@@ -3676,6 +3759,7 @@ def register_commands() -> None:
         "tony-thps2, tony-bp-thps2, "
         "tony-skip-movies, tony-force-level, tony-player-sample, tony-input-sample, "
         "tony-record-start, tony-record-stop, tony-record-toggle, tony-record-status, "
+        "tony-record-forensic, "
         "tony-replay-retail, "
         "tony-action-edge, tony-jump-edge, "
         "tony-key-loop, tony-key-clear, tony-animation-sample, tony-animation-request-sample, "

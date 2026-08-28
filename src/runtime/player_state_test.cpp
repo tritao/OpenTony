@@ -87,6 +87,11 @@ int main() {
     CHECK(charging.event == opentony::runtime::OlliePrePhysicsEvent::Charging);
     CHECK(charging.latch_set);
     CHECK(charging.pending_set);
+    CHECK(charging.animation_request_issued);
+    CHECK(charging.animation_request_id == 8);
+    CHECK(charging.animation_request_start == 0);
+    CHECK(charging.animation_request_end == 0x1a);
+    CHECK(charging.animation_request_alternate == 0x13);
     CHECK(ollie_player.ollie().charge == 1);
 
     ollie_input.begin_frame(0);
@@ -116,25 +121,28 @@ int main() {
     ground_player.set_collision_response({0x1000, 0, 0});
     ground_player.clear_motion_correction();
     ground_player.prepare_ground_basis_correction(false);
-    CHECK(ground_player.motion_correction()
-        == opentony::runtime::FixedPosition({-0x1000, 0, 0}));
-    ground_player.integrate_motion_correction();
     CHECK(ground_player.collision_response()
+        == opentony::runtime::FixedPosition({0, 0, 0}));
+    CHECK(ground_player.motion_correction()
         == opentony::runtime::FixedPosition({0, 0, 0}));
 
     ground_player.set_collision_response({0, 0, 0x1000});
     ground_player.clear_motion_correction();
-    ground_player.prepare_ground_basis_correction(true);
+    ground_player.prepare_ground_basis_correction(true, 0x100);
     CHECK(ground_player.motion_correction()[2] == -8);
+    ground_player.clear_motion_correction();
+    ground_player.set_collision_response({0, 0, 0x1000});
+    ground_player.prepare_ground_basis_correction(true, 0x280);
+    CHECK(ground_player.motion_correction()[2] == -20);
 
     opentony::runtime::PlayerState integrated;
     integrated.set_collision_response({100, 200, 300});
     integrated.set_motion_correction({0x1000, 0, 0});
     integrated.integrate_position();
-    // dt=1: velocity contributes directly; correction contributes
-    // (0x1000 >> 8) / 2 == 8 after the retail helper sequence.
+    // dt=1: velocity contributes directly; the frame-scaled correction is
+    // then divided by two by the retail helper sequence.
     CHECK(integrated.position()
-        == opentony::runtime::FixedPosition({108, 200, 300}));
+        == opentony::runtime::FixedPosition({2148, 200, 300}));
 
     opentony::runtime::PlayerState action_player;
     const std::vector<std::uint8_t> response_command{

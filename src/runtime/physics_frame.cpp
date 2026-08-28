@@ -134,6 +134,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         result.ollie = player.run_ollie_prephysics(
             input,
             hooks.ollie_input(player, input));
+        if (result.ollie->animation_request_issued &&
+            hooks.on_ollie_animation_request) {
+            hooks.on_ollie_animation_request(player, *result.ollie);
+        }
     }
     // FUN_00492190 publishes the current profile immediately before
     // FUN_004925e0 scans the generated sequence table. Keep that ordering at
@@ -356,8 +360,34 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 }
             }
             if (accepted_air_contact) {
+                // FUN_00497f40's accepted-contact branch commits the
+                // interpolated collision point produced by the air query
+                // before requesting ground state. The shared candidate
+                // committer may otherwise report its current-position
+                // fallback when every axis candidate still intersects.
+                FixedPosition contact_position =
+                    result.collision_hit.has_value()
+                    ? result.collision_hit->position
+                    : result.position_commit.position;
+                if (result.collision_hit.has_value()) {
+                    // The accepted-contact path does not commit the raw
+                    // intersection point.  Retail FUN_00498a66 builds the
+                    // landing candidate as contact + normal * 0x1e before
+                    // calling FUN_00496060.  The normal is a signed Q12
+                    // short, so this is a direct fixed-point offset (not a
+                    // Q12 rescale); Warehouse's downward floor therefore
+                    // moves the candidate by -0x1e000 on Y.
+                    for (std::size_t axis = 0; axis < contact_position.size();
+                         ++axis) {
+                        contact_position[axis] = static_cast<std::int32_t>(
+                            static_cast<std::int64_t>(contact_position[axis])
+                            + static_cast<std::int64_t>(
+                                result.collision_hit->normal[axis])
+                                * 0x1e);
+                    }
+                }
                 result.landed = current_player.accept_air_contact(
-                    result.position_commit.position);
+                    contact_position);
                 if (result.landed && hooks.landing_animation_request) {
                     result.landing_animation_request =
                         hooks.landing_animation_request(
@@ -365,10 +395,43 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             *result.collision_hit);
                 }
             }
+            if (stage == PhysicsDispatchStage::GroundCollision_96550
+                && current_player.physics_state() == 0
+                && hooks.apply_ground_basis_correction) {
+                // This tail runs after the candidate position has been
+                // integrated/committed. Its response projection is visible
+                // to the outer +58 -> +4c handoff in the same frame.
+                current_player.prepare_ground_basis_correction(
+                    hooks.apply_ground_basis_forward_term,
+                    frame_scale_q8);
+            }
             result.position_integrated = true;
         },
     };
     result.dispatch = PhysicsDispatcher::dispatch(player, dispatch_hooks);
+
+    // The common air handler's 0x004992f0 fallthrough runs only when the
+    // in-air path did not accept a landing. It publishes +0x2dac into the
+    // temporary correction after the position step, so the value affects the
+    // next frame's displacement and the outer response handoff below.
+    bool dispatched_in_air = false;
+    for (std::size_t index = 0;
+         index < result.dispatch.stage_count;
+         ++index) {
+        dispatched_in_air = dispatched_in_air
+            || result.dispatch.stages[index] == PhysicsDispatchStage::InAir_97f40;
+    }
+    if (dispatched_in_air
+        && player.physics_state() != 0
+        && player.physics_state() != 7
+        && hooks.air_gravity_acceleration_input) {
+        const std::optional<std::int32_t> acceleration =
+            hooks.air_gravity_acceleration_input(player, input);
+        if (acceleration.has_value()) {
+            player.apply_air_gravity_acceleration(*acceleration);
+            result.air_gravity_acceleration = *acceleration;
+        }
+    }
 
     if (hooks.integrate_motion_correction) {
         // This is the outer-frame +58 -> +4c handoff after dispatch.

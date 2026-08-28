@@ -263,6 +263,21 @@ OlliePrePhysicsResult PlayerState::run_ollie_prephysics(
             ollie_.animation_gate == 0) {
             ollie_.latched = 1;
             result.latch_set = true;
+            // The first held kick frame enters this block with no pending
+            // release. Retail requests animation 8 through RunAnim with the
+            // full 0..0x1a range and a 0x13 alternate endpoint, then marks
+            // the kick pending below. Re-arming the request on later held
+            // frames would replace the cursor every update.
+            if (ollie_.pending == 0 &&
+                (turn_accumulator_ < 0xa000
+                 && turn_accumulator_ > -0xa000) &&
+                ollie_.special_mode == 0) {
+                result.animation_request_issued = true;
+                result.animation_request_id = 8;
+                result.animation_request_start = 0;
+                result.animation_request_end = 0x1a;
+                result.animation_request_alternate = 0x13;
+            }
         }
         if (ollie_.animation_gate != 0) {
             result.charge = ollie_.charge;
@@ -343,6 +358,13 @@ AirGravityResult PlayerState::apply_air_gravity(
         config);
     air_motion_ = result.velocity;
     return result;
+}
+
+void PlayerState::apply_air_gravity_acceleration(
+    std::int32_t acceleration) noexcept {
+    const std::uint32_t sum = static_cast<std::uint32_t>(motion_correction_[1])
+        + static_cast<std::uint32_t>(acceleration);
+    motion_correction_[1] = static_cast<std::int32_t>(sum);
 }
 
 AirMotionBasisResult PlayerState::update_air_motion_basis() noexcept {
@@ -433,7 +455,9 @@ bool PlayerState::accept_air_contact(
     if (physics_state_ != 1 && physics_state_ != 3) {
         return false;
     }
-    previous_position_ = position_;
+    // begin_physics_frame() already captured the frame-start position in
+    // +0xbc. Retail's accepted-contact write changes the live position and
+    // leaves that history value intact for the frame-end observation.
     position_ = contact_position;
     request_physics_state(0, kLandingReason);
     return true;
@@ -611,6 +635,7 @@ void PlayerState::apply_bouncy_platform_response(
 
 void PlayerState::prepare_ground_basis_correction(
     bool apply_forward_term,
+    std::int32_t frame_scale_q8,
     std::int32_t forward_scale) noexcept {
     const auto project = [](const FixedPosition& vector,
                             const FixedPosition& basis) {
@@ -625,8 +650,10 @@ void PlayerState::prepare_ground_basis_correction(
     const FixedPosition lateral = project(
         collision_response_,
         retail_basis_.at_3100);
-    for (std::size_t index = 0; index < motion_correction_.size(); ++index) {
-        motion_correction_[index] -= lateral[index];
+    // FUN_00496550 removes this surface-normal component from persistent
+    // response, not from the transient correction vector.
+    for (std::size_t index = 0; index < collision_response_.size(); ++index) {
+        collision_response_[index] -= lateral[index];
     }
 
     if (apply_forward_term) {
@@ -634,9 +661,14 @@ void PlayerState::prepare_ground_basis_correction(
             collision_response_,
             retail_basis_.at_30f4);
         for (std::size_t index = 0; index < motion_correction_.size(); ++index) {
-            motion_correction_[index] -= fixed_multiply_q12(
+            // The retail tail performs Q12 multiply by the literal 8, then
+            // multiplies by DAT_0056865c and shifts by eight.
+            const std::int32_t scaled_forward = fixed_multiply_q12(
                 forward_scale,
                 forward[index]);
+            motion_correction_[index] -= fixed_scale_q8(
+                scaled_forward,
+                frame_scale_q8);
         }
     }
 }
@@ -668,11 +700,11 @@ FixedPosition PlayerState::integrated_position(
         const std::int32_t acceleration_raw_step = fixed_scale_q8(
             motion_correction_[index],
             frame_scale_squared_q8);
-        // FUN_004cacd0 performs the second arithmetic SAR 8 before
-        // FUN_004cac90 divides the result by the literal 2.
-        const std::int32_t acceleration_step = fixed_scale_q8(
-            acceleration_raw_step,
-            1) / 2;
+        // The squared Q8 scale has already supplied the two frame-scale
+        // factors: the first fixed-scale operation accounts for the final
+        // arithmetic SAR 8 in FUN_004cacd0. The remaining operation is the
+        // literal divide-by-two in FUN_004cac90.
+        const std::int32_t acceleration_step = acceleration_raw_step / 2;
         result[index] += velocity_step + acceleration_step;
     }
     return result;

@@ -77,6 +77,12 @@ struct PlayerPhysicsFrameHooks {
     // eligibility are not yet owned by this renderer-independent layer.
     std::function<OlliePrePhysicsInput(
         const PlayerState&, const InputState&)> ollie_input;
+    // FUN_0049a280's first-held-kick RunAnim request. The cursor/pose service
+    // remains caller-owned, so the frame reports the causal request at the
+    // point where the producer emits it.
+    std::function<void(
+        PlayerState&, const OlliePrePhysicsResult&)>
+        on_ollie_animation_request;
     // Optional surface/stat seam for the confirmed grounded threshold and
     // braking branch at retail 0x0049df00.
     std::function<std::optional<GroundBrakeInput>(
@@ -92,6 +98,12 @@ struct PlayerPhysicsFrameHooks {
     // movement handoff are recovered.
     std::function<std::optional<AirGravityConfig>(
         const PlayerState&, const InputState&)> air_gravity_input;
+    // Common-air fallthrough at retail 0x004992f0. This is deliberately
+    // separate from air_gravity_input: the latter updates the +0x310c air
+    // direction before dispatch, while this producer adds +0x2dac to the
+    // temporary +0x58 correction after air position/contact work.
+    std::function<std::optional<std::int32_t>(
+        const PlayerState&, const InputState&)> air_gravity_acceleration_input;
     // Optional explicit +0x2dac seam for the confirmed in-air Up/Down
     // contribution to the temporary +58 correction.
     std::function<std::optional<AirDirectionInputConfig>(
@@ -181,6 +193,11 @@ struct PlayerPhysicsFrameHooks {
     bool apply_queued_motion{true};
     bool integrate_position{true};
     bool integrate_motion_correction{true};
+    // Confirmed tail of FUN_00496550. The first projection always updates
+    // persistent response; the forward term is separately gated by the
+    // caller-owned profile/speed predicate.
+    bool apply_ground_basis_correction{false};
+    bool apply_ground_basis_forward_term{false};
     // Equivalent caller gate for skater +0x3200. Static matching proves that
     // a nonzero word bypasses FUN_00496060 collision resolution, but its
     // writer is not present on the selected paths, so this remains explicit.
@@ -213,6 +230,7 @@ struct PlayerPhysicsFrameResult {
     std::optional<GroundBrakeResult> ground_brake;
     std::optional<GroundPhysicsResult> ground_physics;
     std::optional<AirGravityResult> air_gravity;
+    std::optional<std::int32_t> air_gravity_acceleration;
     std::optional<AirMotionBasisResult> air_motion_basis;
     std::optional<AirActionControlResult> air_action_control;
     std::optional<AirDirectionInputResult> air_direction_input;

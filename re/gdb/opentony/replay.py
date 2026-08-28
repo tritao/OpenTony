@@ -11,6 +11,7 @@ import gdb
 from .breakpoint import Context, TonyBreakpoint
 from .knowledge import GLOBALS
 from .memory import mem
+from .player import canonical_player_snapshot
 from .timer import (
     TIMER_PAUSE_GATE_A,
     TIMER_PAUSE_GATE_B,
@@ -18,7 +19,6 @@ from .timer import (
     TIMER_SIMULATION_TIME,
     TimerReplayService,
 )
-from .timing import animation_timing_record
 
 _ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
 _KEYBOARD_STATE_ADDRESS = GLOBALS["KeyboardState"]
@@ -66,81 +66,8 @@ _TIMING_RING = 0x0056868C
 _TIMING_RING_INDEX = 0x0056A934
 
 
-def _signed32(value: int) -> int:
-    return value - 0x100000000 if value & 0x80000000 else value
-
-
-def _signed16(value: int) -> int:
-    return value - 0x10000 if value & 0x8000 else value
-
-
-def _vec(memory_address: int) -> dict | None:
-    if not mem.readable(memory_address, 0x0C):
-        return None
-    raw = list(mem.u32_vec3(memory_address))
-    return {
-        "raw": raw,
-        "signed": [_signed32(value) for value in raw],
-    }
-
-
-def _short_vec(memory_address: int) -> dict | None:
-    if not mem.readable(memory_address, 6):
-        return None
-    raw = [mem.u16(memory_address + offset) for offset in (0, 2, 4)]
-    return {
-        "raw": raw,
-        "signed": [_signed16(value) for value in raw],
-    }
-
-
 def _snapshot(player: int) -> dict:
-    physics_state = mem.u32(player + 0x30B8)
-    return {
-        "player_address": f"0x{player:08x}",
-        "timing": animation_timing_record(mem),
-        "raw_physics_words": [
-            mem.u32(player + _RAW_PHYSICS_OFFSET + index * 4)
-            for index in range(_RAW_PHYSICS_WORDS)
-        ],
-        "physics_state": physics_state,
-        "physics": {
-            "state_raw": physics_state,
-            "previous_state_raw": mem.u32(player + 0x30C0),
-            "auxiliary_state_raw": mem.u32(player + 0x30C4),
-            "air_control_enabled": bool(mem.u32(_AIR_CONTROL_GLOBAL)),
-        },
-        "position": _vec(player + 0x08),
-        "position_history": _vec(player + 0xBC),
-        "response_velocity": _vec(player + 0x4C),
-        "correction": _vec(player + 0x58),
-        "air_motion": _vec(player + 0x310C),
-        "turn": {
-            "accumulator_raw": mem.u32(player + 0x3144),
-            "mirror_raw": mem.u32(player + 0x3148),
-        },
-        "basis": {
-            "forward_raw": _vec(player + 0x30F4),
-            "up_raw": _vec(player + 0x3100),
-            "air_raw": _vec(player + 0x310C),
-        },
-        "orientation": {
-            "row_0": _short_vec(player + 0x2E58),
-            "row_1": _short_vec(player + 0x2E5E),
-            "row_2": _short_vec(player + 0x2E64),
-        },
-        "animation": {
-            "id_raw": mem.u16(player + 0xF6),
-            "frame_raw": mem.s16(player + 0xF4),
-            "fraction_raw": mem.u16(player + 0x104),
-            "rate_raw": mem.u32(player + 0x108),
-            "mode_raw": mem.u8(player + 0xF8),
-            "direction_raw": mem.s8(player + 0x100),
-            "endpoint_raw": mem.s8(player + 0x101),
-            "alternate_endpoint_raw": mem.s8(player + 0x102),
-            "finished_raw": mem.u8(player + 0x107),
-        },
-    }
+    return canonical_player_snapshot(player, mem)
 
 
 def _without_address(value):

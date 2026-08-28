@@ -39,6 +39,48 @@ def test_host_start_queues_command_for_active_session(monkeypatch, tmp_path):
     }
 
 
+def test_writer_buffers_records_until_threshold_and_flushes_on_close(tmp_path):
+    path = tmp_path / "buffered.otrec"
+    writer = RecordingWriter(path, {"recording_id": "buffered"}, flush_interval_records=3)
+    writer.open()
+    assert [json.loads(line)["type"] for line in path.read_text().splitlines()] == ["header"]
+
+    writer.write({"type": "first"})
+    writer.write({"type": "second"})
+    assert [json.loads(line)["type"] for line in path.read_text().splitlines()] == ["header"]
+    writer.write({"type": "third"})
+    assert [json.loads(line)["type"] for line in path.read_text().splitlines()] == [
+        "header", "first", "second", "third"
+    ]
+
+    writer.write({"type": "fourth"})
+    writer.close(frames=0)
+    assert [json.loads(line)["type"] for line in path.read_text().splitlines()] == [
+        "header", "first", "second", "third", "fourth", "end"
+    ]
+
+
+def test_status_is_throttled_during_frames_but_published_on_state_changes(tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    controller = RecordingController(
+        session_dir=session_dir,
+        status_interval_frames=2,
+    )
+    path = tmp_path / "status.otrec"
+    controller.request_start(path)
+    controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(1))
+    assert json.loads((session_dir / "recording.status.json").read_text())["frames"] == 0
+
+    controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(2))
+    assert json.loads((session_dir / "recording.status.json").read_text())["frames"] == 2
+
+    controller.request_stop()
+    assert json.loads((session_dir / "recording.status.json").read_text())["state"] == "StopPending"
+
+
 def test_start_and_stop_are_committed_on_frame_boundaries(tmp_path):
     path = tmp_path / "warehouse.otrec"
     controller = RecordingController(
@@ -184,6 +226,7 @@ def test_timer_clock_read_delivery_stays_in_current_frame(tmp_path):
     )
     controller.end_frame(_snapshot(1))
 
+    controller.writer.flush()
     records = [json.loads(line) for line in path.read_text().splitlines()]
     frame = next(record for record in records if record["type"] == "frame")
     assert frame["events"] == [

@@ -102,7 +102,12 @@ int main() {
     GroundMotionInput over_speed = ordinary;
     over_speed.response_speed_metric = 0x4e21;
     player.clear_motion_correction();
-    CHECK(!player.apply_ground_motion(over_speed).applied);
+    CHECK(player.apply_ground_motion(over_speed).applied);
+
+    GroundMotionInput over_speed_uphill = over_speed;
+    over_speed_uphill.forward_basis_y = 0x1f4;
+    player.clear_motion_correction();
+    CHECK(player.apply_ground_motion(over_speed_uphill).applied);
 
     GroundMotionInput uphill = ordinary;
     uphill.forward_basis_y = 0x1f4;
@@ -113,6 +118,14 @@ int main() {
     no_profile.profile_table_value_nonzero = false;
     player.clear_motion_correction();
     CHECK(!player.apply_ground_motion(no_profile).applied);
+
+    // Animation 0x5e has its own frame-window branch. It must not fall
+    // through to the ordinary scale-1 writer before that window opens.
+    GroundMotionInput animation_5e = ordinary;
+    animation_5e.animation_state = 0x5e;
+    animation_5e.animation_frame = 0;
+    player.clear_motion_correction();
+    CHECK(!player.apply_ground_motion(animation_5e).applied);
 
     player.clear_motion_correction();
 

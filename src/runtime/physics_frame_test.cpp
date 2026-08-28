@@ -90,15 +90,15 @@ int main() {
         const InputState&) {
         if (stage == PhysicsDispatchStage::GroundCollision_96550) {
             current_player.set_motion_correction({0x1000, 0, 0});
-            current_player.prepare_ground_basis_correction(false);
         }
     };
+    producer_hooks.apply_ground_basis_correction = true;
     const auto produced = PlayerPhysicsFrame::step(
         producer,
         neutral,
         producer_hooks);
     CHECK(produced.position_integrated);
-    CHECK(producer.position() == FixedPosition({207, 200, 300}));
+    CHECK(producer.position() == FixedPosition({2248, 200, 300}));
     CHECK(producer.collision_response() == FixedPosition({4096, 0, 0}));
 
     // The unresolved retail ground-motion producer belongs before the shared
@@ -437,6 +437,24 @@ int main() {
     CHECK(gravity_applied.air_motion_basis.has_value());
     CHECK(gravity_player.air_motion()
         == opentony::runtime::q12_normalize({100, -1500, 300}));
+
+    PlayerState gravity_acceleration_player;
+    gravity_acceleration_player.set_physics_state(3);
+    PlayerPhysicsFrameHooks gravity_acceleration_hooks{};
+    gravity_acceleration_hooks.integrate_position = false;
+    gravity_acceleration_hooks.integrate_motion_correction = false;
+    gravity_acceleration_hooks.air_gravity_acceleration_input = [](
+        const PlayerState&,
+        const InputState&) {
+        return std::optional<std::int32_t>{13000};
+    };
+    const auto gravity_acceleration_frame = PlayerPhysicsFrame::step(
+        gravity_acceleration_player,
+        surface_input,
+        gravity_acceleration_hooks);
+    CHECK(gravity_acceleration_frame.air_gravity_acceleration == 13000);
+    CHECK(gravity_acceleration_player.motion_correction()
+        == FixedPosition({0, 13000, 0}));
 
     PlayerState air_input_player;
     air_input_player.set_physics_state(3);

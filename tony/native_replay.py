@@ -11,9 +11,8 @@ from .common import resolve
 from .recording import validate_recording
 
 REPLAY_MODES = ("assisted", "strict")
+NATIVE_REPLAY_WIRE_VERSION = 3
 _DERIVED_NATIVE_CHANNELS = (
-    "ollie_random",
-    "velocity_damping_random",
     "motion_correction",
     "response_correction",
 )
@@ -56,6 +55,22 @@ def _snapshot_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
     physics_state = snapshot.get("physics_state")
     if not isinstance(physics_state, int):
         raise TypeError("snapshot has no physics state")
+    animation = snapshot.get("animation")
+    if not isinstance(animation, dict):
+        animation = {}
+    animation_values = (
+        animation.get("id_raw", 0),
+        animation.get("frame_raw", 0),
+        animation.get("fraction_raw", 0),
+        animation.get("rate_raw", 0x10000),
+        animation.get("mode_raw", 0),
+        animation.get("direction_raw", 0),
+        animation.get("endpoint_raw", 0),
+        animation.get("alternate_endpoint_raw", -1),
+        animation.get("finished_raw", 1),
+    )
+    if not all(isinstance(value, int) for value in animation_values):
+        raise TypeError("snapshot has invalid animation state")
     return {
         "position": _vector(snapshot, "position"),
         "previous_position": _vector(snapshot, "position_history"),
@@ -64,6 +79,7 @@ def _snapshot_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
         "air_motion": _vector(snapshot, "air_motion"),
         "physics_state": _signed(physics_state, 32),
         "turn_accumulator": _signed(accumulator, 32),
+        "animation": animation_values,
         "orientation": _orientation(snapshot),
     }
 
@@ -81,6 +97,7 @@ def _initial_wire(snapshot: dict[str, Any]) -> str:
         values.extend(fields[name])
     values.extend((fields["physics_state"], 0, 0, fields["turn_accumulator"]))
     values.extend(fields["orientation"])
+    values.extend(fields["animation"])
     return "init " + " ".join(str(value) for value in values)
 
 
@@ -114,9 +131,16 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
     random_by_purpose: dict[str, int] = {}
     events = frame.get("events", [])
     if mode == "strict":
-        # Derived events remain useful evidence in the recording, but strict
-        # replay must not even parse them as native service inputs.
-        events = []
+        # Strict replay still consumes causal random draws. Only captured
+        # derived state is excluded; the native producers must recompute it.
+        events = [
+            event for event in events
+            if not isinstance(event, dict)
+            or event.get("type") not in {
+                "motion_correction_input",
+                "response_correction_input",
+            }
+        ] if isinstance(events, list) else []
     if isinstance(events, list):
         for event in events:
             if not isinstance(event, dict) or event.get("type") != "ollie_random_input":
@@ -143,7 +167,7 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
         "early_release.second",
     )
     random_values = [random_by_purpose.get(purpose, 0) for purpose in random_purposes]
-    random_available = int(bool(random_by_purpose) and mode == "assisted")
+    random_available = int(bool(random_by_purpose))
     metric_event = next(
         (
             event
@@ -184,7 +208,7 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
             "decay_threshold",
         )
     ]
-    damping_available = int(bool(damping_by_purpose) and mode == "assisted")
+    damping_available = int(bool(damping_by_purpose))
     motion_events = [
         event
         for event in events
@@ -285,7 +309,7 @@ def _wire_input(
             f"unsupported native replay mode {mode!r}; "
             f"choose one of {', '.join(REPLAY_MODES)}"
         )
-    lines = ["version 2", _initial_wire(initial)]
+    lines = [f"version {NATIVE_REPLAY_WIRE_VERSION}", _initial_wire(initial)]
     lines.extend(_frame_wire(frame, mode=mode) for frame in frames)
     lines.append("end")
     return "\n".join(lines) + "\n"
