@@ -95,6 +95,7 @@ from .timer import (
     TIMER_SIMULATION_ACCUMULATOR,
     TIMER_SIMULATION_TIME,
     TIMER_STATE_ADDRESS,
+    infer_timer_delivery_count,
 )
 from .timing import animation_timing_record
 from .trace import JsonlWriter
@@ -134,7 +135,8 @@ _trace_writer = None
 _WATCH_DEFAULT_LIMIT = 256
 _key_loop_breakpoints = []
 _recording_controller = None
-_recording_timer_probe = None
+_recording_timer_initial_state = None
+_recording_timer_recording_id = None
 _retail_replay = None
 _frontend_screen_automation = None
 
@@ -144,6 +146,140 @@ _RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
 _RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
 _RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
 _RECORDING_AIR_CONTROL_GLOBAL = 0x0056B7F0
+
+
+class _RecordingTimerBoundarySampler:
+    """Turn callback-owned counter deltas into replay input events.
+
+    The callback runs on Wine's multimedia-timer thread.  A debugger software
+    breakpoint at its final store races GDB's remote step-over machinery, so
+    recording samples the callback's atomic millisecond counter instead.  A
+    delivery increments that counter by the active interval exactly once.
+    """
+
+    def __init__(self):
+        self._accumulated_ms: int | None = None
+        self._interval_ms: int | None = None
+
+    @property
+    def initialized(self) -> bool:
+        return self._accumulated_ms is not None and self._interval_ms is not None
+
+    def reset(self, timer_state: dict | None) -> None:
+        if not isinstance(timer_state, dict):
+            self._accumulated_ms = None
+            self._interval_ms = None
+            return
+        accumulated = timer_state.get("accumulated_ms")
+        interval = timer_state.get("interval_ms")
+        self._accumulated_ms = None if accumulated is None else int(accumulated)
+        self._interval_ms = None if interval is None else int(interval)
+
+    def observe(
+        self,
+        timer_state: dict | None,
+        frame: int,
+        controller,
+        *,
+        phase: str = "frame_entry",
+    ) -> int:
+        if not isinstance(timer_state, dict):
+            return 0
+        accumulated = timer_state.get("accumulated_ms")
+        interval = timer_state.get("interval_ms")
+        if accumulated is None or interval is None:
+            return 0
+        accumulated = int(accumulated)
+        interval = int(interval)
+        if self._accumulated_ms is None or self._interval_ms is None:
+            self._accumulated_ms = accumulated
+            self._interval_ms = interval
+            return 0
+        try:
+            deliveries = infer_timer_delivery_count(
+                self._accumulated_ms,
+                accumulated,
+                self._interval_ms,
+            )
+        except ValueError:
+            # If the service changes its interval between boundaries, retry
+            # with the newly observed interval.  A non-divisible delta still
+            # means this recording cannot express causal deliveries safely.
+            deliveries = infer_timer_delivery_count(
+                self._accumulated_ms,
+                accumulated,
+                interval,
+            )
+        for ordinal in range(deliveries):
+            controller.event(
+                {
+                    "type": "timer_callback_delivery",
+                    "frame": frame,
+                    "callback_ordinal": ordinal,
+                    "interval_ms": self._interval_ms,
+                    "callback_arg0": self._interval_ms,
+                    "callback_arg1": 0,
+                    "delivery_source": "timer_state_boundary_delta",
+                    "timer_boundary_phase": phase,
+                }
+            )
+        self._accumulated_ms = accumulated
+        self._interval_ms = interval
+        return deliveries
+
+
+_recording_timer_sampler = _RecordingTimerBoundarySampler()
+
+
+class TonyRecordingTimerClockReadBreakpoint(TonyBreakpoint):
+    """Sample deliveries that occur before retail reads its simulation clock."""
+
+    ADDRESS = 0x0049F1A0
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.controller.active_frame is None:
+            return
+        timer_state = _recording_timer_boundary_state()
+        _recording_timer_sampler.observe(
+            timer_state,
+            self.controller.active_frame,
+            self.controller,
+            phase="clock_read",
+        )
+
+
+class TonyRecordingTimerUpdateBreakpoint(TonyBreakpoint):
+    """Sample deliveries before retail computes the frame timing delta."""
+
+    ADDRESS = 0x0046A0F0
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        global _recording_timer_initial_state, _recording_timer_recording_id
+        if self.controller.state.value == "Idle":
+            return
+        if self.controller.recording_id != _recording_timer_recording_id:
+            _recording_timer_recording_id = self.controller.recording_id
+            _recording_timer_initial_state = None
+            _recording_timer_sampler.reset(None)
+        timer_state = _recording_timer_boundary_state()
+        if not _recording_timer_sampler.initialized:
+            _recording_timer_sampler.reset(timer_state)
+            _recording_timer_initial_state = _recording_timer_state()
+            return
+        _recording_timer_sampler.observe(
+            timer_state,
+            self.controller.current_frame_index,
+            self.controller,
+            phase="timer_update",
+        )
 
 
 def _recording_signed8(value: int) -> int:
@@ -327,6 +463,28 @@ def _recording_timer_state() -> dict | None:
     return record
 
 
+def _recording_timer_boundary_state() -> dict | None:
+    """Read the atomic callback counter used by boundary delivery sampling."""
+
+    if not mem.readable(TIMER_STATE_ADDRESS, 0x10):
+        return None
+    return {
+        "interval_ms": mem.u32(TIMER_STATE_ADDRESS + 0x04),
+        "accumulated_ms": mem.u32(TIMER_STATE_ADDRESS + 0x0C),
+    }
+
+
+def _recording_timer_capture_initial(controller: RecordingController) -> None:
+    """Latch the timer baseline when a host start command is first observed."""
+
+    global _recording_timer_initial_state, _recording_timer_recording_id
+    if controller.state.value != "StartPending" or controller.active_frame is not None:
+        return
+    _recording_timer_recording_id = controller.recording_id
+    _recording_timer_initial_state = _recording_timer_state()
+    _recording_timer_sampler.reset(_recording_timer_boundary_state())
+
+
 def _argv(arg: str, usage: str) -> list[str]:
     try:
         values = shlex.split(arg)
@@ -368,6 +526,7 @@ class TonyRecordingInputBreakpoint(TonyBreakpoint):
 
     def on_hit(self, _ctx: Context) -> None:
         self.controller.poll_control()
+        _recording_timer_capture_initial(self.controller)
         input_record, hotkey_down = _recording_input(self.controller)
         try:
             self.controller.on_input(input_record, hotkey_down=hotkey_down)
@@ -394,6 +553,17 @@ class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
         self.enabled = False
         if self.controller.active_frame != self.frame:
             return
+        # The callback can arrive after the exact simulation-clock load but
+        # before the physics wrapper returns.  Those deliveries are too late
+        # to affect this player's store, yet they are part of the next
+        # outer timing delta.  Sample them here and attach them to the next
+        # gameplay frame's timer_update phase.
+        _recording_timer_sampler.observe(
+            _recording_timer_boundary_state(),
+            self.frame + 1,
+            self.controller,
+            phase="timer_update",
+        )
         try:
             self.controller.end_frame(_recording_player_snapshot(self.player))
         except (OSError, TypeError, ValueError, RecordingError) as exc:
@@ -421,10 +591,24 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
         if input_record is None:
             input_record, _hotkey_down = _recording_input(self.controller)
         metadata = _recording_metadata(player)
-        if self.controller.current_frame_index == 0:
-            initial_timer_state = _recording_timer_state()
+        frame_index = self.controller.current_frame_index
+        timer_state = _recording_timer_boundary_state()
+        if frame_index == 0:
+            # The input boundary latches the canonical initial state before
+            # the first recorded physics frame.  Keep a fallback for
+            # recordings started while that boundary was not yet reached.
+            initial_timer_state = _recording_timer_initial_state
+            if initial_timer_state is None:
+                initial_timer_state = _recording_timer_state()
+                _recording_timer_sampler.reset(timer_state)
             if initial_timer_state is not None:
                 metadata["initial_timer_state"] = initial_timer_state
+        _recording_timer_sampler.observe(
+            timer_state,
+            frame_index,
+            self.controller,
+            phase="physics_entry",
+        )
         try:
             frame = self.controller.begin_frame(
                 _recording_player_snapshot(player),
@@ -435,12 +619,6 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
             raise gdb.GdbError(str(exc)) from exc
         if frame is None:
             return
-        # Wine's multimedia timer thread is active during menu/level startup;
-        # inserting a breakpoint into that thread before gameplay can trigger
-        # GDB's remote step-over race.  Arm the callback probe only after the
-        # first canonical gameplay frame has opened the recording.
-        if frame == 0 and _recording_timer_probe is not None:
-            _recording_timer_probe.enabled = True
         return_address = ctx.return_address()
         if return_address == 0:
             raise gdb.GdbError("could not install recording frame return breakpoint")
@@ -470,6 +648,10 @@ class TonyRecordingStart(gdb.Command):
             raise gdb.GdbError("usage: tony-record-start [FILE] [--force]")
         if _recording_controller is None:
             raise gdb.GdbError("recording controller is not initialized")
+        global _recording_timer_initial_state, _recording_timer_recording_id
+        _recording_timer_initial_state = None
+        _recording_timer_recording_id = None
+        _recording_timer_sampler.reset(None)
         try:
             recording_id = _recording_controller.request_start(
                 values[0] if values else None,
@@ -3087,7 +3269,7 @@ class TonyType192CommandProbe(gdb.Command):
 
 
 def _install_recording_instrumentation() -> None:
-    global _recording_controller, _recording_timer_probe
+    global _recording_controller
     if _recording_controller is not None:
         return
     session_dir = os.environ.get("TONY_SESSION_DIR")
@@ -3098,6 +3280,7 @@ def _install_recording_instrumentation() -> None:
         (
             TonyRecordingInputBreakpoint(_recording_controller),
             TonyRecordingFrameEntryBreakpoint(_recording_controller),
+            TonyRecordingTimerUpdateBreakpoint(_recording_controller),
         )
     )
     _runtime_breakpoints.append(
@@ -3120,19 +3303,11 @@ def _install_recording_instrumentation() -> None:
             ),
         )
     )
-    # Multimedia timer callbacks arrive on Wine's timer thread and can land
-    # between gameplay-frame boundaries. Record the delivery as an external
-    # event; its integer clocks remain observations, never replay inputs.
-    _recording_timer_probe = SimulationTimeAccumulatorProbe(
-        writer=sink,
-        frame_provider=lambda: (
-            _recording_controller.active_frame
-            if _recording_controller is not None
-            else None
-        ),
-    )
-    _recording_timer_probe.enabled = False
-    _runtime_breakpoints.append(_recording_timer_probe)
+    _runtime_breakpoints.append(TonyRecordingTimerClockReadBreakpoint(_recording_controller))
+    # Multimedia timer callbacks arrive on Wine's timer thread.  Recording
+    # samples the callback-owned accumulated-millisecond counter at gameplay
+    # boundaries; the sampler emits causal timer_callback_delivery events
+    # without inserting a breakpoint into the asynchronous thread.
     collision_probe = CollisionQueryProbe(writer=sink)
     _runtime_breakpoints.extend(
         (collision_probe.entry, collision_probe.return_breakpoint)

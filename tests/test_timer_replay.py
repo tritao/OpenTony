@@ -4,6 +4,8 @@ import struct
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "re/gdb"))
 
 from opentony.timer import (
@@ -15,6 +17,7 @@ from opentony.timer import (
     TIMER_SIMULATION_TIME,
     TIMER_STATE_ADDRESS,
     TimerReplayService,
+    infer_timer_delivery_count,
 )
 
 
@@ -128,8 +131,35 @@ def test_timer_replay_uses_callback_pause_gate_observation():
     assert service.state.simulation_time == 0
 
 
+def test_timer_replay_applies_only_requested_frame_phase():
+    memory = FakeMemory()
+    service = TimerReplayService(_initial_timer_state())
+    entry = _delivery()
+    clock_read = _delivery()
+    clock_read["timer_boundary_phase"] = "clock_read"
+
+    assert len(service.apply_frame({"events": [entry, clock_read]}, memory)) == 1
+    assert service.state.accumulated_ms == 16
+    assert len(
+        service.apply_frame(
+            {"events": [entry, clock_read]}, memory, phase="clock_read"
+        )
+    ) == 1
+    assert service.state.accumulated_ms == 32
+
+
 def test_timer_initial_state_is_read_from_recording_header():
     initial = _initial_timer_state()
     assert TimerReplayService.initial_from_recording(
         {"initial_timer_state": initial}, []
     ) == initial
+
+
+def test_timer_delivery_count_uses_atomic_millisecond_counter():
+    assert infer_timer_delivery_count(432, 480, 16) == 3
+    assert infer_timer_delivery_count(0xFFFFFFF0, 0x10, 16) == 2
+
+
+def test_timer_delivery_count_rejects_partial_interval():
+    with pytest.raises(ValueError, match="not divisible"):
+        infer_timer_delivery_count(0, 15, 16)

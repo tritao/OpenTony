@@ -20,6 +20,31 @@ TIMER_PAUSE_GATE_A = 0x00561C04
 TIMER_PAUSE_GATE_B = 0x0056A8E0
 
 
+def infer_timer_delivery_count(
+    previous_accumulated_ms: int,
+    current_accumulated_ms: int,
+    interval_ms: int,
+) -> int:
+    """Infer completed callback deliveries from the timer state counter.
+
+    ``SimulationTimeTimerCallback`` updates the 32-bit accumulated-millisecond
+    field once per delivery.  Sampling that single word at two all-stop
+    gameplay boundaries therefore gives an exact delivery count, including
+    across the natural 32-bit wrap, provided the callback interval is stable.
+    """
+
+    interval = int(interval_ms) & 0xFFFFFFFF
+    if interval <= 0:
+        raise ValueError(f"timer interval must be positive, got {interval_ms!r}")
+    delta = (int(current_accumulated_ms) - int(previous_accumulated_ms)) & 0xFFFFFFFF
+    if delta % interval:
+        raise ValueError(
+            "timer accumulated-millisecond delta is not divisible by interval: "
+            f"{delta} % {interval}"
+        )
+    return delta // interval
+
+
 def _integer(value, default: int = 0) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -280,8 +305,14 @@ class TimerReplayService:
         memory.write_u32(TIMER_PUBLIC_TICK, state.public_tick)
         memory.write_u32(TIMER_SIMULATION_TIME, state.simulation_time)
 
-    def apply_frame(self, frame: dict, memory) -> list[dict]:
-        """Advance one delivery per recorded timer event for this frame."""
+    def apply_frame(
+        self,
+        frame: dict,
+        memory,
+        *,
+        phase: str = "physics_entry",
+    ) -> list[dict]:
+        """Advance deliveries recorded for one deterministic frame phase."""
 
         if self.state is None:
             return []
@@ -289,6 +320,15 @@ class TimerReplayService:
         self._read_gates(memory)
         for event in frame.get("events", ()):
             if event.get("type") != self.EVENT_TYPE:
+                continue
+            # Captures made before the phase-aware timer service used the
+            # generic frame_entry label.  Those deliveries occurred between
+            # the outer timing update and Skater_PhysicsFrame, so retain that
+            # fixture compatibility as the physics_entry phase.
+            event_phase = event.get("timer_boundary_phase", "physics_entry")
+            if event_phase == "frame_entry":
+                event_phase = "physics_entry"
+            if event_phase != phase:
                 continue
             if event.get("simulation_pause_gate_a") is not None:
                 self.state.simulation_pause_gate_a = bool(

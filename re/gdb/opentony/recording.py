@@ -455,7 +455,10 @@ class RecordingController:
         # frame boundary during replay.  This makes the frame event list mean
         # "deliveries before this frame", rather than depending on debugger
         # thread scheduling inside the frame.
-        if record.get("type") == "timer_callback_delivery":
+        if (
+            record.get("type") == "timer_callback_delivery"
+            and record.get("timer_boundary_phase") != "clock_read"
+        ):
             self._pending_external_events.append(dict(record))
             return
         self._active_frame["events"].append(dict(record))
