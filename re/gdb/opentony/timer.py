@@ -45,6 +45,79 @@ def infer_timer_delivery_count(
     return delta // interval
 
 
+def _boundary_double_value(boundary: dict | None, name: str) -> float | None:
+    value = boundary.get(name) if isinstance(boundary, dict) else None
+    if isinstance(value, dict):
+        value = value.get("value")
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def infer_completed_timer_deliveries(
+    previous_boundary: dict | None,
+    current_boundary: dict,
+    counter_deliveries: int,
+    pending_deliveries: int,
+    interval_ms: int,
+    previous_interval_ms: int | None,
+) -> tuple[int, int]:
+    """Account for callbacks whose counter increment preceded their stores.
+
+    The retail callback increments its accumulated-millisecond counter before
+    updating the floating accumulators. A gameplay breakpoint can therefore
+    observe a counter tick while the simulation-side effect is still in
+    flight. With both pause gates open, the simulation accumulator identifies
+    how many callbacks have completed across the two samples. The return value
+    is ``(completed, pending)``; callers can defer pending callbacks to the
+    next deterministic boundary.
+
+    If the accumulator fields are unavailable, the interval changes, or a
+    pause transition makes the completion count ambiguous, the atomic counter
+    delta remains the conservative source of delivery events.
+    """
+
+    if (
+        not isinstance(previous_boundary, dict)
+        or previous_interval_ms is None
+        or interval_ms != previous_interval_ms
+        or bool(previous_boundary.get("simulation_pause_gate_a", False))
+        or bool(previous_boundary.get("simulation_pause_gate_b", False))
+        or bool(current_boundary.get("simulation_pause_gate_a", False))
+        or bool(current_boundary.get("simulation_pause_gate_b", False))
+    ):
+        return counter_deliveries, 0
+
+    previous_simulation = _boundary_double_value(
+        previous_boundary, "simulation_accumulator"
+    )
+    current_simulation = _boundary_double_value(
+        current_boundary, "simulation_accumulator"
+    )
+    delta_per_delivery = float(interval_ms) * 0.001 * 60.0
+    if (
+        previous_simulation is None
+        or current_simulation is None
+        or not math.isfinite(delta_per_delivery)
+        or delta_per_delivery <= 0.0
+    ):
+        return counter_deliveries, 0
+
+    observed_delta = current_simulation - previous_simulation
+    candidate_deliveries = pending_deliveries + counter_deliveries
+    completed = round(observed_delta / delta_per_delivery)
+    tolerance = 1.0e-6 * max(1.0, abs(current_simulation))
+    if (
+        completed < 0
+        or completed > candidate_deliveries
+        or abs(observed_delta - completed * delta_per_delivery) > tolerance
+    ):
+        return counter_deliveries, 0
+    return completed, candidate_deliveries - completed
+
+
 def _integer(value, default: int = 0) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -306,6 +379,37 @@ class TimerReplayService:
         memory.write_u32(TIMER_PUBLIC_TICK, state.public_tick)
         memory.write_u32(TIMER_SIMULATION_TIME, state.simulation_time)
 
+    def _validate_boundary_state(self, observed: dict, label: str) -> None:
+        """Assert callback-owned derived fields at a sampled boundary."""
+
+        for key, actual in (
+            ("public_accumulator", self.state.public_accumulator),
+            ("simulation_accumulator", self.state.simulation_accumulator),
+        ):
+            expected = observed.get(key)
+            if expected is not None and not self._matches_raw_double(expected, actual):
+                raise ValueError(
+                    f"modeled {key} does not match recorded boundary {label}"
+                )
+        for key, actual in (
+            ("public_tick", self.state.public_tick),
+            ("simulation_time", self.state.simulation_time),
+        ):
+            expected = observed.get(key)
+            if expected is not None and _integer(expected) & 0xFFFFFFFF != actual:
+                raise ValueError(
+                    f"modeled {key} does not match recorded boundary {label}"
+                )
+        for key, actual in (
+            ("simulation_pause_gate_a", self.state.simulation_pause_gate_a),
+            ("simulation_pause_gate_b", self.state.simulation_pause_gate_b),
+        ):
+            expected = observed.get(key)
+            if expected is not None and bool(expected) != actual:
+                raise ValueError(
+                    f"modeled {key} does not match recorded boundary {label}"
+                )
+
     def apply_frame(
         self,
         frame: dict,
@@ -366,6 +470,7 @@ class TimerReplayService:
                         "modeled timer state does not reach recorded boundary start: "
                         f"{self.state.accumulated_ms} != {expected_accumulated}"
                     )
+                self._validate_boundary_state(boundary_before, "start")
                 observed_count = sum(
                     event.get("type") == self.EVENT_TYPE
                     for event in segment_events
@@ -375,6 +480,29 @@ class TimerReplayService:
                         "recorded timer boundary delivery count is inconsistent: "
                         f"{delivery_count} != {observed_count}"
                     )
+                sampled = segment_events[0].get(
+                    "timer_boundary_sampled_accumulated_ms"
+                )
+                pending = segment_events[0].get(
+                    "timer_boundary_pending_delivery_count"
+                )
+                if sampled is not None or pending is not None:
+                    if not isinstance(sampled, int) or not isinstance(pending, int):
+                        raise TypeError("timer boundary sampled counter metadata is incomplete")
+                    if pending < 0:
+                        raise ValueError("timer boundary pending delivery count is negative")
+                    interval = _integer(
+                        boundary_after.get("interval_ms", self.state.interval_ms)
+                    )
+                    expected_sampled = (
+                        _integer(boundary_after.get("accumulated_ms"))
+                        + pending * interval
+                    ) & 0xFFFFFFFF
+                    if sampled & 0xFFFFFFFF != expected_sampled:
+                        raise ValueError(
+                            "sampled timer counter does not match modeled boundary: "
+                            f"{sampled} != {expected_sampled}"
+                        )
 
             for event in segment_events:
                 if event.get("type") != self.EVENT_TYPE:
@@ -408,5 +536,11 @@ class TimerReplayService:
                         "modeled timer state does not reach recorded boundary end: "
                         f"{self.state.accumulated_ms} != {expected_accumulated}"
                     )
-        self.publish(memory)
+                self._validate_boundary_state(boundary_after, "end")
+        # Publishing is itself a callback side effect.  A phase with no
+        # deliveries must leave the shared clock alone: FUN_004f5ff0 may have
+        # advanced it from its independent GetTickCount sample before this
+        # replay boundary.
+        if results:
+            self.publish(memory)
         return results

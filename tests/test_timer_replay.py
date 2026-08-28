@@ -17,6 +17,7 @@ from opentony.timer import (
     TIMER_SIMULATION_TIME,
     TIMER_STATE_ADDRESS,
     TimerReplayService,
+    infer_completed_timer_deliveries,
     infer_timer_delivery_count,
 )
 
@@ -196,3 +197,52 @@ def test_timer_delivery_count_uses_atomic_millisecond_counter():
 def test_timer_delivery_count_rejects_partial_interval():
     with pytest.raises(ValueError, match="not divisible"):
         infer_timer_delivery_count(0, 15, 16)
+
+
+def _timer_boundary_simulation(value: float, *, gate_a=False, gate_b=False):
+    raw = int.from_bytes(struct.pack("<d", value), "little")
+    return {
+        "simulation_accumulator": {"raw": raw, "value": value},
+        "simulation_pause_gate_a": gate_a,
+        "simulation_pause_gate_b": gate_b,
+    }
+
+
+def test_timer_boundary_completion_defers_counter_tick_before_simulation_store():
+    assert infer_completed_timer_deliveries(
+        _timer_boundary_simulation(0.0),
+        _timer_boundary_simulation(0.0),
+        counter_deliveries=1,
+        pending_deliveries=0,
+        interval_ms=16,
+        previous_interval_ms=16,
+    ) == (0, 1)
+
+
+def test_timer_boundary_completion_releases_pending_and_new_ticks_together():
+    assert infer_completed_timer_deliveries(
+        _timer_boundary_simulation(0.0),
+        _timer_boundary_simulation(2.88),
+        counter_deliveries=2,
+        pending_deliveries=1,
+        interval_ms=16,
+        previous_interval_ms=16,
+    ) == (3, 0)
+
+
+def test_timer_replay_validates_sampled_counter_with_pending_delivery():
+    memory = FakeMemory()
+    service = TimerReplayService(_initial_timer_state())
+    event = {
+        "type": "timer_boundary_sample",
+        "timer_boundary_before": {"interval_ms": 16, "accumulated_ms": 0},
+        "timer_boundary_after": {"interval_ms": 16, "accumulated_ms": 0},
+        "timer_boundary_delivery_count": 0,
+        "timer_boundary_sampled_accumulated_ms": 16,
+        "timer_boundary_pending_delivery_count": 1,
+    }
+
+    assert service.apply_frame({"events": [event]}, memory) == []
+    event["timer_boundary_sampled_accumulated_ms"] = 32
+    with pytest.raises(ValueError, match="sampled timer counter"):
+        service.apply_frame({"events": [event]}, memory)

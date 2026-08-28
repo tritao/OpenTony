@@ -95,6 +95,7 @@ from .timer import (
     TIMER_SIMULATION_ACCUMULATOR,
     TIMER_SIMULATION_TIME,
     TIMER_STATE_ADDRESS,
+    infer_completed_timer_deliveries,
     infer_timer_delivery_count,
 )
 from .timing import animation_timing_record
@@ -146,6 +147,10 @@ _RECORDING_NORMALIZED_AXIS_ADDRESS = 0x0056B140
 _RECORDING_RAW_PHYSICS_OFFSET = 0x2D80
 _RECORDING_RAW_PHYSICS_WORDS = 0x490 // 4
 _RECORDING_AIR_CONTROL_GLOBAL = 0x0056B7F0
+_RECORDING_TIMING_PREVIOUS_TIME = 0x00568604
+_RECORDING_TIMING_RING_INDEX = 0x0056A934
+_RECORDING_TIMING_DELTA = 0x0056A93C
+_RECORDING_TIMING_PREVIOUS_STORE = 0x00468BA1
 
 
 class _RecordingTimerBoundarySampler:
@@ -160,6 +165,9 @@ class _RecordingTimerBoundarySampler:
     def __init__(self):
         self._accumulated_ms: int | None = None
         self._interval_ms: int | None = None
+        self._boundary_state: dict | None = None
+        self._logical_accumulated_ms: int | None = None
+        self._pending_deliveries = 0
 
     @property
     def initialized(self) -> bool:
@@ -169,11 +177,50 @@ class _RecordingTimerBoundarySampler:
         if not isinstance(timer_state, dict):
             self._accumulated_ms = None
             self._interval_ms = None
+            self._boundary_state = None
+            self._logical_accumulated_ms = None
+            self._pending_deliveries = 0
             return
         accumulated = timer_state.get("accumulated_ms")
         interval = timer_state.get("interval_ms")
         self._accumulated_ms = None if accumulated is None else int(accumulated)
         self._interval_ms = None if interval is None else int(interval)
+        self._boundary_state = dict(timer_state)
+        self._logical_accumulated_ms = self._accumulated_ms
+        self._pending_deliveries = 0
+
+    def _completed_deliveries(
+        self,
+        timer_state: dict,
+        counter_deliveries: int,
+        interval: int,
+    ) -> tuple[int, int]:
+        """Separate completed callbacks from a callback seen mid-transition.
+
+        The callback increments ``timer_state+0x0c`` before it updates either
+        floating accumulator.  A gameplay breakpoint can consequently sample
+        one additional counter tick while the callback is still between its
+        public and simulation stores.  When the pause gates are open, the
+        simulation accumulator gives us a stable completion signal: carry that
+        in-flight delivery to the next boundary instead of assigning its
+        effect to the earlier producer phase.
+
+        If the accumulator fields are unavailable, or a pause transition makes
+        the completion count ambiguous, retain the original counter-delta
+        behavior.  Those cases remain covered by the ordinary callback-phase
+        observations and are not rewritten from a torn compound snapshot.
+        """
+
+        completed, pending = infer_completed_timer_deliveries(
+            self._boundary_state,
+            timer_state,
+            counter_deliveries,
+            self._pending_deliveries,
+            interval,
+            self._interval_ms,
+        )
+        self._pending_deliveries = pending
+        return completed, pending
 
     def observe(
         self,
@@ -194,6 +241,9 @@ class _RecordingTimerBoundarySampler:
         if self._accumulated_ms is None or self._interval_ms is None:
             self._accumulated_ms = accumulated
             self._interval_ms = interval
+            self._boundary_state = dict(timer_state)
+            self._logical_accumulated_ms = accumulated
+            self._pending_deliveries = 0
             return 0
         try:
             deliveries = infer_timer_delivery_count(
@@ -210,20 +260,33 @@ class _RecordingTimerBoundarySampler:
                 accumulated,
                 interval,
             )
-        boundary_before = {
-            "interval_ms": self._interval_ms,
-            "accumulated_ms": self._accumulated_ms,
-        }
-        boundary_after = {
-            "interval_ms": interval,
-            "accumulated_ms": accumulated,
-        }
+        completed, pending = self._completed_deliveries(
+            timer_state,
+            deliveries,
+            interval,
+        )
+        logical_before = self._logical_accumulated_ms
+        if logical_before is None:
+            logical_before = self._accumulated_ms
+        logical_after = (
+            logical_before + completed * self._interval_ms
+            if logical_before is not None
+            else accumulated
+        )
         boundary = {
-            "timer_boundary_before": boundary_before,
-            "timer_boundary_after": boundary_after,
-            "timer_boundary_delivery_count": deliveries,
+            "timer_boundary_before": {
+                "interval_ms": self._interval_ms,
+                "accumulated_ms": logical_before,
+            },
+            "timer_boundary_after": {
+                "interval_ms": self._interval_ms,
+                "accumulated_ms": logical_after,
+            },
+            "timer_boundary_sampled_accumulated_ms": accumulated,
+            "timer_boundary_pending_delivery_count": pending,
+            "timer_boundary_delivery_count": completed,
         }
-        for ordinal in range(deliveries):
+        for ordinal in range(completed):
             controller.event(
                 {
                     **boundary,
@@ -237,7 +300,7 @@ class _RecordingTimerBoundarySampler:
                     "timer_boundary_phase": phase,
                 }
             )
-        if not deliveries:
+        if not completed:
             controller.event(
                 {
                     **boundary,
@@ -249,10 +312,34 @@ class _RecordingTimerBoundarySampler:
             )
         self._accumulated_ms = accumulated
         self._interval_ms = interval
-        return deliveries
+        self._logical_accumulated_ms = logical_after
+        self._boundary_state = dict(timer_state)
+        return completed
 
 
 _recording_timer_sampler = _RecordingTimerBoundarySampler()
+
+
+def _recording_timing_producer_sample(phase: str) -> dict:
+    """Capture the producer operands that are not callback-owned state."""
+
+    return {
+        "type": "timing_producer_sample",
+        "frame": _recording_controller.current_frame_index,
+        "timer_boundary_phase": phase,
+        "previous_time_raw": mem.u32(_RECORDING_TIMING_PREVIOUS_TIME),
+        "simulation_time_raw": mem.u32(TIMER_SIMULATION_TIME),
+        "simulation_accumulator_raw": int.from_bytes(
+            mem.bytes(TIMER_SIMULATION_ACCUMULATOR, 8), "little"
+        ),
+        "timing_delta_q11_raw": mem.u32(_RECORDING_TIMING_DELTA),
+        "timing_ring_index_raw": mem.u32(_RECORDING_TIMING_RING_INDEX),
+        "timing_ring_raw": [
+            mem.u32(0x0056868C + index * 4) for index in range(3)
+        ],
+        "simulation_pause_gate_a": bool(mem.u32(TIMER_PAUSE_GATE_A)),
+        "simulation_pause_gate_b": bool(mem.u32(TIMER_PAUSE_GATE_B)),
+    }
 
 
 class TonyRecordingTimerClockReadBreakpoint(TonyBreakpoint):
@@ -303,6 +390,97 @@ class TonyRecordingTimerUpdateBreakpoint(TonyBreakpoint):
             self.controller.current_frame_index,
             self.controller,
             phase="timer_update",
+        )
+
+
+class TonyRecordingTimerProducerReadBreakpoint(TonyBreakpoint):
+    """Sample deliveries after the timing producer latches its old clock."""
+
+    # FUN_00468b30 loads DAT_00568604 before reading DAT_0056e320.  A timer
+    # delivery between those two reads contributes to the current delta while
+    # leaving the producer's previous-time operand unchanged.
+    ADDRESS = 0x00468B40
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.controller.state.value == "Idle":
+            return
+        _recording_timer_sampler.observe(
+            _recording_timer_boundary_state(),
+            self.controller.current_frame_index,
+            self.controller,
+            phase="timing_producer",
+        )
+        self.controller.event(_recording_timing_producer_sample("timing_producer"))
+
+
+class TonyRecordingTimerProducerDeltaReadBreakpoint(TonyBreakpoint):
+    """Sample deliveries before the producer reads its timing delta clock."""
+
+    ADDRESS = 0x00468B6B
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.controller.state.value == "Idle":
+            return
+        _recording_timer_sampler.observe(
+            _recording_timer_boundary_state(),
+            self.controller.current_frame_index,
+            self.controller,
+            phase="timing_delta",
+        )
+        self.controller.event(_recording_timing_producer_sample("timing_delta"))
+
+
+class TonyRecordingTimerProducerOutputBreakpoint(TonyBreakpoint):
+    """Sample deliveries before the producer reads its timing-delta output."""
+
+    ADDRESS = 0x00468B7C
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.controller.state.value == "Idle":
+            return
+        _recording_timer_sampler.observe(
+            _recording_timer_boundary_state(),
+            self.controller.current_frame_index,
+            self.controller,
+            phase="timing_delta_output",
+        )
+        self.controller.event(
+            _recording_timing_producer_sample("timing_delta_output")
+        )
+
+
+class TonyRecordingTimerProducerPreviousStoreBreakpoint(TonyBreakpoint):
+    """Sample deliveries before the producer latches previous-time."""
+
+    ADDRESS = _RECORDING_TIMING_PREVIOUS_STORE
+
+    def __init__(self, controller: RecordingController):
+        self.controller = controller
+        super().__init__(self.ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.controller.state.value == "Idle":
+            return
+        _recording_timer_sampler.observe(
+            _recording_timer_boundary_state(),
+            self.controller.current_frame_index,
+            self.controller,
+            phase="timing_previous_store",
+        )
+        self.controller.event(
+            _recording_timing_producer_sample("timing_previous_store")
         )
 
 
@@ -492,10 +670,29 @@ def _recording_timer_boundary_state() -> dict | None:
 
     if not mem.readable(TIMER_STATE_ADDRESS, 0x10):
         return None
-    return {
+    record = {
         "interval_ms": mem.u32(TIMER_STATE_ADDRESS + 0x04),
         "accumulated_ms": mem.u32(TIMER_STATE_ADDRESS + 0x0C),
     }
+    for name, address in (
+        ("public_accumulator", TIMER_PUBLIC_ACCUMULATOR),
+        ("simulation_accumulator", TIMER_SIMULATION_ACCUMULATOR),
+    ):
+        if mem.readable(address, 8):
+            raw = int.from_bytes(mem.bytes(address, 8), "little")
+            record[name] = {
+                "raw": raw,
+                "value": struct.unpack("<d", raw.to_bytes(8, "little"))[0],
+            }
+    for name, address in (
+        ("public_tick", TIMER_PUBLIC_TICK),
+        ("simulation_time", TIMER_SIMULATION_TIME),
+        ("simulation_pause_gate_a", TIMER_PAUSE_GATE_A),
+        ("simulation_pause_gate_b", TIMER_PAUSE_GATE_B),
+    ):
+        if mem.readable(address, 4):
+            record[name] = mem.u32(address)
+    return record
 
 
 def _recording_timer_capture_initial(controller: RecordingController) -> None:
@@ -579,14 +776,15 @@ class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
             return
         # The callback can arrive after the exact simulation-clock load but
         # before the physics wrapper returns.  Those deliveries are too late
-        # to affect this player's store, yet they are part of the next
-        # outer timing delta.  Sample them here and attach them to the next
-        # gameplay frame's timer_update phase.
+        # to affect this player's store, but they are visible in this frame's
+        # after snapshot.  Keep the sample on the next frame record (the
+        # current frame has already been opened) and label it as the causal
+        # post-physics phase for replay.
         _recording_timer_sampler.observe(
             _recording_timer_boundary_state(),
             self.frame + 1,
             self.controller,
-            phase="timer_update",
+            phase="post_physics",
         )
         try:
             self.controller.end_frame(_recording_player_snapshot(self.player))
@@ -3294,6 +3492,10 @@ def _install_recording_instrumentation() -> None:
             TonyRecordingInputBreakpoint(_recording_controller),
             TonyRecordingFrameEntryBreakpoint(_recording_controller),
             TonyRecordingTimerUpdateBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerReadBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerDeltaReadBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerOutputBreakpoint(_recording_controller),
+            TonyRecordingTimerProducerPreviousStoreBreakpoint(_recording_controller),
         )
     )
     _runtime_breakpoints.append(

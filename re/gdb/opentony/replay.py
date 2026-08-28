@@ -11,7 +11,13 @@ import gdb
 from .breakpoint import Context, TonyBreakpoint
 from .knowledge import GLOBALS
 from .memory import mem
-from .timer import TimerReplayService
+from .timer import (
+    TIMER_PAUSE_GATE_A,
+    TIMER_PAUSE_GATE_B,
+    TIMER_SIMULATION_ACCUMULATOR,
+    TIMER_SIMULATION_TIME,
+    TimerReplayService,
+)
 from .timing import animation_timing_record
 
 _ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
@@ -31,6 +37,16 @@ _PHYSICS_FRAME_ADDRESS = 0x0049E680
 # timer service supplies the causal deliveries before this load.
 _SIMULATION_TIME_LOAD_ADDRESS = 0x0049F1A0
 _TIMER_FRAME_CLOCK_UPDATE_ADDRESS = 0x0046A0F0
+# FUN_00468b30 loads the previous clock at entry, then reads the current
+# simulation time at this instruction.  Deliveries recorded here affect the
+# producer's delta without changing its latched previous operand.
+_TIMER_PRODUCER_READ_ADDRESS = 0x00468B40
+# The producer reads the current simulation clock a second time for the
+# timing-delta word.  A delivery between the first and second reads changes
+# that word without changing the ring sample above it.
+_TIMER_PRODUCER_DELTA_READ_ADDRESS = 0x00468B6B
+_TIMER_PRODUCER_OUTPUT_READ_ADDRESS = 0x00468B7C
+_TIMER_PRODUCER_PREVIOUS_STORE_ADDRESS = 0x00468BA1
 _RAW_PHYSICS_OFFSET = 0x2D80
 _RAW_PHYSICS_WORDS = 0x490 // 4
 _AIR_CONTROL_GLOBAL = 0x0056B7F0
@@ -45,6 +61,9 @@ _VOLATILE_TIMING_FIELDS = {
     "timing_delta_q11",
 }
 _TIMER_CALLBACK_ENTRY_ADDRESS = 0x004DACE0
+_TIMING_PREVIOUS_TIME = 0x00568604
+_TIMING_RING = 0x0056868C
+_TIMING_RING_INDEX = 0x0056A934
 
 
 def _signed32(value: int) -> int:
@@ -236,6 +255,10 @@ class RetailReplay:
         self.entry_breakpoint = RetailReplayFrameEntryBreakpoint(self)
         self.timer_clock_read_breakpoint = RetailReplayTimerClockReadBreakpoint(self)
         self.timer_frame_entry_breakpoint = RetailReplayTimerFrameEntryBreakpoint(self)
+        self.timer_producer_read_breakpoint = RetailReplayTimerProducerReadBreakpoint(self)
+        self.timer_producer_delta_read_breakpoint = RetailReplayTimerProducerDeltaReadBreakpoint(self)
+        self.timer_producer_output_breakpoint = RetailReplayTimerProducerOutputBreakpoint(self)
+        self.timer_producer_previous_store_breakpoint = RetailReplayTimerProducerPreviousStoreBreakpoint(self)
 
     def install(self) -> None:
         gdb.write(
@@ -302,6 +325,11 @@ class RetailReplay:
     def activate(self) -> None:
         if self.active:
             return
+        # The input breakpoint is the first all-stop point inside gameplay.
+        # Patch the asynchronous callback here, after frontend loading has
+        # finished but before the first gameplay timer boundary can run.
+        self.suppress_uncontrolled_timer_callback()
+        self._timer_callback_suppressed = True
         self.active = True
         self.action_breakpoint = RetailReplayActionBuildBreakpoint(self)
 
@@ -364,6 +392,64 @@ class RetailReplay:
         if self.index >= len(self.frames):
             self._finish(breakpoint)
 
+    def apply_post_physics(self, breakpoint: RetailReplayReturnBreakpoint) -> None:
+        """Apply deliveries observed after the current frame's clock read."""
+
+        next_index = self.index + 1
+        if next_index >= len(self.frames):
+            return
+        try:
+            self.timer_service.apply_frame(
+                self.frames[next_index],
+                mem,
+                phase="post_physics",
+            )
+        except (TypeError, ValueError) as exc:
+            self._diverge(
+                "timer",
+                (("events",), "valid timer deliveries", str(exc)),
+                breakpoint,
+            )
+
+    def assert_timing_producer_sample(self, phase: str, breakpoint) -> None:
+        """Check the shared timing producer's non-callback inputs and output."""
+
+        if self._stopped:
+            return
+        samples = [
+            event
+            for event in self.frames[self.index].get("events", ())
+            if event.get("type") == "timing_producer_sample"
+            and event.get("timer_boundary_phase") == phase
+        ]
+        if not samples:
+            return
+        expected = samples[0]
+        actual = {
+            "previous_time_raw": mem.u32(_TIMING_PREVIOUS_TIME),
+            "simulation_time_raw": mem.u32(TIMER_SIMULATION_TIME),
+            "simulation_accumulator_raw": int.from_bytes(
+                mem.bytes(TIMER_SIMULATION_ACCUMULATOR, 8), "little"
+            ),
+            "timing_delta_q11_raw": mem.u32(0x0056A93C),
+            "timing_ring_index_raw": mem.u32(_TIMING_RING_INDEX),
+            "simulation_pause_gate_a": bool(mem.u32(TIMER_PAUSE_GATE_A)),
+            "simulation_pause_gate_b": bool(mem.u32(TIMER_PAUSE_GATE_B)),
+            "timing_ring_raw": [
+                mem.u32(_TIMING_RING + index * 4) for index in range(3)
+            ],
+        }
+        for key, value in actual.items():
+            if key not in expected:
+                continue
+            if expected[key] != value:
+                self._diverge(
+                    "timer",
+                    (("timing_producer", phase, key), expected[key], value),
+                    breakpoint,
+                )
+                return
+
     def _finish(self, breakpoint: RetailReplayReturnBreakpoint | None = None) -> None:
         self._stopped = True
         self.input_breakpoint.enabled = False
@@ -372,6 +458,10 @@ class RetailReplay:
         self.entry_breakpoint.enabled = False
         self.timer_clock_read_breakpoint.enabled = False
         self.timer_frame_entry_breakpoint.enabled = False
+        self.timer_producer_read_breakpoint.enabled = False
+        self.timer_producer_delta_read_breakpoint.enabled = False
+        self.timer_producer_output_breakpoint.enabled = False
+        self.timer_producer_previous_store_breakpoint.enabled = False
         if breakpoint is not None:
             breakpoint.should_stop = True
         gdb.write(
@@ -388,6 +478,10 @@ class RetailReplay:
         self.entry_breakpoint.enabled = False
         self.timer_clock_read_breakpoint.enabled = False
         self.timer_frame_entry_breakpoint.enabled = False
+        self.timer_producer_read_breakpoint.enabled = False
+        self.timer_producer_delta_read_breakpoint.enabled = False
+        self.timer_producer_output_breakpoint.enabled = False
+        self.timer_producer_previous_store_breakpoint.enabled = False
         if breakpoint is not None:
             breakpoint.should_stop = True
         path, expected, actual = difference
@@ -466,6 +560,7 @@ class RetailReplayTimerClockReadBreakpoint(TonyBreakpoint):
                 (("events",), "valid timer deliveries", str(exc)),
                 self,
             )
+            return
 
 
 class RetailReplayTimerFrameEntryBreakpoint(TonyBreakpoint):
@@ -498,6 +593,110 @@ class RetailReplayTimerFrameEntryBreakpoint(TonyBreakpoint):
             )
 
 
+class RetailReplayTimerProducerReadBreakpoint(TonyBreakpoint):
+    """Apply deliveries between the producer's previous/current clock reads."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_TIMER_PRODUCER_READ_ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay._stopped or not self.replay.active:
+            return
+        try:
+            self.replay.timer_service.apply_frame(
+                self.replay.frames[self.replay.index],
+                mem,
+                phase="timing_producer",
+            )
+        except (TypeError, ValueError) as exc:
+            self.replay._diverge(
+                "timer",
+                (("events",), "valid timer deliveries", str(exc)),
+                self,
+            )
+            return
+        self.replay.assert_timing_producer_sample("timing_producer", self)
+
+
+class RetailReplayTimerProducerDeltaReadBreakpoint(TonyBreakpoint):
+    """Apply deliveries before the producer reads its timing delta clock."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_TIMER_PRODUCER_DELTA_READ_ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay._stopped or not self.replay.active:
+            return
+        try:
+            self.replay.timer_service.apply_frame(
+                self.replay.frames[self.replay.index],
+                mem,
+                phase="timing_delta",
+            )
+        except (TypeError, ValueError) as exc:
+            self.replay._diverge(
+                "timer",
+                (("events",), "valid timer deliveries", str(exc)),
+                self,
+            )
+            return
+        self.replay.assert_timing_producer_sample("timing_delta", self)
+
+
+class RetailReplayTimerProducerOutputBreakpoint(TonyBreakpoint):
+    """Apply deliveries before the producer reads its delta output sample."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_TIMER_PRODUCER_OUTPUT_READ_ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay._stopped or not self.replay.active:
+            return
+        try:
+            self.replay.timer_service.apply_frame(
+                self.replay.frames[self.replay.index],
+                mem,
+                phase="timing_delta_output",
+            )
+        except (TypeError, ValueError) as exc:
+            self.replay._diverge(
+                "timer",
+                (("events",), "valid timer deliveries", str(exc)),
+                self,
+            )
+            return
+        self.replay.assert_timing_producer_sample("timing_delta_output", self)
+
+
+class RetailReplayTimerProducerPreviousStoreBreakpoint(TonyBreakpoint):
+    """Apply deliveries before the producer latches previous-time."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_TIMER_PRODUCER_PREVIOUS_STORE_ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay._stopped or not self.replay.active:
+            return
+        try:
+            self.replay.timer_service.apply_frame(
+                self.replay.frames[self.replay.index],
+                mem,
+                phase="timing_previous_store",
+            )
+        except (TypeError, ValueError) as exc:
+            self.replay._diverge(
+                "timer",
+                (("events",), "valid timer deliveries", str(exc)),
+                self,
+            )
+            return
+        self.replay.assert_timing_producer_sample("timing_previous_store", self)
+
+
 class RetailReplayReturnBreakpoint(TonyBreakpoint):
     def __init__(self, replay: RetailReplay, address: int, player: int):
         self.replay = replay
@@ -507,6 +706,9 @@ class RetailReplayReturnBreakpoint(TonyBreakpoint):
     def on_hit(self, _ctx: Context) -> None:
         self.enabled = False
         if self.replay._active_return is not self:
+            return
+        self.replay.apply_post_physics(self)
+        if self.replay._stopped:
             return
         self.replay.frame_return(_snapshot(self.player), self)
 

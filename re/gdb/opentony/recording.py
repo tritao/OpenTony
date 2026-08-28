@@ -180,6 +180,7 @@ class RecordingController:
             "timer_callback_delivery",
             "timer_boundary_sample",
             "simulation_time_accumulator_store",
+            "timing_producer_sample",
         }
     )
 

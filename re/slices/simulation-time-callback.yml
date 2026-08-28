@@ -32,7 +32,7 @@ artifacts:
 open_questions:
   - Characterize callback count, ordering, interval, and pause-gate behavior across repeated idle Warehouse recordings.
   - Confirm that initial timer state plus ordered callback deliveries reproduces all observed integer and floating clock outputs.
-  - Validate deterministic timer replay over long idle Warehouse recordings; runtime fixtures still need to be captured.
+  - Validate deterministic timer replay over repeated long idle Warehouse recordings; the initial fresh 257-frame strict replay passes, but permanent runtime fixtures still need to be captured.
 
 completion:
   - The callback boundary and timer-state fields read/written by 0x004dace0 are recorded.

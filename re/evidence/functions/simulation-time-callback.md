@@ -25,27 +25,33 @@ The callback reads the interval from `timer_state + 0x04`, accumulates it in
 0x004dad68  -> DAT_0056e320
 ```
 
-The recording probe is at `0x004dad68`, immediately before the second store.
-It captures each delivery as a `timer_callback_delivery` event, including the
-callback ordinal within the observed gameplay frame, callback arguments, timer
-state before/after (with the `+0x0c` pre-value reconstructed from the retail
-add), and the floating/integer outputs. The event is queued across frame
-boundaries as an external input; none of its derived clock values are restored
-during strict replay. New recordings also retain the callback-owned initial
-timer state in the header.
+The callback-final-store probe at `0x004dad68` remains available for direct
+callback characterization. Normal recording instead samples the atomic
+`timer_state + 0x0c` counter at deterministic gameplay boundaries. Because the
+callback increments that counter before storing its floating accumulators, a
+boundary can observe an in-flight delivery. The sampler therefore compares the
+simulation accumulator at adjacent boundaries, defers such a counter tick as
+pending, and records only completed deliveries with logical boundary counters.
+The sampled raw counter and pending count are retained as consistency metadata.
+New recordings also retain the callback-owned initial timer state in the
+header.
 
-Strict replay now owns a `TimerReplayService`. At each gameplay-frame boundary
-it applies exactly the recorded delivery events through the same transition
-model, publishes the resulting timer state, and leaves `DAT_0056e320` to the
-retail player load/store chain. A breakpoint at the callback's final integer
-store restores the modeled state and supplies only the modeled EAX result, so
-an uncontrolled Wine timer thread cannot add an unrecorded delivery.
+Strict replay now owns a `TimerReplayService`. It applies exactly the recorded
+delivery events through the same transition model at their recorded causal
+phases (`physics_entry`, `timer_update`, the simulation-clock read, and the
+timing-producer reads), publishes only after actual deliveries, and leaves
+`DAT_0056e320` to the retail player load/store chain. The asynchronous callback
+is suppressed at entry with a process-local ABI-preserving return patch, so it
+cannot add an unrecorded delivery. Producer-phase samples separately assert the
+modeled clock stream and timing-ring inputs without making volatile process
+clock fields part of the player snapshot comparison.
 
 The offline `advance_timer` model in `src/camera/camera_timing.hpp` mirrors the
 callback's state transition and x87-style double-to-integer publication. Its
-fixture covers repeated 16 ms deliveries and both pause gates. Long idle
-recordings remain required to validate the model against retail output across
-more than one callback cadence.
+fixture covers repeated 16 ms deliveries and both pause gates. A fresh 257-frame
+idle Warehouse recording now strict-replays with every canonical player frame
+matching; repeated long recordings and action-bearing fixtures remain required
+before this slice is considered complete.
 
 The `0x004f5ff0` path remains a separate millisecond-clock helper and is not the
 callback boundary that produced the observed Warehouse simulation-time values.
