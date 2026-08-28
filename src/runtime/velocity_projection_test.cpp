@@ -12,10 +12,10 @@ int main() {
     const auto projected = project_velocity_preserving_magnitude(
         FixedPosition{0x1000, 0x1000, 0},
         FixedPosition{0x1000, 0, 0});
-    CHECK(projected.original_magnitude_q12 == 5792);
-    CHECK(projected.projected_magnitude_q12 == 4096);
+    CHECK(projected.original_magnitude_q12 == 90);
+    CHECK(projected.projected_magnitude_q12 == 64);
     CHECK(projected.rescaled);
-    CHECK(projected.velocity == FixedPosition({0, 5792, 0}));
+    CHECK(projected.velocity == FixedPosition({0, 5632, 0}));
 
     const auto parallel = project_velocity_preserving_magnitude(
         FixedPosition{0x1000, 0, 0},

@@ -29,6 +29,7 @@ struct InitialState final {
     std::int32_t ground_update_state{};
     std::int32_t ground_physics_mode{};
     std::int32_t turn_accumulator{};
+    std::int32_t ground_motion_threshold{0x2e9b6};
     Q12Matrix3 orientation{};
     opentony::runtime::AnimationCursor animation{};
 };
@@ -49,9 +50,10 @@ struct ReplayFrame final {
     std::int32_t ollie_height_delta_metric{};
     bool damping_random_available{};
     std::int32_t damping_rescale_roll{};
-    std::int32_t damping_rescale_x_roll{};
-    std::int32_t damping_rescale_y_roll{};
-    std::int32_t damping_rescale_z_roll{};
+    bool damping_component_available{};
+    std::int32_t damping_component_x{};
+    std::int32_t damping_component_y{};
+    std::int32_t damping_component_z{};
     std::int32_t damping_decay_roll{};
     bool motion_correction_available{};
     FixedPosition motion_correction{};
@@ -60,6 +62,10 @@ struct ReplayFrame final {
     bool air_action_control_available{};
     std::int32_t gravity_acceleration{};
     bool air_control_enabled{};
+    bool ground_motion_threshold_available{};
+    std::int32_t ground_motion_threshold_roll{};
+    bool ground_motion_threshold_blocked{};
+    std::int32_t ground_surface_recovery_delta_q11{};
 };
 
 template <typename T>
@@ -93,6 +99,8 @@ InitialState read_initial(std::istringstream& input) {
         input, "initial ground physics mode");
     state.turn_accumulator = read_value<std::int32_t>(
         input, "initial turn accumulator");
+    state.ground_motion_threshold = read_value<std::int32_t>(
+        input, "initial ground motion threshold");
     for (std::int16_t& value : state.orientation.values) {
         value = read_value<std::int16_t>(input, "initial orientation");
     }
@@ -156,14 +164,16 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "ollie height delta metric");
     frame.damping_random_available =
         read_value<std::uint8_t>(input, "velocity damping random availability") != 0;
+    frame.damping_component_available =
+        read_value<std::uint8_t>(input, "velocity damping component availability") != 0;
     frame.damping_rescale_roll = read_value<std::int32_t>(
         input, "velocity damping rescale random");
-    frame.damping_rescale_x_roll = read_value<std::int32_t>(
-        input, "velocity damping x random");
-    frame.damping_rescale_y_roll = read_value<std::int32_t>(
-        input, "velocity damping y random");
-    frame.damping_rescale_z_roll = read_value<std::int32_t>(
-        input, "velocity damping z random");
+    frame.damping_component_x = read_value<std::int32_t>(
+        input, "velocity damping x component");
+    frame.damping_component_y = read_value<std::int32_t>(
+        input, "velocity damping y component");
+    frame.damping_component_z = read_value<std::int32_t>(
+        input, "velocity damping z component");
     frame.damping_decay_roll = read_value<std::int32_t>(
         input, "velocity damping decay random");
     frame.motion_correction_available =
@@ -178,6 +188,14 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "air gravity acceleration");
     frame.air_control_enabled =
         read_value<std::uint8_t>(input, "air control gate") != 0;
+    frame.ground_motion_threshold_available =
+        read_value<std::uint8_t>(input, "ground motion threshold availability") != 0;
+    frame.ground_motion_threshold_roll = read_value<std::int32_t>(
+        input, "ground motion threshold random");
+    frame.ground_motion_threshold_blocked =
+        read_value<std::uint8_t>(input, "ground motion threshold mode") != 0;
+    frame.ground_surface_recovery_delta_q11 = read_value<std::int32_t>(
+        input, "ground surface recovery timing delta");
     return frame;
 }
 
@@ -221,6 +239,7 @@ void apply_initial_state(GameplaySession& session, const InitialState& state) {
     player.set_ground_update_state(state.ground_update_state);
     player.set_ground_physics_mode(state.ground_physics_mode);
     player.set_turn_accumulator(state.turn_accumulator);
+    player.set_ground_motion_threshold(state.ground_motion_threshold);
     player.set_orientation(state.orientation);
     player.set_animation_state(state.animation.id);
     player.set_animation_frame(state.animation.frame);
@@ -265,7 +284,11 @@ int run(int argc, char** argv) {
     GameplaySessionConfig config{};
     config.fixed_step.simulation_step_ms = 16;
     config.fixed_step.frame_scale_q8 = 0x100;
-    config.apply_air_gravity = true;
+    // Retail's Warehouse session leaves the global air-orientation update
+    // gate clear. The common in-air correction stream is still replayed
+    // below, but FUN_00497df0 itself must not rewrite the recovered grounded
+    // surface basis when the kick releases into state 1.
+    config.apply_air_gravity = false;
     // Warehouse's selected B010 profile-table entry is nonzero. Enable the
     // recovered grounded correction producer so native replay exercises the
     // same animation-5e scale-8 correction that retail writes at frame 7.
@@ -288,6 +311,7 @@ int run(int argc, char** argv) {
     // the projection and frame-scaled correction are produced natively.
     session.physics_hooks().apply_ground_basis_correction = true;
     session.physics_hooks().apply_ground_basis_forward_term = true;
+    session.physics_hooks().apply_ground_surface_recovery = true;
     opentony::runtime::AnimationCursor animation = initial.animation;
     const opentony::assets::PsxAnimationTable animation_table =
         opentony::assets::PsxAnimationTable::load(
@@ -348,6 +372,13 @@ int run(int argc, char** argv) {
         input.frame_scale_q8 = active_frame->frame_scale_q8;
         input.rescale_roll = active_frame->damping_rescale_roll;
         input.decay_roll = active_frame->damping_decay_roll;
+        input.decay_component_outputs_available =
+            active_frame->damping_component_available;
+        input.decay_component_outputs = {
+            active_frame->damping_component_x,
+            active_frame->damping_component_y,
+            active_frame->damping_component_z,
+        };
         return std::optional<opentony::runtime::VelocityDampingInput>{input};
     };
     session.physics_hooks().motion_correction_input = [&active_frame](
@@ -387,12 +418,27 @@ int run(int argc, char** argv) {
         }
         return std::optional<std::int32_t>{active_frame->gravity_acceleration};
     };
+    session.physics_hooks().ground_motion_threshold_input = [&active_frame](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&) {
+        if (active_frame == nullptr
+            || !active_frame->ground_motion_threshold_available) {
+            return std::optional<opentony::runtime::GroundMotionThresholdInput>{};
+        }
+        return std::optional<opentony::runtime::GroundMotionThresholdInput>{
+            opentony::runtime::GroundMotionThresholdInput{
+                active_frame->ground_motion_threshold_roll,
+                active_frame->ground_motion_threshold_blocked,
+            }};
+    };
     apply_initial_state(session, initial);
     session.reset_clock();
 
     std::cout << "native-replay-v1\n";
     for (const ReplayFrame& frame : frames) {
         active_frame = &frame;
+        session.physics_hooks().ground_surface_recovery_delta_q11 =
+            frame.ground_surface_recovery_delta_q11;
         // Retail updates the animation cursor between gameplay frames. The
         // first recording frame carries the startup scale (normally zero),
         // so applying this at frame entry preserves the observed before-frame

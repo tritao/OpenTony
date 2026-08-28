@@ -18,7 +18,11 @@ struct VelocityDampingInput {
     // avoids inventing a replacement RNG stream in the physics library.
     std::int32_t rescale_roll = 0;             // FUN_0048f3a0(3)
     std::int32_t decay_roll = 0;               // FUN_0048f3a0(3)
-    std::array<std::int32_t, 3> component_decay_q12{100, 100, 100};
+    // FUN_004f5fc0(100, component) outputs captured at the retail helper
+    // boundary. When unavailable, apply() reproduces that helper with the
+    // retail constant so ordinary native callers remain self-contained.
+    std::array<std::int32_t, 3> decay_component_outputs{};
+    bool decay_component_outputs_available = false;
     bool apply_idle_decay = true;             // DAT_0056a3d8 mode table == 0
 };
 

@@ -73,9 +73,12 @@ VelocityDampingResult VelocityDamping::apply(
         random_threshold(input.decay_roll, 0x186);
     if (decay_limit < result.speed_metric) {
         for (std::size_t index = 0; index < result.velocity.size(); ++index) {
-            const std::int32_t random_component = saturating_i32(
-                static_cast<std::int64_t>(input.component_decay_q12[index])
-                * result.velocity[index] / 0x1000);
+            const std::int32_t random_component =
+                input.decay_component_outputs_available
+                ? input.decay_component_outputs[index]
+                : saturating_i32(
+                    static_cast<std::int64_t>(100)
+                    * result.velocity[index] / 0x1000);
             result.velocity[index] = saturating_i32(
                 static_cast<std::int64_t>(result.velocity[index]) -
                 (static_cast<std::int64_t>(random_component)

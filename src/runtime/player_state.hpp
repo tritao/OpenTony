@@ -144,6 +144,9 @@ public:
     [[nodiscard]] std::int32_t ground_motion_threshold() const noexcept {
         return ground_motion_threshold_;
     }
+    void set_ground_motion_threshold(std::int32_t threshold) noexcept {
+        ground_motion_threshold_ = threshold;
+    }
     [[nodiscard]] bool ground_motion_event_pending() const noexcept {
         return ground_motion_event_pending_;
     }
@@ -223,6 +226,8 @@ public:
     void set_orientation(Q12Matrix3 orientation) noexcept {
         orientation_ = orientation;
         retail_basis_ = retail_basis_from_matrix(orientation_);
+        ground_surface_recovery_target_ = retail_basis_.at_310c;
+        ground_surface_recovery_progress_q11_ = 0;
         orientation_basis_normalization_pending_ = true;
     }
     // Grounded retail frames canonicalize the three published basis vectors
@@ -484,6 +489,22 @@ public:
         const FixedPosition& surface_delta,
         std::int32_t yaw_offset = 0x19) noexcept;
 
+    // Rebuilds the grounded collision basis through retail FUN_0049d080.
+    // The supplied normal is eased one quarter of the way from the current
+    // +310c axis before the fixed-point cross products publish [forward,
+    // right, up] back to the orientation and basis fields.
+    void apply_orientation_recovery(
+        const FixedPosition& surface_normal,
+        bool recovery_complete = false) noexcept;
+
+    // FUN_00496550 remembers the last accepted surface normal at +0x80 and
+    // advances its recovery timer at +0x3130. A new normal resets that timer;
+    // a repeated normal continues it. Return the former condition because it
+    // also selects which position candidate the surrounding frame publishes.
+    [[nodiscard]] bool update_ground_surface_recovery(
+        const FixedPosition& surface_normal,
+        std::int32_t delta_q11) noexcept;
+
     // FUN_0049f4c0's confirmed platform/bounce producer. Triggering flags,
     // sounds, and platform lifetime are owned by the caller; this method only
     // writes the recovered +4c/+50/+54 response vector.
@@ -499,7 +520,8 @@ public:
     void prepare_ground_basis_correction(
         bool apply_forward_term,
         std::int32_t frame_scale_q8 = 0x100,
-        std::int32_t forward_scale = 8) noexcept;
+        std::int32_t forward_scale = 8,
+        bool apply_response_basis = true) noexcept;
 
     // The outer FUN_0049e680 frame applies +58/+5c/+60 back into +4c/+50/+54
     // using DAT_0056865c and an arithmetic Q8 shift.
@@ -517,6 +539,11 @@ public:
         std::int32_t frame_scale_q8 = 0x100) noexcept;
 
     void clear_motion_correction() noexcept { motion_correction_ = {}; }
+    void add_motion_correction(const FixedPosition& delta) noexcept {
+        for (std::size_t index = 0; index < motion_correction_.size(); ++index) {
+            motion_correction_[index] += delta[index];
+        }
+    }
 
 private:
     FixedPosition position_{};
@@ -553,6 +580,8 @@ private:
     Q12Matrix3 orientation_{q12_identity_matrix()};
     RetailBasis retail_basis_{retail_basis_from_matrix(orientation_)};
     bool orientation_basis_normalization_pending_{true};
+    FixedPosition ground_surface_recovery_target_{0, 4096, 0};
+    std::int32_t ground_surface_recovery_progress_q11_{};
     Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};
     std::int32_t ground_turn_angle12_{};
     bool ground_turn_saved_orientation_valid_{};

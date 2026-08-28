@@ -6,6 +6,17 @@
 
 namespace opentony::runtime {
 
+namespace {
+
+[[nodiscard]] std::int32_t arithmetic_shift_2(std::int32_t value) noexcept {
+    if (value >= 0) {
+        return value / 4;
+    }
+    return -(((-value) + 3) / 4);
+}
+
+} // namespace
+
 void PlayerState::request_physics_state(
     std::int32_t state,
     std::uint32_t reason) noexcept {
@@ -37,6 +48,8 @@ void PlayerState::apply_restart(
     ground_motion_animation_speed_ = 0;
     orientation_ = q12_restart_matrix(auxiliary);
     retail_basis_ = retail_basis_from_matrix(orientation_);
+    ground_surface_recovery_target_ = retail_basis_.at_310c;
+    ground_surface_recovery_progress_q11_ = 0;
     orientation_basis_normalization_pending_ = true;
     ground_turn_saved_orientation_ = orientation_;
     ground_turn_angle12_ = 0;
@@ -623,6 +636,73 @@ CollisionOrientationResult PlayerState::apply_collision_orientation(
     };
 }
 
+void PlayerState::apply_orientation_recovery(
+    const FixedPosition& surface_normal,
+    bool recovery_complete) noexcept {
+    // FUN_0049d080 uses the full-width recovery base, which is the currently
+    // published +310c axis at this renderer-independent state boundary. Its
+    // non-terminal progress branch is a signed x86 SAR by two.
+    FixedPosition target = surface_normal;
+    if (!recovery_complete) {
+        target = {};
+        for (std::size_t index = 0; index < target.size(); ++index) {
+            target[index] = retail_basis_.at_310c[index]
+                + arithmetic_shift_2(
+                    surface_normal[index] - retail_basis_.at_310c[index]);
+        }
+    }
+    target = q12_normalize(target);
+
+    // The retail object source is the current forward column (+2e5c,
+    // +2e62, +2e68), followed by current-forward x target and target x
+    // first-axis. Both cross products pass through the retail normalizer.
+    const FixedPosition right = q12_normalize(
+        q12_cross(retail_basis_.at_30f4, target));
+    const FixedPosition forward = q12_normalize(q12_cross(target, right));
+
+    air_motion_ = target;
+    retail_basis_ = RetailBasis{forward, right, target};
+    orientation_.at(0, 0) = static_cast<std::int16_t>(right[0]);
+    orientation_.at(1, 0) = static_cast<std::int16_t>(right[1]);
+    orientation_.at(2, 0) = static_cast<std::int16_t>(right[2]);
+    orientation_.at(0, 1) = static_cast<std::int16_t>(target[0]);
+    orientation_.at(1, 1) = static_cast<std::int16_t>(target[1]);
+    orientation_.at(2, 1) = static_cast<std::int16_t>(target[2]);
+    orientation_.at(0, 2) = static_cast<std::int16_t>(forward[0]);
+    orientation_.at(1, 2) = static_cast<std::int16_t>(forward[1]);
+    orientation_.at(2, 2) = static_cast<std::int16_t>(forward[2]);
+    orientation_basis_normalization_pending_ = false;
+}
+
+bool PlayerState::update_ground_surface_recovery(
+    const FixedPosition& surface_normal,
+    std::int32_t delta_q11) noexcept {
+    const bool target_changed = ground_surface_recovery_target_
+        != surface_normal;
+    if (target_changed) {
+        ground_surface_recovery_target_ = surface_normal;
+        ground_surface_recovery_progress_q11_ = 0;
+    } else {
+        // The collision routine may continue to report the same supporting
+        // face after its recovery branch has completed. Retail does not
+        // re-enter FUN_0049d080 for each of those ordinary support samples;
+        // preserve the one continuation sample that follows a new target
+        // and leave the published basis stable until a new normal arrives.
+        if (ground_surface_recovery_progress_q11_ != 0) {
+            return false;
+        }
+        // DAT_0056a93c is a signed Q11 add in the retail object. Convert via
+        // unsigned arithmetic so wraparound remains the x86 32-bit result.
+        ground_surface_recovery_progress_q11_ = static_cast<std::int32_t>(
+            static_cast<std::uint32_t>(ground_surface_recovery_progress_q11_)
+            + static_cast<std::uint32_t>(delta_q11));
+    }
+    apply_orientation_recovery(
+        surface_normal,
+        ground_surface_recovery_progress_q11_ == 0x18000);
+    return target_changed;
+}
+
 void PlayerState::apply_bouncy_platform_response(
     std::int32_t platform_type,
     const FixedPosition& source_vector,
@@ -636,7 +716,8 @@ void PlayerState::apply_bouncy_platform_response(
 void PlayerState::prepare_ground_basis_correction(
     bool apply_forward_term,
     std::int32_t frame_scale_q8,
-    std::int32_t forward_scale) noexcept {
+    std::int32_t forward_scale,
+    bool apply_response_basis) noexcept {
     const auto project = [](const FixedPosition& vector,
                             const FixedPosition& basis) {
         const std::int32_t dot = fixed_dot_q12(vector, basis);
@@ -647,13 +728,16 @@ void PlayerState::prepare_ground_basis_correction(
         };
     };
 
-    const FixedPosition lateral = project(
-        collision_response_,
-        retail_basis_.at_3100);
-    // FUN_00496550 removes this surface-normal component from persistent
-    // response, not from the transient correction vector.
-    for (std::size_t index = 0; index < collision_response_.size(); ++index) {
-        collision_response_[index] -= lateral[index];
+    if (apply_response_basis) {
+        const FixedPosition lateral = project(
+            collision_response_,
+            retail_basis_.at_3100);
+        // This compatibility response pass remains active for the ordinary
+        // flat-contact path. The recovered sloped-surface path uses the
+        // retail velocity phase instead and must not receive it twice.
+        for (std::size_t index = 0; index < collision_response_.size(); ++index) {
+            collision_response_[index] -= lateral[index];
+        }
     }
 
     if (apply_forward_term) {

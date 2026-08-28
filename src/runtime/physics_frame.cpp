@@ -268,10 +268,17 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             // FUN_00496060 axis fallback while testing the integrated point as
             // the desired position.
             const FixedPosition start = current_player.position();
-            const FixedPosition desired = current_player.integrated_position(
+            FixedPosition desired = current_player.integrated_position(
                 frame_scale_q8);
+            FixedPosition surface_candidate = current_player.position();
+            for (std::size_t index = 0; index < surface_candidate.size(); ++index) {
+                surface_candidate[index] += fixed_scale_q8(
+                    current_player.collision_response()[index],
+                    frame_scale_q8);
+            }
             PositionCollisionProbe probe = hooks.collision_probe;
             std::optional<PositionCollisionHit> queried_hit;
+            bool ground_surface_target_changed = false;
             if (hooks.collision_query) {
                 probe = [&hooks, &start, &queried_hit](
                     const FixedPosition& candidate) {
@@ -283,15 +290,93 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     return hit.has_value();
                 };
             }
+            if (stage == PhysicsDispatchStage::GroundCollision_96550
+                && current_player.physics_state() == 0
+                && hooks.apply_ground_surface_recovery
+                && hooks.collision_query) {
+                const FixedPosition old_up = current_player.retail_basis().at_310c;
+                const auto offset = [](const FixedPosition& position,
+                                       const FixedPosition& axis,
+                                       std::int32_t scale) {
+                    FixedPosition result = position;
+                    for (std::size_t index = 0; index < result.size(); ++index) {
+                        result[index] = static_cast<std::int32_t>(
+                            static_cast<std::int64_t>(result[index])
+                            + static_cast<std::int64_t>(axis[index]) * scale);
+                    }
+                    return result;
+                };
+                // The special ray is built from the velocity-only candidate.
+                // FUN_00496550 has not yet folded the transient +58
+                // correction into its position argument at this point.
+                const FixedPosition surface_start = offset(
+                    surface_candidate,
+                    old_up,
+                    70);
+                const FixedPosition surface_end = offset(
+                    surface_candidate,
+                    old_up,
+                    -186);
+                result.ground_surface_hit = hooks.collision_query(
+                    surface_start,
+                    surface_end);
+                if (result.ground_surface_hit.has_value()) {
+                    const PositionCollisionHit& hit =
+                        *result.ground_surface_hit;
+                    ground_surface_target_changed =
+                        current_player.update_ground_surface_recovery(
+                            hit.normal,
+                            hooks.ground_surface_recovery_delta_q11);
+                    static_cast<void>(current_player.project_collision_velocity(
+                        hit.normal));
+
+                    // State 0 seeds the transient correction with the
+                    // recovered 0x1964 vertical vector, then removes its
+                    // surface-normal component through FUN_00490610.
+                    FixedPosition surface_correction{0, 0x1964, 0};
+                    static_cast<void>(remove_normal_component(
+                        surface_correction,
+                        hit.normal));
+                    current_player.add_motion_correction(surface_correction);
+
+                    // FUN_00496060 is called inside FUN_00496550 from the hit
+                    // contact to the old-up offset. Its result is handed to
+                    // the outer commit only when the target surface changes;
+                    // repeated hits still run the internal probe but retain
+                    // the ordinary integrated movement candidate.
+                    const FixedPosition recovery_candidate = offset(
+                        hit.position,
+                        old_up,
+                        30);
+                    const PositionCollisionProbe recovery_probe =
+                        [&hooks, &surface_candidate](
+                            const FixedPosition& candidate) {
+                            return hooks.collision_query(
+                                surface_candidate,
+                                candidate).has_value();
+                        };
+                    const PositionCommitResult recovery_commit =
+                        PositionCommitter::commit(
+                            surface_candidate,
+                            recovery_candidate,
+                            recovery_probe,
+                            hooks.bypass_collision);
+                    if (ground_surface_target_changed) {
+                        desired = recovery_commit.position;
+                    }
+                }
+            }
             result.position_commit = current_player.commit_position(
                 desired,
                 probe,
                 hooks.bypass_collision);
-            // Retail grounded state 0 calls FUN_0049b500 with param_3=1
-            // after the candidate position add. Its response rotation is
-            // consequently visible to the next frame's integration.
+            // The grounded steering velocity phase belongs after the
+            // collision routine has produced its response and before the
+            // outer correction handoff. It is an explicit state phase, not a
+            // part of the position candidate selection.
             if (stage == PhysicsDispatchStage::GroundCollision_96550
-                && current_player.physics_state() == 0) {
+                && current_player.physics_state() == 0
+                && !result.ground_surface_hit.has_value()) {
                 current_player.apply_ground_turn_velocity_phase();
             }
             if (hooks.collision_query) {
@@ -326,7 +411,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 }
             }
             if (result.collision_hit.has_value()
-                && hooks.remove_hit_normal_component) {
+                && hooks.remove_hit_normal_component
+                && !result.ground_surface_hit.has_value()) {
                 static_cast<void>(current_player.remove_collision_normal_component(
                     result.collision_hit->normal));
                 result.hit_normal_removed = true;
@@ -403,7 +489,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 // to the outer +58 -> +4c handoff in the same frame.
                 current_player.prepare_ground_basis_correction(
                     hooks.apply_ground_basis_forward_term,
-                    frame_scale_q8);
+                    frame_scale_q8,
+                    8);
             }
             result.position_integrated = true;
         },

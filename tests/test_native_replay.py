@@ -35,7 +35,7 @@ def test_native_wire_preserves_initial_state_and_direct_input() -> None:
     }
     wire = _wire_input(recording["initial"], recording["frames"])
 
-    assert "version 3" in wire
+    assert "version 5" in wire
     assert "init -1 0 0" in wire
     assert "frame 0 36864 -41 40 256 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" in wire
     assert wire.endswith("end\n")
@@ -64,7 +64,7 @@ def test_native_wire_carries_outer_correction_seams() -> None:
 
     line = _wire_input(recording["initial"], recording["frames"]).splitlines()[2]
 
-    assert line.split()[-11:-3] == ["1", "4", "5", "6", "1", "7", "8", "9"]
+    assert line.split()[28:36] == ["1", "4", "5", "6", "1", "7", "8", "9"]
 
 
 def test_native_strict_wire_disables_derived_channels() -> None:
@@ -97,9 +97,52 @@ def test_native_strict_wire_disables_derived_channels() -> None:
     ).splitlines()[2].split()
 
     assert tokens[6] == "1"  # causal random_available
-    assert tokens[21] == "1"  # causal damping_available
-    assert tokens[27] == "0"  # motion_available
-    assert tokens[31] == "0"  # response_available
+    assert tokens[22] == "0"  # no complete current-format component set
+    assert tokens[28] == "0"  # motion_available
+    assert tokens[32] == "0"  # response_available
+
+
+def test_native_wire_carries_current_velocity_damping_components() -> None:
+    recording = {
+        "initial": _snapshot(0),
+        "frames": [
+            {
+                "frame": 0,
+                "input": {"action_mask": 0},
+                "events": [
+                    {
+                        "type": "shared_random_call",
+                        "caller": "0x0049d4a1",
+                        "return_value_s32": 60,
+                    },
+                    {
+                        "type": "shared_random_call",
+                        "caller": "0x0049d5a0",
+                        "return_value_s32": 60,
+                    },
+                    {
+                        "type": "velocity_damping_component_input",
+                        "purpose": "decay_x",
+                        "raw_value": 4,
+                    },
+                    {
+                        "type": "velocity_damping_component_input",
+                        "purpose": "decay_y",
+                        "raw_value": 5896,
+                    },
+                    {
+                        "type": "velocity_damping_component_input",
+                        "purpose": "decay_z",
+                        "raw_value": 4573,
+                    },
+                ],
+            }
+        ],
+    }
+
+    tokens = _wire_input(recording["initial"], recording["frames"]).splitlines()[2].split()
+
+    assert tokens[21:28] == ["1", "1", "60", "4", "5896", "4573", "60"]
 
 
 def test_native_wire_carries_air_action_control_channel() -> None:
@@ -118,7 +161,7 @@ def test_native_wire_carries_air_action_control_channel() -> None:
 
     line = _wire_input(recording["initial"], recording["frames"]).splitlines()[2]
 
-    assert line.split()[-3:] == ["1", "1234", "1"]
+    assert line.split()[36:39] == ["1", "1234", "1"]
 
 
 def test_native_output_parser_reads_signed_snapshot_fields() -> None:

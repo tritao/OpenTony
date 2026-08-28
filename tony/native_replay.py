@@ -11,7 +11,7 @@ from .common import resolve
 from .recording import validate_recording
 
 REPLAY_MODES = ("assisted", "strict")
-NATIVE_REPLAY_WIRE_VERSION = 3
+NATIVE_REPLAY_WIRE_VERSION = 5
 _DERIVED_NATIVE_CHANNELS = (
     "motion_correction",
     "response_correction",
@@ -71,6 +71,10 @@ def _snapshot_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
     )
     if not all(isinstance(value, int) for value in animation_values):
         raise TypeError("snapshot has invalid animation state")
+    raw_physics_words = snapshot.get("raw_physics_words")
+    ground_motion_threshold = 0x2e9b6
+    if isinstance(raw_physics_words, list) and len(raw_physics_words) > 18:
+        ground_motion_threshold = _signed(int(raw_physics_words[18]), 32)
     return {
         "position": _vector(snapshot, "position"),
         "previous_position": _vector(snapshot, "position_history"),
@@ -79,6 +83,7 @@ def _snapshot_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
         "air_motion": _vector(snapshot, "air_motion"),
         "physics_state": _signed(physics_state, 32),
         "turn_accumulator": _signed(accumulator, 32),
+        "ground_motion_threshold": ground_motion_threshold,
         "animation": animation_values,
         "orientation": _orientation(snapshot),
     }
@@ -95,7 +100,13 @@ def _initial_wire(snapshot: dict[str, Any]) -> str:
         "air_motion",
     ):
         values.extend(fields[name])
-    values.extend((fields["physics_state"], 0, 0, fields["turn_accumulator"]))
+    values.extend((
+        fields["physics_state"],
+        0,
+        0,
+        fields["turn_accumulator"],
+        fields["ground_motion_threshold"],
+    ))
     values.extend(fields["orientation"])
     values.extend(fields["animation"])
     return "init " + " ".join(str(value) for value in values)
@@ -128,6 +139,12 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
         if isinstance(timing, dict) else None
     scale_raw = scale_record.get("raw") if isinstance(scale_record, dict) else None
     frame_scale_q8 = _signed(int(scale_raw), 32) if isinstance(scale_raw, int) else 0x100
+    delta_record = timing.get("timing_delta_q11") \
+        if isinstance(timing, dict) else None
+    delta_raw = delta_record.get("raw") if isinstance(delta_record, dict) else None
+    ground_surface_recovery_delta_q11 = (
+        _signed(int(delta_raw), 32) if isinstance(delta_raw, int) else 0
+    )
     random_by_purpose: dict[str, int] = {}
     events = frame.get("events", [])
     if mode == "strict":
@@ -183,32 +200,74 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
         for name in ("slope_metric", "horizontal_speed_metric", "height_delta_metric")
     ]
     damping_by_purpose: dict[str, int] = {}
+    damping_components: dict[str, int] = {}
     if isinstance(events, list):
         for event in events:
-            if not isinstance(event, dict) or event.get("type") != "velocity_damping_random_input":
+            if not isinstance(event, dict):
                 continue
-            purpose = event.get("purpose")
-            raw_roll = event.get("raw_roll")
-            if not isinstance(purpose, str) or not isinstance(raw_roll, int):
-                raise TypeError(
-                    f"frame {frame_index} has an invalid velocity damping random event"
-                )
-            if purpose in damping_by_purpose:
-                raise ValueError(
-                    f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
-                )
-            damping_by_purpose[purpose] = _signed(raw_roll, 32)
+            event_type = event.get("type")
+            if event_type == "velocity_damping_random_input":
+                purpose = event.get("purpose")
+                raw_roll = event.get("raw_roll")
+                if not isinstance(purpose, str) or not isinstance(raw_roll, int):
+                    raise TypeError(
+                        f"frame {frame_index} has an invalid velocity damping random event"
+                    )
+                if purpose in damping_by_purpose:
+                    raise ValueError(
+                        f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
+                    )
+                damping_by_purpose[purpose] = _signed(raw_roll, 32)
+            elif event_type == "velocity_damping_component_input":
+                purpose = event.get("purpose")
+                raw_value = event.get("raw_value")
+                if not isinstance(purpose, str) or not isinstance(raw_value, int):
+                    raise TypeError(
+                        f"frame {frame_index} has an invalid velocity damping component event"
+                    )
+                if purpose in damping_components:
+                    raise ValueError(
+                        f"frame {frame_index} has duplicate velocity damping component purpose {purpose!r}"
+                    )
+                damping_components[purpose] = _signed(raw_value, 32)
+            elif event_type == "shared_random_call":
+                # The current recorder leaves shared RNG calls in their
+                # generic form. These two return addresses are the verified
+                # threshold draws inside FUN_0049d480.
+                purpose_by_caller = {
+                    "0x0049d4a1": "rescale_threshold",
+                    "0x0049d5a0": "decay_threshold",
+                }
+                purpose = purpose_by_caller.get(event.get("caller"))
+                raw_roll = event.get("return_value_s32")
+                if purpose is None or not isinstance(raw_roll, int):
+                    continue
+                if purpose in damping_by_purpose:
+                    raise ValueError(
+                        f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
+                    )
+                damping_by_purpose[purpose] = _signed(raw_roll, 32)
     damping_values = [
-        damping_by_purpose.get(purpose, 0)
-        for purpose in (
-            "rescale_threshold",
-            "rescale_x",
-            "rescale_y",
-            "rescale_z",
-            "decay_threshold",
-        )
+        damping_by_purpose.get("rescale_threshold", 0),
+        damping_components.get(
+            "decay_x", damping_by_purpose.get("rescale_x", 0)
+        ),
+        damping_components.get(
+            "decay_y", damping_by_purpose.get("rescale_y", 0)
+        ),
+        damping_components.get(
+            "decay_z", damping_by_purpose.get("rescale_z", 0)
+        ),
+        damping_by_purpose.get("decay_threshold", 0),
     ]
-    damping_available = int(bool(damping_by_purpose))
+    damping_component_available = int(
+        all(purpose in damping_components for purpose in ("decay_x", "decay_y", "decay_z"))
+    )
+    if damping_components and not damping_component_available:
+        raise ValueError(
+            f"frame {frame_index} has an incomplete velocity damping component set"
+        )
+    damping_available = int(bool(damping_by_purpose or damping_components))
     motion_events = [
         event
         for event in events
@@ -274,6 +333,29 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
         isinstance(physics_snapshot, dict)
         and bool(physics_snapshot.get("air_control_enabled", False))
     )
+    threshold_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("type") == "ground_motion_random_input"
+        and event.get("purpose") in {"threshold_seed_0xaa", "threshold_seed_0xdc"}
+    ] if isinstance(events, list) else []
+    if len(threshold_events) > 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate ground-motion threshold events"
+        )
+    threshold_event = threshold_events[0] if threshold_events else None
+    threshold_roll = (
+        _signed(int(threshold_event["raw_roll"]), 32)
+        if isinstance(threshold_event, dict)
+        and isinstance(threshold_event.get("raw_roll"), int)
+        else 0
+    )
+    threshold_available = int(threshold_event is not None)
+    threshold_blocked = int(
+        isinstance(threshold_event, dict)
+        and threshold_event.get("purpose") == "threshold_seed_0xdc"
+    )
     return "frame " + " ".join(
         str(value)
         for value in (
@@ -286,6 +368,7 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
             *random_values,
             *metrics,
             damping_available,
+            damping_component_available,
             *damping_values,
             motion_available,
             *motion_values,
@@ -294,6 +377,10 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
             air_control_available,
             gravity_acceleration,
             air_control_enabled,
+            threshold_available,
+            threshold_roll,
+            threshold_blocked,
+            ground_surface_recovery_delta_q11,
         )
     )
 

@@ -198,6 +198,14 @@ struct PlayerPhysicsFrameHooks {
     // caller-owned profile/speed predicate.
     bool apply_ground_basis_correction{false};
     bool apply_ground_basis_forward_term{false};
+    // Ground FUN_00496550 performs a second, basis-oriented surface ray
+    // after the ordinary position query. Its hit drives FUN_0049d080 and the
+    // grounded response/correction handoff before the final position commit.
+    bool apply_ground_surface_recovery{false};
+    // Camera timing's DAT_0056a93c reaches the same grounded recovery timer.
+    // Replay supplies the recorded Q11 delta so the terminal 0x18000 branch
+    // remains causal instead of being inferred from a nominal frame rate.
+    std::int32_t ground_surface_recovery_delta_q11{};
     // Equivalent caller gate for skater +0x3200. Static matching proves that
     // a nonzero word bypasses FUN_00496060 collision resolution, but its
     // writer is not present on the selected paths, so this remains explicit.
@@ -220,6 +228,7 @@ struct PlayerPhysicsFrameResult {
     bool motion_correction_integrated{};
     std::optional<GroundTurnResult> ground_turn;
     std::optional<PositionCollisionHit> collision_hit;
+    std::optional<PositionCollisionHit> ground_surface_hit;
     bool hit_normal_removed{};
     std::optional<CollisionResponseResult> collision_response;
     std::optional<CollisionOrientationResult> collision_orientation;
