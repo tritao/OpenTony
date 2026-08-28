@@ -1,3 +1,5 @@
+import pytest
+
 from tony.cli import build_parser, parse_args
 
 
@@ -152,15 +154,13 @@ def test_retail_replay_parse():
         ["replay", "retail", "run.otrec", "--session", "warehouse", "--port", "31350"]
     )
     assert args.path == "run.otrec"
-    assert args.mode == "assisted"
+    assert not hasattr(args, "mode")
     assert args.session == "warehouse"
     assert args.port == 31350
     assert callable(args.func)
 
-    strict = build_parser().parse_args(
-        ["replay", "retail", "run.otrec", "--mode", "strict"]
-    )
-    assert strict.mode == "strict"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["replay", "retail", "run.otrec", "--mode", "assisted"])
 
 
 def test_native_replay_parse():

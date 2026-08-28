@@ -85,7 +85,7 @@ from .physics import (
 from .physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
 from .position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
 from .recording import RecordingController, RecordingError
-from .replay import REPLAY_MODES, create_retail_replay
+from .replay import create_retail_replay
 from .snapshot import format_diff, snapshots
 from .timer import (
     TIMER_PAUSE_GATE_A,
@@ -210,15 +210,39 @@ class _RecordingTimerBoundarySampler:
                 accumulated,
                 interval,
             )
+        boundary_before = {
+            "interval_ms": self._interval_ms,
+            "accumulated_ms": self._accumulated_ms,
+        }
+        boundary_after = {
+            "interval_ms": interval,
+            "accumulated_ms": accumulated,
+        }
+        boundary = {
+            "timer_boundary_before": boundary_before,
+            "timer_boundary_after": boundary_after,
+            "timer_boundary_delivery_count": deliveries,
+        }
         for ordinal in range(deliveries):
             controller.event(
                 {
+                    **boundary,
                     "type": "timer_callback_delivery",
                     "frame": frame,
                     "callback_ordinal": ordinal,
                     "interval_ms": self._interval_ms,
                     "callback_arg0": self._interval_ms,
                     "callback_arg1": 0,
+                    "delivery_source": "timer_state_boundary_delta",
+                    "timer_boundary_phase": phase,
+                }
+            )
+        if not deliveries:
+            controller.event(
+                {
+                    **boundary,
+                    "type": "timer_boundary_sample",
+                    "frame": frame,
                     "delivery_source": "timer_state_boundary_delta",
                     "timer_boundary_phase": phase,
                 }
@@ -725,32 +749,21 @@ class TonyRecordingStatus(gdb.Command):
 
 
 class TonyRetailReplay(gdb.Command):
-    """tony-replay-retail FILE [--mode MODE] -- replay one retail recording."""
+    """tony-replay-retail FILE -- replay one retail recording strictly."""
 
     def __init__(self):
         super().__init__("tony-replay-retail", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
         del from_tty
-        values = _argv(arg, "tony-replay-retail FILE [--mode assisted|strict]")
-        mode = "assisted"
-        if "--mode" in values:
-            mode_index = values.index("--mode")
-            if mode_index + 1 >= len(values):
-                raise gdb.GdbError(
-                    "usage: tony-replay-retail FILE [--mode assisted|strict]"
-                )
-            mode = values[mode_index + 1]
-            del values[mode_index:mode_index + 2]
-        if len(values) != 1 or mode not in REPLAY_MODES:
-            raise gdb.GdbError(
-                "usage: tony-replay-retail FILE [--mode assisted|strict]"
-            )
+        values = _argv(arg, "tony-replay-retail FILE")
+        if len(values) != 1:
+            raise gdb.GdbError("usage: tony-replay-retail FILE")
         global _retail_replay
         if _retail_replay is not None:
             raise gdb.GdbError("a retail replay is already armed")
         try:
-            _retail_replay = create_retail_replay(values[0], mode=mode)
+            _retail_replay = create_retail_replay(values[0])
         except (OSError, TypeError, ValueError, gdb.GdbError) as exc:
             raise gdb.GdbError(str(exc)) from exc
         _retail_replay.install()

@@ -176,7 +176,11 @@ class RecordingController:
     # Accept the pre-Phase-1 name while reading/finishing older captures;
     # newly emitted events use the causal external-service name below.
     PENDING_ASYNC_EVENT_TYPES = frozenset(
-        {"timer_callback_delivery", "simulation_time_accumulator_store"}
+        {
+            "timer_callback_delivery",
+            "timer_boundary_sample",
+            "simulation_time_accumulator_store",
+        }
     )
 
     def __init__(
@@ -456,7 +460,7 @@ class RecordingController:
         # "deliveries before this frame", rather than depending on debugger
         # thread scheduling inside the frame.
         if (
-            record.get("type") == "timer_callback_delivery"
+            record.get("type") in {"timer_callback_delivery", "timer_boundary_sample"}
             and record.get("timer_boundary_phase") != "clock_read"
         ):
             self._pending_external_events.append(dict(record))

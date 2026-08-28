@@ -228,12 +228,6 @@ def build_parser() -> argparse.ArgumentParser:
     replay_sub = replay.add_subparsers(dest="replay_command", required=True)
     p = replay_sub.add_parser("retail", help="replay one recording through the retail executable")
     p.add_argument("path")
-    p.add_argument(
-        "--mode",
-        choices=("assisted", "strict"),
-        default="assisted",
-        help="replay contract: allow derived-state restoration or inject external inputs only",
-    )
     p.add_argument("--session", help="named debug session; omitted generates a unique session")
     p.add_argument("--port", type=int)
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled")

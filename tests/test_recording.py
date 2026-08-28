@@ -135,6 +135,38 @@ def test_timer_delivery_during_frame_is_queued_for_next_boundary(tmp_path):
     ]
 
 
+def test_timer_boundary_sample_during_frame_is_queued_for_next_boundary(tmp_path):
+    path = tmp_path / "timer-sample-boundary.otrec"
+    controller = RecordingController(
+        writer_factory=RecordingWriter,
+        clock=lambda: "2026-08-27T12:00:00.000+00:00",
+    )
+    controller.request_start(path)
+    controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
+    controller.event(
+        {
+            "type": "timer_boundary_sample",
+            "timer_boundary_phase": "timer_update",
+            "timer_boundary_delivery_count": 0,
+        }
+    )
+    controller.end_frame(_snapshot(1))
+    controller.request_stop()
+    controller.begin_frame(_snapshot(1), input_record={"action_mask": 0})
+    controller.end_frame(_snapshot(2))
+
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    frames = [record for record in records if record["type"] == "frame"]
+    assert frames[0]["events"] == []
+    assert frames[1]["events"] == [
+        {
+            "type": "timer_boundary_sample",
+            "timer_boundary_phase": "timer_update",
+            "timer_boundary_delivery_count": 0,
+        }
+    ]
+
+
 def test_timer_clock_read_delivery_stays_in_current_frame(tmp_path):
     path = tmp_path / "timer-clock-read.otrec"
     controller = RecordingController(
@@ -192,6 +224,10 @@ def test_validator_requires_contiguous_complete_frames(tmp_path):
             "level": {"index": 12, "name": "warehouse"},
             "player_identity": {"slot": 0},
             "instrumentation_version": "test",
+            "initial_timer_state": {
+                "interval_ms": 16,
+                "accumulated_ms": 0,
+            },
         },
     )
     controller.begin_frame(_snapshot(0), input_record={"action_mask": 0})
@@ -210,6 +246,13 @@ def test_validator_requires_contiguous_complete_frames(tmp_path):
     assert errors == []
 
     records = [json.loads(line) for line in path.read_text().splitlines()]
+    records[0].pop("initial_timer_state")
+    path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+    summary, errors = validate_recording(path)
+    assert summary["valid"] is False
+    assert any("initial_timer_state" in error["error"] for error in errors)
+
+    records[0]["initial_timer_state"] = {"interval_ms": 16, "accumulated_ms": 0}
     records[-2]["frame"] = 4
     path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
     summary, errors = validate_recording(path)

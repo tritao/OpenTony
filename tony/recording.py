@@ -150,6 +150,11 @@ def validate_recording(path: str | Path) -> tuple[dict, list[dict]]:
     ):
         if field not in header:
             errors.append({"line": 1, "error": f"missing header field: {field}"})
+    if not isinstance(header.get("initial_timer_state"), dict):
+        errors.append({
+            "line": 1,
+            "error": "missing or invalid header field: initial_timer_state",
+        })
 
     initial = [record for record in records if record.get("type") == "initial_state"]
     frames = [record for record in records if record.get("type") == "frame"]

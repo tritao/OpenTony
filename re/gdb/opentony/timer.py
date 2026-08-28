@@ -184,6 +184,7 @@ class TimerReplayService:
     """Own the deterministic timer state used by strict retail replay."""
 
     EVENT_TYPE = "timer_callback_delivery"
+    BOUNDARY_EVENT_TYPE = "timer_boundary_sample"
 
     def __init__(self, initial_record: dict | None = None):
         self.state = RetailTimerState.from_record(initial_record)
@@ -318,8 +319,9 @@ class TimerReplayService:
             return []
         results = []
         self._read_gates(memory)
+        phase_events = []
         for event in frame.get("events", ()):
-            if event.get("type") != self.EVENT_TYPE:
+            if event.get("type") not in (self.EVENT_TYPE, self.BOUNDARY_EVENT_TYPE):
                 continue
             # Captures made before the phase-aware timer service used the
             # generic frame_entry label.  Those deliveries occurred between
@@ -330,42 +332,81 @@ class TimerReplayService:
                 event_phase = "physics_entry"
             if event_phase != phase:
                 continue
-            if event.get("simulation_pause_gate_a") is not None:
-                self.state.simulation_pause_gate_a = bool(
-                    event["simulation_pause_gate_a"]
+            phase_events.append(event)
+
+        boundary_keys = (
+            "timer_boundary_before",
+            "timer_boundary_after",
+            "timer_boundary_delivery_count",
+        )
+        segments = []
+        for event in phase_events:
+            metadata = (
+                tuple(event.get(key) for key in boundary_keys)
+                if any(key in event for key in boundary_keys)
+                else None
+            )
+            if metadata is not None:
+                boundary_before, boundary_after, delivery_count = metadata
+                if not isinstance(boundary_before, dict) or not isinstance(
+                    boundary_after, dict
+                ) or not isinstance(delivery_count, int):
+                    raise TypeError("timer boundary metadata is incomplete")
+            if segments and segments[-1][0] == metadata:
+                segments[-1][1].append(event)
+            else:
+                segments.append([metadata, [event]])
+
+        for metadata, segment_events in segments:
+            if metadata is not None:
+                boundary_before, boundary_after, delivery_count = metadata
+                expected_accumulated = _integer(boundary_before.get("accumulated_ms"))
+                if self.state.accumulated_ms != (expected_accumulated & 0xFFFFFFFF):
+                    raise ValueError(
+                        "modeled timer state does not reach recorded boundary start: "
+                        f"{self.state.accumulated_ms} != {expected_accumulated}"
+                    )
+                observed_count = sum(
+                    event.get("type") == self.EVENT_TYPE
+                    for event in segment_events
                 )
-            if event.get("simulation_pause_gate_b") is not None:
-                self.state.simulation_pause_gate_b = bool(
-                    event["simulation_pause_gate_b"]
-                )
-            if event.get("simulation_pause_gate_a") is None:
-                gate_a = self._read_gate(memory, TIMER_PAUSE_GATE_A)
-                if gate_a is not None:
-                    self.state.simulation_pause_gate_a = gate_a
-            if event.get("simulation_pause_gate_b") is None:
-                gate_b = self._read_gate(memory, TIMER_PAUSE_GATE_B)
-                if gate_b is not None:
-                    self.state.simulation_pause_gate_b = gate_b
-            interval = event.get("interval_ms")
-            result = advance_timer(self.state, {"interval_ms": interval})
-            self.validate_event(event, result)
-            results.append(result)
-            self.deliveries += 1
+                if observed_count != delivery_count:
+                    raise ValueError(
+                        "recorded timer boundary delivery count is inconsistent: "
+                        f"{delivery_count} != {observed_count}"
+                    )
+
+            for event in segment_events:
+                if event.get("type") != self.EVENT_TYPE:
+                    continue
+                if event.get("simulation_pause_gate_a") is not None:
+                    self.state.simulation_pause_gate_a = bool(
+                        event["simulation_pause_gate_a"]
+                    )
+                if event.get("simulation_pause_gate_b") is not None:
+                    self.state.simulation_pause_gate_b = bool(
+                        event["simulation_pause_gate_b"]
+                    )
+                if event.get("simulation_pause_gate_a") is None:
+                    gate_a = self._read_gate(memory, TIMER_PAUSE_GATE_A)
+                    if gate_a is not None:
+                        self.state.simulation_pause_gate_a = gate_a
+                if event.get("simulation_pause_gate_b") is None:
+                    gate_b = self._read_gate(memory, TIMER_PAUSE_GATE_B)
+                    if gate_b is not None:
+                        self.state.simulation_pause_gate_b = gate_b
+                interval = event.get("interval_ms")
+                result = advance_timer(self.state, {"interval_ms": interval})
+                self.validate_event(event, result)
+                results.append(result)
+                self.deliveries += 1
+
+            if metadata is not None:
+                expected_accumulated = _integer(boundary_after.get("accumulated_ms"))
+                if self.state.accumulated_ms != (expected_accumulated & 0xFFFFFFFF):
+                    raise ValueError(
+                        "modeled timer state does not reach recorded boundary end: "
+                        f"{self.state.accumulated_ms} != {expected_accumulated}"
+                    )
         self.publish(memory)
         return results
-
-    def suppress_live_callback(self, memory, *, result_register_setter=None) -> bool:
-        """Restore deterministic state at the callback's final integer store.
-
-        The breakpoint is placed immediately before the retail store to
-        ``DAT_0056e320``.  Earlier callback writes may already have happened,
-        so restore every callback-owned word and set EAX to the modeled result;
-        the pending retail store then writes the same derived value naturally.
-        """
-
-        if self.state is None:
-            return False
-        self.publish(memory)
-        if result_register_setter is not None:
-            result_register_setter(self.state.simulation_time)
-        return True

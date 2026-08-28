@@ -114,10 +114,7 @@ def replay_retail(args) -> int:
         print(json.dumps({"summary": summary, "errors": errors}, indent=2, sort_keys=True))
         return 1
 
-    replay_command = (
-        f"tony-replay-retail {shlex.quote(str(path))}"
-        f" --mode {shlex.quote(getattr(args, 'mode', 'assisted'))}"
-    )
+    replay_command = f"tony-replay-retail {shlex.quote(str(path))}"
     replay_args = SimpleNamespace(
         headless=True,
         unmute=bool(getattr(args, "unmute", False)),

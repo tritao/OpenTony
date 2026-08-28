@@ -96,24 +96,57 @@ def test_timer_replay_advances_only_recorded_deliveries():
     assert memory.double(TIMER_SIMULATION_ACCUMULATOR) == 1.92
 
 
-def test_timer_replay_suppresses_live_callback_after_boundary_model():
+def test_timer_replay_asserts_recorded_boundary_counter():
     memory = FakeMemory()
     service = TimerReplayService(_initial_timer_state())
-    service.apply_frame({"events": [_delivery()]}, memory)
-
-    # Simulate writes made by an uncontrolled callback before its final store.
-    memory.write_u32(TIMER_STATE_ADDRESS + 0x0C, 0xDEADBEEF)
-    memory.write_u32(TIMER_PUBLIC_TICK, 0xDEADBEEF)
-    memory.write_u32(TIMER_SIMULATION_TIME, 0xDEADBEEF)
-    register = []
-
-    assert service.suppress_live_callback(
-        memory, result_register_setter=register.append
+    event = _delivery()
+    event.update(
+        timer_boundary_before={"interval_ms": 16, "accumulated_ms": 0},
+        timer_boundary_after={"interval_ms": 16, "accumulated_ms": 16},
+        timer_boundary_delivery_count=1,
     )
-    assert register == [0]
-    assert memory.u32(TIMER_STATE_ADDRESS + 0x0C) == 16
-    assert memory.u32(TIMER_PUBLIC_TICK) == 0
-    assert memory.u32(TIMER_SIMULATION_TIME) == 0
+
+    assert len(service.apply_frame({"events": [event]}, memory)) == 1
+
+    event["timer_boundary_before"]["accumulated_ms"] = 16
+    event["timer_boundary_after"]["accumulated_ms"] = 48
+    with pytest.raises(ValueError, match="boundary end"):
+        service.apply_frame({"events": [event]}, memory)
+
+
+def test_timer_replay_asserts_zero_delivery_boundary():
+    memory = FakeMemory()
+    service = TimerReplayService(_initial_timer_state())
+    event = {
+        "type": "timer_boundary_sample",
+        "timer_boundary_phase": "physics_entry",
+        "timer_boundary_before": {"interval_ms": 16, "accumulated_ms": 0},
+        "timer_boundary_after": {"interval_ms": 16, "accumulated_ms": 0},
+        "timer_boundary_delivery_count": 0,
+    }
+
+    assert service.apply_frame({"events": [event]}, memory) == []
+    assert service.deliveries == 0
+
+
+def test_timer_replay_accepts_multiple_boundary_segments_in_one_phase():
+    memory = FakeMemory()
+    service = TimerReplayService(_initial_timer_state())
+    first = _delivery()
+    first.update(
+        timer_boundary_before={"interval_ms": 16, "accumulated_ms": 0},
+        timer_boundary_after={"interval_ms": 16, "accumulated_ms": 32},
+        timer_boundary_delivery_count=2,
+    )
+    second = _delivery()
+    second.update(
+        timer_boundary_before={"interval_ms": 16, "accumulated_ms": 32},
+        timer_boundary_after={"interval_ms": 16, "accumulated_ms": 48},
+        timer_boundary_delivery_count=1,
+    )
+
+    assert len(service.apply_frame({"events": [first, first.copy(), second]}, memory)) == 3
+    assert service.state.accumulated_ms == 48
 
 
 def test_timer_replay_uses_callback_pause_gate_observation():
