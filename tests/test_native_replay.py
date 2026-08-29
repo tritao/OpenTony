@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from tony.native_replay import _parse_native_output, _wire_input
 
 
@@ -141,6 +143,57 @@ def test_native_wire_carries_current_velocity_damping_components() -> None:
     tokens = _wire_input(recording["initial"], recording["frames"]).splitlines()[2].split()
 
     assert tokens[21:28] == ["1", "1", "60", "4", "5896", "4573", "60"]
+
+
+def test_native_wire_accepts_identical_forensic_damping_observations() -> None:
+    recording = {
+        "initial": _snapshot(0),
+        "frames": [{
+            "frame": 0,
+            "input": {"action_mask": 0},
+            "events": [
+                {
+                    "type": "velocity_damping_random_input",
+                    "purpose": "rescale_threshold",
+                    "raw_roll": 60,
+                },
+                {
+                    "type": "shared_random_call",
+                    "caller": "0x0049d4a1",
+                    "return_value_s32": 60,
+                },
+            ],
+        }],
+    }
+
+    line = _wire_input(recording["initial"], recording["frames"]).splitlines()[2]
+
+    assert line.split()[23] == "60"
+
+
+def test_native_wire_rejects_conflicting_forensic_damping_observations() -> None:
+    recording = {
+        "initial": _snapshot(0),
+        "frames": [{
+            "frame": 0,
+            "input": {"action_mask": 0},
+            "events": [
+                {
+                    "type": "velocity_damping_random_input",
+                    "purpose": "rescale_threshold",
+                    "raw_roll": 60,
+                },
+                {
+                    "type": "shared_random_call",
+                    "caller": "0x0049d4a1",
+                    "return_value_s32": 61,
+                },
+            ],
+        }],
+    }
+
+    with pytest.raises(ValueError, match="conflicting velocity damping"):
+        _wire_input(recording["initial"], recording["frames"])
 
 
 def test_native_wire_carries_air_action_control_channel() -> None:

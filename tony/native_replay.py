@@ -301,11 +301,19 @@ def _frame_wire(frame: dict[str, Any]) -> str:
                 raw_roll = event.get("return_value_s32")
                 if purpose is None or not isinstance(raw_roll, int):
                     continue
+                value = _signed(raw_roll, 32)
                 if purpose in damping_by_purpose:
-                    raise ValueError(
-                        f"frame {frame_index} has duplicate velocity damping purpose {purpose!r}"
-                    )
-                damping_by_purpose[purpose] = _signed(raw_roll, 32)
+                    # ``service`` and ``rng`` forensic families can observe
+                    # the same retail draw through different probes.  Keep
+                    # the explicit purpose-specific value when both are
+                    # present, but reject contradictory observations.
+                    if damping_by_purpose[purpose] != value:
+                        raise ValueError(
+                            f"frame {frame_index} has conflicting velocity damping "
+                            f"purpose {purpose!r} values"
+                        )
+                    continue
+                damping_by_purpose[purpose] = value
     damping_values = [
         damping_by_purpose.get("rescale_threshold", 0),
         damping_components.get(
