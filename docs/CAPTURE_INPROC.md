@@ -35,7 +35,8 @@ covered by the same RVA/expected-byte manifest and is installed transactionally
 with the gameplay hooks.
 The installer tracks persistent recorder seams separately from one-shot
 frontend bootstrap seams; the latter are restored and their trampolines freed
-at the first canonical gameplay input boundary.
+at the first canonical player physics entry (the action seam also runs during
+frontend startup).
 The DLL copies the original prologues into executable trampolines, relocates
 only the `rel32` calls/jumps listed for that seam in
 `re/config/capture_hooks.yml`, patches the entries with relative jumps, and

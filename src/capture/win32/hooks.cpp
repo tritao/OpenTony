@@ -48,6 +48,7 @@ static uint8_t g_input_original[16];
 static uint32_t g_input_overwrite_size = 0;
 static volatile uint32_t g_input_injected_frame = 0xffffffffu;
 static volatile uint32_t g_gameplay_ready = 0;
+static volatile uint32_t g_bootstrap_retired = 0;
 static int g_input_installed = 0;
 static CaptureTimerSample g_pending_timer_samples[OTCAP_MAX_TIMER_SAMPLES];
 static uint32_t g_pending_timer_count = 0;
@@ -651,6 +652,13 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
     }
 #endif
     InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_CAPTURING);
+    if (g_bootstrap_retired == 0) {
+        /* The action seam also runs during frontend startup.  The first
+         * player-table match is the earliest unambiguous gameplay boundary,
+         * so keep movie/selector hooks alive until this point. */
+        retire_bootstrap_hooks();
+        g_bootstrap_retired = 1;
+    }
 }
 
 void __cdecl ot_capture_physics_after(void) {
@@ -714,13 +722,7 @@ void __cdecl ot_capture_input_boundary(void) {
         header->status != OTCAP_STATUS_CAPTURING) {
         return;
     }
-    if (g_gameplay_ready == 0) {
-        g_gameplay_ready = 1;
-        /* Frontend detours are only a one-shot path into gameplay.  Remove
-         * the bootstrap group as soon as the first canonical input boundary
-         * is observed, leaving only the persistent recorder seams installed. */
-        retire_bootstrap_hooks();
-    }
+    g_gameplay_ready = 1;
     frame_index = header->frame_count;
     config = (CaptureConfig *)(g_capture_buffer->mapping + header->config_offset);
     action_mask = ot_capture_action_mask(config, frame_index);
