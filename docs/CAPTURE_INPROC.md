@@ -24,7 +24,12 @@ The host creates a bounded 64 MiB named mapping, launches the selected retail
 executable suspended, injects `opentony_capture.dll`, and saves the mapping as
 `retail.otcap`.  The host never drops records: a frame-limit or mapping
 overflow is a failed capture.  Python then validates the fixed wire layout and
-converts it to the existing JSONL `retail.otrec` contract.
+promotes it to canonical binary OTREC2 `retail.otrec`; the `.otcap` remains
+available as bounded raw transport evidence.
+
+Legacy GDB `.otrec` files remain readable during migration.  Use
+`tony record export-json recording.otrec --output recording.jsonl` (or
+`tony record dump recording.otrec`) for a human-readable compatibility view.
 
 M5 installs the proven `Skater_PhysicsFrame`, post-poll action-mask, and timer
 boundary detours. M7 adds the deterministic frontend bootstrap: the DLL skips

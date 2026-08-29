@@ -284,18 +284,41 @@ def build_parser() -> argparse.ArgumentParser:
     p = record_sub.add_parser("status", help="show the recording state for a debug session")
     p.add_argument("--session", help="debug session ID; required when multiple sessions are active")
     p.set_defaults(func=commands.record_status)
-    p = record_sub.add_parser("validate", help="validate a V1 recording file")
+    p = record_sub.add_parser("validate", help="validate a legacy or binary recording file")
     p.add_argument("path")
     p.set_defaults(func=commands.record_validate)
+    p = record_sub.add_parser("export-json", help="export a recording as human-readable JSONL")
+    p.add_argument("path")
+    p.add_argument("--output")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=commands.recording_export_json)
+    p = record_sub.add_parser("dump", help="dump a recording as human-readable JSONL")
+    p.add_argument("path")
+    p.add_argument("--output")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=commands.recording_export_json)
 
     capture = sub.add_parser("capture", help="decode and compare in-process capture artifacts")
     capture_sub = capture.add_subparsers(dest="capture_command", required=True)
-    p = capture_sub.add_parser("decode", help="convert a fixed-layout .otcap into a JSONL .otrec")
+    p = capture_sub.add_parser("decode", help="convert a fixed-layout .otcap into an .otrec recording")
     p.add_argument("path")
     p.add_argument("--output", required=True)
     p.add_argument("--force", action="store_true")
+    p.add_argument(
+        "--binary",
+        dest="binary",
+        action="store_true",
+        default=True,
+        help="write canonical binary OTREC2 (the default)",
+    )
+    p.add_argument(
+        "--legacy-jsonl",
+        dest="binary",
+        action="store_false",
+        help="write the legacy JSONL view for old fixtures",
+    )
     p.set_defaults(func=commands.capture_decode)
-    p = capture_sub.add_parser("compare", help="compare two JSONL recordings frame by frame")
+    p = capture_sub.add_parser("compare", help="compare two recordings frame by frame")
     p.add_argument("left")
     p.add_argument("right")
     p.add_argument(

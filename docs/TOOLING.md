@@ -110,6 +110,8 @@ Use the host commands while a named debug session is active:
 tony record start --session warehouse --output build/recordings/retail/run.otrec
 tony record stop --session warehouse
 tony record validate build/recordings/retail/run.otrec
+# Binary OTREC2 files are canonical; export a readable compatibility view when needed.
+tony record export-json build/recordings/retail/run.otrec --output build/recordings/retail/run.jsonl
 ```
 
 For a bounded corpus, add `--frames COUNT`; the recorder closes after that

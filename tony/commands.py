@@ -20,7 +20,12 @@ from .assets import (
     assets_inspect_trg,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inventory,  # noqa: F401 - command handlers are consumed by cli.py
 )
-from .capture import CaptureDecodeError, compare_recordings, convert_capture
+from .capture import (
+    CaptureDecodeError,
+    compare_recordings,
+    convert_capture,
+    convert_capture_binary,
+)
 from .common import capture, load_yaml, resolve, sha256
 from .debug import debug_game as _debug_game
 from .explorer import assets_explore  # noqa: F401 - command handlers are consumed by cli.py
@@ -40,6 +45,8 @@ from .native_replay import replay_native  # noqa: F401 - command handler consume
 from .nocd import patch_nocd_executable
 from .pe import exe_identify  # noqa: F401 - command handlers are consumed by cli.py
 from .recording import (
+    export_json,
+    load_recording,
     record_start,  # noqa: F401 - command handlers are consumed by cli.py
     record_status,  # noqa: F401 - command handlers are consumed by cli.py
     record_stop,  # noqa: F401 - command handlers are consumed by cli.py
@@ -124,18 +131,38 @@ def _python_environment_status() -> tuple[bool, str]:
 
 
 def capture_decode(args) -> int:
-    """Decode one bounded .otcap file into the established .otrec format."""
+    """Decode one bounded .otcap file into an .otrec recording."""
 
     try:
-        summary = convert_capture(args.path, args.output, force=bool(getattr(args, "force", False)))
+        converter = convert_capture_binary if getattr(args, "binary", False) else convert_capture
+        summary = converter(args.path, args.output, force=bool(getattr(args, "force", False)))
     except CaptureDecodeError as exc:
         raise SystemExit(str(exc)) from exc
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
 
 
+def recording_export_json(args) -> int:
+    """Export a binary or legacy recording as human-readable JSONL."""
+
+    try:
+        output = getattr(args, "output", None)
+        if output:
+            summary = export_json(args.path, output, force=bool(getattr(args, "force", False)))
+        else:
+            recording = load_recording(args.path)
+            for record in recording.legacy_records():
+                print(json.dumps(record, sort_keys=True, allow_nan=False))
+            summary = None
+    except (OSError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    if summary is not None:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
+
+
 def capture_compare(args) -> int:
-    """Compare two JSONL recordings at canonical frame boundaries."""
+    """Compare two recordings at canonical frame boundaries."""
 
     try:
         result = compare_recordings(args.left, args.right, scope=getattr(args, "scope", "all"))
@@ -219,7 +246,17 @@ def replay_retail(args) -> int:
         print(json.dumps({"summary": summary, "errors": errors}, indent=2, sort_keys=True))
         return 1
 
-    replay_command = f"tony-replay-retail {shlex.quote(str(path))}"
+    # The GDB adapter still consumes its historical JSONL wire view.  Keep
+    # that compatibility conversion outside the game process while the
+    # canonical artifact remains binary OTREC2.
+    replay_path = path
+    try:
+        if load_recording(path).source_format == "otrec2":
+            replay_path = resolve(f"build/parity/{path.stem}.gdb.jsonl")
+            export_json(path, replay_path, force=True)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    replay_command = f"tony-replay-retail {shlex.quote(str(replay_path))}"
     level = getattr(args, "level", 12)
     replay_args = SimpleNamespace(
         headless=True,

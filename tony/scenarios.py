@@ -18,7 +18,7 @@ import yaml
 
 from .common import ROOT, resolve
 from .levels import parse_level
-from .recording import validate_recording
+from .recording import load_recording, validate_recording
 
 SCENARIO_ROOT = ROOT / "re/scenarios"
 SCENARIO_BUILD_ROOT = ROOT / "build/scenarios"
@@ -287,8 +287,8 @@ def validate_scenario_recording(scenario: dict[str, Any], path: Path) -> tuple[d
     errors = list(errors)
     if not errors:
         try:
-            header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-        except (OSError, IndexError, json.JSONDecodeError) as exc:
+            header = load_recording(path).header
+        except (OSError, IndexError, ValueError) as exc:
             errors.append({"line": 1, "error": f"could not read recording header: {exc}"})
         else:
             level = header.get("level")

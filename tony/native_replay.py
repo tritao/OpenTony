@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import resolve
-from .recording import validate_recording
+from .recording import load_recording, validate_recording
 
 NATIVE_REPLAY_WIRE_VERSION = 8
 
@@ -576,16 +576,23 @@ def _level_paths(args, header: dict[str, Any]) -> tuple[Path, Path, Path]:
 
 def replay_native(args) -> int:
     path = resolve(args.path)
-    summary, errors = validate_recording(path)
-    if errors:
-        print(json.dumps({"summary": summary, "errors": errors}, indent=2, sort_keys=True))
-        return 1
+    try:
+        recording = load_recording(path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    # Preserve the detailed V1 diagnostics for legacy files.  Binary and
+    # capture-backed recordings are already structurally checked by their
+    # loader and can proceed directly through the same replay model.
+    if recording.source_format == "legacy-jsonl":
+        summary, errors = validate_recording(path)
+        if errors:
+            print(json.dumps({"summary": summary, "errors": errors}, indent=2, sort_keys=True))
+            return 1
 
-    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    header = records[0]
-    initial_records = [record for record in records if record.get("type") == "initial_state"]
-    frames = [record for record in records if record.get("type") == "frame"]
-    if len(initial_records) != 1:
+    header = recording.header
+    initial_state = recording.initial_state
+    frames = recording.frame_dicts()
+    if not initial_state:
         raise SystemExit("native replay requires exactly one initial_state record")
     trg, psx, asset_root = _level_paths(args, header)
     binary = resolve(args.native_binary) if args.native_binary else resolve("build/native/opentony_native_replay")
@@ -598,7 +605,7 @@ def replay_native(args) -> int:
     try:
         result = subprocess.run(
             [str(binary), str(trg), str(psx), str(asset_root)],
-            input=_wire_input(initial_records[0]["state"], frames),
+            input=_wire_input(initial_state, frames),
             text=True,
             capture_output=True,
             check=False,

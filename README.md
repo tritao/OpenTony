@@ -173,6 +173,7 @@ tony debug --record build/debug/session.mp4
 tony record start --session <debug-session>
 tony record stop --session <debug-session>
 tony record validate <recording.otrec>
+tony record export-json <recording.otrec> --output <recording.jsonl>
 tony replay retail <recording.otrec> [--session <debug-session>]
 tony replay native <recording.otrec> [--output build/parity/native.jsonl]
 tony scenario list

@@ -1,9 +1,9 @@
 """Offline decoding for the tiny Windows in-process capture recorder.
 
 The injected component writes a bounded, fixed-layout ``.otcap`` file.  This
-module is the only place that translates that transport into the established
-JSONL ``.otrec`` contract; retail and native replay do not need to know which
-recorder produced a recording.
+module validates that transport and exposes compatibility conversion helpers;
+format-independent loading lives in :mod:`tony.recording`, so retail and
+native replay do not need to know which recorder produced a recording.
 """
 
 from __future__ import annotations
@@ -388,8 +388,14 @@ def _decode_timer_events(
     return decoded
 
 
-def decode_capture(path: str | Path) -> dict[str, Any]:
-    """Decode and validate one complete fixed-layout ``.otcap`` file."""
+def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, Any]:
+    """Decode and validate one complete fixed-layout ``.otcap`` file.
+
+    The established return value remains the normalized dictionary used by
+    existing tools.  ``include_raw`` adds the original player/timer bytes to
+    each frame for the format-independent recording loader; keeping that
+    opt-in avoids putting non-JSON values into legacy conversion output.
+    """
 
     source = resolve(path)
     try:
@@ -507,15 +513,22 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
         ])
         timers = [_decode_timer(sample) for sample in timer_samples]
         events: list[dict[str, Any]] = []
-        frames.append(
-            {
+        frame_record = {
                 "frame": index,
                 "input": {"action_mask": input_mask},
                 "before": _snapshot(before, tuple(timing_before), player_address, input_flags),
                 "after": _snapshot(after, tuple(timing_after), player_address, input_flags),
                 "events": [*_decode_timer_events(timers, timer_decode_state), *events],
+        }
+        if include_raw:
+            frame_record["raw"] = {
+                "player_before": bytes(before),
+                "player_after": bytes(after),
+                "timing_before": tuple(timing_before),
+                "timing_after": tuple(timing_after),
+                "timer_samples": tuple(tuple(sample) for sample in timer_samples),
             }
-        )
+        frames.append(frame_record)
     return {
         "build_sha256": build_sha256.hex(),
         "image_base": image_base,
@@ -530,8 +543,21 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
     }
 
 
-def convert_capture(source: str | Path, output: str | Path, *, force: bool = False) -> dict[str, Any]:
-    """Convert a complete ``.otcap`` into the existing V1 JSONL recording."""
+def convert_capture(
+    source: str | Path,
+    output: str | Path,
+    *,
+    force: bool = False,
+    binary: bool = False,
+) -> dict[str, Any]:
+    """Convert a complete ``.otcap`` into an OTREC recording.
+
+    ``binary=False`` is retained for the migration's legacy JSONL fixtures;
+    callers producing canonical artifacts should pass ``binary=True``.
+    """
+
+    if binary:
+        return convert_capture_binary(source, output, force=force)
 
     capture = decode_capture(source)
     target = resolve(output)
@@ -588,15 +614,43 @@ def convert_capture(source: str | Path, output: str | Path, *, force: bool = Fal
     return {"path": str(target), "frames": len(capture["frames"]), "format": metadata["instrumentation_version"]}
 
 
-def _recording_records(path: str | Path) -> list[dict[str, Any]]:
-    source = resolve(path)
+def convert_capture_binary(source: str | Path, output: str | Path, *, force: bool = False) -> dict[str, Any]:
+    """Convert a bounded capture to canonical binary OTREC2.
+
+    ``convert_capture`` remains the compatibility JSONL conversion entrypoint
+    while existing GDB fixtures migrate.  New in-process callers can use this
+    function immediately; it shares the exact same decoder and model.
+    """
+
+    from .recording import recording_from_capture, write_recording
+
+    capture = decode_capture(source, include_raw=True)
+    target = resolve(output)
+    recording = recording_from_capture(capture)
+    metadata = dict(recording.metadata)
+    metadata["recording_id"] = f"inproc-{target.stem}"
+    metadata["recording_timestamp"] = datetime.now(UTC).isoformat(timespec="milliseconds")
+    recording = recording.__class__(
+        metadata=metadata,
+        frames=recording.frames,
+        initial_state=recording.initial_state,
+        actions=recording.actions,
+        source_format=recording.source_format,
+    )
     try:
-        records = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()]
-    except (OSError, json.JSONDecodeError) as exc:
+        return write_recording(recording, target, force=force)
+    except ValueError as exc:
+        raise CaptureDecodeError(str(exc)) from exc
+
+
+def _recording_records(path: str | Path) -> list[dict[str, Any]]:
+    try:
+        from .recording import load_recording
+
+        return load_recording(resolve(path)).legacy_records()
+    except (OSError, ValueError) as exc:
+        source = resolve(path)
         raise CaptureDecodeError(f"could not read recording {source}: {exc}") from exc
-    if not all(isinstance(record, dict) for record in records):
-        raise CaptureDecodeError(f"recording {source} contains a non-object record")
-    return records
 
 
 def _first_difference(expected: Any, actual: Any, path: tuple[Any, ...] = ()) -> tuple[tuple[Any, ...], Any, Any] | None:
@@ -643,7 +697,7 @@ def compare_recordings(
     *,
     scope: str = "all",
 ) -> dict[str, Any]:
-    """Compare two JSONL recordings at canonical frame/event boundaries.
+    """Compare two recordings at canonical frame/event boundaries.
 
     Recording IDs and timestamps are intentionally excluded; all input,
     timer/service events, and player snapshots are compared exactly by default.
@@ -851,7 +905,10 @@ def run_inproc_capture(
     if result_code:
         return result_code
     try:
-        summary = convert_capture(capture_path, target, force=force)
+        # In-process captures are promoted directly to canonical OTREC2.  The
+        # fixed .otcap remains available beside it as bounded transport/debug
+        # evidence; replay and qualification consume the promoted recording.
+        summary = convert_capture_binary(capture_path, target, force=force)
     except CaptureDecodeError as exc:
         print(str(exc))
         return 1
