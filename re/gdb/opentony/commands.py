@@ -974,19 +974,43 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
 
 
 class TonyRecordingStart(gdb.Command):
-    """tony-record-start [FILE] [--force] -- start at the next physics frame."""
+    """tony-record-start [FILE] [--force] [--frames COUNT] -- start capture."""
 
     def __init__(self):
         super().__init__("tony-record-start", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
         del from_tty
-        values = _argv(arg, "tony-record-start [FILE] [--force]") if arg.strip() else []
-        force = values[-1:] == ["--force"]
-        if force:
-            values.pop()
+        values = (
+            _argv(arg, "tony-record-start [FILE] [--force] [--frames COUNT]")
+            if arg.strip()
+            else []
+        )
+        force = False
+        frame_limit = None
+        positional = []
+        index = 0
+        while index < len(values):
+            value = values[index]
+            if value == "--force":
+                force = True
+            elif value == "--frames":
+                index += 1
+                if index >= len(values):
+                    raise gdb.GdbError("--frames requires a positive count")
+                frame_limit = _integer(values[index])
+            elif value.startswith("--frames="):
+                frame_limit = _integer(value.split("=", 1)[1])
+            else:
+                positional.append(value)
+            index += 1
+        values = positional
         if len(values) > 1:
-            raise gdb.GdbError("usage: tony-record-start [FILE] [--force]")
+            raise gdb.GdbError(
+                "usage: tony-record-start [FILE] [--force] [--frames COUNT]"
+            )
+        if frame_limit is not None and frame_limit <= 0:
+            raise gdb.GdbError("--frames must be a positive count")
         if _recording_controller is None:
             raise gdb.GdbError("recording controller is not initialized")
         global _recording_timer_initial_state, _recording_timer_recording_id
@@ -997,12 +1021,14 @@ class TonyRecordingStart(gdb.Command):
             recording_id = _recording_controller.request_start(
                 values[0] if values else None,
                 overwrite=force,
+                frame_limit=frame_limit,
             )
         except RecordingError as exc:
             raise gdb.GdbError(str(exc)) from exc
         _write(
             f"recording start pending: {recording_id}; "
-            f"path {_recording_controller.path}"
+            f"path {_recording_controller.path}; "
+            f"frame limit {frame_limit if frame_limit is not None else 'none'}"
         )
 
 

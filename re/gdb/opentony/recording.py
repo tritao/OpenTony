@@ -232,6 +232,7 @@ class RecordingController:
         self._writer: RecordingWriter | None = None
         self._path: Path | None = None
         self._overwrite = False
+        self._frame_limit: int | None = None
         self._active_frame: dict | None = None
         self._pending_external_events: list[dict] = []
         self._latest_input: dict | None = None
@@ -271,6 +272,7 @@ class RecordingController:
             "recording_id": self.recording_id,
             "path": str(self._path) if self._path is not None else None,
             "frames": self.current_frame_index,
+            "frame_limit": self._frame_limit,
             "active_frame": self.active_frame,
             "hotkey_scan_code": self.hotkey_scan_code,
             "status_interval_frames": self.status_interval_frames,
@@ -329,11 +331,14 @@ class RecordingController:
         *,
         overwrite: bool = False,
         metadata: dict | None = None,
+        frame_limit: int | None = None,
     ) -> str:
         if self.state is not RecordingState.IDLE:
             raise RecordingError(
                 f"cannot start recording while state is {self.state.value}"
             )
+        if frame_limit is not None and frame_limit <= 0:
+            raise RecordingError("frame limit must be positive")
         recording_id = self._new_id()
         target = (
             Path(path).expanduser()
@@ -347,6 +352,7 @@ class RecordingController:
         self.recording_id = recording_id
         self._path = target
         self._overwrite = overwrite
+        self._frame_limit = frame_limit
         self._writer = None
         self._active_frame = None
         self._pending_external_events = []
@@ -404,6 +410,7 @@ class RecordingController:
                     self.request_start(
                         command.get("output"),
                         overwrite=bool(command.get("overwrite", False)),
+                        frame_limit=command.get("frames"),
                     )
                 elif action == "stop":
                     if not self.request_stop():
@@ -530,7 +537,11 @@ class RecordingController:
         frame_index = int(frame["frame"])
         self.current_frame_index += 1
         self._active_frame = None
-        if self._stop_after_frame:
+        frame_limit_reached = (
+            self._frame_limit is not None
+            and self.current_frame_index >= self._frame_limit
+        )
+        if self._stop_after_frame or frame_limit_reached:
             self._writer.close(frames=self.current_frame_index)
             self._writer = None
             self.state = RecordingState.IDLE

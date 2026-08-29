@@ -258,6 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="debug session ID; required when multiple sessions are active")
     p.add_argument("--output", help="recording path; defaults to build/recordings/retail/")
     p.add_argument("--force", action="store_true", help="replace an existing recording")
+    p.add_argument("--frames", type=int, help="stop after exactly this many completed gameplay frames")
     p.set_defaults(func=commands.record_start)
     p = record_sub.add_parser("stop", help="request recording stop after the current gameplay frame")
     p.add_argument("--session", help="debug session ID; required when multiple sessions are active")

@@ -64,6 +64,11 @@ def record_start(args) -> int:
         "output": _output(args),
         "overwrite": bool(getattr(args, "force", False)),
     }
+    frames = getattr(args, "frames", None)
+    if frames is not None:
+        if frames <= 0:
+            raise SystemExit("--frames must be positive")
+        command["frames"] = frames
     path = _queue_command(session, command)
     print(f"record start requested for {session.session_id}: {path}")
     return 0

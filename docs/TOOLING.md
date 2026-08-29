@@ -91,6 +91,15 @@ tony record stop --session warehouse
 tony record validate build/recordings/retail/run.otrec
 ```
 
+For a bounded corpus, add `--frames COUNT`; the recorder closes after that
+many complete physics-frame returns, so the footer count is exact:
+
+```bash
+tony record start --session warehouse \
+  --output build/recordings/retail/warehouse-idle-256.otrec \
+  --frames 256
+```
+
 Normal recordings install only the input, timer-boundary, and canonical
 player-frame capture boundaries. If the first strict replay divergence needs
 more evidence, arm only the relevant forensic family in the GDB session before

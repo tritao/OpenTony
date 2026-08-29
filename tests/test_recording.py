@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "re/gdb"))
 
 from opentony.recording import RecordingController, RecordingState, RecordingWriter
@@ -27,6 +29,7 @@ def test_host_start_queues_command_for_active_session(monkeypatch, tmp_path):
         session=None,
         output=str(tmp_path / "warehouse.otrec"),
         force=True,
+        frames=256,
     )
 
     assert recording_commands.record_start(args) == 0
@@ -36,7 +39,24 @@ def test_host_start_queues_command_for_active_session(monkeypatch, tmp_path):
         "action": "start",
         "output": str(tmp_path / "warehouse.otrec"),
         "overwrite": True,
+        "frames": 256,
     }
+
+
+def test_host_start_rejects_nonpositive_frame_limit(monkeypatch, tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    session = SimpleNamespace(path=session_dir, session_id="warehouse", active=True)
+    monkeypatch.setattr(recording_commands.sessions, "list_sessions", lambda: [session])
+    args = SimpleNamespace(
+        session=None,
+        output=str(tmp_path / "warehouse.otrec"),
+        force=True,
+        frames=0,
+    )
+
+    with pytest.raises(SystemExit, match="--frames must be positive"):
+        recording_commands.record_start(args)
 
 
 def test_writer_buffers_records_until_threshold_and_flushes_on_close(tmp_path):
@@ -121,6 +141,26 @@ def test_start_and_stop_are_committed_on_frame_boundaries(tmp_path):
         "recording_id": recording_id,
         "type": "end",
     }
+
+
+def test_frame_limit_closes_after_exact_completed_frame_count(tmp_path):
+    path = tmp_path / "bounded.otrec"
+    controller = RecordingController(
+        writer_factory=RecordingWriter,
+        clock=lambda: "2026-08-27T12:00:00.000+00:00",
+    )
+    controller.request_start(path, frame_limit=2)
+
+    for value in range(2):
+        controller.begin_frame(_snapshot(value), input_record={"action_mask": 0})
+        controller.end_frame(_snapshot(value + 1))
+
+    assert controller.state is RecordingState.IDLE
+    assert controller.current_frame_index == 2
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [record["frame"] for record in records if record["type"] == "frame"] == [0, 1]
+    assert records[-1]["complete"] is True
+    assert records[-1]["frames"] == 2
 
 
 def test_async_simulation_time_store_waits_for_next_frame(tmp_path):
