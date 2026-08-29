@@ -50,6 +50,9 @@ host fails closed after a bounded startup wait with `OTCAP_ERROR_TIMEOUT`
 instead of leaving a Wine process running indefinitely.
 
 The Python command always starts this host inside the project-managed Xvfb
+display and creates the configured Wine virtual desktop (`OpenTony,1024x768`)
+for the legacy DirectDraw frontend. The desktop is torn down after the host
+publishes its bounded output, so no game window is exposed on the caller's
 display. Running the Windows host directly with `wine` is a diagnostic escape
 hatch and may show a game window on the caller's normal display; that does not
 change the headless scenario path.

@@ -17,6 +17,8 @@ from tony.capture import (
     OTCAP_MAX_ACTION_INTERVALS,
     OTCAP_PLAYER_BLOB_SIZE,
     CaptureDecodeError,
+    _capture_desktop_spec,
+    _headless_capture_command,
     compare_recordings,
     convert_capture,
     decode_capture,
@@ -322,6 +324,9 @@ def test_frontend_detours_reuse_verified_bootstrap_boundaries():
     assert "OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS" in source
     assert "g_frontend_summary_key_ticks" in source
     assert "g_frontend_summary_installed" in source
+    assert "g_frontend_play_armed" in source
+    assert "g_frontend_level_override_valid" in source
+    assert "disarm_frontend_hook" in source
 
 
 def test_capture_host_fails_closed_when_frontend_never_reaches_gameplay():
@@ -347,6 +352,17 @@ def test_inproc_capture_keeps_game_inside_managed_headless_display():
     assert "HeadlessDisplay" in source
     assert "headless_wine_command(command)" in source
     assert "cwd=executable.parent" in source
+
+
+def test_inproc_capture_starts_a_managed_wine_virtual_desktop():
+    command = ["wine", "capture-host.exe", "--frames", "1"]
+    wrapped = _headless_capture_command(command, Path("capture.otcap"), _capture_desktop_spec())
+
+    assert wrapped[:2] == ["sh", "-c"]
+    assert "wine explorer \"$desktop\"" in wrapped[2]
+    assert "/desktop=OpenTony,1024x768" in wrapped
+    assert "capture.otcap" in wrapped
+    assert "--frames" in wrapped
 
 
 def test_physics_capture_publishes_complete_records_before_count():

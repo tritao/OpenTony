@@ -717,6 +717,45 @@ def _wine_path(path: Path, environment: dict[str, str]) -> str:
     return result.stdout.strip()
 
 
+def _capture_desktop_spec() -> str:
+    """Return the Wine virtual-desktop selector used by headless runs."""
+
+    desktop = load_yaml("re/config/wine.yml")["wine"].get("virtual_desktop", {})
+    name = str(desktop.get("name", "OpenTony"))
+    width = int(desktop.get("width", 1024))
+    height = int(desktop.get("height", 768))
+    if width < 320 or height < 200:
+        raise CaptureDecodeError(f"invalid Wine virtual desktop size: {width}x{height}")
+    return f"/desktop={name},{width}x{height}"
+
+
+def _headless_capture_command(
+    command: list[str], output: Path, desktop_spec: str
+) -> list[str]:
+    """Run the Windows host on a Wine desktop while keeping the caller headless.
+
+    Wine's legacy DirectDraw path exits before frontend initialization when a
+    desktop is not present.  ``explorer /desktop`` stays alive after its child
+    exits, so this wrapper starts it in the background, waits for the bounded
+    host to publish its output, and then tears the desktop down.
+    """
+
+    script = (
+        'desktop="$1"; output="$2"; shift 2; '
+        'wine explorer "$desktop" "$@" >/dev/null 2>&1 & desktop_pid=$!; '
+        'ticks=0; '
+        'while [ ! -s "$output" ] && kill -0 "$desktop_pid" 2>/dev/null; do '
+        'sleep 0.1; ticks=$((ticks + 1)); '
+        '[ "$ticks" -lt 1300 ] || { kill "$desktop_pid" 2>/dev/null || true; '
+        'wait "$desktop_pid" 2>/dev/null || true; exit 124; }; '
+        'done; '
+        'if [ ! -s "$output" ]; then wait "$desktop_pid"; exit $?; fi; '
+        'kill "$desktop_pid" 2>/dev/null || true; '
+        'wait "$desktop_pid" 2>/dev/null || true; exit 0'
+    )
+    return ["sh", "-c", script, "opentony-capture-desktop", desktop_spec, str(output), *command]
+
+
 def run_inproc_capture(
     scenario: dict[str, Any],
     output: str | Path,
@@ -767,6 +806,7 @@ def run_inproc_capture(
     print(" ".join(command))
     cfg = load_yaml("re/config/wine.yml")["wine"]
     display = HeadlessDisplay(cfg, environment)
+    command = _headless_capture_command(command, capture_path, _capture_desktop_spec())
     process = None
     try:
         process = display.popen(

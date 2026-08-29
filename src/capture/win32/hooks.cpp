@@ -69,10 +69,12 @@ static uint8_t g_frontend_play_original[16];
 static uint32_t g_frontend_play_overwrite_size = 0;
 static int g_frontend_play_installed = 0;
 static void *g_frontend_level_target = 0;
+static void *g_frontend_level_trampoline = 0;
 static uint8_t g_frontend_level_original[16];
 static uint32_t g_frontend_level_overwrite_size = 0;
 static int g_frontend_level_installed = 0;
 static volatile uint32_t g_frontend_level_override = 0;
+static volatile uint32_t g_frontend_level_override_valid = 0;
 static void *g_launch_level_target = 0;
 static void *g_launch_level_trampoline = 0;
 static uint8_t g_launch_level_original[16];
@@ -96,8 +98,36 @@ static void *g_frontend_summary_trampoline = 0;
 static uint8_t g_frontend_summary_original[16];
 static uint32_t g_frontend_summary_overwrite_size = 0;
 static int g_frontend_summary_installed = 0;
+/* These hooks mirror the GDB bootstrap commands, whose breakpoints are
+ * one-shot.  Keeping the detours installed but disarming their side effects
+ * after the first matching boundary avoids rewriting frontend locals during
+ * the ordinary gameplay loop. */
+static volatile uint32_t g_frontend_play_armed = 1;
+static volatile uint32_t g_frontend_level_armed = 1;
+static volatile uint32_t g_launch_level_armed = 1;
+static volatile uint32_t g_frontend_confirm_armed = 1;
+static volatile uint32_t g_frontend_summary_armed = 1;
 static volatile uint32_t g_frontend_summary_active = 0;
 static volatile uint32_t g_frontend_summary_key_ticks = 0;
+
+static int restore_target(
+    unsigned char *target,
+    uint32_t overwrite_size,
+    const uint8_t *original);
+
+static void disarm_frontend_hook(
+    void *target,
+    uint32_t overwrite_size,
+    const uint8_t *original,
+    int *installed) {
+    if (target != 0 && overwrite_size != 0 && original != 0 &&
+        installed != 0 && *installed != 0) {
+        if (restore_target(
+                (unsigned char *)target, overwrite_size, original)) {
+            *installed = 0;
+        }
+    }
+}
 
 typedef struct CaptureSha256 {
     uint32_t state[8];
@@ -815,7 +845,13 @@ void __cdecl ot_capture_frontend_play_boundary(uint32_t stack_pointer) {
 #if defined(_MSC_VER)
     __try {
 #endif
-        *(volatile uint32_t *)(stack_pointer + 0x58u) = 0x26u;
+        if (g_frontend_play_armed != 0) {
+            g_frontend_play_armed = 0;
+            *(volatile uint32_t *)(stack_pointer + 0x58u) = 0x26u;
+            disarm_frontend_hook(
+                g_frontend_play_target, g_frontend_play_overwrite_size,
+                g_frontend_play_original, &g_frontend_play_installed);
+        }
 #if defined(_MSC_VER)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ot_capture_buffer_fail(
@@ -837,7 +873,14 @@ void __cdecl ot_capture_frontend_level_boundary(void) {
             g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_INVALID_CONFIG);
         return;
     }
-    g_frontend_level_override = config->level_index;
+    if (g_frontend_level_armed != 0) {
+        g_frontend_level_armed = 0;
+        g_frontend_level_override = config->level_index;
+        g_frontend_level_override_valid = 1;
+        disarm_frontend_hook(
+            g_frontend_level_target, g_frontend_level_overwrite_size,
+            g_frontend_level_original, &g_frontend_level_installed);
+    }
 }
 
 void __cdecl ot_capture_launch_level_boundary(uint32_t stack_pointer) {
@@ -850,7 +893,13 @@ void __cdecl ot_capture_launch_level_boundary(uint32_t stack_pointer) {
 #if defined(_MSC_VER)
     __try {
 #endif
-        *(volatile uint32_t *)(stack_pointer + 4u) = header->level_index;
+        if (g_launch_level_armed != 0) {
+            g_launch_level_armed = 0;
+            *(volatile uint32_t *)(stack_pointer + 4u) = header->level_index;
+            disarm_frontend_hook(
+                g_launch_level_target, g_launch_level_overwrite_size,
+                g_launch_level_original, &g_launch_level_installed);
+        }
 #if defined(_MSC_VER)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ot_capture_buffer_fail(
@@ -869,15 +918,26 @@ void __cdecl ot_capture_frontend_key_boundary(uint32_t stack_pointer) {
 #endif
         /* The GDB confirmation probe only releases the level-selection and
          * summary loops when this helper returns to 0x0046af9f. */
-        if (*(volatile uint32_t *)stack_pointer ==
+        if (g_frontend_confirm_armed != 0 &&
+            *(volatile uint32_t *)stack_pointer ==
                 OTCAP_FRONTEND_SELECTION_CALL_RETURN) {
+            g_frontend_confirm_armed = 0;
             *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS +
                 OTCAP_FRONTEND_CONFIRM_SCAN_CODE) = 0x80u;
         }
         if (g_frontend_summary_active != 0) {
-            uint32_t tick = g_frontend_summary_key_ticks++ % 20u;
-            *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) =
-                tick < 5u ? 0x80u : 0u;
+            uint32_t tick = g_frontend_summary_key_ticks;
+            if (tick < 20u) {
+                g_frontend_summary_key_ticks = tick + 1u;
+                *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) =
+                    tick < 5u ? 0x80u : 0u;
+                if (tick == 19u) {
+                    g_frontend_summary_active = 0;
+                    disarm_frontend_hook(
+                        g_frontend_key_target, g_frontend_key_overwrite_size,
+                        g_frontend_key_original, &g_frontend_key_installed);
+                }
+            }
         }
 #if defined(_MSC_VER)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -891,9 +951,15 @@ void __cdecl ot_capture_frontend_summary_boundary(void) {
     if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0) {
         return;
     }
-    g_frontend_summary_active = 1;
-    g_frontend_summary_key_ticks = 0;
-    *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) = 0x80u;
+    if (g_frontend_summary_armed != 0) {
+        g_frontend_summary_armed = 0;
+        g_frontend_summary_active = 1;
+        g_frontend_summary_key_ticks = 0;
+        *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) = 0x80u;
+        disarm_frontend_hook(
+            g_frontend_summary_target, g_frontend_summary_overwrite_size,
+            g_frontend_summary_original, &g_frontend_summary_installed);
+    }
 }
 
 #if defined(_MSC_VER) && defined(_M_IX86)
@@ -984,9 +1050,14 @@ static __declspec(naked) void ot_capture_frontend_level_hook(void) {
         call ot_capture_frontend_level_boundary
         popfd
         popad
+        cmp dword ptr [g_frontend_level_override_valid], 0
+        je frontend_level_original
+        mov dword ptr [g_frontend_level_override_valid], 0
         mov eax, dword ptr [g_frontend_level_override]
         mov edx, OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS
         jmp edx
+frontend_level_original:
+        jmp dword ptr [g_frontend_level_trampoline]
     }
 }
 
@@ -1277,6 +1348,11 @@ int ot_capture_install_hooks(void *module_base) {
         goto install_failed;
     }
     if (!create_trampoline(
+            frontend_level_target, frontend_level, g_frontend_level_original,
+            &g_frontend_level_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
             launch_level_target, launch_level, g_launch_level_original,
             &g_launch_level_trampoline)) {
         goto install_failed;
@@ -1440,6 +1516,9 @@ install_failed:
         if (g_frontend_play_trampoline != 0) {
             VirtualFree(g_frontend_play_trampoline, 0, MEM_RELEASE);
         }
+        if (g_frontend_level_trampoline != 0) {
+            VirtualFree(g_frontend_level_trampoline, 0, MEM_RELEASE);
+        }
         if (g_launch_level_trampoline != 0) {
             VirtualFree(g_launch_level_trampoline, 0, MEM_RELEASE);
         }
@@ -1454,6 +1533,7 @@ install_failed:
         g_timer_trampoline = 0;
         g_clock_read_trampoline = 0;
         g_frontend_play_trampoline = 0;
+        g_frontend_level_trampoline = 0;
         g_launch_level_trampoline = 0;
         g_frontend_key_trampoline = 0;
         g_frontend_summary_trampoline = 0;
