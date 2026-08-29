@@ -62,6 +62,11 @@ enum {
     OTCAP_TIMER_PHASE_POST_PHYSICS = 4
 };
 
+enum {
+    OTCAP_INPUT_FLAG_AIR_CONTROL = 1,
+    OTCAP_INPUT_FLAG_INJECTED = 2
+};
+
 #pragma pack(push, 1)
 
 typedef struct CaptureActionInterval {

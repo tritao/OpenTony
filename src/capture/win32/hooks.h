@@ -22,15 +22,15 @@ int ot_capture_verify_hooks(void *module_base, uint32_t *failed_index);
 /* Bind the process-local mapping before installing the first detour. */
 int ot_capture_bind_buffer(CaptureBuffer *buffer);
 
-/* M2 installs only the proven physics-frame detour.  Input and timer seams
- * remain manifest-only until their same-run equivalence milestones. */
+/* M4 installs the proven physics-frame and post-poll action-mask detours.
+ * Timer seams remain manifest-only until their same-run equivalence milestone. */
 int ot_capture_install_hooks(void *module_base);
 
-/* These helpers are called by the x86 naked wrapper around Skater_PhysicsFrame.
- * Keep their ABI C-compatible: the wrapper must preserve the game's register
- * and return-value contract exactly. */
+/* These helpers are called by x86 naked wrappers. Keep their ABI C-compatible:
+ * the wrappers must preserve the game's register and return-value contract. */
 void __cdecl ot_capture_physics_before(uint32_t player);
 void __cdecl ot_capture_physics_after(void);
+void __cdecl ot_capture_input_boundary(void);
 
 #ifdef __cplusplus
 }

@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef INVALID_FILE_ATTRIBUTES
+#define INVALID_FILE_ATTRIBUTES ((DWORD)-1L)
+#endif
+
 static void usage(void) {
     fprintf(stderr,
         "usage: opentony_capture_host.exe --exe FILE --dll FILE --output FILE "
@@ -81,7 +85,7 @@ static int inject_dll(HANDLE process, const char *dll_path) {
     DWORD result = 0;
     bytes = strlen(dll_path) + 1;
     remote_path = VirtualAllocEx(process, 0, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (remote_path == 0 || !WriteProcessMemory(process, remote_path, dll_path, bytes, &bytes)) {
+    if (remote_path == 0 || !WriteProcessMemory(process, remote_path, (void *)dll_path, bytes, &bytes)) {
         if (remote_path != 0) VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         return 0;
     }

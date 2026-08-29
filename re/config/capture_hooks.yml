@@ -11,6 +11,11 @@ hooks:
     expected: "81 ec c0 00 00 00"
     overwrite: 6
     status: verified
+  action_mask_injection:
+    rva: 0x00089a15
+    expected: "a0 b9 af 56 00"
+    overwrite: 5
+    status: verified
   input_boundary:
     rva: 0x00069de0
     expected: "57 e8 4a fc ff ff"

@@ -243,6 +243,17 @@ def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
     assert "target[0] = 0xe9" in source
 
 
+def test_input_detour_reuses_post_poll_action_edge_boundary():
+    source = Path("src/capture/win32/hooks.cpp").read_text()
+
+    assert '"action_mask_injection"' in source
+    assert "ot_capture_input_boundary" in source
+    assert "ot_capture_input_hook" in source
+    assert "g_input_trampoline" in source
+    assert "OTCAP_ACTION_MASK_ADDRESS" in source
+    assert "Preserve the untouched high word" in source
+
+
 def test_physics_capture_publishes_complete_records_before_count():
     source = Path("src/capture/win32/shared_buffer.cpp").read_text()
 
