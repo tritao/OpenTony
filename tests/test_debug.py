@@ -136,6 +136,45 @@ def test_xvfb_command_uses_16_bit_software_profile(monkeypatch):
     assert env["MESA_LOADER_DRIVER_OVERRIDE"] == "llvmpipe"
 
 
+def test_configure_virtual_desktop_sets_default_and_size(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return _winedbg_result("The operation completed successfully")
+
+    monkeypatch.setattr(debug.subprocess, "run", run)
+    debug._configure_virtual_desktop(
+        {"WINEPREFIX": "/tmp/prefix"},
+        {"virtual_desktop": {"name": "OpenTony", "width": 1024, "height": 768}},
+    )
+
+    assert [call[0] for call in calls] == [
+        [
+            "wine",
+            "reg",
+            "add",
+            r"HKCU\Software\Wine\Explorer",
+            "/v",
+            "Desktop",
+            "/d",
+            "OpenTony",
+            "/f",
+        ],
+        [
+            "wine",
+            "reg",
+            "add",
+            r"HKCU\Software\Wine\Explorer\Desktops",
+            "/v",
+            "OpenTony",
+            "/d",
+            "1024x768",
+            "/f",
+        ],
+    ]
+
+
 def test_xvfb_command_rejects_invalid_depth():
     with pytest.raises(SystemExit, match="invalid Xvfb screen depth"):
         debug._xvfb_command({"xvfb": {"depth": 15}}, {})

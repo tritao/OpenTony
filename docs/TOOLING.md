@@ -64,7 +64,8 @@ tony debug --level 12
 Level launches use the same frontend automation as retail replay; numeric
 indices from `0` through `12` are accepted, and the currently named aliases
 are `hangar` (`0`) and `warehouse` (`12`). `tony play --level` is visible by
-default like regular play; add `--headless` for an isolated Xvfb launch.
+default like regular play and uses the configured Wine virtual desktop; add
+`--headless` for an isolated Xvfb launch.
 
 The game is rendered into that display even though it is not shown on the host desktop. OpenTony prints the temporary `DISPLAY` and `XAUTHORITY` values, and can capture the frame or record the session:
 

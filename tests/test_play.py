@@ -42,6 +42,7 @@ def test_play_level_uses_frontend_debugger_path(monkeypatch):
     assert debug_args.pid is None
     assert debug_args.game_args == ["-fullscreen"]
     assert debug_args.headless_launch is False
+    assert debug_args.virtual_desktop is True
     assert debug_args.gdb_commands == [
         "tony-skip-movies",
         "tony-frontend-play 1 12",
@@ -81,6 +82,7 @@ def test_play_level_honors_headless(monkeypatch):
 
     assert commands.play_game(args) == 0
     assert captured[0].headless_launch is True
+    assert captured[0].virtual_desktop is False
 
 
 def test_visible_level_play_requires_headless_for_capture():

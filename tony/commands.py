@@ -114,6 +114,7 @@ def _level_debug_args(args, *, batch: bool, headless_launch: bool | None = None)
             *(("continue",) if batch else ()),
         ],
         gdb_batch=batch,
+        virtual_desktop=headless_launch is False,
     )
     if headless_launch is not None:
         values["headless_launch"] = headless_launch

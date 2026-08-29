@@ -176,6 +176,56 @@ def _xvfb_command(cfg: dict, env: dict[str, str]) -> list[str]:
     return xvfb_command(cfg, env)
 
 
+def _configure_virtual_desktop(env: dict[str, str], cfg: dict) -> None:
+    """Configure the visible Wine prefix's default desktop for direct launches."""
+
+    desktop = cfg.get("virtual_desktop", {})
+    if not desktop.get("enabled", True):
+        return
+    name = str(desktop.get("name", "OpenTony"))
+    width = int(desktop.get("width", 1024))
+    height = int(desktop.get("height", 768))
+    if width < 320 or height < 200:
+        raise SystemExit(f"invalid Wine virtual desktop size: {width}x{height}")
+    commands = (
+        [
+            "wine",
+            "reg",
+            "add",
+            r"HKCU\Software\Wine\Explorer",
+            "/v",
+            "Desktop",
+            "/d",
+            name,
+            "/f",
+        ],
+        [
+            "wine",
+            "reg",
+            "add",
+            r"HKCU\Software\Wine\Explorer\Desktops",
+            "/v",
+            name,
+            "/d",
+            f"{width}x{height}",
+            "/f",
+        ],
+    )
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if result.returncode != 0:
+            output = result.stdout.strip() or "wine reg returned no details"
+            raise SystemExit(f"could not configure Wine virtual desktop:\n{output}")
+
+
 def debug_game(args) -> int:
     # GDB imports this generated, dependency-free module from build/gdb.
     generate_gdb_knowledge()
@@ -213,6 +263,8 @@ def debug_game(args) -> int:
                 )
             else:
                 session.update(audio_muted=False, audio_error=audio_start.error)
+        if pid_arg is None and not headless_launch and getattr(args, "virtual_desktop", False):
+            _configure_virtual_desktop(env, cfg)
         if pid_arg is not None:
             target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
             cwd = ROOT
