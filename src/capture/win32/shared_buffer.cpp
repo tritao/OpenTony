@@ -77,12 +77,16 @@ int ot_capture_append_frame(
     const uint8_t *before,
     const uint8_t *after,
     const CaptureTimingSnapshot *timing_before,
-    const CaptureTimingSnapshot *timing_after) {
+    const CaptureTimingSnapshot *timing_after,
+    const CaptureTimerSample *timer_samples,
+    uint32_t timer_sample_count) {
     CaptureHeader *header;
     CaptureFrameRecord *record;
     uint32_t slot;
     uint32_t max_frames;
-    if (buffer == 0 || buffer->mapping == 0 || before == 0 || after == 0) {
+    if (buffer == 0 || buffer->mapping == 0 || before == 0 || after == 0 ||
+        timer_sample_count > OTCAP_MAX_TIMER_SAMPLES ||
+        (timer_sample_count != 0 && timer_samples == 0)) {
         return 0;
     }
     header = (CaptureHeader *)buffer->mapping;
@@ -103,6 +107,7 @@ int ot_capture_append_frame(
     record->header.player_address = player_address;
     record->header.before_size = OTCAP_PLAYER_BLOB_SIZE;
     record->header.after_size = OTCAP_PLAYER_BLOB_SIZE;
+    record->header.timer_sample_count = timer_sample_count;
     memcpy(record->player_before, before, OTCAP_PLAYER_BLOB_SIZE);
     memcpy(record->player_after, after, OTCAP_PLAYER_BLOB_SIZE);
     if (timing_before != 0) {
@@ -110,6 +115,10 @@ int ot_capture_append_frame(
     }
     if (timing_after != 0) {
         memcpy(&record->timing_after, timing_after, sizeof(record->timing_after));
+    }
+    if (timer_sample_count != 0) {
+        memcpy(record->timer_samples, timer_samples,
+            timer_sample_count * sizeof(record->timer_samples[0]));
     }
     InterlockedExchange((LONG *)&header->bytes_used,
         (LONG)(header->data_offset + (slot + 1u) * OTCAP_FRAME_BYTES));

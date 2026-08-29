@@ -24,7 +24,9 @@ int ot_capture_append_frame(
     const uint8_t *before,
     const uint8_t *after,
     const CaptureTimingSnapshot *timing_before,
-    const CaptureTimingSnapshot *timing_after);
+    const CaptureTimingSnapshot *timing_after,
+    const CaptureTimerSample *timer_samples,
+    uint32_t timer_sample_count);
 
 #ifdef __cplusplus
 }

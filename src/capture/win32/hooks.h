@@ -22,8 +22,7 @@ int ot_capture_verify_hooks(void *module_base, uint32_t *failed_index);
 /* Bind the process-local mapping before installing the first detour. */
 int ot_capture_bind_buffer(CaptureBuffer *buffer);
 
-/* M4 installs the proven physics-frame and post-poll action-mask detours.
- * Timer seams remain manifest-only until their same-run equivalence milestone. */
+/* Install the proven physics-frame, action-mask, and timer-boundary detours. */
 int ot_capture_install_hooks(void *module_base);
 
 /* These helpers are called by x86 naked wrappers. Keep their ABI C-compatible:
@@ -31,6 +30,7 @@ int ot_capture_install_hooks(void *module_base);
 void __cdecl ot_capture_physics_before(uint32_t player);
 void __cdecl ot_capture_physics_after(void);
 void __cdecl ot_capture_input_boundary(void);
+void __cdecl ot_capture_timer_boundary(uint32_t phase);
 
 #ifdef __cplusplus
 }

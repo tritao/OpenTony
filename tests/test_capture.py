@@ -26,7 +26,12 @@ from tony.cli import build_parser
 BUILD_SHA = bytes.fromhex("f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c")
 
 
-def _capture(path: Path, *, frame_count: int = 1) -> None:
+def _capture(
+    path: Path,
+    *,
+    frame_count: int = 1,
+    timer_samples: dict[int, list[tuple[int, ...]]] | None = None,
+) -> None:
     config_offset = HEADER_STRUCT.size
     config_size = CONFIG_PREFIX_STRUCT.size + ACTION_STRUCT.size * OTCAP_MAX_ACTION_INTERVALS
     initial_offset = config_offset + config_size
@@ -61,7 +66,10 @@ def _capture(path: Path, *, frame_count: int = 1) -> None:
         blob = bytearray(OTCAP_PLAYER_BLOB_SIZE)
         struct.pack_into("<I", blob, 0x08, index)
         timing = (index, 0, 0, 0, 0, 0)
+        frame_timers = (timer_samples or {}).get(index, [])
         timers = [0] * 10 * 8
+        for timer_index, timer in enumerate(frame_timers):
+            timers[timer_index * 10 : timer_index * 10 + 10] = timer
         events = []
         for _ in range(16):
             events.extend((0, 0, 0, 0, b"\0" * 64))
@@ -71,7 +79,7 @@ def _capture(path: Path, *, frame_count: int = 1) -> None:
                 0x40 if 20 <= index < 28 else 0,
                 0,
                 0x12340000,
-                0,
+                len(frame_timers),
                 0,
                 len(blob),
                 len(blob),
@@ -97,6 +105,27 @@ def test_capture_layout_decodes_player_and_action_mask(tmp_path):
     assert decoded["actions"] == [(0x40, 20, 8)]
     assert decoded["frames"][20]["input"] == {"action_mask": 0x40}
     assert decoded["frames"][0]["before"]["position"]["raw"] == [0, 0, 0]
+
+
+def test_capture_decoder_infers_timer_delivery_from_boundary_counter(tmp_path):
+    source = tmp_path / "capture.otcap"
+    timer_samples = {
+        0: [
+            (1, 0, 16, 0, 0, 0, 0, 0, 0, 0),
+            (4, 0, 16, 16, 1, 0, 0, 0, 0, 0x3feeb851eb851eb8),
+        ]
+    }
+    _capture(source, timer_samples=timer_samples)
+
+    decoded = decode_capture(source)
+
+    deliveries = [
+        event for event in decoded["frames"][0]["events"]
+        if event["type"] == "timer_callback_delivery"
+    ]
+    assert len(deliveries) == 1
+    assert deliveries[0]["timer_boundary_delivery_count"] == 1
+    assert deliveries[0]["timer_boundary_sampled_accumulated_ms"] == 16
 
 
 def test_capture_decoder_rejects_unknown_status(tmp_path):
@@ -252,6 +281,21 @@ def test_input_detour_reuses_post_poll_action_edge_boundary():
     assert "g_input_trampoline" in source
     assert "OTCAP_ACTION_MASK_ADDRESS" in source
     assert "Preserve the untouched high word" in source
+
+
+def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
+    source = Path("src/capture/win32/hooks.cpp").read_text()
+
+    assert '"timer_update"' in source
+    assert '"clock_read"' in source
+    assert "ot_capture_timer_boundary" in source
+    assert "ot_capture_timer_hook" in source
+    assert "ot_capture_clock_read_hook" in source
+    assert "g_timer_trampoline" in source
+    assert "g_clock_read_trampoline" in source
+    assert "OTCAP_TIMER_STATE_ADDRESS" in source
+    assert "OTCAP_TIMER_SIMULATION_ACCUMULATOR_ADDRESS" in source
+    assert "g_frame_timer_samples" in source
 
 
 def test_physics_capture_publishes_complete_records_before_count():

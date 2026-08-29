@@ -21,14 +21,20 @@ executable suspended, injects `opentony_capture.dll`, and saves the mapping as
 overflow is a failed capture.  Python then validates the fixed wire layout and
 converts it to the existing JSONL `retail.otrec` contract.
 
-M4 installs the proven `Skater_PhysicsFrame` and post-poll action-mask detours.
+M5 installs the proven `Skater_PhysicsFrame`, post-poll action-mask, and timer
+boundary detours.
 The DLL copies the original prologues into executable trampolines, patches the
 entries with relative jumps, and captures one `0x3210` player blob immediately
 before and after the original physics function.  At the post-poll boundary it
 applies the same low-word action mask that `tony-action-edge` writes, using the
-fixed scenario intervals in the shared config.  The wrappers preserve the
-game's ECX/stack, return-value, and flags contract.  Timer seams remain
-manifest-only until their same-run equivalence milestone.  An unknown
+fixed scenario intervals in the shared config.  The timer detour samples the
+callback-owned counter, accumulators, and pause gates at the timer-update and
+simulation-clock-read boundaries and stores those fixed-size observations in
+each frame.  The offline
+decoder infers completed deliveries from counter deltas (deferring a torn
+callback when the simulation accumulator proves it is still in flight), which
+produces the same causal event metadata as the GDB sampler.  The wrappers
+preserve the game's ECX/stack, return-value, and flags contract.  An unknown
 executable or changed byte fails closed before capture begins.
 
 The host stops the suspended retail process after the configured frame limit is

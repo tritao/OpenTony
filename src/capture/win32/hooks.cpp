@@ -16,6 +16,13 @@
 #define OTCAP_ANIMATION_CLOCK_ACCUMULATOR_ADDRESS 0x00568810u
 #define OTCAP_SIMULATION_TIME_ADDRESS 0x0056e320u
 #define OTCAP_TIMING_DELTA_ADDRESS 0x0056a93cu
+#define OTCAP_TIMER_STATE_ADDRESS 0x006a05a0u
+#define OTCAP_TIMER_PUBLIC_ACCUMULATOR_ADDRESS 0x006a0590u
+#define OTCAP_TIMER_SIMULATION_ACCUMULATOR_ADDRESS 0x006a0598u
+#define OTCAP_TIMER_PUBLIC_TICK_ADDRESS 0x0056e31cu
+#define OTCAP_TIMER_SIMULATION_TIME_ADDRESS 0x0056e320u
+#define OTCAP_TIMER_PAUSE_GATE_A_ADDRESS 0x00561c04u
+#define OTCAP_TIMER_PAUSE_GATE_B_ADDRESS 0x0056a8e0u
 
 static CaptureBuffer *g_capture_buffer = 0;
 static LONG g_physics_frame_active = 0;
@@ -36,6 +43,22 @@ static uint8_t g_input_original[16];
 static uint32_t g_input_overwrite_size = 0;
 static volatile uint32_t g_input_injected_frame = 0xffffffffu;
 static int g_input_installed = 0;
+static CaptureTimerSample g_pending_timer_samples[OTCAP_MAX_TIMER_SAMPLES];
+static uint32_t g_pending_timer_count = 0;
+static uint32_t g_pending_timer_frame = 0xffffffffu;
+static CaptureTimerSample g_frame_timer_samples[OTCAP_MAX_TIMER_SAMPLES];
+static uint32_t g_frame_timer_count = 0;
+static int g_initial_timer_captured = 0;
+static void *g_timer_target = 0;
+static void *g_timer_trampoline = 0;
+static uint8_t g_timer_original[16];
+static uint32_t g_timer_overwrite_size = 0;
+static int g_timer_installed = 0;
+static void *g_clock_read_target = 0;
+static void *g_clock_read_trampoline = 0;
+static uint8_t g_clock_read_original[16];
+static uint32_t g_clock_read_overwrite_size = 0;
+static int g_clock_read_installed = 0;
 
 typedef struct CaptureSha256 {
     uint32_t state[8];
@@ -206,6 +229,13 @@ static const CaptureHookSpec k_hooks[] = {
         10,
         10,
     },
+    {
+        "clock_read",
+        0x0009f1a0,
+        {0x8b, 0x15, 0x20, 0xe3, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+        6,
+        6,
+    },
 };
 
 const CaptureHookSpec *ot_capture_hook_manifest(uint32_t *count) {
@@ -299,7 +329,8 @@ static const CaptureHookSpec *find_hook(const char *name) {
 
 int ot_capture_bind_buffer(CaptureBuffer *buffer) {
     if (buffer == 0 || buffer->mapping == 0 || buffer->mapping_size == 0 ||
-        g_physics_installed) {
+        g_physics_installed || g_input_installed || g_timer_installed ||
+        g_clock_read_installed) {
         return 0;
     }
     g_capture_buffer = buffer;
@@ -337,6 +368,157 @@ static int copy_player_and_timing(
     return 1;
 }
 
+static int read_timer_sample(
+    uint32_t phase,
+    uint32_t frame_index,
+    CaptureTimerSample *sample) {
+    if (sample == 0) {
+        return 0;
+    }
+#if defined(_MSC_VER)
+    __try {
+#endif
+        ZeroMemory(sample, sizeof(*sample));
+        sample->phase = phase;
+        sample->frame_index = frame_index;
+        sample->interval_ms =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x04u);
+        sample->accumulated_ms =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x0cu);
+        sample->public_tick =
+            *(volatile uint32_t *)OTCAP_TIMER_PUBLIC_TICK_ADDRESS;
+        sample->simulation_time =
+            *(volatile uint32_t *)OTCAP_TIMER_SIMULATION_TIME_ADDRESS;
+        sample->pause_gate_a =
+            *(volatile uint32_t *)OTCAP_TIMER_PAUSE_GATE_A_ADDRESS;
+        sample->pause_gate_b =
+            *(volatile uint32_t *)OTCAP_TIMER_PAUSE_GATE_B_ADDRESS;
+        memcpy(
+            &sample->public_accumulator_raw,
+            (const void *)OTCAP_TIMER_PUBLIC_ACCUMULATOR_ADDRESS,
+            sizeof(sample->public_accumulator_raw));
+        memcpy(
+            &sample->simulation_accumulator_raw,
+            (const void *)OTCAP_TIMER_SIMULATION_ACCUMULATOR_ADDRESS,
+            sizeof(sample->simulation_accumulator_raw));
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+static int capture_initial_timer_state(void) {
+    CaptureHeader *header;
+    CaptureInitialState *initial;
+
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0) {
+        return 0;
+    }
+    if (g_initial_timer_captured) {
+        return 1;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+    initial = (CaptureInitialState *)(
+        g_capture_buffer->mapping + header->initial_state_offset);
+#if defined(_MSC_VER)
+    __try {
+#endif
+        initial->timer_handle =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x00u);
+        initial->interval_ms =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x04u);
+        initial->opaque_08 =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x08u);
+        initial->accumulated_ms =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x0cu);
+        initial->opaque_10 =
+            *(volatile uint32_t *)(OTCAP_TIMER_STATE_ADDRESS + 0x10u);
+        memcpy(
+            &initial->public_accumulator_raw,
+            (const void *)OTCAP_TIMER_PUBLIC_ACCUMULATOR_ADDRESS,
+            sizeof(initial->public_accumulator_raw));
+        memcpy(
+            &initial->simulation_accumulator_raw,
+            (const void *)OTCAP_TIMER_SIMULATION_ACCUMULATOR_ADDRESS,
+            sizeof(initial->simulation_accumulator_raw));
+        initial->public_tick =
+            *(volatile uint32_t *)OTCAP_TIMER_PUBLIC_TICK_ADDRESS;
+        initial->simulation_time =
+            *(volatile uint32_t *)OTCAP_TIMER_SIMULATION_TIME_ADDRESS;
+        initial->simulation_pause_gate_a =
+            *(volatile uint32_t *)OTCAP_TIMER_PAUSE_GATE_A_ADDRESS;
+        initial->simulation_pause_gate_b =
+            *(volatile uint32_t *)OTCAP_TIMER_PAUSE_GATE_B_ADDRESS;
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+#endif
+    g_initial_timer_captured = 1;
+    return 1;
+}
+
+static int append_pending_timer_sample(uint32_t phase, uint32_t frame_index) {
+    if (g_pending_timer_count >= OTCAP_MAX_TIMER_SAMPLES) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
+        return 0;
+    }
+    if (g_pending_timer_count == 0) {
+        g_pending_timer_frame = frame_index;
+    } else if (g_pending_timer_frame != frame_index) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
+        return 0;
+    }
+    if (!read_timer_sample(
+            phase, frame_index, &g_pending_timer_samples[g_pending_timer_count])) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+        return 0;
+    }
+    ++g_pending_timer_count;
+    return 1;
+}
+
+static int drain_pending_timer_samples(uint32_t frame_index) {
+    uint32_t index;
+    if (g_pending_timer_count == 0) {
+        return 1;
+    }
+    if (g_pending_timer_frame != frame_index ||
+        g_frame_timer_count + g_pending_timer_count > OTCAP_MAX_TIMER_SAMPLES) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
+        return 0;
+    }
+    for (index = 0; index < g_pending_timer_count; ++index) {
+        g_frame_timer_samples[g_frame_timer_count++] =
+            g_pending_timer_samples[index];
+    }
+    g_pending_timer_count = 0;
+    g_pending_timer_frame = 0xffffffffu;
+    return 1;
+}
+
+static int append_frame_timer_sample(uint32_t phase, uint32_t frame_index) {
+    if (g_frame_timer_count >= OTCAP_MAX_TIMER_SAMPLES ||
+        !read_timer_sample(
+            phase, frame_index, &g_frame_timer_samples[g_frame_timer_count])) {
+        ot_capture_buffer_fail(
+            g_capture_buffer,
+            g_frame_timer_count >= OTCAP_MAX_TIMER_SAMPLES ?
+                OTCAP_STATUS_OVERFLOW : OTCAP_STATUS_FAILED,
+            g_frame_timer_count >= OTCAP_MAX_TIMER_SAMPLES ?
+                OTCAP_ERROR_OVERFLOW : OTCAP_ERROR_SNAPSHOT);
+        return 0;
+    }
+    ++g_frame_timer_count;
+    return 1;
+}
+
 void __cdecl ot_capture_physics_before(uint32_t player) {
     CaptureHeader *header;
     uint32_t current_player;
@@ -361,6 +543,15 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
         g_physics_frame_active = 0;
         return;
     }
+    g_physics_frame_index = header->frame_count;
+    g_frame_timer_count = 0;
+    if (!capture_initial_timer_state() ||
+        !drain_pending_timer_samples(g_physics_frame_index) ||
+        !append_frame_timer_sample(
+            OTCAP_TIMER_PHASE_PHYSICS_ENTRY, g_physics_frame_index)) {
+        g_physics_frame_active = 0;
+        return;
+    }
 
 #if defined(_MSC_VER)
     __try {
@@ -375,7 +566,6 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
             g_physics_frame_active = 0;
             return;
         }
-        g_physics_frame_index = header->frame_count;
         g_physics_player = player;
         g_physics_input_mask =
             *(volatile uint32_t *)OTCAP_ACTION_MASK_ADDRESS;
@@ -405,6 +595,12 @@ void __cdecl ot_capture_physics_after(void) {
         return;
     }
     header = (CaptureHeader *)g_capture_buffer->mapping;
+    if (!drain_pending_timer_samples(g_physics_frame_index) ||
+        !append_frame_timer_sample(
+            OTCAP_TIMER_PHASE_POST_PHYSICS, g_physics_frame_index)) {
+        g_physics_frame_active = 0;
+        return;
+    }
     if (!copy_player_and_timing(
             g_physics_player, after, &timing_after) ||
         !ot_capture_append_frame(
@@ -416,7 +612,9 @@ void __cdecl ot_capture_physics_after(void) {
             g_physics_before,
             after,
             &g_physics_timing_before,
-            &timing_after)) {
+            &timing_after,
+            g_frame_timer_samples,
+            g_frame_timer_count)) {
         ot_capture_buffer_fail(
             g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
         g_physics_frame_active = 0;
@@ -466,6 +664,28 @@ void __cdecl ot_capture_input_boundary(void) {
 #endif
 }
 
+void __cdecl ot_capture_timer_boundary(uint32_t phase) {
+    CaptureHeader *header;
+    uint32_t frame_index;
+
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0) {
+        return;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+    if (header->status != OTCAP_STATUS_READY &&
+        header->status != OTCAP_STATUS_CAPTURING) {
+        return;
+    }
+    frame_index = header->frame_count;
+    if (frame_index >= header->frame_limit) {
+        return;
+    }
+    if (!capture_initial_timer_state() ||
+        !append_pending_timer_sample(phase, frame_index)) {
+        return;
+    }
+}
+
 #if defined(_MSC_VER) && defined(_M_IX86)
 /* The function has a six-byte prologue.  The naked wrapper keeps the original
  * ECX/stack ABI, calls the trampoline once, and restores the return registers
@@ -500,6 +720,36 @@ static __declspec(naked) void ot_capture_input_hook(void) {
         popfd
         popad
         jmp dword ptr [g_input_trampoline]
+    }
+}
+
+/* The timer seam is a ten-byte pair of calls.  Observe the state immediately
+ * before those calls and resume through the trampoline so the retail timer
+ * model remains untouched. */
+static __declspec(naked) void ot_capture_timer_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        push OTCAP_TIMER_PHASE_TIMER_UPDATE
+        call ot_capture_timer_boundary
+        add esp, 4
+        popfd
+        popad
+        jmp dword ptr [g_timer_trampoline]
+    }
+}
+
+/* Sample the simulation clock load used by the timing producer. */
+static __declspec(naked) void ot_capture_clock_read_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        push OTCAP_TIMER_PHASE_CLOCK_READ
+        call ot_capture_timer_boundary
+        add esp, 4
+        popfd
+        popad
+        jmp dword ptr [g_clock_read_trampoline]
     }
 }
 #endif
@@ -610,10 +860,16 @@ static int restore_target(
 int ot_capture_install_hooks(void *module_base) {
     const CaptureHookSpec *physics;
     const CaptureHookSpec *action;
+    const CaptureHookSpec *timer;
+    const CaptureHookSpec *clock_read;
     unsigned char *physics_target;
     unsigned char *action_target;
+    unsigned char *timer_target;
+    unsigned char *clock_read_target;
 
-    if (g_physics_installed || g_input_installed || g_capture_buffer == 0 ||
+    if (g_physics_installed || g_input_installed || g_timer_installed ||
+        g_clock_read_installed ||
+        g_capture_buffer == 0 ||
         g_capture_buffer->mapping == 0 ||
         (unsigned long)module_base != 0x00400000UL) {
         return 0;
@@ -624,25 +880,46 @@ int ot_capture_install_hooks(void *module_base) {
 #else
     int physics_patched = 0;
     int action_patched = 0;
+    int timer_patched = 0;
+    int clock_read_patched = 0;
     physics = find_hook("physics_frame");
     action = find_hook("action_mask_injection");
+    timer = find_hook("timer_update");
+    clock_read = find_hook("clock_read");
     if (physics == 0 || action == 0 || physics->overwrite_size != 6u ||
-        action->overwrite_size != 5u ||
+        action->overwrite_size != 5u || timer == 0 ||
+        timer->overwrite_size != 10u || clock_read == 0 ||
+        clock_read->overwrite_size != 6u ||
         !ot_capture_verify_hooks(module_base, 0)) {
         return 0;
     }
     physics_target = (unsigned char *)module_base + physics->rva;
     action_target = (unsigned char *)module_base + action->rva;
+    timer_target = (unsigned char *)module_base + timer->rva;
+    clock_read_target = (unsigned char *)module_base + clock_read->rva;
     g_physics_target = physics_target;
     g_physics_overwrite_size = physics->overwrite_size;
     g_input_target = action_target;
     g_input_overwrite_size = action->overwrite_size;
+    g_timer_target = timer_target;
+    g_timer_overwrite_size = timer->overwrite_size;
+    g_clock_read_target = clock_read_target;
+    g_clock_read_overwrite_size = clock_read->overwrite_size;
     if (!create_trampoline(
             physics_target, physics, g_physics_original, &g_physics_trampoline)) {
         goto install_failed;
     }
     if (!create_trampoline(
             action_target, action, g_input_original, &g_input_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            timer_target, timer, g_timer_original, &g_timer_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            clock_read_target, clock_read, g_clock_read_original,
+            &g_clock_read_trampoline)) {
         goto install_failed;
     }
     if (!patch_target(
@@ -657,11 +934,34 @@ int ot_capture_install_hooks(void *module_base) {
         goto install_failed;
     }
     action_patched = 1;
+    if (!patch_target(
+            timer_target, timer->overwrite_size,
+            (void *)ot_capture_timer_hook, g_timer_original)) {
+        goto install_failed;
+    }
+    timer_patched = 1;
+    if (!patch_target(
+            clock_read_target, clock_read->overwrite_size,
+            (void *)ot_capture_clock_read_hook, g_clock_read_original)) {
+        goto install_failed;
+    }
+    clock_read_patched = 1;
     g_physics_installed = 1;
     g_input_installed = 1;
+    g_timer_installed = 1;
+    g_clock_read_installed = 1;
     return 1;
 
 install_failed:
+        if (clock_read_patched) {
+            restore_target(
+                clock_read_target, clock_read->overwrite_size,
+                g_clock_read_original);
+        }
+        if (timer_patched) {
+            restore_target(
+                timer_target, timer->overwrite_size, g_timer_original);
+        }
         if (action_patched) {
             restore_target(
                 action_target, action->overwrite_size, g_input_original);
@@ -677,12 +977,24 @@ install_failed:
         if (g_input_trampoline != 0) {
             VirtualFree(g_input_trampoline, 0, MEM_RELEASE);
         }
+        if (g_timer_trampoline != 0) {
+            VirtualFree(g_timer_trampoline, 0, MEM_RELEASE);
+        }
+        if (g_clock_read_trampoline != 0) {
+            VirtualFree(g_clock_read_trampoline, 0, MEM_RELEASE);
+        }
         g_physics_trampoline = 0;
         g_input_trampoline = 0;
+        g_timer_trampoline = 0;
+        g_clock_read_trampoline = 0;
         g_physics_target = 0;
         g_input_target = 0;
+        g_timer_target = 0;
+        g_clock_read_target = 0;
         g_physics_overwrite_size = 0;
         g_input_overwrite_size = 0;
+        g_timer_overwrite_size = 0;
+        g_clock_read_overwrite_size = 0;
         return 0;
 #endif
 }

@@ -232,6 +232,137 @@ def _decode_timer(values: tuple[int, ...]) -> dict[str, Any]:
     }
 
 
+def _timer_float(boundary: dict[str, Any], name: str) -> float | None:
+    value = boundary.get(name)
+    if isinstance(value, dict):
+        value = value.get("value")
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _timer_delivery_count(
+    previous: dict[str, Any], current: dict[str, Any], interval: int | None = None
+) -> int | None:
+    """Infer callback deliveries from the sampled 32-bit timer counter."""
+
+    if interval is None:
+        interval = int(previous.get("interval_ms", 0)) & 0xFFFFFFFF
+    else:
+        interval = int(interval) & 0xFFFFFFFF
+    if interval <= 0:
+        return None
+    delta = (
+        int(current.get("accumulated_ms", 0))
+        - int(previous.get("accumulated_ms", 0))
+    ) & 0xFFFFFFFF
+    return delta // interval if delta % interval == 0 else None
+
+
+def _decode_timer_events(
+    samples: list[dict[str, Any]], state: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Convert raw timer samples to the replay service's causal event form.
+
+    The callback increments the integer counter once per delivery.  Keeping
+    this inference offline means the injected DLL only performs fixed-size
+    reads, while replay still receives the same boundary metadata as GDB.
+    """
+
+    previous = dict(state["previous"])
+    pending_deliveries = int(state["pending_deliveries"])
+    logical_accumulated = int(state["logical_accumulated"])
+    decoded: list[dict[str, Any]] = []
+    for sample in samples:
+        if not state["seen"]:
+            # The GDB sampler establishes its baseline on the first boundary
+            # and emits no replay event for that baseline observation.
+            previous = dict(sample)
+            logical_accumulated = int(sample.get("accumulated_ms", logical_accumulated)) & 0xFFFFFFFF
+            state["seen"] = True
+            continue
+        interval = int(sample.get("interval_ms", 0)) & 0xFFFFFFFF
+        previous_interval = int(previous.get("interval_ms", 0)) & 0xFFFFFFFF
+        counter_deliveries = _timer_delivery_count(previous, sample, previous_interval)
+        if counter_deliveries is None:
+            # Match the GDB sampler's interval-change fallback.  A malformed
+            # non-divisible delta remains conservative (zero deliveries).
+            counter_deliveries = _timer_delivery_count(previous, sample, interval) or 0
+        completed = counter_deliveries
+        pending = 0
+        # A callback can be sampled after its integer counter increment but
+        # before its floating stores.  When both pause gates are open, use the
+        # simulation accumulator as the completion signal and defer the torn
+        # delivery exactly as the GDB sampler does.
+        previous_simulation = _timer_float(previous, "simulation_accumulator")
+        current_simulation = _timer_float(sample, "simulation_accumulator")
+        delta_per_delivery = float(previous_interval) * 0.001 * 60.0
+        gates_open = not any(
+            bool(previous.get(name)) or bool(sample.get(name))
+            for name in ("simulation_pause_gate_a", "simulation_pause_gate_b")
+        )
+        if (
+            previous_interval == interval
+            and gates_open
+            and previous_simulation is not None
+            and current_simulation is not None
+            and delta_per_delivery > 0.0
+        ):
+            candidate = pending_deliveries + counter_deliveries
+            observed = current_simulation - previous_simulation
+            candidate_completed = round(observed / delta_per_delivery)
+            tolerance = 1.0e-6 * max(1.0, abs(current_simulation))
+            if (
+                0 <= candidate_completed <= candidate
+                and abs(observed - candidate_completed * delta_per_delivery) <= tolerance
+            ):
+                completed = candidate_completed
+                pending = candidate - completed
+        logical_before = logical_accumulated
+        logical_after = (logical_before + completed * previous_interval) & 0xFFFFFFFF
+        metadata = {
+            "timer_boundary_before": {
+                "interval_ms": previous_interval,
+                "accumulated_ms": logical_before,
+            },
+            "timer_boundary_after": {
+                "interval_ms": previous_interval,
+                "accumulated_ms": logical_after,
+            },
+            "timer_boundary_sampled_accumulated_ms": int(sample.get("accumulated_ms", 0)),
+            "timer_boundary_pending_delivery_count": pending,
+            "timer_boundary_delivery_count": completed,
+        }
+        if completed:
+            for ordinal in range(completed):
+                decoded.append({
+                    **metadata,
+                    "type": "timer_callback_delivery",
+                    "frame": sample.get("frame", 0),
+                    "callback_ordinal": ordinal,
+                    "interval_ms": previous_interval,
+                    "callback_arg0": previous_interval,
+                    "callback_arg1": 0,
+                    "delivery_source": "timer_state_boundary_delta",
+                    "timer_boundary_phase": sample.get("timer_boundary_phase", "physics_entry"),
+                })
+        else:
+            decoded.append({
+                **sample,
+                **metadata,
+                "delivery_source": "timer_state_boundary_delta",
+            })
+        pending_deliveries = pending
+        logical_accumulated = logical_after
+        previous = dict(sample)
+    state["previous"] = previous
+    state["pending_deliveries"] = pending_deliveries
+    state["logical_accumulated"] = logical_accumulated
+    return decoded
+
+
 def decode_capture(path: str | Path) -> dict[str, Any]:
     """Decode and validate one complete fixed-layout ``.otcap`` file."""
 
@@ -303,6 +434,13 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
     initial_values = INITIAL_STATE_STRUCT.unpack_from(data, initial_offset)
     if initial_values[0] != initial_size:
         raise CaptureDecodeError("capture initial-state size is invalid")
+    initial_timer = _initial_state(initial_values)
+    timer_decode_state: dict[str, Any] = {
+        "previous": initial_timer,
+        "pending_deliveries": 0,
+        "logical_accumulated": int(initial_timer.get("accumulated_ms", 0)) & 0xFFFFFFFF,
+        "seen": False,
+    }
 
     frames = []
     for index in range(frame_count):
@@ -357,7 +495,7 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
                 "input": {"action_mask": input_mask},
                 "before": _snapshot(before, tuple(timing_before), player_address, input_flags),
                 "after": _snapshot(after, tuple(timing_after), player_address, input_flags),
-                "events": [*timers, *events],
+                "events": [*_decode_timer_events(timers, timer_decode_state), *events],
             }
         )
     return {
@@ -368,7 +506,7 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
         "flags": flags,
         "frame_limit": frame_limit,
         "actions": actions,
-        "initial_timer_state": _initial_state(initial_values),
+        "initial_timer_state": initial_timer,
         "frames": frames,
         "status": status,
     }

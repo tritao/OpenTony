@@ -26,3 +26,8 @@ hooks:
     expected: "e8 3b ea ff ff e8 26 e4 ff ff"
     overwrite: 10
     status: verified
+  clock_read:
+    rva: 0x0009f1a0
+    expected: "8b 15 20 e3 56 00"
+    overwrite: 6
+    status: verified
