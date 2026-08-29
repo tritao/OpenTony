@@ -1549,7 +1549,7 @@ entry with the same probes, or a clean run showing different normalized input,
 view basis, or projection constants, would falsify the stronger fixture claim.
 
 Evidence: `build/debug/camera-stationary-calibration10.jsonl` and the helper
-implementation in `re/gdb/opentony/commands.py`.
+implementation in `re/gdb/opentony/commands/probes.py`.
 
 The follow-up `camera-clean-pairing` run repeated the same level-entry setup
 with the former `0x2a` override and without freezing the view-input record. It
