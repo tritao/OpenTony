@@ -23,6 +23,10 @@
 #define OTCAP_TIMER_SIMULATION_TIME_ADDRESS 0x0056e320u
 #define OTCAP_TIMER_PAUSE_GATE_A_ADDRESS 0x00561c04u
 #define OTCAP_TIMER_PAUSE_GATE_B_ADDRESS 0x0056a8e0u
+#define OTCAP_KEYBOARD_STATE_ADDRESS 0x006a43e4u
+#define OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS 0x0045359bu
+#define OTCAP_FRONTEND_SELECTION_CALL_RETURN 0x0046af9fu
+#define OTCAP_FRONTEND_CONFIRM_SCAN_CODE 0x10u
 
 static CaptureBuffer *g_capture_buffer = 0;
 static LONG g_physics_frame_active = 0;
@@ -59,6 +63,41 @@ static void *g_clock_read_trampoline = 0;
 static uint8_t g_clock_read_original[16];
 static uint32_t g_clock_read_overwrite_size = 0;
 static int g_clock_read_installed = 0;
+static void *g_frontend_play_target = 0;
+static void *g_frontend_play_trampoline = 0;
+static uint8_t g_frontend_play_original[16];
+static uint32_t g_frontend_play_overwrite_size = 0;
+static int g_frontend_play_installed = 0;
+static void *g_frontend_level_target = 0;
+static uint8_t g_frontend_level_original[16];
+static uint32_t g_frontend_level_overwrite_size = 0;
+static int g_frontend_level_installed = 0;
+static volatile uint32_t g_frontend_level_override = 0;
+static void *g_launch_level_target = 0;
+static void *g_launch_level_trampoline = 0;
+static uint8_t g_launch_level_original[16];
+static uint32_t g_launch_level_overwrite_size = 0;
+static int g_launch_level_installed = 0;
+static void *g_movie_primary_target = 0;
+static uint8_t g_movie_primary_original[16];
+static uint32_t g_movie_primary_overwrite_size = 0;
+static int g_movie_primary_installed = 0;
+static void *g_movie_secondary_target = 0;
+static uint8_t g_movie_secondary_original[16];
+static uint32_t g_movie_secondary_overwrite_size = 0;
+static int g_movie_secondary_installed = 0;
+static void *g_frontend_key_target = 0;
+static void *g_frontend_key_trampoline = 0;
+static uint8_t g_frontend_key_original[16];
+static uint32_t g_frontend_key_overwrite_size = 0;
+static int g_frontend_key_installed = 0;
+static void *g_frontend_summary_target = 0;
+static void *g_frontend_summary_trampoline = 0;
+static uint8_t g_frontend_summary_original[16];
+static uint32_t g_frontend_summary_overwrite_size = 0;
+static int g_frontend_summary_installed = 0;
+static volatile uint32_t g_frontend_summary_active = 0;
+static volatile uint32_t g_frontend_summary_key_ticks = 0;
 
 typedef struct CaptureSha256 {
     uint32_t state[8];
@@ -255,6 +294,55 @@ static const CaptureHookSpec k_hooks[] = {
         6,
         6,
     },
+    {
+        "frontend_play_result",
+        0x000532aa,
+        {0x8b, 0x44, 0x24, 0x58, 0x83, 0xc4, 0x08},
+        7,
+        7,
+    },
+    {
+        "frontend_level_select",
+        0x0005355d,
+        {0x8b, 0x0d, 0x34, 0xb8, 0x56, 0x00},
+        6,
+        6,
+    },
+    {
+        "launch_level",
+        0x000544a0,
+        {0x6a, 0xff, 0x68, 0xcb, 0x46, 0x51, 0x00},
+        7,
+        7,
+    },
+    {
+        "skip_movie_primary",
+        0x000e5ec0,
+        {0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x1c},
+        7,
+        7,
+    },
+    {
+        "skip_movie_secondary",
+        0x000e6590,
+        {0x81, 0xec, 0x00, 0x01, 0x00, 0x00, 0x53},
+        7,
+        7,
+    },
+    {
+        "frontend_key_state",
+        0x000e41b0,
+        {0x8b, 0x44, 0x24, 0x04, 0x25, 0xff, 0x00, 0x00, 0x00},
+        9,
+        9,
+    },
+    {
+        "frontend_summary",
+        0x0007fb36,
+        {0x68, 0xd4, 0x5a, 0x53, 0x00},
+        5,
+        5,
+    },
 };
 
 const CaptureHookSpec *ot_capture_hook_manifest(uint32_t *count) {
@@ -306,9 +394,6 @@ int ot_capture_verify_build(void *module_base, const uint8_t expected_sha256[32]
     }
     module_path[0] = 0;
     module_path_size = GetModuleFileNameA((HMODULE)module_base, module_path, sizeof(module_path));
-    OutputDebugStringA("OpenTony capture: executable path: ");
-    OutputDebugStringA(module_path);
-    OutputDebugStringA("\n");
     if (module_path_size == 0 || module_path_size >= sizeof(module_path) ||
         !sha_file(module_path, actual_sha) ||
         (memcmp(actual_sha, supported_sha, sizeof(supported_sha)) != 0 &&
@@ -359,7 +444,10 @@ static const CaptureHookSpec *find_hook(const char *name) {
 int ot_capture_bind_buffer(CaptureBuffer *buffer) {
     if (buffer == 0 || buffer->mapping == 0 || buffer->mapping_size == 0 ||
         g_physics_installed || g_input_installed || g_timer_installed ||
-        g_clock_read_installed) {
+        g_clock_read_installed || g_frontend_play_installed ||
+        g_frontend_level_installed || g_launch_level_installed ||
+        g_movie_primary_installed || g_movie_secondary_installed ||
+        g_frontend_key_installed || g_frontend_summary_installed) {
         return 0;
     }
     g_capture_buffer = buffer;
@@ -573,6 +661,7 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
         return;
     }
     g_physics_frame_index = header->frame_count;
+    g_frontend_summary_active = 0;
     g_frame_timer_count = 0;
     if (!capture_initial_timer_state() ||
         !drain_pending_timer_samples(g_physics_frame_index) ||
@@ -715,6 +804,98 @@ void __cdecl ot_capture_timer_boundary(uint32_t phase) {
     }
 }
 
+void __cdecl ot_capture_frontend_play_boundary(uint32_t stack_pointer) {
+    /* This is the exact local slot written by tony-frontend-play after the
+     * frontend selection helper returns.  The wrapper passes the game's ESP,
+     * before it saves any registers, so stack-relative semantics are intact. */
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        stack_pointer == 0) {
+        return;
+    }
+#if defined(_MSC_VER)
+    __try {
+#endif
+        *(volatile uint32_t *)(stack_pointer + 0x58u) = 0x26u;
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+    }
+#endif
+}
+
+void __cdecl ot_capture_frontend_level_boundary(void) {
+    CaptureHeader *header;
+    CaptureConfig *config;
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0) {
+        return;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+    config = (CaptureConfig *)(g_capture_buffer->mapping + header->config_offset);
+    if (config->level_index >= 13u) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_INVALID_CONFIG);
+        return;
+    }
+    g_frontend_level_override = config->level_index;
+}
+
+void __cdecl ot_capture_launch_level_boundary(uint32_t stack_pointer) {
+    CaptureHeader *header;
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        stack_pointer == 0) {
+        return;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+#if defined(_MSC_VER)
+    __try {
+#endif
+        *(volatile uint32_t *)(stack_pointer + 4u) = header->level_index;
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+    }
+#endif
+}
+
+void __cdecl ot_capture_frontend_key_boundary(uint32_t stack_pointer) {
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        stack_pointer == 0) {
+        return;
+    }
+#if defined(_MSC_VER)
+    __try {
+#endif
+        /* The GDB confirmation probe only releases the level-selection and
+         * summary loops when this helper returns to 0x0046af9f. */
+        if (*(volatile uint32_t *)stack_pointer ==
+                OTCAP_FRONTEND_SELECTION_CALL_RETURN) {
+            *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS +
+                OTCAP_FRONTEND_CONFIRM_SCAN_CODE) = 0x80u;
+        }
+        if (g_frontend_summary_active != 0) {
+            uint32_t tick = g_frontend_summary_key_ticks++ % 20u;
+            *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) =
+                tick < 5u ? 0x80u : 0u;
+        }
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+    }
+#endif
+}
+
+void __cdecl ot_capture_frontend_summary_boundary(void) {
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0) {
+        return;
+    }
+    g_frontend_summary_active = 1;
+    g_frontend_summary_key_ticks = 0;
+    *(volatile uint8_t *)(OTCAP_KEYBOARD_STATE_ADDRESS + 0x1cu) = 0x80u;
+}
+
 #if defined(_MSC_VER) && defined(_M_IX86)
 /* The function has a six-byte prologue.  The naked wrapper keeps the original
  * ECX/stack ABI, calls the trampoline once, and restores the return registers
@@ -779,6 +960,86 @@ static __declspec(naked) void ot_capture_clock_read_hook(void) {
         popfd
         popad
         jmp dword ptr [g_clock_read_trampoline]
+    }
+}
+
+static __declspec(naked) void ot_capture_frontend_play_hook(void) {
+    __asm {
+        mov eax, esp
+        pushad
+        pushfd
+        push eax
+        call ot_capture_frontend_play_boundary
+        add esp, 4
+        popfd
+        popad
+        jmp dword ptr [g_frontend_play_trampoline]
+    }
+}
+
+static __declspec(naked) void ot_capture_frontend_level_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        call ot_capture_frontend_level_boundary
+        popfd
+        popad
+        mov eax, dword ptr [g_frontend_level_override]
+        mov edx, OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS
+        jmp edx
+    }
+}
+
+static __declspec(naked) void ot_capture_launch_level_hook(void) {
+    __asm {
+        mov eax, esp
+        pushad
+        pushfd
+        push eax
+        call ot_capture_launch_level_boundary
+        add esp, 4
+        popfd
+        popad
+        jmp dword ptr [g_launch_level_trampoline]
+    }
+}
+
+static __declspec(naked) void ot_capture_movie_primary_hook(void) {
+    __asm {
+        xor eax, eax
+        ret
+    }
+}
+
+static __declspec(naked) void ot_capture_movie_secondary_hook(void) {
+    __asm {
+        xor eax, eax
+        ret
+    }
+}
+
+static __declspec(naked) void ot_capture_frontend_key_hook(void) {
+    __asm {
+        mov eax, esp
+        pushad
+        pushfd
+        push eax
+        call ot_capture_frontend_key_boundary
+        add esp, 4
+        popfd
+        popad
+        jmp dword ptr [g_frontend_key_trampoline]
+    }
+}
+
+static __declspec(naked) void ot_capture_frontend_summary_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        call ot_capture_frontend_summary_boundary
+        popfd
+        popad
+        jmp dword ptr [g_frontend_summary_trampoline]
     }
 }
 #endif
@@ -891,13 +1152,30 @@ int ot_capture_install_hooks(void *module_base) {
     const CaptureHookSpec *action;
     const CaptureHookSpec *timer;
     const CaptureHookSpec *clock_read;
+    const CaptureHookSpec *frontend_play;
+    const CaptureHookSpec *frontend_level;
+    const CaptureHookSpec *launch_level;
+    const CaptureHookSpec *movie_primary;
+    const CaptureHookSpec *movie_secondary;
+    const CaptureHookSpec *frontend_key;
+    const CaptureHookSpec *frontend_summary;
     unsigned char *physics_target;
     unsigned char *action_target;
     unsigned char *timer_target;
     unsigned char *clock_read_target;
+    unsigned char *frontend_play_target;
+    unsigned char *frontend_level_target;
+    unsigned char *launch_level_target;
+    unsigned char *movie_primary_target;
+    unsigned char *movie_secondary_target;
+    unsigned char *frontend_key_target;
+    unsigned char *frontend_summary_target;
 
     if (g_physics_installed || g_input_installed || g_timer_installed ||
-        g_clock_read_installed ||
+        g_clock_read_installed || g_frontend_play_installed ||
+        g_frontend_level_installed || g_launch_level_installed ||
+        g_movie_primary_installed || g_movie_secondary_installed ||
+        g_frontend_key_installed || g_frontend_summary_installed ||
         g_capture_buffer == 0 ||
         g_capture_buffer->mapping == 0 ||
         (unsigned long)module_base != 0x00400000UL) {
@@ -911,14 +1189,35 @@ int ot_capture_install_hooks(void *module_base) {
     int action_patched = 0;
     int timer_patched = 0;
     int clock_read_patched = 0;
+    int frontend_play_patched = 0;
+    int frontend_level_patched = 0;
+    int launch_level_patched = 0;
+    int movie_primary_patched = 0;
+    int movie_secondary_patched = 0;
+    int frontend_key_patched = 0;
+    int frontend_summary_patched = 0;
     physics = find_hook("physics_frame");
     action = find_hook("action_mask_injection");
     timer = find_hook("timer_update");
     clock_read = find_hook("clock_read");
+    frontend_play = find_hook("frontend_play_result");
+    frontend_level = find_hook("frontend_level_select");
+    launch_level = find_hook("launch_level");
+    movie_primary = find_hook("skip_movie_primary");
+    movie_secondary = find_hook("skip_movie_secondary");
+    frontend_key = find_hook("frontend_key_state");
+    frontend_summary = find_hook("frontend_summary");
     if (physics == 0 || action == 0 || physics->overwrite_size != 6u ||
         action->overwrite_size != 5u || timer == 0 ||
         timer->overwrite_size != 10u || clock_read == 0 ||
-        clock_read->overwrite_size != 6u ||
+        clock_read->overwrite_size != 6u || frontend_play == 0 ||
+        frontend_play->overwrite_size != 7u || frontend_level == 0 ||
+        frontend_level->overwrite_size != 6u || launch_level == 0 ||
+        launch_level->overwrite_size != 7u || movie_primary == 0 ||
+        movie_primary->overwrite_size != 7u || movie_secondary == 0 ||
+        movie_secondary->overwrite_size != 7u || frontend_key == 0 ||
+        frontend_key->overwrite_size != 9u ||
+        frontend_summary == 0 || frontend_summary->overwrite_size != 5u ||
         !ot_capture_verify_hooks(module_base, 0)) {
         return 0;
     }
@@ -926,6 +1225,13 @@ int ot_capture_install_hooks(void *module_base) {
     action_target = (unsigned char *)module_base + action->rva;
     timer_target = (unsigned char *)module_base + timer->rva;
     clock_read_target = (unsigned char *)module_base + clock_read->rva;
+    frontend_play_target = (unsigned char *)module_base + frontend_play->rva;
+    frontend_level_target = (unsigned char *)module_base + frontend_level->rva;
+    launch_level_target = (unsigned char *)module_base + launch_level->rva;
+    movie_primary_target = (unsigned char *)module_base + movie_primary->rva;
+    movie_secondary_target = (unsigned char *)module_base + movie_secondary->rva;
+    frontend_key_target = (unsigned char *)module_base + frontend_key->rva;
+    frontend_summary_target = (unsigned char *)module_base + frontend_summary->rva;
     g_physics_target = physics_target;
     g_physics_overwrite_size = physics->overwrite_size;
     g_input_target = action_target;
@@ -934,6 +1240,20 @@ int ot_capture_install_hooks(void *module_base) {
     g_timer_overwrite_size = timer->overwrite_size;
     g_clock_read_target = clock_read_target;
     g_clock_read_overwrite_size = clock_read->overwrite_size;
+    g_frontend_play_target = frontend_play_target;
+    g_frontend_play_overwrite_size = frontend_play->overwrite_size;
+    g_frontend_level_target = frontend_level_target;
+    g_frontend_level_overwrite_size = frontend_level->overwrite_size;
+    g_launch_level_target = launch_level_target;
+    g_launch_level_overwrite_size = launch_level->overwrite_size;
+    g_movie_primary_target = movie_primary_target;
+    g_movie_primary_overwrite_size = movie_primary->overwrite_size;
+    g_movie_secondary_target = movie_secondary_target;
+    g_movie_secondary_overwrite_size = movie_secondary->overwrite_size;
+    g_frontend_key_target = frontend_key_target;
+    g_frontend_key_overwrite_size = frontend_key->overwrite_size;
+    g_frontend_summary_target = frontend_summary_target;
+    g_frontend_summary_overwrite_size = frontend_summary->overwrite_size;
     if (!create_trampoline(
             physics_target, physics, g_physics_original, &g_physics_trampoline)) {
         goto install_failed;
@@ -949,6 +1269,26 @@ int ot_capture_install_hooks(void *module_base) {
     if (!create_trampoline(
             clock_read_target, clock_read, g_clock_read_original,
             &g_clock_read_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            frontend_play_target, frontend_play, g_frontend_play_original,
+            &g_frontend_play_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            launch_level_target, launch_level, g_launch_level_original,
+            &g_launch_level_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            frontend_key_target, frontend_key, g_frontend_key_original,
+            &g_frontend_key_trampoline)) {
+        goto install_failed;
+    }
+    if (!create_trampoline(
+            frontend_summary_target, frontend_summary,
+            g_frontend_summary_original, &g_frontend_summary_trampoline)) {
         goto install_failed;
     }
     if (!patch_target(
@@ -975,13 +1315,98 @@ int ot_capture_install_hooks(void *module_base) {
         goto install_failed;
     }
     clock_read_patched = 1;
+    if (!patch_target(
+            frontend_play_target, frontend_play->overwrite_size,
+            (void *)ot_capture_frontend_play_hook, g_frontend_play_original)) {
+        goto install_failed;
+    }
+    frontend_play_patched = 1;
+    if (!patch_target(
+            frontend_level_target, frontend_level->overwrite_size,
+            (void *)ot_capture_frontend_level_hook, g_frontend_level_original)) {
+        goto install_failed;
+    }
+    frontend_level_patched = 1;
+    if (!patch_target(
+            launch_level_target, launch_level->overwrite_size,
+            (void *)ot_capture_launch_level_hook, g_launch_level_original)) {
+        goto install_failed;
+    }
+    launch_level_patched = 1;
+    if (!patch_target(
+            movie_primary_target, movie_primary->overwrite_size,
+            (void *)ot_capture_movie_primary_hook, g_movie_primary_original)) {
+        goto install_failed;
+    }
+    movie_primary_patched = 1;
+    if (!patch_target(
+            movie_secondary_target, movie_secondary->overwrite_size,
+            (void *)ot_capture_movie_secondary_hook, g_movie_secondary_original)) {
+        goto install_failed;
+    }
+    movie_secondary_patched = 1;
+    if (!patch_target(
+            frontend_key_target, frontend_key->overwrite_size,
+            (void *)ot_capture_frontend_key_hook, g_frontend_key_original)) {
+        goto install_failed;
+    }
+    frontend_key_patched = 1;
+    if (!patch_target(
+            frontend_summary_target, frontend_summary->overwrite_size,
+            (void *)ot_capture_frontend_summary_hook,
+            g_frontend_summary_original)) {
+        goto install_failed;
+    }
+    frontend_summary_patched = 1;
     g_physics_installed = 1;
     g_input_installed = 1;
     g_timer_installed = 1;
     g_clock_read_installed = 1;
+    g_frontend_play_installed = 1;
+    g_frontend_level_installed = 1;
+    g_launch_level_installed = 1;
+    g_movie_primary_installed = 1;
+    g_movie_secondary_installed = 1;
+    g_frontend_key_installed = 1;
+    g_frontend_summary_installed = 1;
     return 1;
 
 install_failed:
+        if (frontend_summary_patched) {
+            restore_target(
+                frontend_summary_target, frontend_summary->overwrite_size,
+                g_frontend_summary_original);
+        }
+        if (frontend_key_patched) {
+            restore_target(
+                frontend_key_target, frontend_key->overwrite_size,
+                g_frontend_key_original);
+        }
+        if (movie_secondary_patched) {
+            restore_target(
+                movie_secondary_target, movie_secondary->overwrite_size,
+                g_movie_secondary_original);
+        }
+        if (movie_primary_patched) {
+            restore_target(
+                movie_primary_target, movie_primary->overwrite_size,
+                g_movie_primary_original);
+        }
+        if (launch_level_patched) {
+            restore_target(
+                launch_level_target, launch_level->overwrite_size,
+                g_launch_level_original);
+        }
+        if (frontend_level_patched) {
+            restore_target(
+                frontend_level_target, frontend_level->overwrite_size,
+                g_frontend_level_original);
+        }
+        if (frontend_play_patched) {
+            restore_target(
+                frontend_play_target, frontend_play->overwrite_size,
+                g_frontend_play_original);
+        }
         if (clock_read_patched) {
             restore_target(
                 clock_read_target, clock_read->overwrite_size,
@@ -1012,18 +1437,48 @@ install_failed:
         if (g_clock_read_trampoline != 0) {
             VirtualFree(g_clock_read_trampoline, 0, MEM_RELEASE);
         }
+        if (g_frontend_play_trampoline != 0) {
+            VirtualFree(g_frontend_play_trampoline, 0, MEM_RELEASE);
+        }
+        if (g_launch_level_trampoline != 0) {
+            VirtualFree(g_launch_level_trampoline, 0, MEM_RELEASE);
+        }
+        if (g_frontend_key_trampoline != 0) {
+            VirtualFree(g_frontend_key_trampoline, 0, MEM_RELEASE);
+        }
+        if (g_frontend_summary_trampoline != 0) {
+            VirtualFree(g_frontend_summary_trampoline, 0, MEM_RELEASE);
+        }
         g_physics_trampoline = 0;
         g_input_trampoline = 0;
         g_timer_trampoline = 0;
         g_clock_read_trampoline = 0;
+        g_frontend_play_trampoline = 0;
+        g_launch_level_trampoline = 0;
+        g_frontend_key_trampoline = 0;
+        g_frontend_summary_trampoline = 0;
         g_physics_target = 0;
         g_input_target = 0;
         g_timer_target = 0;
         g_clock_read_target = 0;
+        g_frontend_play_target = 0;
+        g_frontend_level_target = 0;
+        g_launch_level_target = 0;
+        g_movie_primary_target = 0;
+        g_movie_secondary_target = 0;
+        g_frontend_key_target = 0;
+        g_frontend_summary_target = 0;
         g_physics_overwrite_size = 0;
         g_input_overwrite_size = 0;
         g_timer_overwrite_size = 0;
         g_clock_read_overwrite_size = 0;
+        g_frontend_play_overwrite_size = 0;
+        g_frontend_level_overwrite_size = 0;
+        g_launch_level_overwrite_size = 0;
+        g_movie_primary_overwrite_size = 0;
+        g_movie_secondary_overwrite_size = 0;
+        g_frontend_key_overwrite_size = 0;
+        g_frontend_summary_overwrite_size = 0;
         return 0;
 #endif
 }

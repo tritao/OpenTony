@@ -78,46 +78,185 @@ static int append_command_argument(char *command, size_t capacity, const char *v
     return 1;
 }
 
-static int inject_dll(HANDLE process, const char *dll_path) {
+static int executable_directory(const char *path, char *directory, size_t capacity) {
+    const char *slash;
+    size_t length;
+    if (path == 0 || directory == 0 || capacity < 2u) {
+        return 0;
+    }
+    slash = strrchr(path, '\\');
+    {
+        const char *forward = strrchr(path, '/');
+        if (forward != 0 && (slash == 0 || forward > slash)) {
+            slash = forward;
+        }
+    }
+    if (slash == 0) {
+        directory[0] = '.';
+        directory[1] = 0;
+        return 1;
+    }
+    length = (size_t)(slash - path);
+    if (length == 0u) {
+        length = 1u;
+    }
+    if (length + 1u > capacity) {
+        return 0;
+    }
+    memcpy(directory, path, length);
+    directory[length] = 0;
+    return 1;
+}
+
+static int inject_dll(
+    HANDLE process,
+    const char *dll_path,
+    HANDLE *thread_out,
+    LPVOID *remote_path_out) {
     SIZE_T bytes;
     LPVOID remote_path;
     HANDLE thread;
     HMODULE kernel;
     FARPROC loader;
-    DWORD result = 0;
+    FARPROC remote_loader;
     bytes = strlen(dll_path) + 1;
     remote_path = VirtualAllocEx(process, 0, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (remote_path == 0 || !WriteProcessMemory(process, remote_path, (void *)dll_path, bytes, &bytes)) {
+        fprintf(stderr, "capture host: WriteProcessMemory failed (%lu)\n",
+            (unsigned long)GetLastError());
         if (remote_path != 0) VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         return 0;
     }
     kernel = GetModuleHandleA("kernel32.dll");
     loader = kernel == 0 ? 0 : GetProcAddress(kernel, "LoadLibraryA");
-    thread = loader == 0 ? 0 : CreateRemoteThread(process, 0, 0,
-        (LPTHREAD_START_ROUTINE)loader, remote_path, 0, 0);
+    remote_loader = 0;
+    if (loader != 0 && kernel != 0) {
+        /* Wine's Toolhelp module snapshot can report ERROR_NO_MORE_FILES for
+         * a newly created 32-bit process.  Walk the target's 32-bit PEB
+         * loader list instead; the layout is part of the Win32 ABI and is
+         * stable for the supported image. */
+        typedef LONG (WINAPI *NtQueryInformationProcessFn)(
+            HANDLE, DWORD, void *, ULONG, ULONG *);
+        typedef struct RemoteProcessBasicInformation {
+            void *reserved0;
+            void *peb;
+            void *reserved1[2];
+            DWORD pid;
+            void *reserved2;
+        } RemoteProcessBasicInformation;
+        typedef struct RemoteUnicodeString {
+            USHORT length;
+            USHORT maximum_length;
+            DWORD buffer;
+        } RemoteUnicodeString;
+        typedef struct RemoteLoaderEntry {
+            DWORD flink;
+            DWORD blink;
+            DWORD reserved[4];
+            DWORD dll_base;
+            DWORD entry_point;
+            DWORD size_of_image;
+            RemoteUnicodeString full_name;
+            RemoteUnicodeString base_name;
+        } RemoteLoaderEntry;
+        NtQueryInformationProcessFn query;
+        RemoteProcessBasicInformation basic;
+        DWORD ldr;
+        DWORD list_head;
+        DWORD node;
+        DWORD offset;
+        HMODULE ntdll;
+        SIZE_T bytes_read;
+        query = 0;
+        ntdll = GetModuleHandleA("ntdll.dll");
+        if (ntdll != 0) {
+            query = (NtQueryInformationProcessFn)GetProcAddress(
+                ntdll, "NtQueryInformationProcess");
+        }
+        ZeroMemory(&basic, sizeof(basic));
+        if (query != 0 && query(
+                process, 0, &basic, sizeof(basic), 0) == 0 &&
+            basic.peb != 0 && ReadProcessMemory(
+                process, (unsigned char *)basic.peb + 0x0cu,
+                &ldr, sizeof(ldr), &bytes_read) &&
+            ReadProcessMemory(
+                process, (void *)(ldr + 0x0cu), &list_head,
+                sizeof(list_head), &bytes_read)) {
+            node = list_head;
+            offset = (DWORD)((unsigned char *)loader -
+                (unsigned char *)kernel);
+            while (node != 0) {
+                RemoteLoaderEntry entry;
+                char name[32];
+                uint32_t index;
+                ZeroMemory(&entry, sizeof(entry));
+                if (!ReadProcessMemory(
+                        process, (void *)node, &entry, sizeof(entry),
+                        &bytes_read) || entry.flink == list_head) {
+                    /* The head is a list entry, not an image entry.  The
+                     * first pass still needs to inspect the node itself. */
+                    if (entry.flink == list_head && entry.dll_base == 0) {
+                        break;
+                    }
+                }
+                ZeroMemory(name, sizeof(name));
+                if (entry.base_name.buffer != 0 &&
+                    entry.base_name.length >= 12 &&
+                    entry.base_name.length < sizeof(name)) {
+                    uint16_t wide[16];
+                    uint32_t chars = entry.base_name.length / 2u;
+                    if (chars > 15u) chars = 15u;
+                    if (ReadProcessMemory(
+                            process, (void *)entry.base_name.buffer, wide,
+                            chars * 2u, &bytes_read)) {
+                        for (index = 0; index < chars; ++index) {
+                            uint16_t value = wide[index];
+                            name[index] = (char)(value < 0x80u ? value : '?');
+                            if (name[index] >= 'A' && name[index] <= 'Z') {
+                                name[index] = (char)(name[index] + ('a' - 'A'));
+                            }
+                        }
+                        name[chars] = 0;
+                        if (strcmp(name, "kernel32.dll") == 0) {
+                            remote_loader = (FARPROC)(entry.dll_base + offset);
+                            break;
+                        }
+                    }
+                }
+                if (entry.flink == 0 || entry.flink == node) break;
+                node = entry.flink;
+                if (node == list_head) break;
+            }
+        }
+    }
+    if (remote_loader == 0) {
+        /* On the supported Wine prefix kernel32 is loaded at the same image
+         * base in the host and retail processes.  Keep the RVA walk as the
+         * preferred path, but retain this ABI-compatible fallback for the
+         * restricted ReadProcessMemory policy used by some Wine builds. */
+        remote_loader = loader;
+    }
+    thread = remote_loader == 0 ? 0 : CreateRemoteThread(process, 0, 0,
+        (LPTHREAD_START_ROUTINE)remote_loader, remote_path, 0, 0);
     if (thread == 0) {
+        fprintf(stderr, "capture host: CreateRemoteThread failed (%lu)\n",
+            (unsigned long)GetLastError());
         VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         return 0;
     }
-    if (WaitForSingleObject(thread, 10000) != WAIT_OBJECT_0) {
-        CloseHandle(thread);
-        VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
-        return 0;
-    }
-    GetExitCodeThread(thread, &result);
-    CloseHandle(thread);
-    VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
-    return result != 0;
+    *thread_out = thread;
+    *remote_path_out = remote_path;
+    return 1;
 }
 
 static int wait_for_ready(CaptureHeader *header, HANDLE process) {
     uint32_t elapsed;
+    (void)process;
     for (elapsed = 0; elapsed < 10000u; ++elapsed) {
         if (header->status == OTCAP_STATUS_READY) {
             return 1;
         }
-        if (header->status == OTCAP_STATUS_FAILED || header->status == OTCAP_STATUS_OVERFLOW ||
-            WaitForSingleObject(process, 0) == WAIT_OBJECT_0) {
+        if (header->status == OTCAP_STATUS_FAILED || header->status == OTCAP_STATUS_OVERFLOW) {
             return 0;
         }
         Sleep(1);
@@ -166,6 +305,7 @@ int main(int argc, char **argv) {
     const char *sha_text = 0;
     char mapping_name[128];
     char command_line[2048];
+    char working_directory[MAX_PATH];
     STARTUPINFOA startup;
     PROCESS_INFORMATION process;
     HANDLE mapping;
@@ -181,11 +321,20 @@ int main(int argc, char **argv) {
     uint32_t index;
     DWORD wait_result;
     HANDLE output;
+    HANDLE injection_thread = 0;
+    LPVOID injection_path = 0;
     DWORD written;
     int exit_code = 1;
 
+    /* Wine and the Windows CRT may otherwise retain diagnostics until the
+     * suspended child is torn down, hiding the fail-closed reason from the
+     * launcher.  The host is a short-lived diagnostic boundary, so make its
+     * status observable immediately. */
+    setvbuf(stderr, 0, _IONBF, 0);
+
     ZeroMemory(&startup, sizeof(startup));
     startup.cb = sizeof(startup);
+    working_directory[0] = 0;
     ZeroMemory(&process, sizeof(process));
     ZeroMemory(actions, sizeof(actions));
     for (index = 1; index < (uint32_t)argc; ++index) {
@@ -204,6 +353,10 @@ int main(int argc, char **argv) {
     }
     if (exe_path == 0 || dll_path == 0 || output_path == 0 || sha_text == 0 || frames == 0 || frames > 4096) {
         usage();
+        goto done;
+    }
+    if (!executable_directory(exe_path, working_directory, sizeof(working_directory))) {
+        fprintf(stderr, "capture host: executable path is too long\n");
         goto done;
     }
     if (!force && GetFileAttributesA(output_path) != INVALID_FILE_ATTRIBUTES) {
@@ -264,32 +417,54 @@ int main(int argc, char **argv) {
         fprintf(stderr, "capture host: SetEnvironmentVariableA failed (%lu)\n", (unsigned long)GetLastError());
         goto cleanup_view;
     }
-    fprintf(stderr, "capture host: launching %s\n", command_line);
-    if (!CreateProcessA(exe_path, command_line, 0, 0, FALSE, CREATE_SUSPENDED, 0, 0, &startup, &process)) {
+    if (!CreateProcessA(exe_path, command_line, 0, 0, FALSE, CREATE_SUSPENDED, 0,
+            working_directory, &startup, &process)) {
         fprintf(stderr, "capture host: CreateProcessA failed (%lu)\n", (unsigned long)GetLastError());
         goto cleanup_view;
     }
-    if (!inject_dll(process.hProcess, dll_path)) {
+    header->process_id = process.dwProcessId;
+    if (!inject_dll(
+            process.hProcess, dll_path,
+            &injection_thread, &injection_path)) {
         fprintf(stderr, "capture host: DLL injection failed\n");
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         goto cleanup_view;
     }
-    if (!wait_for_ready(header, process.hProcess)) {
-        fprintf(stderr, "capture host: recorder did not become ready (status=%lu, error=%lu)\n",
-            (unsigned long)header->status, (unsigned long)header->error_code);
+    /* Let the primary loader thread release its loader lock before waiting
+     * for the remote LoadLibraryA call.  Waiting while CREATE_SUSPENDED is
+     * active deadlocks under Wine (and is unnecessary on Windows). */
+    if (ResumeThread(process.hThread) == (DWORD)-1) {
+        fprintf(stderr, "capture host: ResumeThread failed (%lu)\n", (unsigned long)GetLastError());
         TerminateProcess(process.hProcess, 1);
+        CloseHandle(injection_thread);
+        VirtualFreeEx(process.hProcess, injection_path, 0, MEM_RELEASE);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         goto cleanup_view;
     }
-    if (ResumeThread(process.hThread) == (DWORD)-1) {
-        fprintf(stderr, "capture host: ResumeThread failed (%lu)\n", (unsigned long)GetLastError());
+    /* Do not wait on the loader thread here.  Wine may keep that wait handle
+     * unsignaled even after the DLL has initialized its mapping; READY is the
+     * recorder-level synchronization boundary. */
+    CloseHandle(injection_thread);
+    injection_thread = 0;
+    if (!wait_for_ready(header, process.hProcess)) {
+        fprintf(stderr, "capture host: recorder did not become ready (status=%lu, error=%lu)\n",
+            (unsigned long)header->status, (unsigned long)header->error_code);
         TerminateProcess(process.hProcess, 1);
+        VirtualFreeEx(process.hProcess, injection_path, 0, MEM_RELEASE);
+        injection_path = 0;
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        goto cleanup_view;
     }
     wait_result = wait_for_bounded_capture(header, process.hProcess);
     (void)wait_result;
+    /* The process is either terminated by the bounded waiter or has exited;
+     * the remote argument is no longer needed. */
+    VirtualFreeEx(process.hProcess, injection_path, 0, MEM_RELEASE);
+    injection_path = 0;
     if (header->status == OTCAP_STATUS_READY || header->status == OTCAP_STATUS_CAPTURING) {
         if (header->frame_count == header->frame_limit) {
             header->status = OTCAP_STATUS_COMPLETE;

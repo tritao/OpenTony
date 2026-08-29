@@ -55,20 +55,26 @@ static DWORD WINAPI capture_initialize(void *unused) {
         capture_fail(OTCAP_ERROR_HOOK_BYTES);
         return 0;
     }
-    InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_READY);
+    /* Initialization runs before the gameplay thread can consume the mapping;
+     * a volatile store is sufficient here and avoids Wine's interlocked
+     * helper waiting on the loader thread during DLL attach. */
+    header->status = OTCAP_STATUS_READY;
+    OutputDebugStringA("OpenTony capture: recorder ready\n");
     return 0;
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
-    HANDLE thread;
     (void)instance;
     (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(instance);
-        thread = CreateThread(0, 0, capture_initialize, 0, 0, 0);
-        if (thread != 0) {
-            CloseHandle(thread);
-        }
+        /* LoadLibraryA is called by the host's suspended-process injector.
+         * Creating a worker from DllMain can leave Wine's loader lock held
+         * until that worker receives its DLL_THREAD_ATTACH notification, so
+         * the remote LoadLibrary call never returns.  Initialization only
+         * uses kernel32/memory APIs and is bounded by the host, making the
+         * verified setup safe to perform synchronously here. */
+        capture_initialize(0);
     }
     return TRUE;
 }

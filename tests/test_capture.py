@@ -298,12 +298,55 @@ def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
     assert "g_frame_timer_samples" in source
 
 
+def test_frontend_detours_reuse_verified_bootstrap_boundaries():
+    source = Path("src/capture/win32/hooks.cpp").read_text()
+    manifest = yaml.safe_load(Path("re/config/capture_hooks.yml").read_text())
+
+    for name in (
+        "frontend_play_result",
+        "frontend_level_select",
+        "launch_level",
+        "skip_movie_primary",
+        "skip_movie_secondary",
+        "frontend_key_state",
+        "frontend_summary",
+    ):
+        assert manifest["hooks"][name]["status"] == "verified"
+
+    assert "ot_capture_frontend_play_boundary" in source
+    assert "ot_capture_frontend_level_boundary" in source
+    assert "ot_capture_launch_level_boundary" in source
+    assert "ot_capture_frontend_key_boundary" in source
+    assert "ot_capture_frontend_summary_boundary" in source
+    assert "OTCAP_FRONTEND_SELECTION_CALL_RETURN" in source
+    assert "OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS" in source
+    assert "g_frontend_summary_key_ticks" in source
+    assert "g_frontend_summary_installed" in source
+
+
 def test_capture_host_fails_closed_when_frontend_never_reaches_gameplay():
     source = Path("src/capture/win32/capture_host.cpp").read_text()
 
     assert "OTCAP_ERROR_TIMEOUT" in source
     assert "GetTickCount()" in source
     assert "OTCAP_STATUS_FAILED" in source
+
+
+def test_capture_host_launches_suspended_then_resumes_after_injection():
+    source = Path("src/capture/win32/capture_host.cpp").read_text()
+
+    assert "CREATE_SUSPENDED" in source
+    assert "CreateRemoteThread" in source
+    assert "ResumeThread(process.hThread)" in source
+    assert "executable_directory" in source
+
+
+def test_inproc_capture_keeps_game_inside_managed_headless_display():
+    source = Path("tony/capture.py").read_text()
+
+    assert "HeadlessDisplay" in source
+    assert "headless_wine_command(command)" in source
+    assert "cwd=executable.parent" in source
 
 
 def test_physics_capture_publishes_complete_records_before_count():

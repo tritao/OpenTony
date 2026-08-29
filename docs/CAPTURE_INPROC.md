@@ -22,7 +22,12 @@ overflow is a failed capture.  Python then validates the fixed wire layout and
 converts it to the existing JSONL `retail.otrec` contract.
 
 M5 installs the proven `Skater_PhysicsFrame`, post-poll action-mask, and timer
-boundary detours.
+boundary detours. M7 adds the deterministic frontend bootstrap: the DLL skips
+the two movie entry points, releases the real PLAY and level-select boundaries,
+applies the configured level at the launch seam, and supplies the same
+keyboard-edge pulses used by the GDB frontend commands. Every frontend seam is
+covered by the same RVA/expected-byte manifest and is installed transactionally
+with the gameplay hooks.
 The DLL copies the original prologues into executable trampolines, patches the
 entries with relative jumps, and captures one `0x3210` player blob immediately
 before and after the original physics function.  At the post-poll boundary it
@@ -43,6 +48,11 @@ bounded run cannot produce a partially written frame.
 If the retail frontend never reaches the requested gameplay boundary, the
 host fails closed after a bounded startup wait with `OTCAP_ERROR_TIMEOUT`
 instead of leaving a Wine process running indefinitely.
+
+The Python command always starts this host inside the project-managed Xvfb
+display. Running the Windows host directly with `wine` is a diagnostic escape
+hatch and may show a game window on the caller's normal display; that does not
+change the headless scenario path.
 
 `--backend hybrid` is reserved for the same-run shadow comparator milestone;
 until the GDB/in-process snapshots have been proven equivalent it exits with a

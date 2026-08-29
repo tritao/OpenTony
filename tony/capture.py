@@ -770,7 +770,7 @@ def run_inproc_capture(
     process = None
     try:
         process = display.popen(
-            headless_wine_command(command), cwd=ROOT, env=environment
+            headless_wine_command(command), cwd=executable.parent, env=environment
         )
         result_code = process.wait()
     except BaseException:

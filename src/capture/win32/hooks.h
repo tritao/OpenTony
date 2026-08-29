@@ -22,7 +22,7 @@ int ot_capture_verify_hooks(void *module_base, uint32_t *failed_index);
 /* Bind the process-local mapping before installing the first detour. */
 int ot_capture_bind_buffer(CaptureBuffer *buffer);
 
-/* Install the proven physics-frame, action-mask, and timer-boundary detours. */
+/* Install the proven gameplay, timer, and deterministic frontend detours. */
 int ot_capture_install_hooks(void *module_base);
 
 /* These helpers are called by x86 naked wrappers. Keep their ABI C-compatible:
@@ -31,6 +31,11 @@ void __cdecl ot_capture_physics_before(uint32_t player);
 void __cdecl ot_capture_physics_after(void);
 void __cdecl ot_capture_input_boundary(void);
 void __cdecl ot_capture_timer_boundary(uint32_t phase);
+void __cdecl ot_capture_frontend_play_boundary(uint32_t stack_pointer);
+void __cdecl ot_capture_frontend_level_boundary(void);
+void __cdecl ot_capture_launch_level_boundary(uint32_t stack_pointer);
+void __cdecl ot_capture_frontend_key_boundary(uint32_t stack_pointer);
+void __cdecl ot_capture_frontend_summary_boundary(void);
 
 #ifdef __cplusplus
 }

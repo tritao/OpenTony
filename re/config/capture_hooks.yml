@@ -31,3 +31,38 @@ hooks:
     expected: "8b 15 20 e3 56 00"
     overwrite: 6
     status: verified
+  frontend_play_result:
+    rva: 0x000532aa
+    expected: "8b 44 24 58 83 c4 08"
+    overwrite: 7
+    status: verified
+  frontend_level_select:
+    rva: 0x0005355d
+    expected: "8b 0d 34 b8 56 00"
+    overwrite: 6
+    status: verified
+  launch_level:
+    rva: 0x000544a0
+    expected: "6a ff 68 cb 46 51 00"
+    overwrite: 7
+    status: verified
+  skip_movie_primary:
+    rva: 0x000e5ec0
+    expected: "8b 44 24 04 83 ec 1c"
+    overwrite: 7
+    status: verified
+  skip_movie_secondary:
+    rva: 0x000e6590
+    expected: "81 ec 00 01 00 00 53"
+    overwrite: 7
+    status: verified
+  frontend_key_state:
+    rva: 0x000e41b0
+    expected: "8b 44 24 04 25 ff 00 00 00"
+    overwrite: 9
+    status: verified
+  frontend_summary:
+    rva: 0x0007fb36
+    expected: "68 d4 5a 53 00"
+    overwrite: 5
+    status: verified
