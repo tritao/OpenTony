@@ -335,6 +335,7 @@ def test_capture_host_fails_closed_when_frontend_never_reaches_gameplay():
     assert "OTCAP_ERROR_TIMEOUT" in source
     assert "GetTickCount()" in source
     assert "OTCAP_STATUS_FAILED" in source
+    assert "WaitForSingleObject(process, 5000u)" in source
 
 
 def test_capture_host_launches_suspended_then_resumes_after_injection():

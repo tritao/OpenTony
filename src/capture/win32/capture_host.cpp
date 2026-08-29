@@ -274,7 +274,7 @@ static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
         if (header->status == OTCAP_STATUS_FAILED ||
             header->status == OTCAP_STATUS_OVERFLOW) {
             TerminateProcess(process, 1);
-            return WaitForSingleObject(process, INFINITE);
+            return WaitForSingleObject(process, 5000u);
         }
         if (header->status == OTCAP_STATUS_COMPLETE ||
             header->frame_count >= header->frame_limit) {
@@ -283,7 +283,7 @@ static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
              * frontend running (and cannot depend on a debugger-issued quit). */
             InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_COMPLETE);
             TerminateProcess(process, 0);
-            return WaitForSingleObject(process, INFINITE);
+            return WaitForSingleObject(process, 5000u);
         }
         /* A retail frontend that never reaches gameplay must not leave the
          * launcher (or its Xvfb display) alive indefinitely.  The timeout is
@@ -293,7 +293,7 @@ static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
             InterlockedExchange((LONG *)&header->error_code, OTCAP_ERROR_TIMEOUT);
             InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_FAILED);
             TerminateProcess(process, 1);
-            return WaitForSingleObject(process, INFINITE);
+            return WaitForSingleObject(process, 5000u);
         }
     }
 }
