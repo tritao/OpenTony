@@ -126,6 +126,7 @@ static int wait_for_ready(CaptureHeader *header, HANDLE process) {
 }
 
 static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
+    DWORD start = GetTickCount();
     for (;;) {
         DWORD result = WaitForSingleObject(process, 50);
         if (result == WAIT_OBJECT_0 || result == WAIT_FAILED) {
@@ -143,6 +144,16 @@ static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
              * frontend running (and cannot depend on a debugger-issued quit). */
             InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_COMPLETE);
             TerminateProcess(process, 0);
+            return WaitForSingleObject(process, INFINITE);
+        }
+        /* A retail frontend that never reaches gameplay must not leave the
+         * launcher (or its Xvfb display) alive indefinitely.  The timeout is
+         * deliberately generous for startup/movie loading, but bounded for
+         * automation and fail-closed rather than yielding a partial capture. */
+        if ((DWORD)(GetTickCount() - start) >= 120000u) {
+            InterlockedExchange((LONG *)&header->error_code, OTCAP_ERROR_TIMEOUT);
+            InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_FAILED);
+            TerminateProcess(process, 1);
             return WaitForSingleObject(process, INFINITE);
         }
     }

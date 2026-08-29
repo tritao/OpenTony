@@ -298,6 +298,14 @@ def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
     assert "g_frame_timer_samples" in source
 
 
+def test_capture_host_fails_closed_when_frontend_never_reaches_gameplay():
+    source = Path("src/capture/win32/capture_host.cpp").read_text()
+
+    assert "OTCAP_ERROR_TIMEOUT" in source
+    assert "GetTickCount()" in source
+    assert "OTCAP_STATUS_FAILED" in source
+
+
 def test_physics_capture_publishes_complete_records_before_count():
     source = Path("src/capture/win32/shared_buffer.cpp").read_text()
 

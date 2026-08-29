@@ -40,6 +40,9 @@ executable or changed byte fails closed before capture begins.
 The host stops the suspended retail process after the configured frame limit is
 published.  The final record is committed before `frame_count` advances, so a
 bounded run cannot produce a partially written frame.
+If the retail frontend never reaches the requested gameplay boundary, the
+host fails closed after a bounded startup wait with `OTCAP_ERROR_TIMEOUT`
+instead of leaving a Wine process running indefinitely.
 
 `--backend hybrid` is reserved for the same-run shadow comparator milestone;
 until the GDB/in-process snapshots have been proven equivalent it exits with a
