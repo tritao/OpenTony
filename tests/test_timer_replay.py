@@ -165,6 +165,72 @@ def test_timer_replay_uses_callback_pause_gate_observation():
     assert service.state.simulation_time == 0
 
 
+def test_timer_replay_releases_legacy_partial_delivery_at_next_boundary():
+    memory = FakeMemory()
+    service = TimerReplayService(_initial_timer_state())
+    partial = _delivery()
+    partial.update(
+        timer_boundary_before={
+            "interval_ms": 16,
+            "accumulated_ms": 0,
+            "public_accumulator": 0.0,
+            "public_tick": 0,
+            "simulation_accumulator": 0.0,
+            "simulation_time": 0,
+        },
+        timer_boundary_after={
+            "interval_ms": 16,
+            "accumulated_ms": 16,
+            "public_accumulator": 0.96,
+            "public_tick": 0,
+            "simulation_accumulator": 0.0,
+            "simulation_time": 0,
+        },
+        timer_boundary_delivery_count=1,
+        timer_boundary_phase="timing_producer",
+    )
+    completed = _delivery()
+    completed.update(
+        timer_boundary_before={
+            "interval_ms": 16,
+            "accumulated_ms": 16,
+            "public_accumulator": 0.96,
+            "public_tick": 0,
+            "simulation_accumulator": 0.0,
+            "simulation_time": 0,
+        },
+        timer_boundary_after={
+            "interval_ms": 16,
+            "accumulated_ms": 48,
+            "public_accumulator": 2.88,
+            "public_tick": 2,
+            "simulation_accumulator": 2.88,
+            "simulation_time": 2,
+        },
+        timer_boundary_delivery_count=2,
+        timer_boundary_phase="timing_delta",
+    )
+
+    results = service.apply_frame(
+        {"events": [partial, completed, completed.copy()]},
+        memory,
+        phase="timing_producer",
+    )
+    assert len(results) == 1
+    results = service.apply_frame(
+        {"events": [partial, completed, completed.copy()]},
+        memory,
+        phase="timing_delta",
+    )
+
+    assert len(results) == 2
+    assert service.state.accumulated_ms == 48
+    assert service.state.public_accumulator == 2.88
+    assert service.state.simulation_accumulator == 2.88
+    assert service.state.public_tick == 2
+    assert service.state.simulation_time == 2
+
+
 def test_timer_replay_applies_only_requested_frame_phase():
     memory = FakeMemory()
     service = TimerReplayService(_initial_timer_state())

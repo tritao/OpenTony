@@ -264,6 +264,9 @@ class TimerReplayService:
         self.initial_record = initial_record
         self.initialized = self.state is not None
         self.deliveries = 0
+        self._legacy_pending_public_ticks = 0
+        self._legacy_pending_simulation_accumulators = 0
+        self._legacy_pending_simulation_times = 0
 
     @property
     def available(self) -> bool:
@@ -410,6 +413,93 @@ class TimerReplayService:
                     f"modeled {key} does not match recorded boundary {label}"
                 )
 
+    def _advance_recorded_delivery(self, event: dict) -> dict:
+        """Apply a delivery, including legacy counter-only boundary samples.
+
+        Early boundary captures emitted a callback event when the callback had
+        incremented the integer counter and public accumulator but had not yet
+        reached the simulation-accumulator store.  New captures represent that
+        same interval as a pending count on a boundary sample.  Keep reading
+        the old event form so existing recordings remain diagnostically useful
+        without weakening the causal replay contract.
+        """
+
+        before = event.get("timer_boundary_before")
+        after = event.get("timer_boundary_after")
+        before_simulation = _boundary_double_value(
+            before if isinstance(before, dict) else None,
+            "simulation_accumulator",
+        )
+        after_simulation = _boundary_double_value(
+            after if isinstance(after, dict) else None,
+            "simulation_accumulator",
+        )
+        before_public_tick = self.state.public_tick
+        before_simulation_time = self.state.simulation_time
+        if (
+            self._legacy_pending_public_ticks
+            or self._legacy_pending_simulation_accumulators
+            or self._legacy_pending_simulation_times
+        ):
+            # Older captures emitted a callback as soon as each callback-owned
+            # store completed. Release stores that were observed in flight
+            # before applying the next callback's own writes.
+            if self._legacy_pending_public_ticks:
+                self.state.public_tick = _raw_from_double(
+                    self.state.public_accumulator
+                )
+            if self._legacy_pending_simulation_accumulators:
+                delta = float(self.state.interval_ms) * 0.001 * 60.0
+                self.state.simulation_accumulator = float(
+                    self.state.simulation_accumulator
+                    + delta * self._legacy_pending_simulation_accumulators
+                )
+            if (
+                self._legacy_pending_simulation_accumulators
+                or self._legacy_pending_simulation_times
+            ):
+                self.state.simulation_time = _raw_from_double(
+                    self.state.simulation_accumulator
+                )
+            self._legacy_pending_public_ticks = 0
+            self._legacy_pending_simulation_accumulators = 0
+            self._legacy_pending_simulation_times = 0
+        result = advance_timer(self.state, {"interval_ms": event.get("interval_ms")})
+        if isinstance(before, dict) and isinstance(after, dict):
+            if (
+                "public_tick" in before
+                and "public_tick" in after
+                and _integer(after.get("public_tick"), before_public_tick)
+                == before_public_tick
+                and result["public_tick"] != before_public_tick
+            ):
+                self.state.public_tick = before_public_tick
+                self._legacy_pending_public_ticks += 1
+                result["public_tick"] = self.state.public_tick
+            if (
+                before_simulation is not None
+                and after_simulation is not None
+                and self._matches_raw_double(before_simulation, after_simulation)
+                and not self._matches_raw_double(
+                    before_simulation, result["simulation_accumulator"]
+                )
+            ):
+                self.state.simulation_accumulator = before_simulation
+                self._legacy_pending_simulation_accumulators += 1
+                result["simulation_accumulator"] = before_simulation
+                result["simulation_advanced"] = False
+            if (
+                "simulation_time" in before
+                and "simulation_time" in after
+                and _integer(after.get("simulation_time"), before_simulation_time)
+                == before_simulation_time
+                and result["simulation_time"] != before_simulation_time
+            ):
+                self.state.simulation_time = before_simulation_time
+                self._legacy_pending_simulation_times += 1
+                result["simulation_time"] = self.state.simulation_time
+        return result
+
     def apply_frame(
         self,
         frame: dict,
@@ -523,8 +613,7 @@ class TimerReplayService:
                     gate_b = self._read_gate(memory, TIMER_PAUSE_GATE_B)
                     if gate_b is not None:
                         self.state.simulation_pause_gate_b = gate_b
-                interval = event.get("interval_ms")
-                result = advance_timer(self.state, {"interval_ms": interval})
+                result = self._advance_recorded_delivery(event)
                 self.validate_event(event, result)
                 results.append(result)
                 self.deliveries += 1
