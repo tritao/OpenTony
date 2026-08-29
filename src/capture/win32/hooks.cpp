@@ -46,6 +46,7 @@ static void *g_input_trampoline = 0;
 static uint8_t g_input_original[16];
 static uint32_t g_input_overwrite_size = 0;
 static volatile uint32_t g_input_injected_frame = 0xffffffffu;
+static volatile uint32_t g_gameplay_ready = 0;
 static int g_input_installed = 0;
 static CaptureTimerSample g_pending_timer_samples[OTCAP_MAX_TIMER_SAMPLES];
 static uint32_t g_pending_timer_count = 0;
@@ -674,6 +675,13 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
         g_physics_frame_active != 0) {
         return;
     }
+    /* Setup code invokes Skater_PhysicsFrame before the gameplay poll has
+     * established the first canonical frame.  The post-poll action boundary
+     * is the same gate used by the GDB recorder, so ignore those setup calls
+     * until it has run once. */
+    if (g_gameplay_ready == 0) {
+        return;
+    }
     /* The wrapper runs on the single gameplay thread.  Avoid the VC6-era
      * InterlockedCompareExchange pointer overload and keep this state local
      * to that deterministic boundary. */
@@ -794,6 +802,7 @@ void __cdecl ot_capture_input_boundary(void) {
         header->status != OTCAP_STATUS_CAPTURING) {
         return;
     }
+    g_gameplay_ready = 1;
     frame_index = header->frame_count;
     config = (CaptureConfig *)(g_capture_buffer->mapping + header->config_offset);
     action_mask = ot_capture_action_mask(config, frame_index);

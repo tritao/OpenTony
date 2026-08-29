@@ -233,6 +233,30 @@ def _decode_timer(values: tuple[int, ...]) -> dict[str, Any]:
     }
 
 
+def _normalize_timer_samples(samples: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Assign deliveries between timer-update and physics entry to update.
+
+    The in-process timer seam observes the callback counter immediately before
+    the retail update calls.  A callback may then complete before physics
+    entry, so the counter delta is first visible in that entry sample.  Replay
+    must publish those deliveries at the timer-update boundary or the retail
+    loop can wait forever for the callback-owned counter to advance.
+    """
+
+    normalized = [list(sample) for sample in samples]
+    for index in range(1, len(normalized)):
+        previous = normalized[index - 1]
+        current = normalized[index]
+        if (
+            current[0] == 1
+            and previous[0] == 2
+            and current[1] == previous[1]
+            and current[3] != previous[3]
+        ):
+            current[0] = 2
+    return [tuple(sample) for sample in normalized]
+
+
 def _timer_float(boundary: dict[str, Any], name: str) -> float | None:
     value = boundary.get(name)
     if isinstance(value, dict):
@@ -475,10 +499,11 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
         timer_values = values[timer_start : timer_start + OTCAP_MAX_TIMER_SAMPLES * 10]
         event_start = timer_start + OTCAP_MAX_TIMER_SAMPLES * 10
         event_values = values[event_start:]
-        timers = [
-            _decode_timer(tuple(timer_values[item * 10 : item * 10 + 10]))
+        timer_samples = _normalize_timer_samples([
+            tuple(timer_values[item * 10 : item * 10 + 10])
             for item in range(timer_count)
-        ]
+        ])
+        timers = [_decode_timer(sample) for sample in timer_samples]
         events = [
             {
                 "type": "inproc_causal_event",

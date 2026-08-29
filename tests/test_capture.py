@@ -130,6 +130,29 @@ def test_capture_decoder_infers_timer_delivery_from_boundary_counter(tmp_path):
     assert deliveries[0]["timer_boundary_sampled_accumulated_ms"] == 16
 
 
+def test_capture_decoder_rephases_timer_delivery_before_physics_entry(tmp_path):
+    source = tmp_path / "capture.otcap"
+    accumulator = struct.unpack("<Q", struct.pack("<d", 0.96))[0]
+    _capture(
+        source,
+        timer_samples={
+            0: [
+                (2, 0, 16, 0, 0, 0, 0, 0, 0, 0),
+                (1, 0, 16, 16, 1, 1, 0, 0, accumulator, accumulator),
+            ]
+        },
+    )
+
+    decoded = decode_capture(source)
+
+    deliveries = [
+        event for event in decoded["frames"][0]["events"]
+        if event["type"] == "timer_callback_delivery"
+    ]
+    assert len(deliveries) == 1
+    assert deliveries[0]["timer_boundary_phase"] == "timer_update"
+
+
 def test_capture_decoder_rejects_unknown_status(tmp_path):
     source = tmp_path / "capture.otcap"
     _capture(source)
@@ -270,6 +293,8 @@ def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
     assert "g_physics_trampoline" in source
     assert "ot_capture_physics_before" in source
     assert "ot_capture_physics_after" in source
+    assert "g_gameplay_ready" in source
+    assert "ignore those setup calls" in source
     assert "Relocate rel32 call/jump instructions" in source
     assert "trampoline[index] != 0xe8" in source
     assert "pushad" in source
