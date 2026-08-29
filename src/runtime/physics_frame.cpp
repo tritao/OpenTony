@@ -705,14 +705,24 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             recovery_candidate,
                             recovery_probe,
                             hooks.bypass_collision);
-                    // FUN_00496955 commits the accepted secondary recovery
-                    // candidate even when the recovered floor normal is
-                    // unchanged. The normal-change flag controls the later
-                    // response-basis work; it does not gate this position
-                    // write.
-                    desired = recovery_commit.position;
-                    movement_recovery_candidate_selected =
-                        recovery_commit.position != recovery_base;
+                    // FUN_004f5f90 rejects a short secondary recovery
+                    // displacement after FUN_00496060 selects its candidate.
+                    // The wall branch therefore falls back to the live
+                    // position for the small frame-206 correction, while the
+                    // larger Warehouse recovery in the canonical corpus is
+                    // still committed.
+                    const FixedPosition recovery_displacement{
+                        recovery_commit.position[0] - recovery_base[0],
+                        recovery_commit.position[1] - recovery_base[1],
+                        recovery_commit.position[2] - recovery_base[2],
+                    };
+                    if (fixed_dot_q12(
+                            recovery_displacement,
+                            recovery_displacement) >= 0x1000) {
+                        desired = recovery_commit.position;
+                        movement_recovery_candidate_selected =
+                            recovery_commit.position != recovery_base;
+                    }
                 } else {
                     FixedPosition surface_correction{0, 0x1964, 0};
                     static_cast<void>(remove_normal_component(
