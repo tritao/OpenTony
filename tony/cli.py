@@ -334,6 +334,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--gdb", required=True, help="GDB-produced .otrec")
     p.add_argument("--inproc", required=True, help="in-process-produced .otrec")
+    p.add_argument(
+        "--scope",
+        choices=("snapshots", "all"),
+        default="snapshots",
+        help="compare overlapping snapshots only (default) or all events too",
+    )
     p.set_defaults(func=commands.capture_qualify)
 
     gdb = sub.add_parser("gdb", help="generate and inspect OpenTony GDB support files")

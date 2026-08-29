@@ -173,10 +173,14 @@ def capture_compare(args) -> int:
 
 
 def capture_qualify(args) -> int:
-    """Run the M3 GDB/in-process overlapping-snapshot qualification."""
+    """Run the M3 GDB/in-process qualification through the shared loader."""
 
     try:
-        result = compare_recordings(args.gdb, args.inproc, scope="snapshots")
+        result = compare_recordings(
+            args.gdb,
+            args.inproc,
+            scope=getattr(args, "scope", "snapshots"),
+        )
     except CaptureDecodeError as exc:
         raise SystemExit(str(exc)) from exc
     print(json.dumps(result, indent=2, sort_keys=True))
