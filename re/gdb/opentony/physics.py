@@ -116,6 +116,13 @@ GROUND_MOTION_FRAME_RANDOM_SITES = {
 # event name until dynamic evidence settles it.
 SHARED_RANDOM_SERVICE = 0x0048F3A0
 
+# FUN_0049d080 rebuilds the player's orientation from the current forward
+# column, the interpolated recovery target, and the persistent recovery base.
+# Keep its entry boundary available as a focused forensic family: the caller
+# can publish a different forward column earlier in the same frame without
+# changing the canonical frame snapshots.
+ORIENTATION_RECOVERY = 0x0049D080
+
 # The physics wrapper loads the simulation clock at 0x0049f1a0 and publishes
 # it to Player+0x2f44 at 0x0049f1a9.  Keep the probe on the store itself so it
 # observes the exact value about to be committed without changing the path.
@@ -455,6 +462,61 @@ class PhysicsProbe(CountingBreakpoint):
             **_input_observation(ctx.memory),
         }
         self._previous_unknown_state = view.unknown_state
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+        return True
+
+
+class OrientationRecoveryProbe(CountingBreakpoint):
+    """Capture the synchronous orientation-recovery entry operands."""
+
+    def __init__(self, count: int | None = None, writer=None, frame_provider=None):
+        super().__init__(ORIENTATION_RECOVERY, count=count, internal=True)
+        self.writer = writer
+        self.frame_provider = frame_provider
+
+    def on_count(self, ctx: Context) -> bool:
+        player = ctx.this_ptr()
+        current = ctx.memory.ptr(GLOBALS["Player"])
+        if not ctx.memory.valid(player) or player != current:
+            return False
+        frame = self.frame_provider() if self.frame_provider is not None else ctx.frame
+        record = {
+            "type": "orientation_recovery_input",
+            "function": "FUN_0049d080",
+            "address": f"0x{ORIENTATION_RECOVERY:08x}",
+            "frame": frame,
+            "caller": f"0x{ctx.return_address() - 5:08x}",
+            "return_address": f"0x{ctx.return_address():08x}",
+            "player": f"0x{player:08x}",
+            "progress_q11": ctx.memory.s32(player + 0x3130),
+            "target_short": [
+                ctx.memory.s16(player + offset)
+                for offset in (0x80, 0x82, 0x84)
+            ],
+            "recovery_base": [
+                ctx.memory.s32(player + offset)
+                for offset in (0x3134, 0x3138, 0x313c)
+            ],
+            "current_forward_short": [
+                ctx.memory.s16(player + offset)
+                for offset in (0x2e5c, 0x2e62, 0x2e68)
+            ],
+            "published_forward": [
+                ctx.memory.s32(player + offset)
+                for offset in (0x30f4, 0x30f8, 0x30fc)
+            ],
+            "published_right": [
+                ctx.memory.s32(player + offset)
+                for offset in (0x3100, 0x3104, 0x3108)
+            ],
+            "published_air": [
+                ctx.memory.s32(player + offset)
+                for offset in (0x310c, 0x3110, 0x3114)
+            ],
+        }
         if self.writer is None:
             self.emit(record)
         else:

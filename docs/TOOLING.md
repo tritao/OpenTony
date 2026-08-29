@@ -124,9 +124,12 @@ tony-record-forensic collision
 tony-record-forensic clear
 ```
 
-Available families are `collision`, `service`, `rng`, `animation`,
-`correction`, `state`, `position`, `timing`, and `all`. The selected probes
-append events to the same recording; they are not installed by default.
+Available families are `collision`, `service`, `recovery`, `rng`,
+`animation`, `correction`, `state`, `position`, `timing`, and `all`. The
+selected probes append events to the same recording; they are not installed
+by default. The `recovery` family captures the synchronous
+`FUN_0049d080` orientation-recovery entry operands when a basis transition
+needs causal evidence.
 
 Retail self-replay uses the same Warehouse frontend path, injects held keys
 before the retail action-mask builder, and compares raw player state at the

@@ -534,6 +534,7 @@ class _RecordingEventSink:
 _RECORDING_FORENSIC_FAMILIES = (
     "collision",
     "service",
+    "recovery",
     "rng",
     "animation",
     "correction",

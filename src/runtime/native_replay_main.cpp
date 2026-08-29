@@ -379,13 +379,22 @@ int run(int argc, char** argv) {
         return std::nullopt;
     };
     session.physics_hooks().collision_orientation_yaw = [](
-        const opentony::runtime::PlayerState&,
+        const opentony::runtime::PlayerState& player,
         const opentony::runtime::PositionCollisionHit& hit,
         opentony::runtime::PhysicsDispatchStage stage)
         -> std::optional<std::int32_t> {
         if (stage == opentony::runtime::PhysicsDispatchStage::GroundCollision_96550
             && hit.surface_flags == 0x0110) {
-            return 0x19;
+            // FUN_00496550 normally passes zero, which FUN_0049bad0 expands
+            // to its fallback offset 0x19.  Its forward-facing collision
+            // branch first checks dot(hit_normal, +0x30f4) against 0xb50 and
+            // passes 200 when that threshold is exceeded.  Keep this caller
+            // predicate derived from the live basis instead of treating 0x19
+            // as a Warehouse-wide constant.
+            const std::int32_t forward_dot = opentony::runtime::fixed_dot_q12(
+                player.retail_basis().at_30f4,
+                hit.normal);
+            return forward_dot > 0xb50 ? 200 : 0x19;
         }
         return std::nullopt;
     };
@@ -631,6 +640,66 @@ int run(int argc, char** argv) {
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
         }
+        if (animation.finished && animation.id == 14) {
+            // FUN_0049a480 re-seats the completed landing pose before the
+            // state-2 landing handoff has finished. Keep the animation in
+            // the same pose while the state transition is consumed.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 14;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
+        const auto& prior_state_request = session.player().last_state_request();
+        if (animation.id == 14
+            && session.player().physics_state() == 0
+            && prior_state_request.from == 2
+            && prior_state_request.to == 0) {
+            // The completed landing pose is retained for the state-2 -> 0
+            // handoff frame. The following object-update boundary starts
+            // the ordinary rolling pose (the observed 0x00490447 request).
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 5;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
+        if (animation.finished
+            && animation.id == 5
+            && session.player().physics_state() == 0) {
+            // The completed rolling/push pose returns to idle through the
+            // same selector wrapper. This is a producer-owned completion,
+            // not a replayed animation snapshot.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 0;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
         const auto advance_result = session.advance(
             config.fixed_step.simulation_step_ms,
             frame.action_mask,
@@ -639,8 +708,22 @@ int run(int argc, char** argv) {
             nullptr,
             frame.frame_scale_q8);
         if (advance_result.stepped
-            && advance_result.last.physics.ground_motion.has_value()
-            && advance_result.last.physics.ground_motion->event_reason == 0x2570
+            && advance_result.last.physics.ground_animation.has_value()
+            && advance_result.last.physics.ground_animation->request.issued) {
+            // The grounded selector is a native producer. Apply its request
+            // to the animation cursor at the same frame boundary so the
+            // cursor and PlayerState do not silently take separate paths.
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                advance_result.last.physics.ground_animation->request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
+        if (advance_result.stepped
+            && ((advance_result.last.physics.ground_motion.has_value()
+                 && advance_result.last.physics.ground_motion->event_reason == 0x2570)
+                || animation.id == 0)
             && frame.ground_motion_rearm_random_available) {
             opentony::runtime::GroundAnimationRequest request{};
             request.issued = true;
@@ -655,8 +738,12 @@ int run(int argc, char** argv) {
                 animation,
                 animation_view,
                 request));
-            animation.rate = static_cast<std::uint32_t>(
-                advance_result.last.physics.ground_motion->animation_speed);
+            animation.rate = 0x14000;
+            if (advance_result.last.physics.ground_motion.has_value()
+                && advance_result.last.physics.ground_motion->animation_speed != 0) {
+                animation.rate = static_cast<std::uint32_t>(
+                    advance_result.last.physics.ground_motion->animation_speed);
+            }
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
         } else if (advance_result.stepped

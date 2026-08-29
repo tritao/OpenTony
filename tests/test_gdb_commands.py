@@ -65,6 +65,7 @@ def test_probe_families_are_centralized():
         "core",
         "collision",
         "service",
+        "recovery",
         "rng",
         "animation",
         "correction",

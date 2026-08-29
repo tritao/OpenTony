@@ -60,6 +60,7 @@ from ..physics import (
     MotionCorrectionAddProbe,
     MotionCorrectionProbe,
     MovementPhysicsProbe,
+    OrientationRecoveryProbe,
     OllieLatchProbe,
     OllieRandomProbe,
     PhysicsProbe,
@@ -97,6 +98,11 @@ def _collision_family(*, writer, frame_provider=None, controller=None, watch_arm
 def _service_family(*, writer, frame_provider=None, controller=None, watch_arm_factory=None):
     del controller, watch_arm_factory
     return [SharedRandomServiceProbe(writer=writer, frame_provider=frame_provider)]
+
+
+def _recovery_family(*, writer, frame_provider=None, controller=None, watch_arm_factory=None):
+    del controller, watch_arm_factory
+    return [OrientationRecoveryProbe(writer=writer, frame_provider=frame_provider)]
 
 
 def _rng_family(*, writer, frame_provider=None, controller=None, watch_arm_factory=None):
@@ -191,6 +197,7 @@ PROBE_FAMILIES = {
     "core": _core_family,
     "collision": _collision_family,
     "service": _service_family,
+    "recovery": _recovery_family,
     "rng": _rng_family,
     "animation": _animation_family,
     "correction": _correction_family,
