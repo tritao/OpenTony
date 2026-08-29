@@ -75,6 +75,7 @@ void PlayerState::apply_restart(
     std::uint16_t auxiliary_word) noexcept {
     position_ = position;
     previous_position_ = position;
+    older_position_ = position;
     collision_response_ = {};
     motion_correction_ = {};
     air_motion_ = {};
@@ -635,6 +636,134 @@ VelocityProjectionResult PlayerState::project_collision_velocity(
         project_velocity_preserving_magnitude(collision_response_, normal);
     collision_response_ = result.velocity;
     return result;
+}
+
+void PlayerState::apply_collision_transient_exit_orientation(
+    const FixedPosition& collision_normal) noexcept {
+    // FUN_00491780 first removes the collision-normal component from a local
+    // copy of +0x4c and rejects the handoff when the remaining response is
+    // too small. The normalized response becomes the negative forward axis.
+    FixedPosition projected_response = collision_response_;
+    static_cast<void>(remove_normal_component(
+        projected_response,
+        collision_normal));
+    if (retail_vector_speed_metric(projected_response) <= 0x1e000) {
+        return;
+    }
+
+    const FixedPosition response_direction = q12_normalize(
+        projected_response);
+    FixedPosition current_forward = retail_basis_.at_30f4;
+    static_cast<void>(remove_normal_component(
+        current_forward,
+        collision_normal));
+    current_forward = q12_normalize(current_forward);
+    const std::int32_t response_forward_dot = fixed_dot_q12(
+        response_direction,
+        current_forward);
+
+    // FUN_00491780 leaves the existing basis untouched when the projected
+    // response is already decisively aligned or opposed to the current
+    // forward axis.  The Warehouse state-two exit takes this path at the
+    // observed -4064 dot product; only the narrow band reaches the
+    // history-based rebuild below.
+    if (response_forward_dot <= -0x666
+        || response_forward_dot >= 0x666) {
+        return;
+    }
+
+    // FUN_0046d970 is the only conditional side effect between the first
+    // projection and the history-based rebuild. Its remaining object gates
+    // are not represented at this boundary; the zero-valued Warehouse path
+    // is selected by the same two dot-product tests.
+    const std::int32_t raw_response_forward_dot = fixed_dot_q12(
+        collision_response_,
+        retail_basis_.at_30f4);
+    if (response_forward_dot > -0x666
+        && response_forward_dot < 0x666
+        && raw_response_forward_dot > 0x5000) {
+        for (std::size_t index = 0; index < 3; ++index) {
+            retail_basis_.at_30f4[index] =
+                -retail_basis_.at_30f4[index];
+            retail_basis_.at_3100[index] =
+                -retail_basis_.at_3100[index];
+        }
+    }
+
+    // FUN_004cabf0 receives +0xbc as its second vector and +0x2e00 as its
+    // third, producing the displacement between the last two frame starts.
+    FixedPosition history_delta{};
+    for (std::size_t index = 0; index < history_delta.size(); ++index) {
+        history_delta[index] = previous_position_[index]
+            - older_position_[index];
+    }
+    const std::int64_t absolute_sum =
+        static_cast<std::int64_t>(history_delta[0] < 0
+            ? -static_cast<std::int64_t>(history_delta[0])
+            : history_delta[0])
+        + static_cast<std::int64_t>(history_delta[1] < 0
+            ? -static_cast<std::int64_t>(history_delta[1])
+            : history_delta[1])
+        + static_cast<std::int64_t>(history_delta[2] < 0
+            ? -static_cast<std::int64_t>(history_delta[2])
+            : history_delta[2]);
+    if (absolute_sum > 0x8000) {
+        for (std::int32_t& component : history_delta) {
+            // The retail instruction is x86 SAR, not C++ division: negative
+            // components round toward negative infinity.
+            component = component >= 0
+                ? component / 16
+                : -(((-component) + 15) / 16);
+        }
+    }
+    const FixedPosition history_direction = q12_normalize(history_delta);
+
+    // The cross helper consumes the signed-short publication boundary, just
+    // as the two calls to FUN_004e2ff0 do in the retail routine.
+    const auto short_vector = [](const FixedPosition& vector) noexcept {
+        return FixedPosition{
+            static_cast<std::int16_t>(vector[0]),
+            static_cast<std::int16_t>(vector[1]),
+            static_cast<std::int16_t>(vector[2]),
+        };
+    };
+    const FixedPosition target = short_vector(collision_normal);
+    retail_basis_.at_30f4 = short_vector({
+        -history_direction[0],
+        -history_direction[1],
+        -history_direction[2],
+    });
+    retail_basis_.at_310c = target;
+    retail_basis_.at_3100 = q12_cross(
+        short_vector(retail_basis_.at_30f4),
+        target);
+
+    const auto publish_basis = [this]() noexcept {
+        orientation_.at(0, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[0]);
+        orientation_.at(1, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[1]);
+        orientation_.at(2, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[2]);
+        orientation_.at(0, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[0]);
+        orientation_.at(1, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[1]);
+        orientation_.at(2, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[2]);
+        orientation_.at(0, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[0]);
+        orientation_.at(1, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[1]);
+        orientation_.at(2, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[2]);
+    };
+    publish_basis();
+
+    retail_basis_.at_30f4 = q12_cross(
+        target,
+        short_vector(retail_basis_.at_3100));
+    publish_basis();
 }
 
 CollisionResponseResult PlayerState::apply_collision_response(

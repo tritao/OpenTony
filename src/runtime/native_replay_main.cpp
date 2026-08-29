@@ -337,6 +337,7 @@ int run(int argc, char** argv) {
     // conservative, but retaining it here rejects the sloped recovery face
     // selected by the recorded 0x00496fd7 query.
     config.collision_query_options.reject_mask = 0;
+    const ReplayFrame* active_frame = nullptr;
     GameplaySession session(
         trg.string(),
         psx.string(),
@@ -394,7 +395,6 @@ int run(int argc, char** argv) {
             (asset_root / "SK2ANIM.PSX").string());
     const opentony::runtime::AnimationTableView animation_view{
         animation_table.frame_counts()};
-    const ReplayFrame* active_frame = nullptr;
     session.physics_hooks().ground_motion_input = [&active_frame, &animation](
         const opentony::runtime::PlayerState&,
         const opentony::runtime::InputState&,
@@ -607,6 +607,30 @@ int run(int argc, char** argv) {
         (void)animation.advance(frame.frame_scale_q8);
         session.player().set_animation_state(animation.id);
         session.player().set_animation_frame(animation.frame);
+        if (animation.finished
+            && animation.id == 94
+            && session.player().physics_state() == 0) {
+            // The grounded startup/step selector uses the ordinary Start
+            // wrapper to return the completed intro pose to idle.  This is a
+            // caller-owned animation handoff: it must happen after the
+            // terminal UpdateFrame sample but before the same frame's
+            // physics producer reads +0xf6.  Keeping it derived here also
+            // lets zero-input recordings replay without injecting the
+            // captured animation-request event.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 0;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
         const auto advance_result = session.advance(
             config.fixed_step.simulation_step_ms,
             frame.action_mask,

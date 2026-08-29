@@ -86,6 +86,9 @@ public:
     [[nodiscard]] const FixedPosition& previous_position() const noexcept {
         return previous_position_;
     }
+    [[nodiscard]] const FixedPosition& older_position() const noexcept {
+        return older_position_;
+    }
     [[nodiscard]] const FixedPosition& collision_response() const noexcept {
         return collision_response_;
     }
@@ -219,6 +222,7 @@ public:
     void set_position(FixedPosition position) noexcept { position_ = position; }
     void set_previous_position(FixedPosition position) noexcept {
         previous_position_ = position;
+        older_position_ = position;
     }
     void set_collision_response(FixedPosition response) noexcept {
         collision_response_ = response;
@@ -243,6 +247,9 @@ public:
         FixedPosition correction,
         FixedPosition normal) noexcept {
         ground_surface_response_correction_ = correction;
+        ground_surface_response_normal_ = normal;
+    }
+    void set_ground_surface_response_normal(FixedPosition normal) noexcept {
         ground_surface_response_normal_ = normal;
     }
     void set_air_motion(FixedPosition motion) noexcept {
@@ -493,6 +500,7 @@ public:
     // Retail FUN_0049e680 copies the live position into the +0xbc history
     // vector before dispatching the per-state physics routine.
     void begin_physics_frame() noexcept {
+        older_position_ = previous_position_;
         previous_position_ = position_;
         ground_turn_saved_orientation_valid_ = false;
         last_state_request_ = {};
@@ -520,6 +528,12 @@ public:
     // component and restore the pre-collision response magnitude.
     [[nodiscard]] VelocityProjectionResult project_collision_velocity(
         const FixedPosition& normal);
+
+    // Rebuilds the causal orientation handoff in retail FUN_00491780. This
+    // is used only by the state-2 recovery exit, after its collision normal
+    // and two-position history have been selected.
+    void apply_collision_transient_exit_orientation(
+        const FixedPosition& collision_normal) noexcept;
 
     [[nodiscard]] CollisionResponseResult apply_collision_response(
         const FixedPosition& surface_delta,
@@ -600,6 +614,9 @@ public:
 private:
     FixedPosition position_{};
     FixedPosition previous_position_{};
+    // Retail +0x2e00 is the position from the preceding physics frame;
+    // previous_position_ is the current frame's +0xbc history value.
+    FixedPosition older_position_{};
     FixedPosition collision_response_{};
     FixedPosition motion_correction_{};
     FixedPosition air_motion_{};
