@@ -136,6 +136,31 @@ def test_xvfb_command_uses_16_bit_software_profile(monkeypatch):
     assert env["MESA_LOADER_DRIVER_OVERRIDE"] == "llvmpipe"
 
 
+def test_xvfb_command_prefers_headless_display_profile(monkeypatch):
+    monkeypatch.setattr(
+        display.shutil,
+        "which",
+        lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None,
+    )
+    cfg = {
+        "virtual_desktop": {"width": 1024, "height": 768},
+        "headless_display": {"width": 640, "height": 480},
+        "xvfb": {
+            "depth": 16,
+            "server_args": ["+extension", "GLX"],
+            "environment": {"MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe"},
+        },
+    }
+    environment = {}
+
+    assert display.xvfb_command(cfg, environment) == [
+        "/usr/bin/xvfb-run",
+        "-a",
+        "-s",
+        "-screen 0 640x480x16 +extension GLX",
+    ]
+
+
 def test_configure_virtual_desktop_sets_default_and_size(monkeypatch):
     calls = []
 

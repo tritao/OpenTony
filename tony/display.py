@@ -38,7 +38,7 @@ class DisplayInfo:
 
 
 def _screen_config(cfg: dict) -> tuple[int, int, int, list[str]]:
-    desktop = cfg.get("virtual_desktop", {})
+    desktop = cfg.get("headless_display", cfg.get("virtual_desktop", {}))
     width = int(desktop.get("width", 1024))
     height = int(desktop.get("height", 768))
     if width < 320 or height < 200:

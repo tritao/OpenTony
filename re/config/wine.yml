@@ -24,3 +24,6 @@ wine:
     name: OpenTony
     width: 1024
     height: 768
+  headless_display:
+    width: 640
+    height: 480
