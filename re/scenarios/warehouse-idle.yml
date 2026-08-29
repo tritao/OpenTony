@@ -1,0 +1,11 @@
+version: 1
+level: warehouse
+frames: 256
+
+input: []
+
+forensics:
+  - core
+
+expect:
+  retail: match

@@ -377,6 +377,49 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("right")
     p.set_defaults(func=commands.compare_traces)
 
+    scenario = sub.add_parser("scenario", help="run intent-defined retail/native replay scenarios")
+    scenario_sub = scenario.add_subparsers(dest="scenario_command", required=True)
+    p = scenario_sub.add_parser("list", help="list scenario manifests")
+    p.set_defaults(func=commands.scenario_list)
+
+    p = scenario_sub.add_parser("capture", help="capture a scenario from its manifest")
+    p.add_argument("name")
+    p.add_argument("--output", help="generated recording path; defaults under build/scenarios/")
+    p.add_argument("--session", help="named debug session")
+    p.add_argument("--port", type=int)
+    p.add_argument("--unmute", action="store_true", help="leave game audio enabled")
+    p.add_argument("--force", action="store_true", help="replace an existing recording")
+    p.set_defaults(func=commands.scenario_capture)
+
+    def add_scenario_replay_options(parser):
+        parser.add_argument("name")
+        parser.add_argument("--recording", help="recording path; defaults under build/scenarios/")
+        parser.add_argument("--session", help="named debug session (retail only)")
+        parser.add_argument("--port", type=int, help="debug port (retail only)")
+        parser.add_argument("--unmute", action="store_true", help="leave game audio enabled (retail only)")
+
+    p = scenario_sub.add_parser("retail", help="strictly replay a scenario through retail")
+    add_scenario_replay_options(p)
+    p.set_defaults(func=commands.scenario_retail)
+
+    p = scenario_sub.add_parser("native", help="strictly replay a scenario through native")
+    add_scenario_replay_options(p)
+    p.add_argument("--trg", help="native level trigger asset")
+    p.add_argument("--psx", help="native level collision/scene asset")
+    p.add_argument("--asset-root", help="native asset directory")
+    p.add_argument("--native-binary", help="native replay executable")
+    p.add_argument("--output", help="generated native JSONL trace")
+    p.set_defaults(func=commands.scenario_native)
+
+    p = scenario_sub.add_parser("verify", help="validate and run strict retail and native replay")
+    add_scenario_replay_options(p)
+    p.add_argument("--trg", help="native level trigger asset")
+    p.add_argument("--psx", help="native level collision/scene asset")
+    p.add_argument("--asset-root", help="native asset directory")
+    p.add_argument("--native-binary", help="native replay executable")
+    p.add_argument("--output", help="generated native JSONL trace")
+    p.set_defaults(func=commands.scenario_verify)
+
     return parser
 
 

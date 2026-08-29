@@ -242,6 +242,9 @@ class RecordingController:
         self._pending_metadata: dict = {}
         self._status_last_frame: int | None = None
         self._status_last_state: RecordingState | None = None
+        # Scenario capture runs in GDB batch mode and must leave the inferior
+        # after its exact frame limit. Interactive recordings leave this off.
+        self.exit_on_complete = False
         self._write_status(force=True)
 
     @property

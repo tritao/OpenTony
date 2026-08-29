@@ -681,6 +681,8 @@ class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
         )
         try:
             self.controller.end_frame(_recording_player_snapshot(self.player))
+            if self.controller.exit_on_complete and self.controller.state.name == "IDLE":
+                gdb.execute("quit")
         except (OSError, TypeError, ValueError, RecordingError) as exc:
             # Recording is an observer.  A malformed/unsupported probe value
             # must end the file cleanly and never leave the gameplay thread
@@ -748,15 +750,19 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
 
 
 class TonyRecordingStart(gdb.Command):
-    """tony-record-start [FILE] [--force] [--frames COUNT] -- start capture."""
+    """tony-record-start [FILE] [--force] [--frames COUNT] [--quit] -- start capture."""
 
     def __init__(self):
         super().__init__("tony-record-start", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
         del from_tty
-        values = argv(arg, "tony-record-start [FILE] [--force] [--frames COUNT]") if arg.strip() else []
+        values = argv(
+            arg,
+            "tony-record-start [FILE] [--force] [--frames COUNT] [--quit]",
+        ) if arg.strip() else []
         force = False
+        exit_on_complete = False
         frame_limit = None
         positional = []
         index = 0
@@ -764,6 +770,8 @@ class TonyRecordingStart(gdb.Command):
             value = values[index]
             if value == "--force":
                 force = True
+            elif value == "--quit":
+                exit_on_complete = True
             elif value == "--frames":
                 index += 1
                 if index >= len(values):
@@ -781,6 +789,7 @@ class TonyRecordingStart(gdb.Command):
             raise gdb.GdbError("--frames must be a positive count")
         if _recording_controller is None:
             raise gdb.GdbError("recording controller is not initialized")
+        _recording_controller.exit_on_complete = exit_on_complete
         global _recording_timer_initial_state, _recording_timer_recording_id
         _recording_timer_initial_state = None
         _recording_timer_recording_id = None

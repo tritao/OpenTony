@@ -155,6 +155,27 @@ tony replay native build/recordings/retail/run.otrec
 Native divergence is expected until the corresponding behavior is recovered;
 the command reports only the first captured field that differs.
 
+## Scenario manifests
+
+First-class bounded runs live under `re/scenarios/`. A manifest describes the
+level, frame count, input edges, forensic families, and expected target
+results; it never contains generated recording data. Capture outputs default to
+`build/scenarios/<scenario>/retail.otrec` and native traces default to the same
+directory:
+
+```bash
+tony scenario list
+tony scenario capture warehouse-idle
+tony scenario retail warehouse-idle
+tony scenario native warehouse-idle
+tony scenario verify warehouse-idle
+```
+
+`scenario verify` validates the recording's format, level, and exact frame
+count, then runs strict retail and native replay. A target without an explicit
+`expect` entry is reported but is not yet a regression gate; use
+`native: diverge` while a known native gap is expected.
+
 ## Matching Visual C++ toolchain
 
 `tony setup vc6` downloads and verifies the English Visual Studio 6.0 Professional base ISO and Visual Studio 6.0 Service Pack 3 ISO, extracts the command-line `VC98` toolchain under `.tools/vc6`, overlays the SP3 updates, and initializes a dedicated `.tools/vc6-prefix`. It does not modify or reuse the game Wine prefixes.

@@ -46,6 +46,13 @@ from .recording import (
     validate_recording,
 )
 from .recovered_types import types_verify
+from .scenarios import (
+    scenario_capture,  # noqa: F401 - command handler consumed by cli.py
+    scenario_list,  # noqa: F401 - command handler consumed by cli.py
+    scenario_native,  # noqa: F401 - command handler consumed by cli.py
+    scenario_retail,  # noqa: F401 - command handler consumed by cli.py
+    scenario_verify,  # noqa: F401 - command handler consumed by cli.py
+)
 from .sessions import (  # noqa: F401 - command handlers are consumed by cli.py
     sessions_clean,
     sessions_list,
@@ -159,6 +166,7 @@ def replay_retail(args) -> int:
         return 1
 
     replay_command = f"tony-replay-retail {shlex.quote(str(path))}"
+    level = getattr(args, "level", 12)
     replay_args = SimpleNamespace(
         headless=True,
         unmute=bool(getattr(args, "unmute", False)),
@@ -173,7 +181,7 @@ def replay_retail(args) -> int:
             # Select Warehouse in the real level-select state before Enter;
             # rewriting the later launch argument leaves the frontend's
             # selected-level/FMV state inconsistent.
-            "tony-frontend-play 1 12",
+            f"tony-frontend-play 1 {level}",
             "tony-frontend-confirm",
             replay_command,
             "continue",

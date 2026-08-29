@@ -1,0 +1,17 @@
+version: 1
+level: warehouse
+frames: 256
+
+input:
+  - frame: 20
+    action: right
+    state: press
+  - frame: 120
+    action: right
+    state: release
+
+forensics:
+  - core
+
+expect:
+  retail: match

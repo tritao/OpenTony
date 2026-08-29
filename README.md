@@ -175,6 +175,11 @@ tony record stop --session <debug-session>
 tony record validate <recording.otrec>
 tony replay retail <recording.otrec> [--session <debug-session>]
 tony replay native <recording.otrec> [--output build/parity/native.jsonl]
+tony scenario list
+tony scenario capture warehouse-idle
+tony scenario retail warehouse-idle
+tony scenario native warehouse-idle
+tony scenario verify warehouse-idle
 tony sessions list
 tony sessions stop <session>
 tony sessions clean <session>
