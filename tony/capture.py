@@ -682,12 +682,24 @@ def _comparison_frame(record: dict[str, Any], scope: str) -> dict[str, Any]:
         raise CaptureDecodeError(f"unknown recording comparison scope: {scope}")
     input_record = record.get("input")
     action_mask = input_record.get("action_mask") if isinstance(input_record, dict) else None
+
+    def without_process_identity(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: without_process_identity(item)
+                for key, item in value.items()
+                if key != "player_address"
+            }
+        if isinstance(value, list):
+            return [without_process_identity(item) for item in value]
+        return value
+
     return {
         "type": "frame",
         "frame": record.get("frame"),
         "input": {"action_mask": action_mask},
-        "before": record.get("before"),
-        "after": record.get("after"),
+        "before": without_process_identity(record.get("before")),
+        "after": without_process_identity(record.get("after")),
     }
 
 
@@ -785,11 +797,15 @@ def _wine_path(path: Path, environment: dict[str, str]) -> str:
         )
     except OSError as exc:
         raise CaptureDecodeError(f"could not run winepath for {path}: {exc}") from exc
-    if result.returncode != 0 or not result.stdout.strip():
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if result.returncode != 0 or not lines:
         raise CaptureDecodeError(
             f"could not translate path for Wine: {path}\n{result.stdout.strip()}"
         )
-    return result.stdout.strip()
+    # A first use of a fresh prefix can print Wine's initialization notice to
+    # stdout before winepath's DOS path.  Only the final non-empty line is the
+    # path; accepting it keeps per-run isolated prefixes headless and usable.
+    return lines[-1]
 
 
 def _capture_desktop_spec() -> str:
@@ -838,6 +854,7 @@ def run_inproc_capture(
     force: bool = False,
     host: str | Path | None = None,
     dll: str | Path | None = None,
+    wine_prefix: str | Path | None = None,
 ) -> int:
     """Run the Windows host/injected recorder and convert its bounded output."""
 
@@ -857,7 +874,7 @@ def run_inproc_capture(
     except (CaptureDecodeError, KeyError, OSError) as exc:
         print(str(exc))
         return 1
-    environment = headless_wine_env()
+    environment = headless_wine_env(wine_prefix)
     command = [
         "wine",
         str(host_path),

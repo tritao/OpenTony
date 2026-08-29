@@ -447,6 +447,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--capture-host", help="path to opentony_capture_host.exe for --backend inproc")
     p.add_argument("--capture-dll", help="path to opentony_capture.dll for --backend inproc")
+    p.add_argument(
+        "--headless-prefix",
+        help="optional isolated Wine prefix for in-process capture qualification",
+    )
     p.add_argument("--session", help="named debug session")
     p.add_argument("--port", type=int)
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled")

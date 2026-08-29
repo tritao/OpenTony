@@ -351,6 +351,7 @@ def scenario_capture(args) -> int:
             force=bool(getattr(args, "force", False)),
             host=getattr(args, "capture_host", None),
             dll=getattr(args, "capture_dll", None),
+            wine_prefix=getattr(args, "headless_prefix", None),
         )
         if code or not _validated_scenario_recording(scenario, output):
             return code or 1
