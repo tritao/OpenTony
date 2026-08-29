@@ -181,7 +181,7 @@ def debug_game(args) -> int:
     generate_gdb_knowledge()
     cfg = load_yaml("re/config/wine.yml")["wine"]
     pid_arg = getattr(args, "pid", None)
-    headless_launch = pid_arg is None and cfg.get("debug_xvfb", True)
+    headless_launch = pid_arg is None and getattr(args, "headless_launch", cfg.get("debug_xvfb", True))
     session = create_session(getattr(args, "session", None), getattr(args, "port", None), isolated=headless_launch)
     port = session.port
     display = None

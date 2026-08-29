@@ -95,10 +95,12 @@ from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
 )
 
 
-def _level_debug_args(args, *, batch: bool) -> SimpleNamespace:
+def _level_debug_args(args, *, batch: bool, headless_launch: bool | None = None) -> SimpleNamespace:
     """Build debugger arguments for a frontend-driven level launch."""
 
     level = args.level
+    if headless_launch is False and (getattr(args, "screenshot", None) or getattr(args, "record", None)):
+        raise SystemExit("visual capture requires --headless")
     values = vars(args).copy()
     values.update(
         level=None,
@@ -113,6 +115,8 @@ def _level_debug_args(args, *, batch: bool) -> SimpleNamespace:
         ],
         gdb_batch=batch,
     )
+    if headless_launch is not None:
+        values["headless_launch"] = headless_launch
     return SimpleNamespace(**values)
 
 
@@ -134,7 +138,13 @@ def play_game(args) -> int:
     if mount_status:
         return mount_status
     if getattr(args, "level", None) is not None:
-        return debug_game(_level_debug_args(args, batch=True))
+        return debug_game(
+            _level_debug_args(
+                args,
+                batch=True,
+                headless_launch=bool(getattr(args, "headless", False)),
+            )
+        )
     return run_game(args)
 
 

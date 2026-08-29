@@ -41,6 +41,7 @@ def test_play_level_uses_frontend_debugger_path(monkeypatch):
     assert debug_args.level is None
     assert debug_args.pid is None
     assert debug_args.game_args == ["-fullscreen"]
+    assert debug_args.headless_launch is False
     assert debug_args.gdb_commands == [
         "tony-skip-movies",
         "tony-frontend-play 1 12",
@@ -70,6 +71,25 @@ def test_debug_level_uses_frontend_path_without_batching(monkeypatch):
     assert debug_args.gdb_batch is False
 
 
+def test_play_level_honors_headless(monkeypatch):
+    args = SimpleNamespace(level=12, game_args=[], headless=True)
+    captured = []
+
+    monkeypatch.setattr(commands, "_recorded_exe", lambda: None)
+    monkeypatch.setattr(commands, "wine_mount_disc", lambda value: 0)
+    monkeypatch.setattr(commands, "_debug_game", lambda value: captured.append(value) or 0)
+
+    assert commands.play_game(args) == 0
+    assert captured[0].headless_launch is True
+
+
+def test_visible_level_play_requires_headless_for_capture():
+    args = SimpleNamespace(level=12, game_args=[], headless=False, screenshot="frame.png")
+
+    with pytest.raises(SystemExit, match="visual capture requires --headless"):
+        commands._level_debug_args(args, batch=True, headless_launch=False)
+
+
 def test_debug_level_cannot_attach_to_existing_process():
     args = SimpleNamespace(level=12, pid="1234", game_args=[])
 
@@ -97,7 +117,7 @@ def test_run_uses_generated_nocd_executable(monkeypatch, tmp_path: Path):
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"]))
 
     assert result == 7
-    assert calls[0][0] == ["wine", "explorer", "/desktop=OpenTony,640x480", str(executable), "--fullscreen"]
+    assert calls[0][0] == ["wine", "explorer", "/desktop=OpenTony,1024x768", str(executable), "--fullscreen"]
     assert calls[0][1]["cwd"] == tmp_path
 
 
@@ -138,7 +158,7 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
         "headless-wrapper",
         "wine",
         "explorer",
-        "/desktop=OpenTony,640x480",
+        "/desktop=OpenTony,1024x768",
         str(executable),
         "--fullscreen",
     ]
