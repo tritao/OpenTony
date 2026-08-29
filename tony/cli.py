@@ -288,6 +288,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path")
     p.set_defaults(func=commands.record_validate)
 
+    capture = sub.add_parser("capture", help="decode and compare in-process capture artifacts")
+    capture_sub = capture.add_subparsers(dest="capture_command", required=True)
+    p = capture_sub.add_parser("decode", help="convert a fixed-layout .otcap into a JSONL .otrec")
+    p.add_argument("path")
+    p.add_argument("--output", required=True)
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=commands.capture_decode)
+    p = capture_sub.add_parser("compare", help="compare two JSONL recordings frame by frame")
+    p.add_argument("left")
+    p.add_argument("right")
+    p.set_defaults(func=commands.capture_compare)
+
     gdb = sub.add_parser("gdb", help="generate and inspect OpenTony GDB support files")
     gdb_sub = gdb.add_subparsers(dest="gdb_command", required=True)
     p = gdb_sub.add_parser("generate", help="generate GDB symbol knowledge from re/symbols")
@@ -385,6 +397,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = scenario_sub.add_parser("capture", help="capture a scenario from its manifest")
     p.add_argument("name")
     p.add_argument("--output", help="generated recording path; defaults under build/scenarios/")
+    p.add_argument(
+        "--backend",
+        choices=("gdb", "inproc", "hybrid"),
+        default="gdb",
+        help="capture backend (inproc uses the standalone Win32 recorder)",
+    )
+    p.add_argument("--capture-host", help="path to opentony_capture_host.exe for --backend inproc")
+    p.add_argument("--capture-dll", help="path to opentony_capture.dll for --backend inproc")
     p.add_argument("--session", help="named debug session")
     p.add_argument("--port", type=int)
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled")

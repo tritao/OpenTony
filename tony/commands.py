@@ -19,6 +19,7 @@ from .assets import (
     assets_inspect_trg,  # noqa: F401 - command handlers are consumed by cli.py
     assets_inventory,  # noqa: F401 - command handlers are consumed by cli.py
 )
+from .capture import CaptureDecodeError, compare_recordings, convert_capture
 from .common import capture, load_yaml, resolve, sha256
 from .debug import debug_game as _debug_game
 from .explorer import assets_explore  # noqa: F401 - command handlers are consumed by cli.py
@@ -100,6 +101,28 @@ from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
     worktree_prepare,
     worktree_verify,
 )
+
+
+def capture_decode(args) -> int:
+    """Decode one bounded .otcap file into the established .otrec format."""
+
+    try:
+        summary = convert_capture(args.path, args.output, force=bool(getattr(args, "force", False)))
+    except CaptureDecodeError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
+
+
+def capture_compare(args) -> int:
+    """Compare two JSONL recordings at canonical frame boundaries."""
+
+    try:
+        result = compare_recordings(args.left, args.right)
+    except CaptureDecodeError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["equal"] else 1
 
 
 def _level_debug_args(args, *, batch: bool, headless_launch: bool | None = None) -> SimpleNamespace:

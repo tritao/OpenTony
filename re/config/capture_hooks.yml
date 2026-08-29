@@ -1,0 +1,23 @@
+version: 1
+build:
+  sha256: f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669
+  image_base: 0x00400000
+  pe_timestamp: 978633206
+  machine: i386
+  mode: observation-only
+hooks:
+  physics_frame:
+    rva: 0x0009e680
+    expected: "81 ec c0 00 00 00"
+    overwrite: 6
+    status: verified
+  input_boundary:
+    rva: 0x00069de0
+    expected: "57 e8 4a fc ff ff"
+    overwrite: 6
+    status: verified
+  timer_update:
+    rva: 0x0006a0f0
+    expected: "e8 3b ea ff ff e8 26 e4 ff ff"
+    overwrite: 10
+    status: verified

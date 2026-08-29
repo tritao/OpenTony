@@ -340,6 +340,23 @@ def scenario_capture(args) -> int:
     scenario = _load_cli_scenario(args.name)
     output = resolve(args.output) if getattr(args, "output", None) else scenario_recording_path(scenario)
     output.parent.mkdir(parents=True, exist_ok=True)
+    backend = getattr(args, "backend", "gdb")
+    if backend == "inproc":
+        from .capture import run_inproc_capture
+
+        print(f"capturing scenario {scenario['_id']} with in-process recorder -> {output}")
+        code = run_inproc_capture(
+            scenario,
+            output,
+            force=bool(getattr(args, "force", False)),
+            host=getattr(args, "capture_host", None),
+            dll=getattr(args, "capture_dll", None),
+        )
+        if code or not _validated_scenario_recording(scenario, output):
+            return code or 1
+        return 0
+    if backend == "hybrid":
+        raise SystemExit("hybrid capture is reserved for same-run shadow qualification (M3)")
     from .commands import _level_debug_args
     from .debug import debug_game as launch_debug
 
