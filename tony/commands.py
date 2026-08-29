@@ -20,7 +20,7 @@ from .assets import (
     assets_inventory,  # noqa: F401 - command handlers are consumed by cli.py
 )
 from .common import capture, load_yaml, resolve, sha256
-from .debug import debug_game
+from .debug import debug_game as _debug_game
 from .explorer import assets_explore  # noqa: F401 - command handlers are consumed by cli.py
 from .gdb_knowledge import generate as generate_gdb_knowledge
 from .ghidra_setup import install_ghidra
@@ -95,6 +95,37 @@ from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
 )
 
 
+def _level_debug_args(args, *, batch: bool) -> SimpleNamespace:
+    """Build debugger arguments for a frontend-driven level launch."""
+
+    level = args.level
+    values = vars(args).copy()
+    values.update(
+        level=None,
+        pid=None,
+        game_args=list(getattr(args, "game_args", ())),
+        gdb_commands=[
+            "tony-skip-movies",
+            f"tony-frontend-play 1 {level}",
+            "tony-frontend-confirm",
+            *getattr(args, "gdb_commands", ()),
+            *(("continue",) if batch else ()),
+        ],
+        gdb_batch=batch,
+    )
+    return SimpleNamespace(**values)
+
+
+def debug_game(args) -> int:
+    """Launch a debug session, optionally selecting a level through the frontend."""
+
+    if getattr(args, "level", None) is None:
+        return _debug_game(args)
+    if getattr(args, "pid", None) is not None:
+        raise SystemExit("--level requires a debugger-launched game; omit --pid")
+    return _debug_game(_level_debug_args(args, batch=False))
+
+
 def play_game(args) -> int:
     """Mount the generated disc when needed, then launch the recorded game."""
 
@@ -102,6 +133,8 @@ def play_game(args) -> int:
     mount_status = wine_mount_disc(args)
     if mount_status:
         return mount_status
+    if getattr(args, "level", None) is not None:
+        return debug_game(_level_debug_args(args, batch=True))
     return run_game(args)
 
 

@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from . import __version__, commands
+from .levels import parse_level
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -221,6 +222,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--headless", action="store_true", help="run inside the configured Xvfb software-rendering display")
     p.add_argument("--screenshot", metavar="PATH", help="capture the isolated display immediately after launch")
     p.add_argument("--record", metavar="PATH", help="record the isolated display until the game exits")
+    p.add_argument(
+        "--level",
+        type=parse_level,
+        metavar="NAME|INDEX",
+        help="launch through the frontend directly into a level (name or index 0-12)",
+    )
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.play_game)
 
@@ -249,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="named debug session; omitted generates a unique session")
     p.add_argument("--port", type=int)
     p.add_argument("--pid", help="attach to a PID, or use 'auto' to find the running game")
+    p.add_argument(
+        "--level",
+        type=parse_level,
+        metavar="NAME|INDEX",
+        help="launch through the frontend directly into a level (name or index 0-12)",
+    )
     p.add_argument("game_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=commands.debug_game)
 
@@ -389,6 +402,9 @@ def parse_args(argv=None) -> argparse.Namespace:
                 index += 1
                 continue
             if value in {"--screenshot", "--record"}:
+                index += 2
+                continue
+            if value == "--level":
                 index += 2
                 continue
             args.game_args.append(value)

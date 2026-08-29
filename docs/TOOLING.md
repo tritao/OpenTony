@@ -53,6 +53,18 @@ For headless smoke tests, Xvfb provides a completely separate display:
 tony play --headless
 ```
 
+Launch through the real frontend directly into a level with a known name or
+its numeric index:
+
+```bash
+tony play --level warehouse
+tony debug --level 12
+```
+
+Level launches use the same frontend automation as retail replay; numeric
+indices from `0` through `12` are accepted, and the currently named aliases
+are `hangar` (`0`) and `warehouse` (`12`).
+
 The game is rendered into that display even though it is not shown on the host desktop. OpenTony prints the temporary `DISPLAY` and `XAUTHORITY` values, and can capture the frame or record the session:
 
 ```bash

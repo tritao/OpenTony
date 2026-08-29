@@ -137,6 +137,28 @@ def test_debug_pid_auto_parse():
     assert callable(args.func)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("hangar", 0), ("WAREHOUSE", 12), ("12", 12), ("0xc", 12)],
+)
+def test_level_parse(value, expected):
+    for command in ("play", "debug"):
+        args = parse_args([command, "--level", value])
+        assert args.level == expected
+        assert args.game_args == []
+
+
+def test_level_parse_rejects_unknown_level():
+    with pytest.raises(SystemExit):
+        parse_args(["play", "--level", "mall"])
+
+
+def test_level_game_argument_requires_separator():
+    args = parse_args(["play", "--", "--level", "warehouse"])
+    assert args.level is None
+    assert args.game_args == ["--level", "warehouse"]
+
+
 def test_debug_session_parse():
     args = build_parser().parse_args(["debug", "--session", "warehouse", "--port", "31340"])
     assert args.session == "warehouse"

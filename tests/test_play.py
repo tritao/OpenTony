@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from tony import commands, common, wine
 from tony.cli import parse_args
 
@@ -18,8 +20,61 @@ def test_play_mounts_before_running(monkeypatch):
 
 
 def test_play_forwards_option_arguments():
-    args = parse_args(["play", "--fullscreen", "--level", "warehouse"])
-    assert args.game_args == ["--fullscreen", "--level", "warehouse"]
+    args = parse_args(["play", "--fullscreen", "--quality", "high"])
+    assert args.game_args == ["--fullscreen", "--quality", "high"]
+
+
+def test_play_level_uses_frontend_debugger_path(monkeypatch):
+    events = []
+    args = SimpleNamespace(level=12, game_args=["-fullscreen"], headless=False)
+
+    monkeypatch.setattr(commands, "_recorded_exe", lambda: events.append("identity"))
+    monkeypatch.setattr(commands, "wine_mount_disc", lambda value: events.append(("mount", value)))
+    monkeypatch.setattr(
+        commands,
+        "_debug_game",
+        lambda value: events.append(("debug", value)) or 17,
+    )
+
+    assert commands.play_game(args) == 17
+    debug_args = events[-1][1]
+    assert debug_args.level is None
+    assert debug_args.pid is None
+    assert debug_args.game_args == ["-fullscreen"]
+    assert debug_args.gdb_commands == [
+        "tony-skip-movies",
+        "tony-frontend-play 1 12",
+        "tony-frontend-confirm",
+        "continue",
+    ]
+    assert debug_args.gdb_batch is True
+
+
+def test_debug_level_uses_frontend_path_without_batching(monkeypatch):
+    events = []
+    args = SimpleNamespace(level=12, pid=None, game_args=[], gdb_commands=[])
+
+    monkeypatch.setattr(
+        commands,
+        "_debug_game",
+        lambda value: events.append(value) or 0,
+    )
+
+    assert commands.debug_game(args) == 0
+    debug_args = events[0]
+    assert debug_args.gdb_commands == [
+        "tony-skip-movies",
+        "tony-frontend-play 1 12",
+        "tony-frontend-confirm",
+    ]
+    assert debug_args.gdb_batch is False
+
+
+def test_debug_level_cannot_attach_to_existing_process():
+    args = SimpleNamespace(level=12, pid="1234", game_args=[])
+
+    with pytest.raises(SystemExit, match="requires a debugger-launched game"):
+        commands.debug_game(args)
 
 
 def test_play_strips_argument_separator():
