@@ -743,9 +743,13 @@ void __cdecl ot_capture_physics_after(void) {
         return;
     }
     header = (CaptureHeader *)g_capture_buffer->mapping;
+    /* The return boundary is observed after the exact simulation-clock load.
+     * Keep this sample on the next frame, matching the GDB recorder's
+     * frame+1 post-physics assignment and allowing replay to apply it before
+     * that frame's entry deliveries. */
     if (!drain_pending_timer_samples(g_physics_frame_index) ||
-        !append_frame_timer_sample(
-            OTCAP_TIMER_PHASE_POST_PHYSICS, g_physics_frame_index)) {
+        !append_pending_timer_sample(
+            OTCAP_TIMER_PHASE_POST_PHYSICS, g_physics_frame_index + 1u)) {
         g_physics_frame_active = 0;
         return;
     }
@@ -1122,7 +1126,9 @@ static int create_trampoline(
     void **trampoline_out) {
     unsigned char *trampoline;
     long relative;
+    long absolute;
     uint32_t size;
+    uint32_t index;
 
     if (target == 0 || spec == 0 || spec->overwrite_size < 5u ||
         original == 0 || trampoline_out == 0 ||
@@ -1137,6 +1143,20 @@ static int create_trampoline(
     }
     memcpy(original, target, spec->overwrite_size);
     memcpy(trampoline, target, spec->overwrite_size);
+    /* Relocate rel32 call/jump instructions copied into the trampoline.
+     * Several verified seams begin with one or more relative calls; leaving
+     * their original displacement intact would make the relocated code jump
+     * to an address relative to the trampoline rather than the retail image. */
+    for (index = 0; index + 5u <= spec->overwrite_size; ++index) {
+        if (trampoline[index] != 0xe8 && trampoline[index] != 0xe9) {
+            continue;
+        }
+        memcpy(&relative, trampoline + index + 1u, sizeof(relative));
+        absolute = (long)(target + index + 5u) + relative;
+        relative = absolute - (long)(trampoline + index + 5u);
+        memcpy(trampoline + index + 1u, &relative, sizeof(relative));
+        index += 4u;
+    }
     trampoline[spec->overwrite_size] = 0xe9;
     relative = (long)(target + spec->overwrite_size -
         (trampoline + spec->overwrite_size + 5u));

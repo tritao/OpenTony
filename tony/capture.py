@@ -536,6 +536,10 @@ def convert_capture(source: str | Path, output: str | Path, *, force: bool = Fal
         "player_identity": {"slot": 0},
         "initial_timer_state": capture["initial_timer_state"],
     }
+    frame_records = [
+        {"type": "frame", **frame}
+        for frame in capture["frames"]
+    ]
     records = [{
         "type": "header",
         "format": "opentony-retail-recording-v1",
@@ -546,7 +550,7 @@ def convert_capture(source: str | Path, output: str | Path, *, force: bool = Fal
         "type": "initial_state",
         "frame": 0,
         "state": capture["frames"][0]["before"] if capture["frames"] else {},
-    }, *capture["frames"], {
+    }, *frame_records, {
         "type": "end",
         "format": "opentony-retail-recording-v1",
         "recording_id": metadata["recording_id"],

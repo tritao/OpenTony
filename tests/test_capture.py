@@ -175,6 +175,7 @@ def test_capture_conversion_keeps_otrec_contract(tmp_path):
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert records[0]["capture_schema_version"] == 2
     assert records[1]["type"] == "initial_state"
+    assert records[2]["type"] == "frame"
     assert records[-1] == {
         "complete": True,
         "format": "opentony-retail-recording-v1",
@@ -269,6 +270,8 @@ def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
     assert "g_physics_trampoline" in source
     assert "ot_capture_physics_before" in source
     assert "ot_capture_physics_after" in source
+    assert "Relocate rel32 call/jump instructions" in source
+    assert "trampoline[index] != 0xe8" in source
     assert "pushad" in source
     assert "call dword ptr [g_physics_trampoline]" in source
     assert "target[0] = 0xe9" in source
@@ -298,6 +301,7 @@ def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
     assert "OTCAP_TIMER_STATE_ADDRESS" in source
     assert "OTCAP_TIMER_SIMULATION_ACCUMULATOR_ADDRESS" in source
     assert "g_frame_timer_samples" in source
+    assert "OTCAP_TIMER_PHASE_POST_PHYSICS, g_physics_frame_index + 1u" in source
 
 
 def test_frontend_detours_reuse_verified_bootstrap_boundaries():

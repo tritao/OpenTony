@@ -28,14 +28,16 @@ applies the configured level at the launch seam, and supplies the same
 keyboard-edge pulses used by the GDB frontend commands. Every frontend seam is
 covered by the same RVA/expected-byte manifest and is installed transactionally
 with the gameplay hooks.
-The DLL copies the original prologues into executable trampolines, patches the
-entries with relative jumps, and captures one `0x3210` player blob immediately
-before and after the original physics function.  At the post-poll boundary it
-applies the same low-word action mask that `tony-action-edge` writes, using the
-fixed scenario intervals in the shared config.  The timer detour samples the
-callback-owned counter, accumulators, and pause gates at the timer-update and
-simulation-clock-read boundaries and stores those fixed-size observations in
-each frame.  The offline
+The DLL copies the original prologues into executable trampolines, relocates
+any copied `rel32` calls/jumps, patches the entries with relative jumps, and
+captures one `0x3210` player blob immediately before and after the original
+physics function.  At the post-poll boundary it applies the same low-word
+action mask that `tony-action-edge` writes, using the fixed scenario intervals
+in the shared config.  The timer detour samples the callback-owned counter,
+accumulators, and pause gates at the timer-update and simulation-clock-read
+boundaries and stores those fixed-size observations in each frame.  A
+post-physics sample is assigned to the following frame, matching the GDB
+recorder's return-boundary semantics.  The offline
 decoder infers completed deliveries from counter deltas (deferring a torn
 callback when the simulation accumulator proves it is still in flight), which
 produces the same causal event metadata as the GDB sampler.  The wrappers
