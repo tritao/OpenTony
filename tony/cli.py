@@ -234,12 +234,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=commands.replay_retail)
     p = replay_sub.add_parser("native", help="replay one recording through the native gameplay session")
     p.add_argument("path")
-    p.add_argument(
-        "--mode",
-        choices=("assisted", "strict"),
-        default="assisted",
-        help="replay contract: inject unresolved native seams or disable their captured inputs",
-    )
     p.add_argument("--trg", help="native level trigger asset; defaults to Warehouse")
     p.add_argument("--psx", help="native level collision/scene asset; defaults to Warehouse")
     p.add_argument("--asset-root", help="native asset directory; defaults to build/assets/all-pkr/files/data")

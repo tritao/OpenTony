@@ -158,6 +158,7 @@ int main() {
     GroundMotionInput animation_event{};
     animation_event.animation_event_enabled = true;
     animation_event.animation_state = 1;
+    animation_event.animation_finished = true;
     const auto animation_event_result =
         player.apply_ground_motion(animation_event);
     CHECK(animation_event_result.animation_event_written);

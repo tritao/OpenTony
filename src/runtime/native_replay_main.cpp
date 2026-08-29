@@ -65,7 +65,17 @@ struct ReplayFrame final {
     bool ground_motion_threshold_available{};
     std::int32_t ground_motion_threshold_roll{};
     bool ground_motion_threshold_blocked{};
+    bool ground_motion_rearm_random_available{};
+    std::int32_t ground_motion_rearm_random_roll{};
     std::int32_t ground_surface_recovery_delta_q11{};
+    bool state_two_motion_random_available{};
+    std::int32_t state_two_motion_random{};
+    bool ground_surface_response_random_available{};
+    std::int32_t ground_surface_response_cap_random{};
+    std::int32_t ground_surface_response_capped_random{};
+    std::int32_t ground_surface_response_target_random{};
+    std::int32_t ground_surface_response_denominator_random{};
+    bool ground_surface_response_capped_random_available{};
 };
 
 template <typename T>
@@ -194,8 +204,32 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "ground motion threshold random");
     frame.ground_motion_threshold_blocked =
         read_value<std::uint8_t>(input, "ground motion threshold mode") != 0;
+    frame.ground_motion_rearm_random_available =
+        read_value<std::uint8_t>(
+            input, "ground motion rearm random availability") != 0;
+    frame.ground_motion_rearm_random_roll = read_value<std::int32_t>(
+        input, "ground motion rearm random");
     frame.ground_surface_recovery_delta_q11 = read_value<std::int32_t>(
         input, "ground surface recovery timing delta");
+    frame.state_two_motion_random_available =
+        read_value<std::uint8_t>(
+            input, "state-two motion random availability") != 0;
+    frame.state_two_motion_random = read_value<std::int32_t>(
+        input, "state-two motion random");
+    frame.ground_surface_response_random_available =
+        read_value<std::uint8_t>(
+            input, "ground surface response random availability") != 0;
+    frame.ground_surface_response_cap_random = read_value<std::int32_t>(
+        input, "ground surface response cap random");
+    frame.ground_surface_response_capped_random = read_value<std::int32_t>(
+        input, "ground surface response capped random");
+    frame.ground_surface_response_target_random = read_value<std::int32_t>(
+        input, "ground surface response target random");
+    frame.ground_surface_response_denominator_random = read_value<std::int32_t>(
+        input, "ground surface response denominator random");
+    frame.ground_surface_response_capped_random_available =
+        read_value<std::uint8_t>(
+            input, "ground surface response capped random availability") != 0;
     return frame;
 }
 
@@ -293,8 +327,16 @@ int run(int argc, char** argv) {
     // recovered grounded correction producer so native replay exercises the
     // same animation-5e scale-8 correction that retail writes at frame 7.
     config.apply_ground_motion = true;
+    config.apply_ground_motion_control = true;
+    config.ground_motion_surface_response_metric = -0x4cd;
     config.ground_motion_profile_table_value_nonzero = true;
+    config.ground_motion_animation_event_enabled = true;
     config.classify_retail_air_contacts = true;
+    // Warehouse's live collision-query startup leaves the 0x00200000
+    // rejection bit clear.  The generic session default is intentionally
+    // conservative, but retaining it here rejects the sloped recovery face
+    // selected by the recorded 0x00496fd7 query.
+    config.collision_query_options.reject_mask = 0;
     GameplaySession session(
         trg.string(),
         psx.string(),
@@ -302,6 +344,15 @@ int run(int argc, char** argv) {
         opentony::runtime::PlayerState{},
         config);
     session.initialize();
+    // Warehouse's common-air path runs FUN_0049c330 even though the separate
+    // FUN_00497df0 gravity gate is clear. Supply the recovered world-up
+    // service so the native basis follows the same eleven-unit roll stream.
+    session.physics_hooks().air_upright_input = [](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&) {
+        return std::optional<opentony::runtime::FixedPosition>{
+            opentony::runtime::FixedPosition{0, -0x1000, 0}};
+    };
     // The Warehouse player-frame fixture identifies the player's +0x29b7
     // grounded turn profile as 1 (the 0x78 branch). This is configuration,
     // not an inferred replacement for the recorded frame state.
@@ -312,6 +363,31 @@ int run(int argc, char** argv) {
     session.physics_hooks().apply_ground_basis_correction = true;
     session.physics_hooks().apply_ground_basis_forward_term = true;
     session.physics_hooks().apply_ground_surface_recovery = true;
+    // Warehouse's ordinary wall result enters FUN_0049bad0 with the raw
+    // 0x110 surface class. Its inward response and heading rewrite occur
+    // before the shared ground tail; keep those caller-owned gates explicit.
+    session.physics_hooks().collision_response_bias_q12 = [](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::PositionCollisionHit& hit,
+        opentony::runtime::PhysicsDispatchStage stage)
+        -> std::optional<std::int32_t> {
+        if (stage == opentony::runtime::PhysicsDispatchStage::GroundCollision_96550
+            && hit.surface_flags == 0x0110) {
+            return 0xcd;
+        }
+        return std::nullopt;
+    };
+    session.physics_hooks().collision_orientation_yaw = [](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::PositionCollisionHit& hit,
+        opentony::runtime::PhysicsDispatchStage stage)
+        -> std::optional<std::int32_t> {
+        if (stage == opentony::runtime::PhysicsDispatchStage::GroundCollision_96550
+            && hit.surface_flags == 0x0110) {
+            return 0x19;
+        }
+        return std::nullopt;
+    };
     opentony::runtime::AnimationCursor animation = initial.animation;
     const opentony::assets::PsxAnimationTable animation_table =
         opentony::assets::PsxAnimationTable::load(
@@ -319,6 +395,57 @@ int run(int argc, char** argv) {
     const opentony::runtime::AnimationTableView animation_view{
         animation_table.frame_counts()};
     const ReplayFrame* active_frame = nullptr;
+    session.physics_hooks().ground_motion_input = [&active_frame, &animation](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&,
+        const opentony::runtime::ActionProfileState&) {
+        opentony::runtime::GroundMotionInput input{};
+        input.producer_enabled = true;
+        input.apply_control_side_effects = true;
+        input.surface_response_metric = -0x4cd;
+        input.profile_table_value_nonzero = true;
+        input.animation_event_enabled = true;
+        input.animation_finished = animation.finished;
+        if (active_frame != nullptr) {
+            input.rearm_random_available =
+                active_frame->ground_motion_rearm_random_available;
+            input.rearm_random_roll = active_frame->ground_motion_rearm_random_roll;
+        }
+        // Negative values request the frame to fill the verified live
+        // response metric and threshold from PlayerState.
+        input.response_speed_metric = -1;
+        input.response_speed_threshold = -1;
+        return std::optional<opentony::runtime::GroundMotionInput>{input};
+    };
+    session.physics_hooks().on_ground_motion_event = [
+        &animation,
+        animation_view
+    ](
+        opentony::runtime::PlayerState& player,
+        const opentony::runtime::GroundMotionResult& result) {
+        // FUN_0049b010's +0x107 animation event changes animation 1 to
+        // animation 3 before the ground collision dispatcher runs. Preserve
+        // that producer boundary so the later B010 branch sees the new pose.
+        if (result.event_reason != 0x2531 || animation.frame < 9) {
+            return;
+        }
+        opentony::runtime::GroundAnimationRequest request{};
+        request.issued = true;
+        request.wrapper =
+            opentony::runtime::GroundAnimationRequestWrapper::Start;
+        request.animation = 3;
+        request.start = 0;
+        // B010 has already written the animation speed at +0x108. The
+        // animation-event wrapper preserves that 0x14000 rate here.
+        request.resets_rate = false;
+        static_cast<void>(opentony::runtime::apply_ground_animation_request(
+            animation,
+            animation_view,
+            request));
+        animation.rate = static_cast<std::uint32_t>(result.animation_speed);
+        player.set_animation_state(animation.id);
+        player.set_animation_frame(animation.frame);
+    };
     session.physics_hooks().on_ollie_animation_request = [
         &animation,
         animation_view
@@ -379,6 +506,10 @@ int run(int argc, char** argv) {
             active_frame->damping_component_y,
             active_frame->damping_component_z,
         };
+        // Warehouse resolves +0x2cc4 to mode-table entry 0, whose value is
+        // 1. FUN_0049d480 therefore skips its fine/coarse idle-decay tail;
+        // the cap and randomized-decay phases above remain active.
+        input.apply_idle_decay = false;
         return std::optional<opentony::runtime::VelocityDampingInput>{input};
     };
     session.physics_hooks().motion_correction_input = [&active_frame](
@@ -409,6 +540,20 @@ int run(int argc, char** argv) {
         input.control_enabled = active_frame->air_control_enabled;
         return std::optional<opentony::runtime::AirActionControlConfig>{input};
     };
+    session.physics_hooks().state_two_motion_input = [&active_frame](
+        const opentony::runtime::PlayerState& player,
+        const opentony::runtime::InputState&) {
+        if (active_frame == nullptr
+            || player.physics_state() != 2
+            || !active_frame->state_two_motion_random_available) {
+            return std::optional<opentony::runtime::AirSpeedConfig>{};
+        }
+        opentony::runtime::AirSpeedConfig input{};
+        input.stat_value = 100;
+        input.physics_state = 2;
+        input.state_two_random = active_frame->state_two_motion_random;
+        return std::optional<opentony::runtime::AirSpeedConfig>{input};
+    };
     session.physics_hooks().air_gravity_acceleration_input = [&active_frame](
         const opentony::runtime::PlayerState&,
         const opentony::runtime::InputState&) {
@@ -429,6 +574,22 @@ int run(int argc, char** argv) {
             opentony::runtime::GroundMotionThresholdInput{
                 active_frame->ground_motion_threshold_roll,
                 active_frame->ground_motion_threshold_blocked,
+            }};
+    };
+    session.physics_hooks().ground_surface_response_input = [&active_frame](
+        const opentony::runtime::PlayerState&,
+        const opentony::runtime::InputState&) {
+        if (active_frame == nullptr
+            || !active_frame->ground_surface_response_random_available) {
+            return std::optional<opentony::runtime::GroundSurfaceResponseInput>{};
+        }
+        return std::optional<opentony::runtime::GroundSurfaceResponseInput>{
+            opentony::runtime::GroundSurfaceResponseInput{
+                active_frame->ground_surface_response_cap_random,
+                active_frame->ground_surface_response_capped_random,
+                active_frame->ground_surface_response_target_random,
+                active_frame->ground_surface_response_denominator_random,
+                active_frame->ground_surface_response_capped_random_available,
             }};
     };
     apply_initial_state(session, initial);
@@ -453,6 +614,108 @@ int run(int argc, char** argv) {
             frame.vertical_axis,
             nullptr,
             frame.frame_scale_q8);
+        if (advance_result.stepped
+            && advance_result.last.physics.ground_motion.has_value()
+            && advance_result.last.physics.ground_motion->event_reason == 0x2570
+            && frame.ground_motion_rearm_random_available) {
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 1;
+            request.start = 0;
+            // The rearm writer stores +0x108 = 0x14000 before the selector
+            // request; preserve that event-owned playback rate.
+            request.resets_rate = false;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            animation.rate = static_cast<std::uint32_t>(
+                advance_result.last.physics.ground_motion->animation_speed);
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        } else if (advance_result.stepped
+                   && animation.finished
+                   && animation.id == 27
+                   && session.player().physics_state() == 1) {
+            // FUN_0049a480 seats the completed state-1 kick pose on animation
+            // 14 before the following in-air frame.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 14;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        } else if (advance_result.stepped
+                   && animation.finished
+                   && animation.id == 14
+                   && session.player().physics_state() == 0) {
+            // The grounded landing path's completed state-14 pose requests
+            // the ordinary rolling animation before the next frame.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 5;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
+        const auto& state_request = session.player().last_state_request();
+        if (state_request.from == 0
+            && state_request.to == 2
+            && state_request.reason == 0x1ac9) {
+            // FUN_004972df enters the collision-transient state and requests
+            // animation 14 from the completed animation-3 pose in the same
+            // frame. Keep this transition-owned animation handoff before
+            // advancing the cursor for the following frame.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 14;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        } else if (state_request.from == 0
+            && state_request.to == 1
+            && state_request.reason == 0x160b) {
+            // FUN_004956f0 enters RunAnim(27, 0, -1, -1) after its
+            // state-1 handoff. Keep the cursor update in this caller-owned
+            // animation service, while the state request remains produced by
+            // the collision path in PlayerPhysicsFrame.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 27;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
         write_snapshot(std::cout, frame, session);
     }
     return 0;

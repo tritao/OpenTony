@@ -15,11 +15,51 @@ namespace {
     return -(((-value) + 3) / 4);
 }
 
+[[nodiscard]] std::int32_t wrap32(std::int64_t value) noexcept {
+    return static_cast<std::int32_t>(
+        static_cast<std::uint32_t>(value));
+}
+
+[[nodiscard]] std::int32_t multiply32(
+    std::int32_t left,
+    std::int32_t right) noexcept {
+    return wrap32(static_cast<std::int64_t>(left) * right);
+}
+
+[[nodiscard]] std::int32_t divide32(
+    std::int32_t numerator,
+    std::int32_t denominator) noexcept {
+    return denominator == 0 ? 0 : numerator / denominator;
+}
+
 } // namespace
 
 void PlayerState::request_physics_state(
     std::int32_t state,
     std::uint32_t reason) noexcept {
+    request_physics_state_from_basis(
+        state,
+        reason,
+        retail_basis_.at_30f4);
+}
+
+void PlayerState::request_physics_state_from_basis(
+    std::int32_t state,
+    std::uint32_t reason,
+    const FixedPosition& transition_basis) noexcept {
+    // FUN_004900b0 has a transition-owned side effect when a non-state-2
+    // handler enters raw state 2: it copies the current +30f4 basis vector to
+    // +3118, scales each component by 0x32c8/0x1000, and negates it.  That
+    // vector is consumed by the following state-2 surface response; keeping
+    // the write on the transition preserves its causal boundary.
+    if (state == 2 && physics_state_ != 2) {
+        ground_surface_response_correction_[0] =
+            -fixed_multiply_q12(transition_basis[0], 0x32c8);
+        ground_surface_response_correction_[1] =
+            fixed_multiply_q12(transition_basis[1], 0x32c8);
+        ground_surface_response_correction_[2] =
+            -fixed_multiply_q12(transition_basis[2], 0x32c8);
+    }
     last_state_request_ = PhysicsStateRequest{
         physics_state_,
         state,
@@ -49,6 +89,10 @@ void PlayerState::apply_restart(
     orientation_ = q12_restart_matrix(auxiliary);
     retail_basis_ = retail_basis_from_matrix(orientation_);
     ground_surface_recovery_target_ = retail_basis_.at_310c;
+    ground_surface_recovery_base_ = retail_basis_.at_310c;
+    ground_surface_response_correction_ = {};
+    ground_surface_response_normal_ = retail_basis_.at_310c;
+    ground_surface_response_mode_ = 0;
     ground_surface_recovery_progress_q11_ = 0;
     orientation_basis_normalization_pending_ = true;
     ground_turn_saved_orientation_ = orientation_;
@@ -398,6 +442,45 @@ AirMotionBasisResult PlayerState::update_air_motion_basis() noexcept {
     return result;
 }
 
+void PlayerState::apply_upright_correction(
+    const FixedPosition& global_up) noexcept {
+    // FUN_0049c330 crosses the current forward axis with the shared up
+    // vector, then takes the Q12 dot with the candidate air direction. The
+    // small fixed roll is selected only outside the +/-0x29 deadband.
+    const FixedPosition turn_axis = q12_cross(
+        retail_basis_.at_30f4,
+        global_up);
+    const std::int32_t alignment = fixed_dot_q12(
+        turn_axis,
+        air_motion_);
+    std::int32_t angle = 0;
+    if (alignment > 0x29) {
+        angle = 0xb;
+    } else if (alignment < -0x29) {
+        angle = -0xb;
+    }
+
+    if (angle != 0) {
+        // FUN_004e80e0 builds this as the local Z-axis rotation and
+        // FUN_004e3130 multiplies it on the right of the current matrix.
+        // Reuse its exact truncated Q12 sine/cosine values for the roll
+        // matrix rather than introducing a second trig implementation.
+        const Q12Matrix3 yaw = q12_yaw_matrix(angle);
+        Q12Matrix3 roll = q12_identity_matrix();
+        roll.at(0, 0) = yaw.at(0, 0);
+        roll.at(0, 1) = static_cast<std::int16_t>(-yaw.at(2, 0));
+        roll.at(1, 0) = yaw.at(2, 0);
+        roll.at(1, 1) = yaw.at(0, 0);
+        orientation_ = q12_matrix_multiply(orientation_, roll);
+    }
+
+    // The retail helper always republishes the short matrix through
+    // FUN_0049c7d0, including the deadband path.
+    retail_basis_ = retail_basis_from_matrix(orientation_);
+    air_motion_ = retail_basis_.at_310c;
+    orientation_basis_normalization_pending_ = false;
+}
+
 void PlayerState::normalize_orientation_basis() noexcept {
     if (!orientation_basis_normalization_pending_) {
         return;
@@ -464,7 +547,8 @@ AirActionControlResult PlayerState::apply_air_action_control(
 }
 
 bool PlayerState::accept_air_contact(
-    FixedPosition contact_position) noexcept {
+    FixedPosition contact_position,
+    FixedPosition contact_normal) noexcept {
     if (physics_state_ != 1 && physics_state_ != 3) {
         return false;
     }
@@ -472,6 +556,15 @@ bool PlayerState::accept_air_contact(
     // +0xbc. Retail's accepted-contact write changes the live position and
     // leaves that history value intact for the frame-end observation.
     position_ = contact_position;
+    // FUN_00498a66 publishes the accepted surface normal as the new air
+    // direction and rebuilds the [forward, right, normal] basis before the
+    // state request is observed by the outer frame.
+    apply_orientation_recovery(contact_normal, true);
+    // The following grounded frame continues recovery from this landing
+    // surface; do not compare it against the pre-airborne support target.
+    ground_surface_recovery_target_ = contact_normal;
+    ground_surface_recovery_base_ = retail_basis_.at_310c;
+    ground_surface_recovery_progress_q11_ = 0;
     request_physics_state(0, kLandingReason);
     return true;
 }
@@ -636,6 +729,103 @@ CollisionOrientationResult PlayerState::apply_collision_orientation(
     };
 }
 
+std::int32_t PlayerState::apply_ground_surface_response(
+    const GroundSurfaceResponseInput& input,
+    std::int32_t frame_scale_q8,
+    bool rotate_collision_response) noexcept {
+    // FUN_0049c060 uses the response speed metric for its cap. Its surface
+    // correction path consumes the same magnitude helper before the caller's
+    // fixed-point scale, so this value is the Q12 magnitude's high component.
+    std::int32_t response_metric = retail_vector_speed_metric(
+        collision_response_);
+    const std::int32_t correction_magnitude = retail_vector_magnitude_q12(
+        ground_surface_response_correction_);
+    const auto randomized_speed_limit = [](std::int32_t roll) noexcept {
+        return divide32(
+            multiply32(roll + 0x186, 0x2d000),
+            0x118);
+    };
+
+    const std::int32_t cap = randomized_speed_limit(input.cap_random);
+    if (cap < response_metric) {
+        response_metric = input.capped_response_random_available
+            ? randomized_speed_limit(input.capped_response_random)
+            : cap;
+    }
+    const std::int32_t randomized_target = randomized_speed_limit(
+        input.target_random);
+    const std::int32_t correction_factor = divide32(
+        multiply32(
+            multiply32(
+                divide32(
+                    multiply32(correction_magnitude, 0xc80),
+                    13000),
+                correction_magnitude),
+            0x40),
+        13000);
+    const std::int32_t numerator = multiply32(
+        randomized_target + 0x28 * 0x1000 - response_metric,
+        correction_factor);
+    const std::int32_t response_delta = divide32(
+        numerator,
+        randomized_speed_limit(input.denominator_random));
+    if (response_delta == 0) {
+        ground_surface_response_mode_ = 0;
+        return 0;
+    }
+
+    // FUN_0049c060 compares the current tangent against the cross-product
+    // heading and latches the sign until the surface response crosses the
+    // opposite threshold. The cross order is the retail scratch order.
+    const FixedPosition direction = q12_normalize(
+        ground_surface_response_correction_);
+    FixedPosition tangent = retail_basis_.at_30f4;
+    static_cast<void>(remove_normal_component(
+        tangent,
+        ground_surface_response_normal_));
+    const FixedPosition heading = q12_cross(
+        ground_surface_response_normal_,
+        direction);
+    const std::int32_t heading_dot = fixed_dot_q12(tangent, heading);
+
+    std::int32_t signed_delta = 0;
+    if (heading_dot < 0x2a) {
+        if (heading_dot < -0x29) {
+            if (ground_surface_response_mode_ != 1) {
+                signed_delta = response_delta;
+                ground_surface_response_mode_ = 2;
+            }
+        } else {
+            ground_surface_response_mode_ = 0;
+        }
+    } else if (ground_surface_response_mode_ != 2) {
+        signed_delta = -response_delta;
+        ground_surface_response_mode_ = 1;
+    }
+    if (signed_delta == 0) {
+        return 0;
+    }
+
+    const std::int32_t angle12 = fixed_scale_q8(
+        signed_delta,
+        frame_scale_q8);
+    if (angle12 != 0) {
+        const Q12Matrix3 old_orientation = orientation_;
+        orientation_ = q12_apply_ground_yaw(orientation_, angle12);
+        retail_basis_ = retail_basis_from_matrix(orientation_);
+        // FUN_0049b500's second phase is caller-selected. The state-0
+        // grounded path rotates the response vector; the transient state-2
+        // call only publishes the orientation/basis and passes param_3=0.
+        if (rotate_collision_response) {
+            collision_response_ = q12_rotate_ground_velocity(
+                collision_response_,
+                old_orientation,
+                angle12);
+        }
+    }
+    return angle12;
+}
+
 void PlayerState::apply_orientation_recovery(
     const FixedPosition& surface_normal,
     bool recovery_complete) noexcept {
@@ -646,19 +836,38 @@ void PlayerState::apply_orientation_recovery(
     if (!recovery_complete) {
         target = {};
         for (std::size_t index = 0; index < target.size(); ++index) {
-            target[index] = retail_basis_.at_310c[index]
+            target[index] = ground_surface_recovery_base_[index]
                 + arithmetic_shift_2(
-                    surface_normal[index] - retail_basis_.at_310c[index]);
+                    surface_normal[index] - ground_surface_recovery_base_[index]);
         }
     }
     target = q12_normalize(target);
 
-    // The retail object source is the current forward column (+2e5c,
-    // +2e62, +2e68), followed by current-forward x target and target x
-    // first-axis. Both cross products pass through the retail normalizer.
-    const FixedPosition right = q12_normalize(
-        q12_cross(retail_basis_.at_30f4, target));
-    const FixedPosition forward = q12_normalize(q12_cross(target, right));
+    // The retail object source is the signed-short current forward column
+    // (+2e5c, +2e62, +2e68). Keep the short publication boundary between the
+    // two cross products, as FUN_0049d080 does.
+    const FixedPosition current_forward{
+        orientation_.at(0, 2),
+        orientation_.at(1, 2),
+        orientation_.at(2, 2),
+    };
+    const FixedPosition target_short{
+        static_cast<std::int16_t>(target[0]),
+        static_cast<std::int16_t>(target[1]),
+        static_cast<std::int16_t>(target[2]),
+    };
+    const FixedPosition right_cross_raw = q12_cross(current_forward, target_short);
+    const FixedPosition right = q12_normalize(right_cross_raw);
+    // FUN_0049d080 normalizes the first cross product, but publishes the
+    // second cross product directly.  The raw second cross is already close
+    // to Q12 length; normalizing it again changes the low bits on sloped
+    // surfaces and consequently changes the lateral response projection.
+    const FixedPosition right_short{
+        static_cast<std::int16_t>(right[0]),
+        static_cast<std::int16_t>(right[1]),
+        static_cast<std::int16_t>(right[2]),
+    };
+    const FixedPosition forward = q12_cross(target_short, right_short);
 
     air_motion_ = target;
     retail_basis_ = RetailBasis{forward, right, target};
@@ -683,23 +892,30 @@ bool PlayerState::update_ground_surface_recovery(
         ground_surface_recovery_target_ = surface_normal;
         ground_surface_recovery_progress_q11_ = 0;
     } else {
-        // The collision routine may continue to report the same supporting
-        // face after its recovery branch has completed. Retail does not
-        // re-enter FUN_0049d080 for each of those ordinary support samples;
-        // preserve the one continuation sample that follows a new target
-        // and leave the published basis stable until a new normal arrives.
-        if (ground_surface_recovery_progress_q11_ != 0) {
-            return false;
+        // FUN_00496550 can present the same surface twice in one physics
+        // frame: the movement hit is followed by the recovery sweep. Retail
+        // advances the timer once per frame, not once per call, but both
+        // calls still enter FUN_0049d080 with the current progress value.
+        if (ground_surface_recovery_update_frame_ != frame_counter_) {
+            // DAT_0056a93c is a signed Q11 add in the retail object. Convert
+            // via unsigned arithmetic so wraparound remains the x86 result.
+            ground_surface_recovery_progress_q11_ = static_cast<std::int32_t>(
+                static_cast<std::uint32_t>(ground_surface_recovery_progress_q11_)
+                + static_cast<std::uint32_t>(delta_q11));
+            ground_surface_recovery_update_frame_ = frame_counter_;
         }
-        // DAT_0056a93c is a signed Q11 add in the retail object. Convert via
-        // unsigned arithmetic so wraparound remains the x86 32-bit result.
-        ground_surface_recovery_progress_q11_ = static_cast<std::int32_t>(
-            static_cast<std::uint32_t>(ground_surface_recovery_progress_q11_)
-            + static_cast<std::uint32_t>(delta_q11));
+    }
+    // FUN_0049d080 is still entered by the caller after the progress update,
+    // but its own gate accepts only progress <= 0x18000. At the first sample
+    // above that limit it leaves the already-published basis and recovery base
+    // untouched while retaining the accumulated progress value.
+    if (ground_surface_recovery_progress_q11_ >= 0x18001) {
+        return false;
     }
     apply_orientation_recovery(
         surface_normal,
         ground_surface_recovery_progress_q11_ == 0x18000);
+    ground_surface_recovery_base_ = retail_basis_.at_310c;
     return target_changed;
 }
 

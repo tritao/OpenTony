@@ -10,12 +10,7 @@ from typing import Any
 from .common import resolve
 from .recording import validate_recording
 
-REPLAY_MODES = ("assisted", "strict")
-NATIVE_REPLAY_WIRE_VERSION = 5
-_DERIVED_NATIVE_CHANNELS = (
-    "motion_correction",
-    "response_correction",
-)
+NATIVE_REPLAY_WIRE_VERSION = 7
 
 
 def _signed(value: int, bits: int) -> int:
@@ -112,12 +107,7 @@ def _initial_wire(snapshot: dict[str, Any]) -> str:
     return "init " + " ".join(str(value) for value in values)
 
 
-def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
-    if mode not in REPLAY_MODES:
-        raise ValueError(
-            f"unsupported native replay mode {mode!r}; "
-            f"choose one of {', '.join(REPLAY_MODES)}"
-        )
+def _frame_wire(frame: dict[str, Any]) -> str:
     input_record = frame.get("input")
     if not isinstance(input_record, dict):
         raise TypeError(f"frame {frame.get('frame')} has no input record")
@@ -147,17 +137,6 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
     )
     random_by_purpose: dict[str, int] = {}
     events = frame.get("events", [])
-    if mode == "strict":
-        # Strict replay still consumes causal random draws. Only captured
-        # derived state is excluded; the native producers must recompute it.
-        events = [
-            event for event in events
-            if not isinstance(event, dict)
-            or event.get("type") not in {
-                "motion_correction_input",
-                "response_correction_input",
-            }
-        ] if isinstance(events, list) else []
     if isinstance(events, list):
         for event in events:
             if not isinstance(event, dict) or event.get("type") != "ollie_random_input":
@@ -185,6 +164,86 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
     )
     random_values = [random_by_purpose.get(purpose, 0) for purpose in random_purposes]
     random_available = int(bool(random_by_purpose))
+    surface_response_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("type") == "shared_random_call"
+        and event.get("caller") in {
+            "0x0049c0ec",
+            "0x0049c146",
+            "0x0049c182",
+        }
+    ] if isinstance(events, list) else []
+    surface_response_by_caller: dict[str, list[int]] = {}
+    for event in surface_response_events:
+        caller = event["caller"]
+        raw_roll = event.get("return_value_s32")
+        if not isinstance(raw_roll, int):
+            raise TypeError(
+                f"frame {frame_index} has an invalid ground surface response random event"
+            )
+        surface_response_by_caller.setdefault(caller, []).append(
+            _signed(raw_roll, 32)
+        )
+    if any(
+        len(values) > 1
+        for caller, values in surface_response_by_caller.items()
+        if caller != "0x0049c0ec"
+    ):
+        raise ValueError(
+            f"frame {frame_index} has duplicate ground surface response random events"
+        )
+    cap_randoms = surface_response_by_caller.get("0x0049c0ec", [])
+    target_randoms = surface_response_by_caller.get("0x0049c146", [])
+    denominator_randoms = surface_response_by_caller.get("0x0049c182", [])
+    if target_randoms and len(target_randoms) != 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate ground surface response target events"
+        )
+    if denominator_randoms and len(denominator_randoms) != 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate ground surface response denominator events"
+        )
+    if surface_response_events and (
+        len(cap_randoms) < 1
+        or len(target_randoms) != 1
+        or len(denominator_randoms) != 1
+    ):
+        raise ValueError(
+            f"frame {frame_index} has an incomplete ground surface response random set"
+        )
+    surface_response_available = int(bool(surface_response_events))
+    surface_response_values = (
+        surface_response_available,
+        cap_randoms[0] if cap_randoms else 0,
+        cap_randoms[1] if len(cap_randoms) > 1 else 0,
+        target_randoms[0] if target_randoms else 0,
+        denominator_randoms[0] if denominator_randoms else 0,
+        int(len(cap_randoms) > 1),
+    )
+    state_two_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("type") == "ground_motion_random_input"
+        and event.get("purpose") == "state_two_motion_seed"
+    ] if isinstance(events, list) else []
+    if len(state_two_events) > 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate state-two motion random events"
+        )
+    state_two_event = state_two_events[0] if state_two_events else None
+    state_two_random = (
+        _signed(int(state_two_event["raw_roll"]), 32)
+        if isinstance(state_two_event, dict)
+        and isinstance(state_two_event.get("raw_roll"), int)
+        else 0
+    )
+    state_two_motion_values = (
+        int(state_two_event is not None),
+        state_two_random,
+    )
     metric_event = next(
         (
             event
@@ -268,48 +327,13 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
             f"frame {frame_index} has an incomplete velocity damping component set"
         )
     damping_available = int(bool(damping_by_purpose or damping_components))
-    motion_events = [
-        event
-        for event in events
-        if isinstance(event, dict) and event.get("type") == "motion_correction_input"
-    ] if isinstance(events, list) else []
-    if len(motion_events) > 1:
-        raise ValueError(f"frame {frame_index} has duplicate motion correction events")
-    motion_event = motion_events[0] if motion_events else None
-    motion_values = (
-        motion_event.get("correction_s32")
-        if isinstance(motion_event, dict)
-        else None
-    )
-    if not isinstance(motion_values, list) or len(motion_values) != 3:
-        raw = motion_event.get("correction_raw") if isinstance(motion_event, dict) else None
-        motion_values = (
-            [_signed(int(value), 32) for value in raw]
-            if isinstance(raw, list) and len(raw) == 3
-            else [0, 0, 0]
-        )
-    motion_available = int(motion_event is not None and mode == "assisted")
-    response_events = [
-        event
-        for event in events
-        if isinstance(event, dict) and event.get("type") == "response_correction_input"
-    ] if isinstance(events, list) else []
-    if len(response_events) > 1:
-        raise ValueError(f"frame {frame_index} has duplicate response correction events")
-    response_event = response_events[0] if response_events else None
-    response_values = (
-        response_event.get("operand_s32")
-        if isinstance(response_event, dict)
-        else None
-    )
-    if not isinstance(response_values, list) or len(response_values) != 3:
-        raw = response_event.get("operand_raw") if isinstance(response_event, dict) else None
-        response_values = (
-            [_signed(int(value), 32) for value in raw]
-            if isinstance(raw, list) and len(raw) == 3
-            else [0, 0, 0]
-        )
-    response_available = int(response_event is not None and mode == "assisted")
+    # These fields remain in the wire layout for protocol compatibility, but
+    # strict replay never restores captured derived state. The native
+    # producers must create both values from causal inputs.
+    motion_available = 0
+    motion_values = [0, 0, 0]
+    response_available = 0
+    response_values = [0, 0, 0]
     before_snapshot = frame.get("before")
     physics_snapshot = (
         before_snapshot.get("physics")
@@ -356,6 +380,26 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
         isinstance(threshold_event, dict)
         and threshold_event.get("purpose") == "threshold_seed_0xdc"
     )
+    rearm_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("type") == "ground_motion_random_input"
+        and event.get("purpose") in {"random_seed_0xaa", "random_seed_0xdc"}
+    ] if isinstance(events, list) else []
+    if len(rearm_events) > 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate ground-motion rearm events"
+        )
+    rearm_event = rearm_events[0] if rearm_events else None
+    if rearm_event is not None and not isinstance(rearm_event.get("raw_roll"), int):
+        raise TypeError(
+            f"frame {frame_index} has an invalid ground-motion rearm event"
+        )
+    rearm_values = (
+        int(rearm_event is not None),
+        _signed(int(rearm_event["raw_roll"]), 32) if rearm_event is not None else 0,
+    )
     return "frame " + " ".join(
         str(value)
         for value in (
@@ -380,7 +424,10 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
             threshold_available,
             threshold_roll,
             threshold_blocked,
+            *rearm_values,
             ground_surface_recovery_delta_q11,
+            *state_two_motion_values,
+            *surface_response_values,
         )
     )
 
@@ -388,16 +435,9 @@ def _frame_wire(frame: dict[str, Any], *, mode: str = "assisted") -> str:
 def _wire_input(
     initial: dict[str, Any],
     frames: list[dict[str, Any]],
-    *,
-    mode: str = "assisted",
 ) -> str:
-    if mode not in REPLAY_MODES:
-        raise ValueError(
-            f"unsupported native replay mode {mode!r}; "
-            f"choose one of {', '.join(REPLAY_MODES)}"
-        )
     lines = [f"version {NATIVE_REPLAY_WIRE_VERSION}", _initial_wire(initial)]
-    lines.extend(_frame_wire(frame, mode=mode) for frame in frames)
+    lines.extend(_frame_wire(frame) for frame in frames)
     lines.append("end")
     return "\n".join(lines) + "\n"
 
@@ -483,12 +523,6 @@ def _level_paths(args, header: dict[str, Any]) -> tuple[Path, Path, Path]:
 
 
 def replay_native(args) -> int:
-    mode = getattr(args, "mode", "assisted")
-    if mode not in REPLAY_MODES:
-        raise SystemExit(
-            f"unsupported native replay mode {mode!r}; "
-            f"choose one of {', '.join(REPLAY_MODES)}"
-        )
     path = resolve(args.path)
     summary, errors = validate_recording(path)
     if errors:
@@ -512,7 +546,7 @@ def replay_native(args) -> int:
     try:
         result = subprocess.run(
             [str(binary), str(trg), str(psx), str(asset_root)],
-            input=_wire_input(initial_records[0]["state"], frames, mode=mode),
+            input=_wire_input(initial_records[0]["state"], frames),
             text=True,
             capture_output=True,
             check=False,
@@ -539,7 +573,7 @@ def replay_native(args) -> int:
             "format": "opentony-native-replay-v1",
             "recording": str(path),
             "recording_id": header.get("recording_id"),
-            "mode": mode,
+            "mode": "strict",
         }
     ]
     difference: tuple[int, str, Any, Any] | None = None
@@ -574,16 +608,8 @@ def replay_native(args) -> int:
 
     print(f"native trace: {output}")
     print(f"frames: {len(native_frames)}")
-    print(f"mode: {mode}")
-    print(
-        "injected derived channels: "
-        + (", ".join(_DERIVED_NATIVE_CHANNELS) if mode == "assisted" else "none")
-    )
-    if mode == "strict":
-        print(
-            "note: native strict mode disables captured derived seams; "
-            "their native producers are not yet complete"
-        )
+    print("mode: strict")
+    print("injected derived channels: none")
     if difference is None:
         print(f"matching: {len(native_frames)}")
         print("result: matching")

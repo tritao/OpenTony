@@ -35,13 +35,13 @@ def test_native_wire_preserves_initial_state_and_direct_input() -> None:
     }
     wire = _wire_input(recording["initial"], recording["frames"])
 
-    assert "version 5" in wire
+    assert "version 7" in wire
     assert "init -1 0 0" in wire
     assert "frame 0 36864 -41 40 256 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" in wire
     assert wire.endswith("end\n")
 
 
-def test_native_wire_carries_outer_correction_seams() -> None:
+def test_native_wire_does_not_restore_outer_correction_seams() -> None:
     recording = {
         "initial": _snapshot(0),
         "frames": [
@@ -64,10 +64,10 @@ def test_native_wire_carries_outer_correction_seams() -> None:
 
     line = _wire_input(recording["initial"], recording["frames"]).splitlines()[2]
 
-    assert line.split()[28:36] == ["1", "4", "5", "6", "1", "7", "8", "9"]
+    assert line.split()[28:36] == ["0", "0", "0", "0", "0", "0", "0", "0"]
 
 
-def test_native_strict_wire_disables_derived_channels() -> None:
+def test_native_wire_disables_derived_channels() -> None:
     recording = {
         "initial": _snapshot(0),
         "frames": [
@@ -92,9 +92,7 @@ def test_native_strict_wire_disables_derived_channels() -> None:
         ],
     }
 
-    tokens = _wire_input(
-        recording["initial"], recording["frames"], mode="strict"
-    ).splitlines()[2].split()
+    tokens = _wire_input(recording["initial"], recording["frames"]).splitlines()[2].split()
 
     assert tokens[6] == "1"  # causal random_available
     assert tokens[22] == "0"  # no complete current-format component set

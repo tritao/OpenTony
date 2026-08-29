@@ -183,10 +183,8 @@ def test_native_replay_parse():
     assert args.output == "native.jsonl"
     assert callable(args.func)
 
-    strict = build_parser().parse_args(
-        ["replay", "native", "run.otrec", "--mode", "strict"]
-    )
-    assert strict.mode == "strict"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["replay", "native", "run.otrec", "--mode", "strict"])
 
 
 def test_record_commands_parse():

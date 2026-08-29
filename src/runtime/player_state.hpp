@@ -43,6 +43,17 @@ struct PhysicsStateRequest {
         const PhysicsStateRequest&) = default;
 };
 
+// Causal random inputs consumed by FUN_0049c060 before the grounded
+// orientation/recovery call. The second draw is only present when the first
+// draw caps the current response speed.
+struct GroundSurfaceResponseInput final {
+    std::int32_t cap_random{};
+    std::int32_t capped_response_random{};
+    std::int32_t target_random{};
+    std::int32_t denominator_random{};
+    bool capped_response_random_available{};
+};
+
 // Raw skater fields written by the level-script dispatcher. The retail
 // opcodes 0xa3/0xb1 write the skater object at +0x3198/+0x319c. Their
 // consumer-owned meanings are not established yet, so keep the offset names
@@ -220,6 +231,20 @@ public:
     void set_motion_correction(FixedPosition correction) noexcept {
         motion_correction_ = correction;
     }
+    void set_ground_surface_response_state(
+        FixedPosition correction,
+        FixedPosition normal,
+        std::int32_t mode = 0) noexcept {
+        ground_surface_response_correction_ = correction;
+        ground_surface_response_normal_ = normal;
+        ground_surface_response_mode_ = mode;
+    }
+    void set_ground_surface_response_surface(
+        FixedPosition correction,
+        FixedPosition normal) noexcept {
+        ground_surface_response_correction_ = correction;
+        ground_surface_response_normal_ = normal;
+    }
     void set_air_motion(FixedPosition motion) noexcept {
         air_motion_ = motion;
     }
@@ -227,7 +252,9 @@ public:
         orientation_ = orientation;
         retail_basis_ = retail_basis_from_matrix(orientation_);
         ground_surface_recovery_target_ = retail_basis_.at_310c;
+        ground_surface_recovery_base_ = retail_basis_.at_310c;
         ground_surface_recovery_progress_q11_ = 0;
+        ground_surface_recovery_update_frame_ = -1;
         orientation_basis_normalization_pending_ = true;
     }
     // Grounded retail frames canonicalize the three published basis vectors
@@ -347,6 +374,14 @@ public:
         std::int32_t state,
         std::uint32_t reason) noexcept;
 
+    // State-2 entry writes its surface-response vector from the basis that
+    // existed at the transition callsite, before the remainder of the
+    // collision handler performs its recovery-basis update.
+    void request_physics_state_from_basis(
+        std::int32_t state,
+        std::uint32_t reason,
+        const FixedPosition& transition_basis) noexcept;
+
     [[nodiscard]] OllieImpulseResult apply_ollie_impulse(
         const OllieImpulseInput& input) noexcept;
 
@@ -377,6 +412,13 @@ public:
     // the resulting columns are copied back to the nine-short orientation.
     [[nodiscard]] AirMotionBasisResult update_air_motion_basis() noexcept;
 
+    // Reconstructs the common-air upright correction at FUN_0049c330. The
+    // helper measures the current air direction against the cross product of
+    // the forward basis and the shared global-up vector, then applies the
+    // fixed eleven-unit roll when the signed threshold is crossed.
+    void apply_upright_correction(
+        const FixedPosition& global_up) noexcept;
+
     // Applies the confirmed in-air Up/Down action contribution to the
     // temporary +58 correction using an explicit +0x2dac scalar.
     [[nodiscard]] AirDirectionInputResult apply_air_direction_input(
@@ -402,7 +444,8 @@ public:
     // of the raw state transition while preserving the commit-before-request
     // ordering and retail landing reason.
     [[nodiscard]] bool accept_air_contact(
-        FixedPosition contact_position) noexcept;
+        FixedPosition contact_position,
+        FixedPosition contact_normal) noexcept;
 
     [[nodiscard]] VelocityDampingResult apply_velocity_damping(
         VelocityDampingInput input = {}) noexcept;
@@ -452,6 +495,7 @@ public:
     void begin_physics_frame() noexcept {
         previous_position_ = position_;
         ground_turn_saved_orientation_valid_ = false;
+        last_state_request_ = {};
         ++frame_counter_;
     }
 
@@ -488,6 +532,14 @@ public:
     [[nodiscard]] CollisionOrientationResult apply_collision_orientation(
         const FixedPosition& surface_delta,
         std::int32_t yaw_offset = 0x19) noexcept;
+
+    // Reconstructs FUN_0049c060 -> FUN_00496360's signed surface-response
+    // heading. The returned angle is the value passed through the grounded
+    // FUN_0049b500 matrix writer after the frame-scale conversion.
+    [[nodiscard]] std::int32_t apply_ground_surface_response(
+        const GroundSurfaceResponseInput& input,
+        std::int32_t frame_scale_q8,
+        bool rotate_collision_response = true) noexcept;
 
     // Rebuilds the grounded collision basis through retail FUN_0049d080.
     // The supplied normal is eased one quarter of the way from the current
@@ -581,7 +633,12 @@ private:
     RetailBasis retail_basis_{retail_basis_from_matrix(orientation_)};
     bool orientation_basis_normalization_pending_{true};
     FixedPosition ground_surface_recovery_target_{0, 4096, 0};
+    FixedPosition ground_surface_recovery_base_{0, 4096, 0};
+    FixedPosition ground_surface_response_correction_{};
+    FixedPosition ground_surface_response_normal_{0, 4096, 0};
+    std::int32_t ground_surface_response_mode_{};
     std::int32_t ground_surface_recovery_progress_q11_{};
+    std::int32_t ground_surface_recovery_update_frame_{-1};
     Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};
     std::int32_t ground_turn_angle12_{};
     bool ground_turn_saved_orientation_valid_{};

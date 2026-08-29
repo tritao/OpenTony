@@ -62,6 +62,17 @@ struct PlayerPhysicsFrameHooks {
         const PlayerState&,
         const InputState&,
         const ActionProfileState&)> ground_motion_input;
+    // B010 can publish an animation/event request before its later motion
+    // branch. The caller-owned animation service applies that request at the
+    // same pre-collision boundary.
+    std::function<void(PlayerState&, const GroundMotionResult&)>
+        on_ground_motion_event;
+    // FUN_00496360 invokes FUN_0049c060 immediately before the grounded
+    // collision query. The callback supplies only its causal random draws;
+    // PlayerState owns the persistent surface correction, heading latch,
+    // orientation write, and response rotation.
+    std::function<std::optional<GroundSurfaceResponseInput>(
+        const PlayerState&, const InputState&)> ground_surface_response_input;
     // State/frame portion of FUN_00492f20. The default derives its verified
     // lean/profile inputs from the current action profile and PlayerState.
     std::function<GroundAnimationInput(
@@ -113,6 +124,12 @@ struct PlayerPhysicsFrameHooks {
     // applies the confirmed Up/Down producer with its default 150% scale.
     std::function<std::optional<AirSpeedConfig>(
         const PlayerState&, const InputState&)> air_speed_input;
+    // FUN_0049e680's raw-state-2 +0x2dac writer runs before the dispatcher,
+    // including on the state-2 ground-collision path. The frame-level writer
+    // is applied after collision candidate selection so it is retained in the
+    // temporary correction vector for the outer +58 -> +4c handoff.
+    std::function<std::optional<AirSpeedConfig>(
+        const PlayerState&, const InputState&)> state_two_motion_input;
     // Optional pre-position action-control seam from the first
     // 0x00497f40 block. This owns the recovered KICK/UP/DOWN/SPIN terms and
     // stabilization while the gravity scalar/global gate remain caller data.
@@ -121,6 +138,11 @@ struct PlayerPhysicsFrameHooks {
     // Optional completion of FUN_00497df0's basis/orientation handoff after
     // air_gravity_input has applied its scalar update.
     bool apply_air_motion_basis{false};
+    // FUN_0049c330 runs after the in-air position candidate is formed and
+    // republishes the short orientation/basis before the next collision
+    // query. The shared global-up vector is supplied by the caller.
+    std::function<std::optional<FixedPosition>(
+        const PlayerState&, const InputState&)> air_upright_input;
     std::function<void(
         PhysicsDispatchStage,
         PlayerState&,

@@ -443,16 +443,37 @@ std::optional<PsxCollisionHit> PsxCollisionWorld::trace_segment(
                 return to_integer_world(face.vertices[corner]);
             };
             if (!segment_triangle(
-                    integer_start_double,
-                    direction,
+                integer_start_double,
+                direction,
                     to_double(integer_vertex(first)),
                     to_double(integer_vertex(second)),
-                    to_double(integer_vertex(third)),
-                    fraction)) {
+                to_double(integer_vertex(third)),
+                fraction)) {
                 return;
             }
-            const std::int64_t raw_parameter = static_cast<std::int64_t>(
-                std::trunc(fraction * 0x4000));
+            const auto plane_value = [&](
+                const std::array<std::int32_t, 3>& point) {
+                std::int64_t value = 0;
+                for (std::size_t axis = 0; axis < point.size(); ++axis) {
+                    value += static_cast<std::int64_t>(
+                        point[axis] - integer_vertex(0)[axis])
+                        * face.normal[axis];
+                }
+                return value;
+            };
+            const std::int64_t plane_start = plane_value(integer_start);
+            const std::int64_t plane_end = plane_value(integer_end);
+            if (plane_start == plane_end) {
+                return;
+            }
+            // FUN_00462a20 publishes the q+8c parameter from the integer
+            // plane crossing. The floating triangle test above remains the
+            // face-side acceptance test, but its barycentric fraction is
+            // not the retail hit parameter and can differ by several raw
+            // units on a sloped landing face.
+            const std::int64_t raw_parameter = trunc_div(
+                plane_start * 0x4000,
+                plane_start - plane_end);
             const std::uint32_t parameter = static_cast<std::uint32_t>(
                 std::clamp<std::int64_t>(raw_parameter, 0, 0x4000));
             if (best.has_value() && parameter >= best->hit_parameter_q14) {

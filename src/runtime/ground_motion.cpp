@@ -155,12 +155,18 @@ GroundMotionResult apply_ground_motion(
     // profile table and before the ordinary ground correction branches.
     // +0xf6 values 3 and 0x5e emit 0x2537 with parameter zero; value 1 emits
     // 0x2531 with parameter three and also writes +0x108.
+    std::int16_t effective_animation_state = input.animation_state;
     if (input.animation_event_enabled) {
-        if (input.animation_state == 1) {
+        // The retail animation service seats the completed animation-1 pose
+        // on animation 3 at its terminal frame. B010 is entered once more
+        // with the old ID at that boundary; its later correction branch then
+        // observes the new ID in the same call.
+        if (input.animation_state == 1 && input.animation_finished) {
             result.animation_event_written = true;
             result.animation_event_parameter = 3;
             result.event_reason = 0x2531;
             result.animation_speed = 0x14000;
+            effective_animation_state = 3;
         } else if (input.animation_state == 3 ||
                    input.animation_state == 0x5e) {
             result.animation_event_written = true;
@@ -187,7 +193,7 @@ GroundMotionResult apply_ground_motion(
 
     // The pending animation marker is consumed in the state-2/3 frame
     // window before the transient correction is written.
-    if ((input.animation_state == 2 || input.animation_state == 3) &&
+    if ((effective_animation_state == 2 || effective_animation_state == 3) &&
         input.animation_frame > 10 && input.animation_frame < 16 &&
         input.pending_animation_event) {
         result.pending_animation_event_written = true;
@@ -195,14 +201,17 @@ GroundMotionResult apply_ground_motion(
         result.event_reason = 0x22;
     }
 
+    const std::int32_t effective_threshold = result.threshold_written
+        ? result.threshold_value
+        : input.response_speed_threshold;
     const bool below_threshold =
-        input.response_speed_metric < input.response_speed_threshold;
+        input.response_speed_metric < effective_threshold;
 
     // This is the state-0 section of FUN_0049b010. The decompilation writes
     // the correction directly, so a caller should clear the transient field
     // once at frame start just as FUN_0049e680 does.
     if (input.ordinary_ground_state && input.correction_gate_open) {
-        if ((input.animation_state == 2 || input.animation_state == 3) &&
+        if ((effective_animation_state == 2 || effective_animation_state == 3) &&
             input.animation_frame > 10 && input.animation_frame < 0x10 &&
             below_threshold) {
             const std::int32_t scale = input.strong_profile ? 8 : 4;
@@ -216,7 +225,7 @@ GroundMotionResult apply_ground_motion(
             return correction;
         }
 
-        if (input.animation_state == 0x5e &&
+        if (effective_animation_state == 0x5e &&
             input.animation_frame > 0xf && input.animation_frame < 0x14 &&
             below_threshold) {
             GroundMotionResult correction = write_basis_correction(
@@ -233,7 +242,9 @@ GroundMotionResult apply_ground_motion(
         // while the metric is at or below 0x4e20. Once the metric is above
         // that value, retail takes the write regardless of basis Y, subject
         // to the later threshold check.
-        if (input.animation_state != 0x5e &&
+        if (effective_animation_state != 2 &&
+            effective_animation_state != 3 &&
+            effective_animation_state != 0x5e &&
             (input.response_speed_metric > 0x4e20 ||
              input.forward_basis_y < 0x1f4) &&
             below_threshold) {
@@ -253,7 +264,7 @@ GroundMotionResult apply_ground_motion(
     // but B010 has already returned unless the dispatcher state is zero.
     if (input.ordinary_ground_state && !input.profile_table_value_nonzero &&
         input.strong_profile && below_threshold &&
-        (input.animation_state == 2 || input.animation_state == 3) &&
+        (effective_animation_state == 2 || effective_animation_state == 3) &&
         input.animation_frame > 10 &&
         input.animation_frame < 0x10) {
         GroundMotionResult correction = write_basis_correction(

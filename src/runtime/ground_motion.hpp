@@ -110,6 +110,10 @@ struct GroundMotionInput final {
     // value. No native RNG is implied by this flag.
     bool rearm_random_available = false;
     std::int32_t rearm_random_roll = 0;
+    // The animation service sets +0x107 only after the terminal frame has
+    // been reached. B010's state-1 handoff is gated by that completion bit,
+    // not merely by the integer frame number.
+    bool animation_finished = false;
     // +0x30a8 is the pending animation event marker consumed for states 2/3.
     bool pending_animation_event = false;
     // Skater +0x107 enables the early B010 animation-event side effect.
