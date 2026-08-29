@@ -119,6 +119,29 @@ static int wait_for_ready(CaptureHeader *header, HANDLE process) {
     return 0;
 }
 
+static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
+    for (;;) {
+        DWORD result = WaitForSingleObject(process, 50);
+        if (result == WAIT_OBJECT_0 || result == WAIT_FAILED) {
+            return result;
+        }
+        if (header->status == OTCAP_STATUS_FAILED ||
+            header->status == OTCAP_STATUS_OVERFLOW) {
+            TerminateProcess(process, 1);
+            return WaitForSingleObject(process, INFINITE);
+        }
+        if (header->status == OTCAP_STATUS_COMPLETE ||
+            header->frame_count >= header->frame_limit) {
+            /* The final record is published before frame_count advances.  A
+             * bounded capture therefore has no reason to leave the retail
+             * frontend running (and cannot depend on a debugger-issued quit). */
+            InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_COMPLETE);
+            TerminateProcess(process, 0);
+            return WaitForSingleObject(process, INFINITE);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     const char *exe_path = 0;
     const char *dll_path = 0;
@@ -224,10 +247,15 @@ int main(int argc, char **argv) {
     if (ResumeThread(process.hThread) == (DWORD)-1) {
         TerminateProcess(process.hProcess, 1);
     }
-    wait_result = WaitForSingleObject(process.hProcess, INFINITE);
+    wait_result = wait_for_bounded_capture(header, process.hProcess);
     (void)wait_result;
     if (header->status == OTCAP_STATUS_READY || header->status == OTCAP_STATUS_CAPTURING) {
-        header->status = OTCAP_STATUS_COMPLETE;
+        if (header->frame_count == header->frame_limit) {
+            header->status = OTCAP_STATUS_COMPLETE;
+        } else {
+            header->status = OTCAP_STATUS_FAILED;
+            header->error_code = OTCAP_ERROR_INVALID_CONFIG;
+        }
     }
     if (header->bytes_used < header->data_offset || header->bytes_used > OTCAP_MAPPING_SIZE) {
         header->status = OTCAP_STATUS_FAILED;

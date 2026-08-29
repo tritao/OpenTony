@@ -5,6 +5,32 @@
 
 #include <string.h>
 
+/* These globals are deliberately absolute for the one verified image.  The
+ * build check rejects rebased/unknown images before this code can run. */
+#define OTCAP_PLAYER_TABLE_ADDRESS 0x0056a858u
+#define OTCAP_ACTION_MASK_ADDRESS 0x006a3f1cu
+#define OTCAP_AIR_CONTROL_ADDRESS 0x0056b7f0u
+#define OTCAP_ANIMATION_CLOCK_ADDRESS 0x005685f4u
+#define OTCAP_ANIMATION_SCALE_ADDRESS 0x0056865cu
+#define OTCAP_ANIMATION_SCALE_SQUARE_ADDRESS 0x00568804u
+#define OTCAP_ANIMATION_CLOCK_ACCUMULATOR_ADDRESS 0x00568810u
+#define OTCAP_SIMULATION_TIME_ADDRESS 0x0056e320u
+#define OTCAP_TIMING_DELTA_ADDRESS 0x0056a93cu
+
+static CaptureBuffer *g_capture_buffer = 0;
+static LONG g_physics_frame_active = 0;
+static uint32_t g_physics_frame_index = 0;
+static uint32_t g_physics_player = 0;
+static uint32_t g_physics_input_mask = 0;
+static uint32_t g_physics_input_flags = 0;
+static uint8_t g_physics_before[OTCAP_PLAYER_BLOB_SIZE];
+static CaptureTimingSnapshot g_physics_timing_before;
+static void *g_physics_target = 0;
+static void *g_physics_trampoline = 0;
+static uint8_t g_physics_original[16];
+static uint32_t g_physics_overwrite_size = 0;
+static int g_physics_installed = 0;
+
 typedef struct CaptureSha256 {
     uint32_t state[8];
     uint64_t bits;
@@ -246,8 +272,268 @@ int ot_capture_verify_hooks(void *module_base, uint32_t *failed_index) {
     return 1;
 }
 
-int ot_capture_install_hooks(void *module_base) {
-    (void)module_base;
-    /* M1 deliberately has no detours. */
+static const CaptureHookSpec *find_hook(const char *name) {
+    uint32_t count = 0;
+    uint32_t index;
+    const CaptureHookSpec *hooks = ot_capture_hook_manifest(&count);
+    for (index = 0; index < count; ++index) {
+        if (strcmp(hooks[index].name, name) == 0) {
+            return &hooks[index];
+        }
+    }
+    return 0;
+}
+
+int ot_capture_bind_buffer(CaptureBuffer *buffer) {
+    if (buffer == 0 || buffer->mapping == 0 || buffer->mapping_size == 0 ||
+        g_physics_installed) {
+        return 0;
+    }
+    g_capture_buffer = buffer;
     return 1;
+}
+
+static int copy_player_and_timing(
+    uint32_t player,
+    uint8_t *destination,
+    CaptureTimingSnapshot *timing) {
+    if (player == 0 || destination == 0 || timing == 0) {
+        return 0;
+    }
+#if defined(_MSC_VER)
+    __try {
+#endif
+        memcpy(destination, (const void *)player, OTCAP_PLAYER_BLOB_SIZE);
+        timing->animation_clock =
+            *(volatile uint32_t *)OTCAP_ANIMATION_CLOCK_ADDRESS;
+        timing->animation_time_scale =
+            *(volatile uint32_t *)OTCAP_ANIMATION_SCALE_ADDRESS;
+        timing->animation_time_scale_square =
+            *(volatile uint32_t *)OTCAP_ANIMATION_SCALE_SQUARE_ADDRESS;
+        timing->animation_clock_accumulator =
+            *(volatile uint32_t *)OTCAP_ANIMATION_CLOCK_ACCUMULATOR_ADDRESS;
+        timing->simulation_time =
+            *(volatile uint32_t *)OTCAP_SIMULATION_TIME_ADDRESS;
+        timing->timing_delta_q11 =
+            *(volatile uint32_t *)OTCAP_TIMING_DELTA_ADDRESS;
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+void __cdecl ot_capture_physics_before(uint32_t player) {
+    CaptureHeader *header;
+    uint32_t current_player;
+
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        InterlockedCompareExchange(&g_physics_frame_active, 1, 0) != 0) {
+        return;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+    if (header->status != OTCAP_STATUS_READY &&
+        header->status != OTCAP_STATUS_CAPTURING) {
+        InterlockedExchange(&g_physics_frame_active, 0);
+        return;
+    }
+    if (header->frame_count >= header->frame_limit) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
+        InterlockedExchange(&g_physics_frame_active, 0);
+        return;
+    }
+
+#if defined(_MSC_VER)
+    __try {
+#endif
+        current_player = *(volatile uint32_t *)OTCAP_PLAYER_TABLE_ADDRESS;
+        /* Skater_PhysicsFrame is also used for the second skater.  Canonical
+         * recordings intentionally retain only table entry zero, matching the
+         * GDB recorder's player filter. */
+        if (player != current_player ||
+            !copy_player_and_timing(
+                player, g_physics_before, &g_physics_timing_before)) {
+            InterlockedExchange(&g_physics_frame_active, 0);
+            return;
+        }
+        g_physics_frame_index = header->frame_count;
+        g_physics_player = player;
+        g_physics_input_mask =
+            *(volatile uint32_t *)OTCAP_ACTION_MASK_ADDRESS;
+        g_physics_input_flags =
+            *(volatile uint32_t *)OTCAP_AIR_CONTROL_ADDRESS ? 1u : 0u;
+#if defined(_MSC_VER)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+        InterlockedExchange(&g_physics_frame_active, 0);
+        return;
+    }
+#endif
+    InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_CAPTURING);
+}
+
+void __cdecl ot_capture_physics_after(void) {
+    CaptureHeader *header;
+    uint8_t after[OTCAP_PLAYER_BLOB_SIZE];
+    CaptureTimingSnapshot timing_after;
+
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        InterlockedCompareExchange(&g_physics_frame_active, 0, 1) != 1) {
+        return;
+    }
+    header = (CaptureHeader *)g_capture_buffer->mapping;
+    if (!copy_player_and_timing(
+            g_physics_player, after, &timing_after) ||
+        !ot_capture_append_frame(
+            g_capture_buffer,
+            g_physics_frame_index,
+            g_physics_input_mask,
+            g_physics_input_flags,
+            g_physics_player,
+            g_physics_before,
+            after,
+            &g_physics_timing_before,
+            &timing_after)) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+        InterlockedExchange(&g_physics_frame_active, 0);
+        return;
+    }
+    if (header->frame_count >= header->frame_limit) {
+        /* The host observes this published state and ends the bounded retail
+         * process after the final complete record has been committed. */
+        InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_COMPLETE);
+    }
+    InterlockedExchange(&g_physics_frame_active, 0);
+}
+
+#if defined(_MSC_VER) && defined(_M_IX86)
+/* The function has a six-byte prologue.  The naked wrapper keeps the original
+ * ECX/stack ABI, calls the trampoline once, and restores the return registers
+ * after the observer runs. */
+static __declspec(naked) void ot_capture_physics_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        push ecx
+        call ot_capture_physics_before
+        add esp, 4
+        popfd
+        popad
+        call dword ptr [g_physics_trampoline]
+        pushad
+        pushfd
+        call ot_capture_physics_after
+        popfd
+        popad
+        ret
+    }
+}
+#endif
+
+static int create_physics_trampoline(
+    unsigned char *target,
+    const CaptureHookSpec *spec) {
+    unsigned char *trampoline;
+    long relative;
+    uint32_t size;
+
+    if (target == 0 || spec == 0 || spec->overwrite_size < 5u ||
+        spec->overwrite_size > sizeof(g_physics_original)) {
+        return 0;
+    }
+    size = spec->overwrite_size + 5u;
+    trampoline = (unsigned char *)VirtualAlloc(
+        0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (trampoline == 0) {
+        return 0;
+    }
+    memcpy(g_physics_original, target, spec->overwrite_size);
+    memcpy(trampoline, target, spec->overwrite_size);
+    trampoline[spec->overwrite_size] = 0xe9;
+    relative = (long)(target + spec->overwrite_size -
+        (trampoline + spec->overwrite_size + 5u));
+    memcpy(trampoline + spec->overwrite_size + 1u, &relative, sizeof(relative));
+    g_physics_trampoline = trampoline;
+    g_physics_target = target;
+    g_physics_overwrite_size = spec->overwrite_size;
+    return 1;
+}
+
+static int patch_physics_target(unsigned char *target, uint32_t overwrite_size) {
+    DWORD old_protect;
+    DWORD restored_protect;
+    long relative;
+    uint32_t index;
+
+#if !defined(_MSC_VER) || !defined(_M_IX86)
+    (void)target;
+    (void)overwrite_size;
+    return 0;
+#else
+    if (target == 0 || overwrite_size < 5u) {
+        return 0;
+    }
+    if (!VirtualProtect(
+            target, overwrite_size, PAGE_EXECUTE_READWRITE, &old_protect)) {
+        return 0;
+    }
+    target[0] = 0xe9;
+    relative = (long)((unsigned char *)(void *)ot_capture_physics_hook -
+        (target + 5u));
+    memcpy(target + 1u, &relative, sizeof(relative));
+    for (index = 5u; index < overwrite_size; ++index) {
+        target[index] = 0x90;
+    }
+    FlushInstructionCache(GetCurrentProcess(), target, overwrite_size);
+    if (VirtualProtect(target, overwrite_size, old_protect, &restored_protect)) {
+        return 1;
+    }
+    /* A protection-restore failure is fail-closed: put the exact original
+     * bytes back before reporting installation failure. */
+    if (VirtualProtect(
+            target, overwrite_size, PAGE_EXECUTE_READWRITE, &restored_protect)) {
+        memcpy(target, g_physics_original, overwrite_size);
+        FlushInstructionCache(GetCurrentProcess(), target, overwrite_size);
+        VirtualProtect(target, overwrite_size, old_protect, &restored_protect);
+    }
+    return 0;
+#endif
+}
+
+int ot_capture_install_hooks(void *module_base) {
+    const CaptureHookSpec *physics;
+    unsigned char *target;
+
+    if (g_physics_installed || g_capture_buffer == 0 ||
+        g_capture_buffer->mapping == 0 ||
+        (unsigned long)module_base != 0x00400000UL) {
+        return 0;
+    }
+#if !defined(_MSC_VER) || !defined(_M_IX86)
+    (void)module_base;
+    return 0;
+#else
+    physics = find_hook("physics_frame");
+    if (physics == 0 || physics->overwrite_size != 6u ||
+        !ot_capture_verify_hooks(module_base, 0)) {
+        return 0;
+    }
+    target = (unsigned char *)module_base + physics->rva;
+    if (!create_physics_trampoline(target, physics) ||
+        !patch_physics_target(target, physics->overwrite_size)) {
+        if (g_physics_trampoline != 0) {
+            VirtualFree(g_physics_trampoline, 0, MEM_RELEASE);
+        }
+        g_physics_trampoline = 0;
+        g_physics_target = 0;
+        g_physics_overwrite_size = 0;
+        return 0;
+    }
+    g_physics_installed = 1;
+    return 1;
+#endif
 }

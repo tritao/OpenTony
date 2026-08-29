@@ -121,6 +121,18 @@ def test_capture_decoder_rejects_unknown_build_identity(tmp_path):
         decode_capture(source)
 
 
+def test_capture_decoder_rejects_complete_but_short_bounded_run(tmp_path):
+    source = tmp_path / "capture.otcap"
+    _capture(source, frame_count=1)
+    raw = bytearray(source.read_bytes())
+    struct.pack_into("<I", raw, 8 + 10 * 4, 2)  # frame_limit
+    struct.pack_into("<I", raw, HEADER_STRUCT.size + 2 * 4, 2)
+    source.write_bytes(raw)
+
+    with pytest.raises(CaptureDecodeError, match="stopped at 1 frames; expected 2"):
+        decode_capture(source)
+
+
 def test_capture_conversion_keeps_otrec_contract(tmp_path):
     source = tmp_path / "capture.otcap"
     output = tmp_path / "recording.otrec"
@@ -173,3 +185,25 @@ def test_capture_hook_manifest_matches_supported_pe():
         expected = bytes.fromhex(hook["expected"])
         assert data[rva : rva + len(expected)] == expected
         assert hook["overwrite"] >= len(expected)
+
+
+def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
+    source = Path("src/capture/win32/hooks.cpp").read_text()
+
+    assert "VirtualAlloc" in source
+    assert "VirtualProtect" in source
+    assert "FlushInstructionCache" in source
+    assert "g_physics_trampoline" in source
+    assert "ot_capture_physics_before" in source
+    assert "ot_capture_physics_after" in source
+    assert "pushad" in source
+    assert "call dword ptr [g_physics_trampoline]" in source
+    assert "target[0] = 0xe9" in source
+
+
+def test_physics_capture_publishes_complete_records_before_count():
+    source = Path("src/capture/win32/shared_buffer.cpp").read_text()
+
+    record_write = source.index("memcpy(record->player_before")
+    frame_publish = source.index("InterlockedExchange((LONG *)&header->frame_count")
+    assert record_write < frame_publish

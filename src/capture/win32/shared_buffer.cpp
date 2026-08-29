@@ -87,7 +87,10 @@ int ot_capture_append_frame(
     }
     header = (CaptureHeader *)buffer->mapping;
     max_frames = otcap_max_frames(buffer->mapping_size, header->data_offset);
-    slot = (uint32_t)InterlockedIncrement((LONG *)&header->frame_count) - 1u;
+    /* Physics capture is single-writer.  Publish frame_count only after the
+     * complete fixed record and bytes_used have become visible, so the host
+     * can safely stop a bounded process at the frame limit. */
+    slot = header->frame_count;
     if (slot >= header->frame_limit || slot >= max_frames || frame_index != slot) {
         ot_capture_buffer_fail(buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
         return 0;
@@ -110,6 +113,7 @@ int ot_capture_append_frame(
     }
     InterlockedExchange((LONG *)&header->bytes_used,
         (LONG)(header->data_offset + (slot + 1u) * OTCAP_FRAME_BYTES));
+    InterlockedExchange((LONG *)&header->frame_count, (LONG)(slot + 1u));
     InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_CAPTURING);
     return 1;
 }

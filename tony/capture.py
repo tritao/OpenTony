@@ -274,6 +274,10 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
         raise CaptureDecodeError(f"capture failed in process (status={status}, error={error_code})")
     if status != STATUS_COMPLETE:
         raise CaptureDecodeError(f"capture is incomplete (status={status})")
+    if frame_count != frame_limit:
+        raise CaptureDecodeError(
+            f"capture stopped at {frame_count} frames; expected {frame_limit}"
+        )
     if bytes_used > len(data) or bytes_used < data_offset:
         raise CaptureDecodeError("capture bytes_used is outside the file")
     if frame_count > frame_limit or frame_count > (bytes_used - data_offset) // FRAME_STRUCT.size:

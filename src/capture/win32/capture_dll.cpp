@@ -47,7 +47,10 @@ static DWORD WINAPI capture_initialize(void *unused) {
         capture_fail(OTCAP_ERROR_HOOK_BYTES);
         return 0;
     }
-    /* M1 validates the seams but installs no detours. */
+    if (!ot_capture_bind_buffer(&g_buffer)) {
+        capture_fail(OTCAP_ERROR_BAD_MAPPING);
+        return 0;
+    }
     if (!ot_capture_install_hooks(module)) {
         capture_fail(OTCAP_ERROR_HOOK_BYTES);
         return 0;
