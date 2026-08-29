@@ -48,6 +48,28 @@ int main() {
     // three retail basis handoff vectors are refreshed in the same update.
     CHECK(player.orientation().at(1, 1) == -0x1000);
     CHECK(player.retail_basis().at_310c[1] == -0x1000);
+
+    opentony::runtime::PlayerState air_orientation;
+    air_orientation.set_physics_state(1);
+    opentony::runtime::InputState up_input;
+    up_input.begin_frame(opentony::runtime::movement_bit(
+        opentony::runtime::MovementAction::Up));
+    const auto air_angle = air_orientation.compute_in_air_orientation_angle(
+        up_input,
+        640,
+        true);
+    CHECK(air_angle.has_value());
+    CHECK(*air_angle == -50);
+
+    const opentony::runtime::Q12Matrix3 captured_orientation{
+        {-4096, 0, -4, 0, -4091, -191, 4, 191, -4091}};
+    air_orientation.set_orientation(captured_orientation);
+    const auto pivot_delta = air_orientation.apply_in_air_orientation_pivot(-50);
+    CHECK(pivot_delta == opentony::runtime::FixedPosition({0, -1890, -21840}));
+    const opentony::runtime::Q12Matrix3 expected_air_orientation{
+        {-4096, 0, -4, 0, -4064, -504, 4, 503, -4064}};
+    CHECK(air_orientation.orientation() == expected_air_orientation);
+
     player.set_collision_response({0x1000, 0x2000, 0});
     CHECK(player.remove_collision_normal_component({0x1000, 0, 0}) == 0x1000);
     CHECK(player.collision_response() == opentony::runtime::FixedPosition({0, 0x2000, 0}));

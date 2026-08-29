@@ -76,6 +76,10 @@ struct ReplayFrame final {
     std::int32_t ground_surface_response_target_random{};
     std::int32_t ground_surface_response_denominator_random{};
     bool ground_surface_response_capped_random_available{};
+    bool air_normal_recovery_random_available{};
+    std::int32_t air_normal_recovery_gate_random{};
+    std::int32_t air_normal_recovery_x_random{};
+    std::int32_t air_normal_recovery_z_random{};
 };
 
 template <typename T>
@@ -230,6 +234,15 @@ ReplayFrame read_frame(std::istringstream& input) {
     frame.ground_surface_response_capped_random_available =
         read_value<std::uint8_t>(
             input, "ground surface response capped random availability") != 0;
+    frame.air_normal_recovery_random_available =
+        read_value<std::uint8_t>(
+            input, "air normal-recovery random availability") != 0;
+    frame.air_normal_recovery_gate_random = read_value<std::int32_t>(
+        input, "air normal-recovery gate random");
+    frame.air_normal_recovery_x_random = read_value<std::int32_t>(
+        input, "air normal-recovery x random");
+    frame.air_normal_recovery_z_random = read_value<std::int32_t>(
+        input, "air normal-recovery z random");
     return frame;
 }
 
@@ -328,6 +341,10 @@ int run(int argc, char** argv) {
     // same animation-5e scale-8 correction that retail writes at frame 7.
     config.apply_ground_motion = true;
     config.apply_ground_motion_control = true;
+    // The recovered Warehouse surface projection is just below the B010
+    // rearm boundary.  The strict retail comparison is `iVar6 < -0x4cc`,
+    // so the observed fixed-point value is -0x4cd; the adjacent value would
+    // select the separate late branch instead.
     config.ground_motion_surface_response_metric = -0x4cd;
     config.ground_motion_profile_table_value_nonzero = true;
     config.ground_motion_animation_event_enabled = true;
@@ -353,6 +370,19 @@ int run(int argc, char** argv) {
         const opentony::runtime::InputState&) {
         return std::optional<opentony::runtime::FixedPosition>{
             opentony::runtime::FixedPosition{0, -0x1000, 0}};
+    };
+    session.physics_hooks().air_orientation_pivot_input = [&active_frame](
+        const opentony::runtime::PlayerState& player,
+        const opentony::runtime::InputState& input,
+        std::int32_t frame_scale_q8) {
+        if (active_frame == nullptr
+            || !active_frame->air_action_control_available) {
+            return std::optional<std::int32_t>{};
+        }
+        return player.compute_in_air_orientation_angle(
+            input,
+            frame_scale_q8,
+            !active_frame->air_control_enabled);
     };
     // The Warehouse player-frame fixture identifies the player's +0x29b7
     // grounded turn profile as 1 (the 0x78 branch). This is configuration,
@@ -399,6 +429,7 @@ int run(int argc, char** argv) {
         return std::nullopt;
     };
     opentony::runtime::AnimationCursor animation = initial.animation;
+    bool post_state_one_handoff_animation5 = false;
     const opentony::assets::PsxAnimationTable animation_table =
         opentony::assets::PsxAnimationTable::load(
             (asset_root / "SK2ANIM.PSX").string());
@@ -435,6 +466,24 @@ int run(int argc, char** argv) {
         // FUN_0049b010's +0x107 animation event changes animation 1 to
         // animation 3 before the ground collision dispatcher runs. Preserve
         // that producer boundary so the later B010 branch sees the new pose.
+        if (result.event_reason == 0x2537) {
+            // FUN_0049b010's completed animation-3/5e event returns the
+            // grounded push sequence to the idle pose through RunAnim(0).
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 0;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            player.set_animation_state(animation.id);
+            player.set_animation_frame(animation.frame);
+            return;
+        }
         if (result.event_reason != 0x2531 || animation.frame < 9) {
             return;
         }
@@ -548,6 +597,26 @@ int run(int argc, char** argv) {
         input.gravity_acceleration = active_frame->gravity_acceleration;
         input.control_enabled = active_frame->air_control_enabled;
         return std::optional<opentony::runtime::AirActionControlConfig>{input};
+    };
+    session.physics_hooks().air_normal_recovery_input = [&active_frame](
+        const opentony::runtime::PlayerState& player,
+        const opentony::runtime::InputState&,
+        const opentony::runtime::PositionCollisionHit& hit)
+        -> std::optional<opentony::runtime::AirNormalRecoveryInput> {
+        if (active_frame == nullptr
+            || !active_frame->air_normal_recovery_random_available
+            || player.physics_state() != 1
+            || hit.surface_flags != 0x0110
+            || hit.surface_bit_6
+            || hit.normal[1] != 0) {
+            return std::optional<opentony::runtime::AirNormalRecoveryInput>{};
+        }
+        return std::optional<opentony::runtime::AirNormalRecoveryInput>{
+            opentony::runtime::AirNormalRecoveryInput{
+                active_frame->air_normal_recovery_gate_random,
+                active_frame->air_normal_recovery_x_random,
+                active_frame->air_normal_recovery_z_random,
+            }};
     };
     session.physics_hooks().state_two_motion_input = [&active_frame](
         const opentony::runtime::PlayerState& player,
@@ -665,9 +734,9 @@ int run(int argc, char** argv) {
             && session.player().physics_state() == 0
             && prior_state_request.from == 2
             && prior_state_request.to == 0) {
-            // The completed landing pose is retained for the state-2 -> 0
-            // handoff frame. The following object-update boundary starts
-            // the ordinary rolling pose (the observed 0x00490447 request).
+            // FUN_00499203 leaves the state-2 landing pose seated for the
+            // handoff frame. The following object-update boundary starts the
+            // ordinary rolling pose (the observed 0x00490447 request).
             opentony::runtime::GroundAnimationRequest request{};
             request.issued = true;
             request.wrapper =
@@ -724,7 +793,8 @@ int run(int argc, char** argv) {
         }
         if (advance_result.stepped
             && ((advance_result.last.physics.ground_motion.has_value()
-                 && advance_result.last.physics.ground_motion->event_reason == 0x2570)
+                 && (advance_result.last.physics.ground_motion->event_reason == 0x2570
+                     || advance_result.last.physics.ground_motion->event_reason == 0x25e5))
                 || animation.id == 0)
             && frame.ground_motion_rearm_random_available) {
             opentony::runtime::GroundAnimationRequest request{};
@@ -787,8 +857,30 @@ int run(int argc, char** argv) {
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
         }
+        const bool apply_post_state_one_handoff_animation5 =
+            post_state_one_handoff_animation5;
+        post_state_one_handoff_animation5 = false;
         const auto& state_request = session.player().last_state_request();
-        if (state_request.from == 0
+        if (state_request.from == 1
+            && state_request.to == 0) {
+            // FUN_00499203 re-seats animation 14 after the state-1 recovery
+            // handoff. The next frame's object update then selects animation
+            // 5 through the caller-owned animation service.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 14;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+            post_state_one_handoff_animation5 = true;
+        } else if (state_request.from == 0
             && state_request.to == 2
             && state_request.reason == 0x1ac9) {
             // FUN_004972df enters the collision-transient state and requests
@@ -810,8 +902,9 @@ int run(int argc, char** argv) {
             session.player().set_animation_frame(animation.frame);
         } else if (state_request.from == 0
             && state_request.to == 1
-            && state_request.reason == 0x160b) {
-            // FUN_004956f0 enters RunAnim(27, 0, -1, -1) after its
+            && (state_request.reason == 0x1ab6
+                || state_request.reason == 0x160b)) {
+            // FUN_004956f0 enters the landing/recovery animation after its
             // state-1 handoff. Keep the cursor update in this caller-owned
             // animation service, while the state request remains produced by
             // the collision path in PlayerPhysicsFrame.
@@ -819,7 +912,26 @@ int run(int argc, char** argv) {
             request.issued = true;
             request.wrapper =
                 opentony::runtime::GroundAnimationRequestWrapper::Start;
-            request.animation = 27;
+            request.animation = 14;
+            request.start = 0;
+            request.resets_rate = true;
+            static_cast<void>(opentony::runtime::apply_ground_animation_request(
+                animation,
+                animation_view,
+                request));
+            session.player().set_animation_state(animation.id);
+            session.player().set_animation_frame(animation.frame);
+        }
+        if (apply_post_state_one_handoff_animation5) {
+            // The state-1 handoff's RunAnim(5) is issued after B010 has
+            // observed the seated animation-14 pose on the preceding
+            // boundary. Applying it here preserves that causal order while
+            // publishing animation 5 for the next frame.
+            opentony::runtime::GroundAnimationRequest request{};
+            request.issued = true;
+            request.wrapper =
+                opentony::runtime::GroundAnimationRequestWrapper::Start;
+            request.animation = 5;
             request.start = 0;
             request.resets_rate = true;
             static_cast<void>(opentony::runtime::apply_ground_animation_request(

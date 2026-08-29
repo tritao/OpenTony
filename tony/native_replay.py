@@ -10,7 +10,7 @@ from typing import Any
 from .common import resolve
 from .recording import validate_recording
 
-NATIVE_REPLAY_WIRE_VERSION = 7
+NATIVE_REPLAY_WIRE_VERSION = 8
 
 
 def _signed(value: int, bits: int) -> int:
@@ -221,6 +221,49 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         target_randoms[0] if target_randoms else 0,
         denominator_randoms[0] if denominator_randoms else 0,
         int(len(cap_randoms) > 1),
+    )
+    normal_recovery_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("type") == "deterministic_random_call"
+        and event.get("purpose") in {
+            "normal_recovery_gate",
+            "normal_recovery_x",
+            "normal_recovery_z",
+        }
+    ] if isinstance(events, list) else []
+    normal_recovery_by_purpose: dict[str, int] = {}
+    for event in normal_recovery_events:
+        purpose = event.get("purpose")
+        raw_value = event.get("return_value_s32")
+        if not isinstance(purpose, str) or not isinstance(raw_value, int):
+            raise TypeError(
+                f"frame {frame_index} has an invalid air normal-recovery random event"
+            )
+        if purpose in normal_recovery_by_purpose:
+            raise ValueError(
+                f"frame {frame_index} has duplicate air normal-recovery random purpose "
+                f"{purpose!r}"
+            )
+        normal_recovery_by_purpose[purpose] = _signed(raw_value, 32)
+    if normal_recovery_events and "normal_recovery_gate" not in normal_recovery_by_purpose:
+        raise ValueError(
+            f"frame {frame_index} has an air normal-recovery random set without its gate"
+        )
+    normal_recovery_gate = normal_recovery_by_purpose.get("normal_recovery_gate", 0)
+    if normal_recovery_events and normal_recovery_gate == 0 and not all(
+        purpose in normal_recovery_by_purpose
+        for purpose in ("normal_recovery_x", "normal_recovery_z")
+    ):
+        raise ValueError(
+            f"frame {frame_index} has an incomplete air normal-recovery random set"
+        )
+    normal_recovery_values = (
+        int(bool(normal_recovery_events)),
+        normal_recovery_gate,
+        normal_recovery_by_purpose.get("normal_recovery_x", 0),
+        normal_recovery_by_purpose.get("normal_recovery_z", 0),
     )
     state_two_events = [
         event
@@ -436,6 +479,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             ground_surface_recovery_delta_q11,
             *state_two_motion_values,
             *surface_response_values,
+            *normal_recovery_values,
         )
     )
 

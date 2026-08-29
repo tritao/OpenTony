@@ -138,9 +138,14 @@ struct PlayerPhysicsFrameHooks {
     // Optional completion of FUN_00497df0's basis/orientation handoff after
     // air_gravity_input has applied its scalar update.
     bool apply_air_motion_basis{false};
-    // FUN_0049c330 runs after the in-air position candidate is formed and
-    // republishes the short orientation/basis before the next collision
-    // query. The shared global-up vector is supplied by the caller.
+    // Early FUN_00493370/00498459 angle producer. The frame applies its
+    // orientation pivot before the in-air movement collision candidate.
+    std::function<std::optional<std::int32_t>(
+        const PlayerState&, const InputState&, std::int32_t)>
+        air_orientation_pivot_input;
+    // FUN_0049c330 runs after the in-air position commit and republishes the
+    // short orientation/basis. The shared global-up vector is supplied by the
+    // caller; the earlier pivot displacement is a separate phase above.
     std::function<std::optional<FixedPosition>(
         const PlayerState&, const InputState&)> air_upright_input;
     std::function<void(
@@ -176,6 +181,14 @@ struct PlayerPhysicsFrameHooks {
         const PlayerState&,
         const InputState&,
         const PositionCollisionHit&)> standard_air_contact_input;
+    // The non-landing branch of FUN_00497f40 enters the shared normal
+    // recovery path after its collision query. The callback supplies only
+    // the causal FUN_004c9340 results; position, response, state, and basis
+    // writes remain native producers.
+    std::function<std::optional<AirNormalRecoveryInput>(
+        const PlayerState&,
+        const InputState&,
+        const PositionCollisionHit&)> air_normal_recovery_input;
     // The accepted-contact caller reaches the known animation request at
     // retail FUN_0049a519 (animation 5, start 0, end -1). The callback keeps
     // that caller-owned request explicit while pose/asset decoding remains

@@ -102,17 +102,24 @@ void apply_control_side_effects(
             input.animation_state != 0x5e &&
             (input.animation_state == 0 ||
              (input.animation_state >= 5 && input.animation_state <= 7));
-        if (surface_allows_rearm && !input.blocked_or_special &&
-            animation_allows_rearm && input.rearm_random_available) {
-            write_rearm(result, input.rearm_random_roll, 0x2570);
+        // The binary's fallback cooldown is the else side of the outer
+        // surface/threshold gate. An ineligible animation (for example the
+        // seated animation-14 pose on the landing boundary) leaves that
+        // gate untouched; it does not itself consume a cooldown frame.
+        if (surface_allows_rearm) {
+            if (!input.blocked_or_special && animation_allows_rearm &&
+                input.rearm_random_available) {
+                write_rearm(result, input.rearm_random_roll, 0x2570);
+            }
         } else {
             write_cooldown();
         }
     }
 
-    // When the local table entry is zero, the late strong-profile path has a
-    // separate rearm sequence. This is intentionally independent of the
-    // first branch's plain cooldown write, matching the two retail blocks.
+    // The zero-profile-table late path has a separate rearm sequence. It is
+    // intentionally independent of the first branch's cooldown write: the
+    // retail B010 block can request animation 1 while that cooldown remains
+    // active.
     const bool late_rearm =
         !input.profile_table_value_nonzero && input.strong_profile &&
         input.surface_response_metric >= -0x4cc &&
@@ -167,11 +174,17 @@ GroundMotionResult apply_ground_motion(
             result.event_reason = 0x2531;
             result.animation_speed = 0x14000;
             effective_animation_state = 3;
-        } else if (input.animation_state == 3 ||
-                   input.animation_state == 0x5e) {
+        } else if (input.animation_finished
+                   && (input.animation_state == 3
+                       || input.animation_state == 0x5e)) {
             result.animation_event_written = true;
             result.animation_event_parameter = 0;
             result.event_reason = 0x2537;
+            // The event is observed before the same B010 call reaches its
+            // ordinary correction branch.  Model the newly selected idle
+            // state locally; the animation service callback publishes it to
+            // PlayerState after this result is returned.
+            effective_animation_state = 0;
         }
     }
 

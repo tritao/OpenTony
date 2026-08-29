@@ -52,6 +52,7 @@ from ..physics import (
     VELOCITY_DAMPING_RANDOM_SITES,
     AirCollisionQueryProbe,
     AirCorrectionProbe,
+    DeterministicRandomServiceProbe,
     GroundMotionControlWriterProbe,
     GroundMotionProducerProbe,
     GroundMotionProfileWriterProbe,
@@ -77,7 +78,20 @@ from ..physics import (
     VelocityDampingRandomProbe,
 )
 from ..physics import GroundMotionWriterProbe as GroundMotionCorrectionWriterProbe
-from ..position import POSITION_COMMIT_CALLS, PositionCommitBreakpoint
+from ..position import (
+    ACTION_PHYSICS_ANGLE_READ,
+    ACTION_PHYSICS_FINAL_ANGLE,
+    ACTION_PHYSICS_NEGATIVE_ANGLE,
+    ACTION_PHYSICS_POSITIVE_ANGLE,
+    ACTION_PHYSICS_STEP,
+    POSITION_COMMIT_CALLS,
+    ActionPhysicsAngleBreakpoint,
+    InAirPositionAdjustmentBreakpoint,
+    InAirPositionPivotAngleBreakpoint,
+    InAirPositionTransformBreakpoint,
+    InAirUprightCorrectionBreakpoint,
+    PositionCommitBreakpoint,
+)
 from ..trg import Type192CommandProbe
 from .common import (
     argv,
@@ -106,8 +120,14 @@ def _recovery_family(*, writer, frame_provider=None, controller=None, watch_arm_
 
 
 def _rng_family(*, writer, frame_provider=None, controller=None, watch_arm_factory=None):
-    del frame_provider, controller, watch_arm_factory
+    del controller, watch_arm_factory
     breakpoints = []
+    breakpoints.append(
+        DeterministicRandomServiceProbe(
+            writer=writer,
+            frame_provider=frame_provider,
+        )
+    )
     for address, purpose in GROUND_MOTION_RANDOM_SITES.items():
         breakpoints.append(GroundMotionRandomProbe(address, purpose, writer=writer))
     for address, purpose in GROUND_MOTION_THRESHOLD_RANDOM_SITES.items():
@@ -163,8 +183,39 @@ def _state_family(*, writer, frame_provider=None, controller=None, watch_arm_fac
 def _position_family(*, writer, frame_provider=None, controller=None, watch_arm_factory=None):
     del frame_provider, controller, watch_arm_factory
     return [
-        PositionCommitBreakpoint(address, label, None, writer=writer)
-        for address, label in POSITION_COMMIT_CALLS
+        ActionPhysicsAngleBreakpoint(ACTION_PHYSICS_STEP, "entry", writer=writer),
+        ActionPhysicsAngleBreakpoint(
+            ACTION_PHYSICS_ANGLE_READ,
+            "angle-read",
+            writer=writer,
+            player_register="esi",
+        ),
+        ActionPhysicsAngleBreakpoint(
+            ACTION_PHYSICS_NEGATIVE_ANGLE,
+            "negative-angle-path",
+            writer=writer,
+            player_register="esi",
+        ),
+        ActionPhysicsAngleBreakpoint(
+            ACTION_PHYSICS_POSITIVE_ANGLE,
+            "positive-angle-path",
+            writer=writer,
+            player_register="esi",
+        ),
+        ActionPhysicsAngleBreakpoint(
+            ACTION_PHYSICS_FINAL_ANGLE,
+            "final-angle",
+            writer=writer,
+            player_register="esi",
+        ),
+        InAirPositionPivotAngleBreakpoint(writer=writer),
+        InAirPositionAdjustmentBreakpoint(writer=writer),
+        InAirPositionTransformBreakpoint(writer=writer),
+        InAirUprightCorrectionBreakpoint(writer=writer),
+        *[
+            PositionCommitBreakpoint(address, label, None, writer=writer)
+            for address, label in POSITION_COMMIT_CALLS
+        ],
     ]
 
 

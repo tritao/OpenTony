@@ -64,10 +64,12 @@ static int parse_action(const char *text, CaptureActionInterval *action) {
 static int append_command_argument(char *command, size_t capacity, const char *value) {
     size_t used = strlen(command);
     size_t length = strlen(value);
-    if (used + length + 4 >= capacity) {
+    if (used + length + (used == 0 ? 3 : 4) >= capacity) {
         return 0;
     }
-    command[used++] = ' ';
+    if (used != 0) {
+        command[used++] = ' ';
+    }
     command[used++] = '"';
     memcpy(command + used, value, length);
     used += length;
@@ -200,9 +202,16 @@ int main(int argc, char **argv) {
     mapping_name[0] = 0;
     _snprintf(mapping_name, sizeof(mapping_name) - 1, "Local\\OpenTonyCapture-%lu", (unsigned long)GetCurrentProcessId());
     mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, 0, PAGE_READWRITE, 0, OTCAP_MAPPING_SIZE, mapping_name);
-    if (mapping == 0) goto done;
+    if (mapping == 0) {
+        fprintf(stderr, "capture host: CreateFileMappingA failed (%lu)\n", (unsigned long)GetLastError());
+        goto done;
+    }
     view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, OTCAP_MAPPING_SIZE);
-    if (view == 0) { CloseHandle(mapping); goto done; }
+    if (view == 0) {
+        fprintf(stderr, "capture host: MapViewOfFile failed (%lu)\n", (unsigned long)GetLastError());
+        CloseHandle(mapping);
+        goto done;
+    }
     ZeroMemory(view, OTCAP_MAPPING_SIZE);
     header = (CaptureHeader *)view;
     config = (CaptureConfig *)((unsigned char *)view + OTCAP_HEADER_BYTES);
@@ -222,7 +231,10 @@ int main(int argc, char **argv) {
     header->image_base = 0x00400000u;
     header->player_blob_size = OTCAP_PLAYER_BLOB_SIZE;
     header->process_id = GetCurrentProcessId();
-    if (!parse_sha256(sha_text, header->build_sha256)) goto cleanup_view;
+    if (!parse_sha256(sha_text, header->build_sha256)) {
+        fprintf(stderr, "capture host: invalid --build-sha256\n");
+        goto cleanup_view;
+    }
     config->version = OTCAP_VERSION;
     config->size = OTCAP_CONFIG_BYTES;
     config->frame_limit = frames;
@@ -233,22 +245,36 @@ int main(int argc, char **argv) {
     initial->size = OTCAP_INITIAL_STATE_BYTES;
 
     command_line[0] = 0;
-    if (!append_command_argument(command_line, sizeof(command_line), exe_path)) goto cleanup_view;
-    SetEnvironmentVariableA(OTCAP_MAPPING_ENV, mapping_name);
-    if (!CreateProcessA(0, command_line, 0, 0, FALSE, CREATE_SUSPENDED, 0, 0, &startup, &process)) goto cleanup_view;
+    if (!append_command_argument(command_line, sizeof(command_line), exe_path)) {
+        fprintf(stderr, "capture host: executable command line is too long\n");
+        goto cleanup_view;
+    }
+    if (!SetEnvironmentVariableA(OTCAP_MAPPING_ENV, mapping_name)) {
+        fprintf(stderr, "capture host: SetEnvironmentVariableA failed (%lu)\n", (unsigned long)GetLastError());
+        goto cleanup_view;
+    }
+    fprintf(stderr, "capture host: launching %s\n", command_line);
+    if (!CreateProcessA(exe_path, command_line, 0, 0, FALSE, CREATE_SUSPENDED, 0, 0, &startup, &process)) {
+        fprintf(stderr, "capture host: CreateProcessA failed (%lu)\n", (unsigned long)GetLastError());
+        goto cleanup_view;
+    }
     if (!inject_dll(process.hProcess, dll_path)) {
+        fprintf(stderr, "capture host: DLL injection failed\n");
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         goto cleanup_view;
     }
     if (!wait_for_ready(header, process.hProcess)) {
+        fprintf(stderr, "capture host: recorder did not become ready (status=%lu, error=%lu)\n",
+            (unsigned long)header->status, (unsigned long)header->error_code);
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         goto cleanup_view;
     }
     if (ResumeThread(process.hThread) == (DWORD)-1) {
+        fprintf(stderr, "capture host: ResumeThread failed (%lu)\n", (unsigned long)GetLastError());
         TerminateProcess(process.hProcess, 1);
     }
     wait_result = wait_for_bounded_capture(header, process.hProcess);
@@ -267,8 +293,12 @@ int main(int argc, char **argv) {
         goto close_process;
     }
     output = CreateFileA(output_path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-    if (output == INVALID_HANDLE_VALUE) goto close_process;
+    if (output == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "capture host: output open failed (%lu)\n", (unsigned long)GetLastError());
+        goto close_process;
+    }
     if (!WriteFile(output, view, header->bytes_used, &written, 0) || written != header->bytes_used) {
+        fprintf(stderr, "capture host: output write failed (%lu)\n", (unsigned long)GetLastError());
         CloseHandle(output);
         goto close_process;
     }

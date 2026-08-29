@@ -60,6 +60,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     result.position_commit.position = player.position();
 
     player.begin_physics_frame();
+    player.update_collision_recovery_window(input);
     // Retail canonicalizes the initially published grounded basis before
     // FUN_00493370 consumes it. The initial recording snapshot remains raw;
     // this is the one frame-boundary write that turns it canonical.
@@ -240,7 +241,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     bool collision_transient_exit_requested = false;
     bool collision_response_projection_pending = false;
     bool ground_leave_air_requested = false;
+    std::int32_t ground_leave_air_reason = 0x1ab6;
     bool state_two_entered_from_recovery = false;
+    bool air_normal_recovery_handled = false;
     FixedPosition collision_transient_exit_normal{};
     FixedPosition collision_transient_basis{};
     bool collision_transient_basis_valid = false;
@@ -249,7 +252,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
          &collision_transient_exit_requested,
          &collision_response_projection_pending,
          &ground_leave_air_requested,
+         &ground_leave_air_reason,
          &state_two_entered_from_recovery,
+         &air_normal_recovery_handled,
          &collision_transient_exit_normal, &collision_transient_basis,
          &collision_transient_basis_valid,
          frame_scale_q8](
@@ -313,6 +318,125 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             }
 
             if (!has_position_integrator(stage) || !hooks.integrate_position) {
+                if (stage == PhysicsDispatchStage::GroundFinal_9d9c0
+                    && hooks.collision_query
+                    && (current_player.physics_state() == 0
+                        || current_player.physics_state() == 7)) {
+                    // FUN_0049d9c0 performs the final grounded bounce probes
+                    // after FUN_00496550/FUN_00495cc0.  The probe starts at
+                    // the live position offset along +310c, then searches
+                    // along +/- +3100.  When the returned normal is
+                    // orthogonal to +310c, FUN_004957c0 makes a second
+                    // normal-offset query and, on a miss, commits the
+                    // directional endpoint directly.  This is the source of
+                    // the Warehouse wall's position -0xa000 correction at
+                    // frame 114; it is not part of the main movement query.
+                    const auto offset = [](
+                        const FixedPosition& position,
+                        const FixedPosition& axis,
+                        std::int64_t scale) {
+                        FixedPosition result = position;
+                        for (std::size_t index = 0;
+                             index < result.size();
+                             ++index) {
+                            result[index] = static_cast<std::int32_t>(
+                                static_cast<std::int64_t>(result[index])
+                                + static_cast<std::int64_t>(axis[index])
+                                    * scale);
+                        }
+                        return result;
+                    };
+                    const auto bounce_probe = [&](
+                        std::int32_t direction,
+                        std::int32_t distance) {
+                        const FixedPosition base = current_player.position();
+                        const RetailBasis& basis = current_player.retail_basis();
+                        const FixedPosition probe_start = offset(
+                            base,
+                            basis.at_310c,
+                            30);
+                        const FixedPosition probe_end = offset(
+                            probe_start,
+                            basis.at_3100,
+                            static_cast<std::int64_t>(direction) * distance);
+                        const std::optional<PositionCollisionHit> hit =
+                            hooks.collision_query(probe_start, probe_end);
+                        if (!hit.has_value()) {
+                            return false;
+                        }
+                        const std::int32_t normal_alignment = fixed_dot_q12(
+                            hit->normal,
+                            basis.at_310c);
+                        if (normal_alignment <= -0x400
+                            || normal_alignment >= 0x400) {
+                            return false;
+                        }
+
+                        // The second query in FUN_004957c0 begins one raw
+                        // normal unit into the hit and ends at the signed
+                        // normal * distance endpoint.  A clear second probe
+                        // writes that endpoint to the live position.
+                        const FixedPosition normal_start = offset(
+                            base,
+                            hit->normal,
+                            1);
+                        const FixedPosition normal_end = offset(
+                            base,
+                            hit->normal,
+                            static_cast<std::int64_t>(direction) * distance);
+                        if (hooks.collision_query(normal_start, normal_end)
+                                .has_value()) {
+                            return false;
+                        }
+                        current_player.set_position(normal_end);
+                        result.position_commit = PositionCommitResult{
+                            normal_end,
+                            false,
+                            false,
+                            0,
+                            static_cast<std::uint8_t>(
+                                PositionCommitCandidate::Direct),
+                        };
+                        return true;
+                    };
+
+                    const FixedPosition saved_position = current_player.position();
+                    // The ordinary grounded +0x2f64 path supplies the ten
+                    // unit probe distance.  The extended 70-unit variant is
+                    // owned by a separate special-state gate that is not
+                    // active in this grounded replay path.
+                    constexpr std::int32_t bounce_distance = 10;
+                    if (!bounce_probe(-1, bounce_distance)) {
+                        if (!bounce_probe(1, bounce_distance)) {
+                            return;
+                        }
+                        if (!bounce_probe(-1, bounce_distance)) {
+                            return;
+                        }
+                        current_player.set_position(saved_position);
+                        result.position_commit = PositionCommitResult{
+                            saved_position,
+                            false,
+                            false,
+                            0,
+                            static_cast<std::uint8_t>(
+                                PositionCommitCandidate::Direct),
+                        };
+                    } else {
+                        if (!bounce_probe(1, bounce_distance)) {
+                            return;
+                        }
+                        current_player.set_position(saved_position);
+                        result.position_commit = PositionCommitResult{
+                            saved_position,
+                            false,
+                            false,
+                            0,
+                            static_cast<std::uint8_t>(
+                                PositionCommitCandidate::Direct),
+                        };
+                    }
+                }
                 return;
             }
 
@@ -324,11 +448,18 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 frame_scale_q8);
             if (stage == PhysicsDispatchStage::InAir_97f40
                 && current_player.physics_state() != 2
-                && hooks.air_upright_input) {
-                const std::optional<FixedPosition> global_up =
-                    hooks.air_upright_input(current_player, input);
-                if (global_up.has_value()) {
-                    current_player.apply_upright_correction(*global_up);
+                && hooks.air_orientation_pivot_input) {
+                const std::optional<std::int32_t> angle =
+                    hooks.air_orientation_pivot_input(
+                        current_player,
+                        input,
+                        frame_scale_q8);
+                if (angle.has_value()) {
+                    const FixedPosition pivot_delta =
+                        current_player.apply_in_air_orientation_pivot(*angle);
+                    for (std::size_t index = 0; index < desired.size(); ++index) {
+                        desired[index] += pivot_delta[index];
+                    }
                 }
             }
             PositionCollisionProbe probe = hooks.collision_probe;
@@ -337,20 +468,36 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             bool ground_surface_target_changed = false;
             bool use_ground_response_basis_tail = true;
             bool movement_recovery_candidate_selected = false;
+            const auto ground_collision_query =
+                [&hooks, &current_player](
+                    const FixedPosition& query_start,
+                    const FixedPosition& query_end) {
+                    const std::optional<PositionCollisionHit> hit =
+                        hooks.collision_query(query_start, query_end);
+                    if (hit.has_value()) {
+                        // FUN_0048ea80 leaves the decoded material class in
+                        // the player object. A miss does not clear it, so
+                        // retain the previous value across helper probes and
+                        // frames just as retail does.
+                        current_player.set_ground_surface_class(
+                            hit->raw_type_bits_9_12);
+                    }
+                    return hit;
+                };
             if (hooks.collision_query) {
                 // The support query and FUN_00496955's ordinary movement
                 // query are separate retail operations. Preserve the latter
                 // hit because its normal/contact feed the later ground
                 // recovery path; a recovery candidate is only selected for
                 // a miss.
-                movement_collision = hooks.collision_query(start, desired);
+                movement_collision = ground_collision_query(start, desired);
                 if (movement_collision.has_value()) {
                     queried_hit = movement_collision;
                 }
-                probe = [&hooks, &start, &queried_hit](
+                probe = [&ground_collision_query, &start, &queried_hit](
                     const FixedPosition& candidate) {
                     const std::optional<PositionCollisionHit> hit =
-                        hooks.collision_query(start, candidate);
+                        ground_collision_query(start, candidate);
                     if (hit.has_value() && !queried_hit.has_value()) {
                         queried_hit = hit;
                     }
@@ -387,7 +534,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 const FixedPosition surface_start = current_player.position();
                 FixedPosition surface_end = surface_start;
                 surface_end[1] += 0x1f40000;
-                result.ground_surface_hit = hooks.collision_query(
+                result.ground_surface_hit = ground_collision_query(
                     surface_start,
                     surface_end);
                 if (result.ground_surface_hit.has_value()) {
@@ -428,7 +575,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             recovery_axis,
                             -186);
                         const std::optional<PositionCollisionHit> recovery_hit =
-                            hooks.collision_query(
+                            ground_collision_query(
                                 recovery_start,
                                 recovery_end);
                         if (recovery_hit.has_value()) {
@@ -447,11 +594,87 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                        recovery_end,
                                     recovery_hit->hit_parameter_q14)
                                     > 0x74;
+                            // FUN_004956f0 is also the complementary exit
+                            // when the grounded recovery hit is no longer a
+                            // ground-facing surface. In this path the
+                            // movement query missed, the support sweep still
+                            // found the floor, and the secondary recovery
+                            // normal is horizontal; retail leaves the
+                            // integrated position and response untouched.
+                            const bool non_ground_recovery_leave_air =
+                                current_player.physics_state() == 0
+                                && !recovery_hit->surface_bit_6
+                                && recovery_hit->normal[1] >= 0;
+                            // A downward support hit is the other entry to
+                            // FUN_004956f0. It takes precedence over the
+                            // short secondary-recovery projection: the
+                            // retail frame leaves the response untouched and
+                            // adds the raw +0x1964 handoff correction below.
+                            const bool support_leave_air =
+                                current_player.physics_state() == 0
+                                && current_player.animation_state() == 0
+                                && result.ground_surface_hit.has_value()
+                                && ((result.ground_surface_hit->surface_flags >> 9u)
+                                    & 0x0fu) == 13
+                                && (result.ground_surface_hit->face_flags
+                                    & 0x2000u) == 0
+                                && ((recovery_hit->surface_flags >> 9u)
+                                    & 0x0fu) == 12
+                                && (!result.ground_motion.has_value()
+                                    || result.ground_motion->event_reason != 0x2537)
+                                && result.ground_surface_hit->normal[1] < 0;
+                            const bool leave_air =
+                                recovery_leave_air
+                                || non_ground_recovery_leave_air
+                                || support_leave_air;
+                            // FUN_0049704f branches to FUN_004956f0 when the
+                            // recovery window is old.  The special material
+                            // bit on the secondary contact does not itself
+                            // select the transient state-2 path: the retail
+                            // state-2 request at 0x004972da is the recent
+                            // recovery-window branch below.
+                            const bool recovery_window_recent =
+                                current_player.collision_recovery_frame() == 0
+                                || current_player.frame_counter()
+                                       - current_player.collision_recovery_frame()
+                                    < 5;
+                            const bool ordinary_recovery_state_one =
+                                current_player.physics_state() == 0
+                                && recovery_hit->surface_bit_6
+                                && !leave_air
+                                && !recovery_window_recent;
                             const bool transient_exit =
                                 current_player.physics_state() == 2
                                 && recovery_hit->normal[1] < 0;
-                            if ((current_player.physics_state() == 0
-                                 && !recovery_leave_air)
+                            if (ordinary_recovery_state_one) {
+                                // This is the 0x004971ee path: damp the
+                                // response along the selected recovery normal,
+                                // halve Y, then request state 1 with reason
+                                // 0x1ab6. It jumps to the common tail without
+                                // publishing the state-2 surface response.
+                                current_player.apply_ground_leave_air_response(
+                                    recovery_hit->normal);
+                                current_player.request_physics_state(
+                                    1,
+                                    0x1ab6);
+                                queried_hit = recovery_hit;
+                                // FUN_00496060 accepts the recovered contact
+                                // candidate on this branch. The candidate is
+                                // the contact plus the live air-motion axis;
+                                // its collision fallback is not selected in
+                                // the Warehouse trace.
+                                desired = offset(
+                                    recovery_hit->position,
+                                    current_player.air_motion(),
+                                    30);
+                                // The state-1 common tail adds the raw
+                                // recovery vector to +0x58 after the handoff;
+                                // it is separate from the state-0/state-2
+                                // surface-response publication above.
+                                current_player.add_motion_correction(
+                                    FixedPosition{0, 0x1964, 0});
+                            } else if ((current_player.physics_state() == 0
+                                 && !leave_air)
                                 || (current_player.physics_state() == 2
                                     && !transient_exit)) {
                                 // The ordinary grounded recovery path reaches
@@ -464,11 +687,26 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             } else if (current_player.physics_state() != 0) {
                                 collision_response_projection_pending = true;
                             }
-                            if (recovery_leave_air) {
+                            if (support_leave_air) {
+                                // FUN_0049704f's leave-air branch commits the
+                                // secondary contact plus thirty units of the
+                                // live air axis before FUN_004956f0 changes
+                                // state. This is distinct from the short
+                                // recovery projection path above.
+                                desired = offset(
+                                    recovery_hit->position,
+                                    recovery_axis,
+                                    30);
+                            }
+                            if (leave_air) {
                                 ground_leave_air_requested = true;
-                            } else {
+                                if (non_ground_recovery_leave_air) {
+                                    ground_leave_air_reason = 0x160b;
+                                }
+                            } else if (!ordinary_recovery_state_one) {
                                 if (current_player.physics_state() == 0
-                                    && recovery_hit->surface_bit_6) {
+                                    && recovery_hit->surface_bit_6
+                                    && recovery_window_recent) {
                                 // FUN_004972df enters raw state 2 after the
                                 // recovery sweep identifies the special
                                 // surface. Capture the pre-transition basis
@@ -534,12 +772,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                     recovery_hit->position,
                                     recovery_axis,
                                     30);
-                                const PositionCollisionProbe recovery_probe =
-                                    [&hooks, &desired](
-                                        const FixedPosition& candidate) {
-                                        return hooks.collision_query(
-                                            desired,
-                                            candidate).has_value();
+                            const PositionCollisionProbe recovery_probe =
+                            [&ground_collision_query, &desired](
+                                const FixedPosition& candidate) {
+                                return ground_collision_query(
+                                    desired,
+                                    candidate).has_value();
                                     };
                                 const PositionCommitResult recovery_commit =
                                     PositionCommitter::commit(
@@ -609,13 +847,6 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 const bool use_movement_recovery_base =
                     !movement_collision->surface_bit_6;
                 use_ground_response_basis_tail = use_movement_recovery_base;
-                // FUN_004972da requests raw state 2 after the direct
-                // surface-bit-40 ground path. Defer the write until the
-                // complete state-0 collision helper has finished so the
-                // state-specific basis tail still runs in this frame.
-                if (movement_collision->surface_bit_6) {
-                    collision_transient_requested = true;
-                }
                 const bool ground_facing_movement =
                     movement_collision->normal[1] < 0;
                 if (use_movement_recovery_base && ground_facing_movement) {
@@ -642,6 +873,15 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 const FixedPosition recovery_base = !use_movement_recovery_base
                     ? desired
                     : ground_facing_movement ? movement_candidate : start;
+                if (use_movement_recovery_base && ground_facing_movement) {
+                    // The ordinary ground-facing movement-hit path commits
+                    // the contact-plus-normal candidate itself. The later
+                    // secondary recovery sweep can alter response/basis
+                    // state, but it does not replace this candidate with the
+                    // integrated point when the surface-bit-6 path is clear.
+                    desired = movement_candidate;
+                    movement_recovery_candidate_selected = true;
+                }
                 const FixedPosition recovery_start = offset(
                     recovery_base,
                     recovery_direction,
@@ -650,26 +890,95 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     recovery_base,
                     recovery_direction,
                     -186);
-                const std::optional<PositionCollisionHit> recovery_hit =
-                    hooks.collision_query(recovery_start, recovery_end);
+                    const std::optional<PositionCollisionHit> recovery_hit =
+                    ground_collision_query(recovery_start, recovery_end);
                 if (recovery_hit.has_value()) {
                     // The grounded movement-hit path shares the long-recovery
                     // exit with FUN_004956f0.  The sweep distance is measured
                     // from the actual secondary query, so this remains causal
                     // when the same geometry is reached on a different frame.
+                    const bool recovery_window_recent =
+                        current_player.collision_recovery_frame() == 0
+                        || current_player.frame_counter()
+                               - current_player.collision_recovery_frame()
+                            < 5;
+                    const bool recent_special_recovery =
+                        current_player.physics_state() == 0
+                        && movement_collision->surface_bit_6
+                        && recovery_window_recent;
                     const bool recovery_leave_air =
-                        retail_hit_distance(
+                        (current_player.physics_state() == 0
+                         && movement_collision->surface_bit_6
+                         && !recovery_window_recent)
+                        || retail_hit_distance(
                             recovery_start,
                             recovery_end,
                             recovery_hit->hit_parameter_q14)
-                        > 0x74;
+                            > 0x74;
+                    if (recent_special_recovery) {
+                        // FUN_004972df enters the collision-transient state
+                        // when the wall contact is still inside the recent
+                        // recovery window. This is the movement-hit sibling
+                        // of the support/recovery state-2 path above; it must
+                        // not be mistaken for the older state-1 leave-air
+                        // branch merely because the hit carries bit 6.
+                        const FixedPosition transition_basis =
+                            current_player.retail_basis().at_30f4;
+                        current_player.request_physics_state_from_basis(
+                            2,
+                            0x1ac9,
+                            transition_basis);
+                        state_two_entered_from_recovery = true;
+                    }
                     if (recovery_leave_air) {
                         // The long-recovery exit retains the ordinary
                         // movement contact as the position candidate.  The
                         // secondary sweep only decides the state handoff; it
                         // does not replace that contact with its own recovery
                         // candidate.
-                        desired = movement_candidate;
+                        if (!movement_collision->surface_bit_6) {
+                            desired = movement_candidate;
+                        } else {
+                            // The direct surface path still runs the shared
+                            // candidate committer before FUN_00497265 makes
+                            // the state-1 request. It skips the response and
+                            // basis side effects, but its accepted candidate
+                            // remains part of the position result.
+                            const FixedPosition recovery_candidate = offset(
+                                recovery_hit->position,
+                                recovery_direction,
+                                30);
+                                const PositionCollisionProbe recovery_probe =
+                                [&ground_collision_query, &recovery_base](
+                                    const FixedPosition& candidate) {
+                                    return ground_collision_query(
+                                        recovery_base,
+                                        candidate).has_value();
+                                };
+                            const PositionCommitResult recovery_commit =
+                                PositionCommitter::commit(
+                                    recovery_base,
+                                    recovery_candidate,
+                                    recovery_probe,
+                                    hooks.bypass_collision);
+                            const FixedPosition recovery_displacement{
+                                recovery_commit.position[0] - recovery_base[0],
+                                recovery_commit.position[1] - recovery_base[1],
+                                recovery_commit.position[2] - recovery_base[2],
+                            };
+                            if (fixed_dot_q12(
+                                    recovery_displacement,
+                                    recovery_displacement) >= 0x1000) {
+                                desired = recovery_commit.position;
+                            }
+                        }
+                        if (current_player.physics_state() == 0) {
+                            // The complementary FUN_004956f0 path modifies
+                            // the response using the final recovery normal
+                            // before issuing its state-1 request.
+                            current_player.apply_ground_leave_air_response(
+                                recovery_hit->normal);
+                        }
                         ground_leave_air_requested = true;
                     } else {
                         static_cast<void>(current_player.project_collision_velocity(
@@ -712,9 +1021,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             recovery_direction,
                             30);
                         const PositionCollisionProbe recovery_probe =
-                            [&hooks, &recovery_base](
+                            [&ground_collision_query, &recovery_base](
                                 const FixedPosition& candidate) {
-                                return hooks.collision_query(
+                                return ground_collision_query(
                                     recovery_base,
                                     candidate).has_value();
                             };
@@ -768,6 +1077,15 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 desired,
                 probe,
                 hooks.bypass_collision);
+            if (stage == PhysicsDispatchStage::InAir_97f40
+                && current_player.physics_state() != 2
+                && hooks.air_upright_input) {
+                const std::optional<FixedPosition> global_up =
+                    hooks.air_upright_input(current_player, input);
+                if (global_up.has_value()) {
+                    current_player.apply_upright_correction(*global_up);
+                }
+            }
             // The grounded steering velocity phase belongs after the
             // collision routine has produced its response and before the
             // outer correction handoff. It is an explicit state phase, not a
@@ -781,7 +1099,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 // correction used by a recovered collision candidate.
                 current_player.add_motion_correction(
                     FixedPosition{0, 0x1964, 0});
-                current_player.request_physics_state(1, 0x160b);
+                current_player.request_physics_state(
+                    1,
+                    ground_leave_air_reason);
             }
             if (stage == PhysicsDispatchStage::GroundCollision_96550
                 && current_player.physics_state() == 0
@@ -790,6 +1110,34 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             }
             if (hooks.collision_query) {
                 result.collision_hit = queried_hit;
+            }
+            StandardAirContactDisposition air_contact_disposition =
+                StandardAirContactDisposition::None;
+            if (result.collision_hit.has_value()
+                && stage == PhysicsDispatchStage::InAir_97f40
+                && hooks.standard_air_contact_input) {
+                const std::optional<StandardAirContactInput> contact_input =
+                    hooks.standard_air_contact_input(
+                        current_player, input, *result.collision_hit);
+                if (contact_input.has_value()) {
+                    air_contact_disposition =
+                        classify_standard_air_contact(
+                            *result.collision_hit,
+                            current_player.physics_state(),
+                            input.action(kJumpActionBit).held,
+                            input.action(kJumpActionBit).inactive_frames,
+                            current_player.frame_counter(),
+                            *contact_input);
+                }
+            }
+            std::optional<AirNormalRecoveryInput> air_normal_recovery_input;
+            if (result.collision_hit.has_value()
+                && stage == PhysicsDispatchStage::InAir_97f40
+                && hooks.air_normal_recovery_input) {
+                air_normal_recovery_input = hooks.air_normal_recovery_input(
+                    current_player,
+                    input,
+                    *result.collision_hit);
             }
             if (result.collision_hit.has_value()
                 && hooks.collision_response_bias_q12) {
@@ -821,7 +1169,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             }
             if (result.collision_hit.has_value()
                 && hooks.remove_hit_normal_component
-                && !result.ground_surface_hit.has_value()) {
+                && !result.ground_surface_hit.has_value()
+                && !air_normal_recovery_input.has_value()
+                && air_contact_disposition
+                    != StandardAirContactDisposition::SurfaceRecovery) {
                 static_cast<void>(current_player.remove_collision_normal_component(
                     result.collision_hit->normal));
                 result.hit_normal_removed = true;
@@ -832,6 +1183,31 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     *result.collision_hit,
                     result.position_commit);
             }
+            if (air_normal_recovery_input.has_value()) {
+                // FUN_00496060 receives the collision contact plus the raw
+                // signed-short normal as its candidate. The normal is a
+                // fixed-point position offset here, not a Q12 product.
+                FixedPosition recovery_position =
+                    result.collision_hit->position;
+                for (std::size_t index = 0;
+                     index < recovery_position.size();
+                     ++index) {
+                    recovery_position[index] += static_cast<std::int16_t>(
+                        result.collision_hit->normal[index]);
+                }
+                result.position_commit = current_player.commit_position(
+                    recovery_position,
+                    PositionCollisionProbe{},
+                    true);
+                current_player.clear_motion_correction();
+                current_player.request_physics_state(1, 0x1f83);
+                current_player.apply_air_normal_recovery(
+                    result.collision_hit->normal,
+                    *air_normal_recovery_input);
+                air_normal_recovery_handled = true;
+                result.position_integrated = true;
+                return;
+            }
             bool accepted_air_contact = false;
             if (result.collision_hit.has_value()
                 && stage == PhysicsDispatchStage::InAir_97f40) {
@@ -841,20 +1217,29 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         *result.collision_hit,
                         result.position_commit);
                 } else if (hooks.standard_air_contact_input) {
-                    const std::optional<StandardAirContactInput> contact_input =
-                        hooks.standard_air_contact_input(
-                            current_player, input, *result.collision_hit);
-                    accepted_air_contact = contact_input.has_value()
-                        && accepts_standard_air_contact(
-                            *result.collision_hit,
-                            current_player.physics_state(),
-                            input.action(kJumpActionBit).held,
-                            input.action(kJumpActionBit).inactive_frames,
-                            current_player.frame_counter(),
-                            *contact_input);
+                    accepted_air_contact =
+                        air_contact_disposition
+                        != StandardAirContactDisposition::None;
                 }
             }
             if (accepted_air_contact) {
+                if (air_contact_disposition
+                    == StandardAirContactDisposition::SurfaceRecovery) {
+                    // FUN_00497f40 has already written the integrated
+                    // position before this query. Its accepted surface path
+                    // calls FUN_00496060 with a corrective candidate; when
+                    // that candidate is blocked, the live integrated point
+                    // remains authoritative and FUN_00497aa0 returns to the
+                    // existing in-air state. Preserve that ordering rather
+                    // than turning a surface-recovery contact into a landing.
+                    result.position_commit = current_player.commit_position(
+                        desired,
+                        PositionCollisionProbe{},
+                        true);
+                    current_player.request_physics_state(1, 0x1cb1);
+                    result.position_integrated = true;
+                    return;
+                }
                 // FUN_00497f40's accepted-contact branch commits the
                 // interpolated collision point produced by the air query
                 // before requesting ground state. The shared candidate
@@ -881,8 +1266,17 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                 * 0x1e);
                     }
                 }
-                result.landed = current_player.accept_air_contact(
+                // FUN_00498a66 routes the contact-plus-normal candidate back
+                // through FUN_00496060. That committer is what preserves the
+                // unobstructed axis from the already integrated position; a
+                // direct write would incorrectly retain the full collision
+                // contact on every axis.
+                result.position_commit = current_player.commit_position(
                     contact_position,
+                    probe,
+                    hooks.bypass_collision);
+                result.landed = current_player.accept_air_contact(
+                    current_player.position(),
                     result.collision_hit.has_value()
                     ? result.collision_hit->normal
                     : current_player.air_motion());
@@ -906,6 +1300,20 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     8,
                     true);
             }
+            if (stage == PhysicsDispatchStage::GroundCollision_96550
+                && current_player.physics_state() == 0
+                && hooks.apply_ground_basis_correction
+                && current_player.ground_surface_class() == 3) {
+                // The class-3 tail at 0x0049789f follows the ordinary basis
+                // correction, but is not gated by its local response/profile
+                // predicate. It projects the same response onto +0x30f4 and
+                // subtracts a 0xb4 term scaled by the current frame clock.
+                current_player.prepare_ground_basis_correction(
+                    true,
+                    frame_scale_q8,
+                    0xb4,
+                    false);
+            }
             if (collision_response_projection_pending
                 && current_player.physics_state() == 0
                 && !collision_transient_exit_requested) {
@@ -917,7 +1325,6 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         },
     };
     result.dispatch = PhysicsDispatcher::dispatch(player, dispatch_hooks);
-
     if (collision_transient_requested) {
         if (collision_transient_basis_valid) {
             player.request_physics_state_from_basis(
@@ -1002,6 +1409,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             || result.dispatch.stages[index] == PhysicsDispatchStage::InAir_97f40;
     }
     if (dispatched_in_air
+        && !air_normal_recovery_handled
         && player.physics_state() != 0
         && player.physics_state() != 7
         && hooks.air_gravity_acceleration_input) {

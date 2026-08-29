@@ -11,7 +11,7 @@ input:
     state: release
 
 forensics:
-  - core
+  - all
 
 expect:
   retail: match

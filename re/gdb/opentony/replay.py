@@ -23,6 +23,7 @@ from .timer import (
 _ACTION_MASK_ADDRESS = GLOBALS["ActionMask"]
 _KEYBOARD_STATE_ADDRESS = GLOBALS["KeyboardState"]
 _ACTION_BUILD_ADDRESS = 0x004E42C0
+_ACTION_STATE_UPDATE_ADDRESS = 0x00489A15
 _RAW_AXIS_ADDRESS = 0x0056AFBD
 _NORMALIZED_AXIS_ADDRESS = 0x0056B140
 # The post-input boundary is also the replay activation gate.  It is kept as
@@ -179,6 +180,7 @@ class RetailReplay:
         self.timer_service = TimerReplayService(initial_timer_state)
         self.input_breakpoint = RetailReplayInputBreakpoint(self)
         self.action_breakpoint: RetailReplayActionBuildBreakpoint | None = None
+        self.action_update_breakpoint = RetailReplayActionUpdateBreakpoint(self)
         self.entry_breakpoint = RetailReplayFrameEntryBreakpoint(self)
         self.timer_clock_read_breakpoint = RetailReplayTimerClockReadBreakpoint(self)
         self.timer_frame_entry_breakpoint = RetailReplayTimerFrameEntryBreakpoint(self)
@@ -210,9 +212,14 @@ class RetailReplay:
         if self._stopped or self.index >= len(self.frames):
             return
         input_record = self.frames[self.index].get("input", {})
+        self.inject_action_mask(input_record)
+        self.inject_axes(input_record)
+
+    def inject_action_mask(self, input_record: dict) -> None:
+        """Publish the recorded effective mask at the post-build boundary."""
+
         mask = int(input_record.get("action_mask", 0)) & 0xFFFF
         mem.write(_ACTION_MASK_ADDRESS, mask.to_bytes(2, "little"))
-        self.inject_axes(input_record)
 
     def inject_axes(self, input_record: dict) -> None:
         raw_bytes, normalized_bytes = _axis_bytes(input_record)
@@ -389,6 +396,7 @@ class RetailReplay:
         self.input_breakpoint.enabled = False
         if self.action_breakpoint is not None:
             self.action_breakpoint.enabled = False
+        self.action_update_breakpoint.enabled = False
         self.entry_breakpoint.enabled = False
         self.timer_clock_read_breakpoint.enabled = False
         self.timer_frame_entry_breakpoint.enabled = False
@@ -458,6 +466,24 @@ class RetailReplayActionBuildBreakpoint(TonyBreakpoint):
             input_record = self.replay.frames[self.replay.index].get("input", {})
             self.replay.inject_keyboard(input_record)
             self.replay.inject_axes(input_record)
+            # Scenario/action-edge recordings may intentionally alter the
+            # effective mask after the retail keyboard builder has run. Keep
+            # that causal post-build value instead of letting keyboard
+            # reconstruction erase it when no physical scan code was held.
+            self.replay.inject_action_mask(input_record)
+
+
+class RetailReplayActionUpdateBreakpoint(TonyBreakpoint):
+    """Publish the effective mask before retail advances action records."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_ACTION_STATE_UPDATE_ADDRESS, internal=True)
+
+    def on_hit(self, _ctx: Context) -> None:
+        if self.replay.active:
+            input_record = self.replay.frames[self.replay.index].get("input", {})
+            self.replay.inject_action_mask(input_record)
 
 
 class RetailReplayFrameEntryBreakpoint(TonyBreakpoint):

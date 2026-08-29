@@ -2,15 +2,18 @@ version: 1
 level: warehouse
 frames: 256
 
-# The recovered Warehouse ollie gate is driven by the KICK action record;
-# keep that mapping explicit until the upstream user-facing binding is
-# reconstructed.
 input:
   - frame: 20
+    action: right
+    state: press
+  - frame: 60
     action: kick
     state: press
-  - frame: 28
+  - frame: 68
     action: kick
+    state: release
+  - frame: 120
+    action: right
     state: release
 
 forensics:

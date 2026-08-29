@@ -1,5 +1,6 @@
 #pragma once
 
+#include "air_contact.hpp"
 #include "position_commit.hpp"
 #include "fixed_math.hpp"
 #include "collision_response.hpp"
@@ -22,6 +23,7 @@
 #include "ground_motion_threshold.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace opentony::assets {
@@ -194,6 +196,13 @@ public:
     [[nodiscard]] std::int32_t frame_counter() const noexcept {
         return frame_counter_;
     }
+    [[nodiscard]] std::int32_t collision_recovery_frame() const noexcept {
+        return collision_recovery_frame_;
+    }
+    // Mirror the frame-start +0x2d8c recovery-window gate. The window is
+    // armed on a stable UP/heading input and cleared by a cancelled heading
+    // or by releasing UP.
+    void update_collision_recovery_window(const InputState& input) noexcept;
     [[nodiscard]] const Q12Matrix3& orientation() const noexcept {
         return orientation_;
     }
@@ -419,10 +428,27 @@ public:
     // the resulting columns are copied back to the nine-short orientation.
     [[nodiscard]] AirMotionBasisResult update_air_motion_basis() noexcept;
 
+    // Reconstructs the angle producer at retail 0x00493370/0x00498459.
+    // This is kept separate from the later common-air upright helper: the
+    // returned angle is applied to the in-air orientation before movement
+    // collision, using only the current action records and frame scale.
+    [[nodiscard]] std::optional<std::int32_t>
+    compute_in_air_orientation_angle(
+        const InputState& input,
+        std::int32_t frame_scale_q8,
+        bool alignment_gate_open) const noexcept;
+
+    // Applies the early in-air orientation pivot and returns the old-pivot
+    // minus new-pivot displacement used by the movement candidate.
+    [[nodiscard]] FixedPosition apply_in_air_orientation_pivot(
+        std::int32_t angle12) noexcept;
+
     // Reconstructs the common-air upright correction at FUN_0049c330. The
     // helper measures the current air direction against the cross product of
     // the forward basis and the shared global-up vector, then applies the
-    // fixed eleven-unit roll when the signed threshold is crossed.
+    // fixed eleven-unit roll when the signed threshold is crossed. This
+    // helper republishes the orientation/basis after the movement commit;
+    // it does not own the earlier in-air pivot displacement.
     void apply_upright_correction(
         const FixedPosition& global_up) noexcept;
 
@@ -547,6 +573,13 @@ public:
         const FixedPosition& surface_delta,
         std::int32_t yaw_offset = 0x19) noexcept;
 
+    // Completes the retained non-landing branch of FUN_00497f40: reset the
+    // air basis, run FUN_0049bad0 with its zero/fallback heading, add the
+    // quarter-normal response, and consume the causal random results.
+    void apply_air_normal_recovery(
+        const FixedPosition& collision_normal,
+        const AirNormalRecoveryInput& input) noexcept;
+
     // Reconstructs FUN_0049c060 -> FUN_00496360's signed surface-response
     // heading. The returned angle is the value passed through the grounded
     // FUN_0049b500 matrix writer after the frame-scale conversion.
@@ -554,6 +587,13 @@ public:
         const GroundSurfaceResponseInput& input,
         std::int32_t frame_scale_q8,
         bool rotate_collision_response = true) noexcept;
+
+    // Completes the state-1 leave-air branch in FUN_00496550. Retail scales
+    // the final collision normal by one quarter of the current response
+    // metric, subtracts it from +0x4c/+0x54, and halves +0x50 before the
+    // 0x1ab6 state request.
+    void apply_ground_leave_air_response(
+        const FixedPosition& collision_normal) noexcept;
 
     // Rebuilds the grounded collision basis through retail FUN_0049d080.
     // The supplied normal is eased one quarter of the way from the current
@@ -588,6 +628,17 @@ public:
         std::int32_t frame_scale_q8 = 0x100,
         std::int32_t forward_scale = 8,
         bool apply_response_basis = true) noexcept;
+
+    // FUN_00496550 retains the material class decoded by its last collision
+    // helper in the raw +0x30b0 field. The later correction tail consumes
+    // class 3 independently of the ordinary response-basis gate.
+    void set_ground_surface_class(std::int32_t value) noexcept {
+        ground_surface_class_ = value;
+    }
+
+    [[nodiscard]] std::int32_t ground_surface_class() const noexcept {
+        return ground_surface_class_;
+    }
 
     // The outer FUN_0049e680 frame applies +58/+5c/+60 back into +4c/+50/+54
     // using DAT_0056865c and an arithmetic Q8 shift.
@@ -631,6 +682,7 @@ private:
     std::int16_t animation_frame_{};
     std::int32_t field_2cdc_{};
     std::int32_t field_2dd4_{};
+    std::int32_t ground_surface_class_{};
     std::uint8_t field_107_{};
     std::int32_t field_2a8_{};
     std::int32_t field_16c_{};
@@ -673,6 +725,7 @@ private:
     std::uint32_t restart_auxiliary_{};
     std::uint16_t restart_auxiliary_word_{};
     std::int32_t frame_counter_{};
+    std::int32_t collision_recovery_frame_{};
     PlayerScriptSkaterFields script_skater_fields_{};
 };
 

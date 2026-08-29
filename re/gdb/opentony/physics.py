@@ -116,6 +116,18 @@ GROUND_MOTION_FRAME_RANDOM_SITES = {
 # event name until dynamic evidence settles it.
 SHARED_RANDOM_SERVICE = 0x0048F3A0
 
+# FUN_0049bad0's in-air normal-recovery tail uses the separate deterministic
+# random service at 0x004c9340.  These are the three call returns in the
+# retained non-landing branch of FUN_00497f40; keeping the return addresses
+# makes the replay input semantic rather than dependent on call order in the
+# much larger service.
+AIR_NORMAL_RECOVERY_RANDOM_RETURNS = {
+    0x004990E4: "normal_recovery_gate",
+    0x004990F9: "normal_recovery_x",
+    0x00499110: "normal_recovery_z",
+}
+DETERMINISTIC_RANDOM_SERVICE = 0x004C9340
+
 # FUN_0049d080 rebuilds the player's orientation from the current forward
 # column, the interpolated recovery target, and the persistent recovery base.
 # Keep its entry boundary available as a focused forensic family: the caller
@@ -1131,6 +1143,77 @@ class SharedRandomServiceProbe(TonyBreakpoint):
 
     def disable_pending_returns(self) -> None:
         """Stop return probes if the owning trace is closed mid-call."""
+        for return_probe in self._returns:
+            return_probe.enabled = False
+        self._returns.clear()
+
+
+class DeterministicRandomServiceReturnProbe(TonyBreakpoint):
+    """Complete one filtered 0x004c9340 observation at its caller return."""
+
+    def __init__(self, owner, address: int, record: dict):
+        self.owner = owner
+        self.record = record
+        super().__init__(address, internal=True, temporary=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        self.enabled = False
+        self.record["return_value_raw"] = ctx.register("eax") & 0xFFFFFFFF
+        self.record["return_value_s32"] = _signed32(ctx.register("eax"))
+        self.owner._complete(self, self.record)
+
+
+class DeterministicRandomServiceProbe(TonyBreakpoint):
+    """Capture the in-air normal-recovery calls to FUN_004c9340.
+
+    The service is shared by unrelated gameplay and presentation code.  The
+    return-site filter therefore identifies the exact three consumers in the
+    retained normal-recovery branch without treating unrelated random draws as
+    replay inputs for this path.
+    """
+
+    def __init__(self, writer=None, frame_provider=None):
+        self.writer = writer
+        self.frame_provider = frame_provider
+        self._returns = []
+        super().__init__(DETERMINISTIC_RANDOM_SERVICE, internal=True)
+
+    def _emit(self, record: dict) -> None:
+        if self.writer is None:
+            self.emit(record)
+        else:
+            self.writer.event(record)
+
+    def on_hit(self, ctx: Context) -> None:
+        return_address = ctx.return_address()
+        purpose = AIR_NORMAL_RECOVERY_RANDOM_RETURNS.get(return_address)
+        if purpose is None:
+            return
+        frame = self.frame_provider() if self.frame_provider is not None else ctx.frame
+        record = {
+            "type": "deterministic_random_call",
+            "function": "FUN_004c9340",
+            "address": f"0x{DETERMINISTIC_RANDOM_SERVICE:08x}",
+            "frame": int(frame),
+            "purpose": purpose,
+            "caller": f"0x{return_address - 5:08x}",
+            "return_address": f"0x{return_address:08x}",
+            "argument_raw": ctx.arg(0) & 0xFFFFFFFF,
+            "argument_s32": _signed32(ctx.arg(0)),
+        }
+        return_probe = DeterministicRandomServiceReturnProbe(
+            self,
+            return_address,
+            record,
+        )
+        self._returns.append(return_probe)
+
+    def _complete(self, return_probe, record: dict) -> None:
+        if return_probe in self._returns:
+            self._returns.remove(return_probe)
+        self._emit(record)
+
+    def disable_pending_returns(self) -> None:
         for return_probe in self._returns:
             return_probe.enabled = False
         self._returns.clear()

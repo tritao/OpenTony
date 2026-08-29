@@ -17,7 +17,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .common import ROOT, load_yaml, resolve, wine_env
+from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, resolve
+from .display import HeadlessDisplay, terminate_process
 from .nocd import nocd_executable
 
 OTCAP_MAGIC = b"OTCAP\0\0\1"
@@ -694,6 +695,28 @@ def _capture_binary(explicit: str | Path | None, names: tuple[str, ...]) -> Path
     raise CaptureDecodeError(f"capture binary not found; build the Windows component (looked for {joined})")
 
 
+def _wine_path(path: Path, environment: dict[str, str]) -> str:
+    """Translate a host path to a DOS path before passing it to Win32 code."""
+
+    try:
+        result = subprocess.run(
+            ["winepath", "-w", str(path.resolve())],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    except OSError as exc:
+        raise CaptureDecodeError(f"could not run winepath for {path}: {exc}") from exc
+    if result.returncode != 0 or not result.stdout.strip():
+        raise CaptureDecodeError(
+            f"could not translate path for Wine: {path}\n{result.stdout.strip()}"
+        )
+    return result.stdout.strip()
+
+
 def run_inproc_capture(
     scenario: dict[str, Any],
     output: str | Path,
@@ -720,15 +743,16 @@ def run_inproc_capture(
     except (CaptureDecodeError, KeyError, OSError) as exc:
         print(str(exc))
         return 1
+    environment = headless_wine_env()
     command = [
         "wine",
         str(host_path),
         "--exe",
-        str(executable),
+        _wine_path(executable, environment),
         "--dll",
-        str(dll_path),
+        _wine_path(dll_path, environment),
         "--output",
-        str(capture_path),
+        _wine_path(capture_path, environment),
         "--build-sha256",
         build_sha256,
         "--frames",
@@ -741,10 +765,30 @@ def run_inproc_capture(
     for action, start, hold in _scenario_action_intervals(scenario):
         command.extend(("--action", f"0x{ACTION_MASKS[action]:x}:{start}:{hold}"))
     print(" ".join(command))
-    environment = wine_env()
-    result = subprocess.run(command, cwd=ROOT, env=environment, check=False)
-    if result.returncode:
-        return result.returncode
+    cfg = load_yaml("re/config/wine.yml")["wine"]
+    display = HeadlessDisplay(cfg, environment)
+    process = None
+    try:
+        process = display.popen(
+            headless_wine_command(command), cwd=ROOT, env=environment
+        )
+        result_code = process.wait()
+    except BaseException:
+        if process is not None and process.poll() is None:
+            terminate_process(process)
+        raise
+    finally:
+        display.close()
+        subprocess.run(
+            ["wineserver", "-k"],
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if result_code:
+        return result_code
     try:
         summary = convert_capture(capture_path, target, force=force)
     except CaptureDecodeError as exc:

@@ -4,7 +4,7 @@
 
 namespace opentony::runtime {
 
-bool accepts_standard_air_contact(
+StandardAirContactDisposition classify_standard_air_contact(
     const PositionCollisionHit& hit,
     std::int32_t raw_state,
     bool jump_held,
@@ -35,10 +35,31 @@ bool accepts_standard_air_contact(
         || (!jump_held && jump_inactive_counter > 0x13U)
         || surface_age < 0x29;
     if (!landing_gate) {
-        return false;
+        return StandardAirContactDisposition::None;
     }
-    return material_flags_transient != 0
-        || (material_flags != 0 && raw_state == 3);
+    if (material_flags_transient == 0
+        && (material_flags == 0 || raw_state != 3)) {
+        return StandardAirContactDisposition::None;
+    }
+    return material_flags != 0
+        ? StandardAirContactDisposition::SurfaceRecovery
+        : StandardAirContactDisposition::Landing;
+}
+
+bool accepts_standard_air_contact(
+    const PositionCollisionHit& hit,
+    std::int32_t raw_state,
+    bool jump_held,
+    std::uint32_t jump_inactive_counter,
+    std::int32_t current_frame,
+    StandardAirContactInput input) noexcept {
+    return classify_standard_air_contact(
+        hit,
+        raw_state,
+        jump_held,
+        jump_inactive_counter,
+        current_frame,
+        input) != StandardAirContactDisposition::None;
 }
 
 } // namespace opentony::runtime

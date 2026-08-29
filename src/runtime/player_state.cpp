@@ -8,6 +8,11 @@ namespace opentony::runtime {
 
 namespace {
 
+// FUN_004983f0 seeds the common-air orientation pivot with +0x46000 on the
+// local Y axis. The two FUN_004e85a0 conversions around FUN_0049c330 then
+// compensate the candidate position by old_pivot - new_pivot in Q16 space.
+constexpr FixedPosition kAirUprightPivot{0, 0x46000, 0};
+
 [[nodiscard]] std::int32_t arithmetic_shift_2(std::int32_t value) noexcept {
     if (value >= 0) {
         return value / 4;
@@ -101,6 +106,25 @@ void PlayerState::apply_restart(
     ground_turn_saved_orientation_valid_ = false;
     restart_auxiliary_ = auxiliary;
     restart_auxiliary_word_ = auxiliary_word;
+}
+
+void PlayerState::update_collision_recovery_window(
+    const InputState& input) noexcept {
+    const std::int32_t heading = input.horizontal_axis();
+    const bool cancel_window =
+        (!input.held(movement_bit(MovementAction::Up))
+         && heading > -0x29)
+         || input.held(movement_bit(MovementAction::Left))
+         || input.held(movement_bit(MovementAction::Right))
+         || heading > 0x31
+         || heading < -0x31;
+    if (cancel_window) {
+        collision_recovery_frame_ = 0;
+        return;
+    }
+    if (collision_recovery_frame_ == 0) {
+        collision_recovery_frame_ = frame_counter_;
+    }
 }
 
 bool PlayerState::set_queued_motion_command(
@@ -443,11 +467,92 @@ AirMotionBasisResult PlayerState::update_air_motion_basis() noexcept {
     return result;
 }
 
+std::optional<std::int32_t>
+PlayerState::compute_in_air_orientation_angle(
+    const InputState& input,
+    std::int32_t frame_scale_q8,
+    bool alignment_gate_open) const noexcept {
+    // FUN_00498459 is only reached for the ordinary state-1 in-air path.
+    if (physics_state_ != 1) {
+        return std::nullopt;
+    }
+
+    // The two local action-bank slots at +0x10/+0x20 return from the
+    // producer before any directional angle is written.
+    if (input.action(0x0080).held || input.action(0x0020).held) {
+        return std::nullopt;
+    }
+
+    const bool negative = input.held(movement_bit(MovementAction::Up))
+        || input.vertical_axis() < -0x28;
+    const bool positive = input.held(movement_bit(MovementAction::Down))
+        || input.vertical_axis() > 0x28;
+    std::int32_t angle = 0;
+    if (negative) {
+        angle = -fixed_scale_q8(20, frame_scale_q8);
+    }
+    // Retail's positive branch is later in the producer and therefore wins
+    // when both directional slots happen to be active.
+    if (positive) {
+        angle = fixed_scale_q8(20, frame_scale_q8);
+    }
+    if (angle == 0) {
+        return std::nullopt;
+    }
+
+    // Warehouse takes the +29b0 == 0 fallback, which compares the current
+    // position against the published forward basis. The target-backed branch
+    // remains outside this renderer-independent boundary.
+    if (alignment_gate_open
+        && fixed_dot_q12(retail_basis_.at_30f4, position_) > 0) {
+        angle = -angle;
+    }
+    return angle;
+}
+
+FixedPosition PlayerState::apply_in_air_orientation_pivot(
+    std::int32_t angle12) noexcept {
+    const FixedPosition old_pivot = q12_transform_vector(
+        orientation_,
+        kAirUprightPivot);
+
+    if (angle12 != 0) {
+        // FUN_004e80e0 is called with [0, angle, 0] at this early site, which
+        // produces a local X-axis rotation. FUN_004e3130 multiplies it on the
+        // right of the current orientation.
+        const Q12Matrix3 yaw = q12_yaw_matrix(angle12);
+        Q12Matrix3 roll = q12_identity_matrix();
+        roll.at(1, 1) = yaw.at(0, 0);
+        roll.at(1, 2) = yaw.at(0, 2);
+        roll.at(2, 1) = yaw.at(2, 0);
+        roll.at(2, 2) = yaw.at(0, 0);
+        orientation_ = q12_matrix_multiply(orientation_, roll);
+    }
+
+    // The retail branch tests the signed +0x2e60 short before applying the
+    // old-pivot minus new-pivot compensation. In this matrix representation
+    // that value is the local orientation row/column at (1, 1).
+    if (orientation_.at(1, 1) > 0) {
+        return {};
+    }
+    const FixedPosition new_pivot = q12_transform_vector(
+        orientation_,
+        kAirUprightPivot);
+    FixedPosition pivot_delta{};
+    for (std::size_t index = 0; index < pivot_delta.size(); ++index) {
+        pivot_delta[index] = old_pivot[index] - new_pivot[index];
+    }
+    return pivot_delta;
+}
+
 void PlayerState::apply_upright_correction(
     const FixedPosition& global_up) noexcept {
     // FUN_0049c330 crosses the current forward axis with the shared up
     // vector, then takes the Q12 dot with the candidate air direction. The
     // small fixed roll is selected only outside the +/-0x29 deadband.
+    // FUN_004e2ff0 applies the Q12 shift to each cross-product component
+    // before FUN_004f5f90 computes the second Q12 dot. Keep this distinct
+    // from raw fixed-point cross products used by other recovered helpers.
     const FixedPosition turn_axis = q12_cross(
         retail_basis_.at_30f4,
         global_up);
@@ -775,6 +880,33 @@ CollisionResponseResult PlayerState::apply_collision_response(
         bias_q12);
 }
 
+void PlayerState::apply_air_normal_recovery(
+    const FixedPosition& collision_normal,
+    const AirNormalRecoveryInput& input) noexcept {
+    // The caller has already selected the in-air non-landing branch and
+    // committed its contact-plus-normal position. FUN_0049d080 resets the
+    // recovery target to world up before FUN_0049bad0 handles the contact.
+    apply_orientation_recovery(FixedPosition{0, -0x1000, 0}, true);
+    static_cast<void>(apply_collision_response(collision_normal, 0xcd));
+    static_cast<void>(apply_collision_orientation(collision_normal, 0x19));
+
+    const auto quarter = [](std::int32_t value) noexcept {
+        return arithmetic_shift_2(value);
+    };
+    const FixedPosition short_normal{
+        static_cast<std::int16_t>(collision_normal[0]),
+        static_cast<std::int16_t>(collision_normal[1]),
+        static_cast<std::int16_t>(collision_normal[2]),
+    };
+    for (std::size_t index = 0; index < collision_response_.size(); ++index) {
+        collision_response_[index] += quarter(short_normal[index]);
+    }
+    if (input.gate_random == 0) {
+        collision_response_[0] += input.x_random - 0x2000;
+        collision_response_[2] += input.z_random - 0x2000;
+    }
+}
+
 CollisionOrientationResult PlayerState::apply_collision_orientation(
     const FixedPosition& surface_delta,
     std::int32_t yaw_offset) noexcept {
@@ -953,6 +1085,28 @@ std::int32_t PlayerState::apply_ground_surface_response(
         }
     }
     return angle12;
+}
+
+void PlayerState::apply_ground_leave_air_response(
+    const FixedPosition& collision_normal) noexcept {
+    // FUN_00496550 computes local_108 as the response magnitude multiplied
+    // by 0x40, then uses (local_108 + sign-adjustment) >> 2 as the scale for
+    // the signed-short collision normal. The normal is published as shorts
+    // by the retail collision service, so retain that boundary here.
+    const std::int32_t response_metric = retail_vector_speed_metric(
+        collision_response_);
+    const std::int32_t normal_scale =
+        (response_metric + ((response_metric >> 31) & 3)) >> 2;
+    const FixedPosition normal_short{
+        static_cast<std::int16_t>(collision_normal[0]),
+        static_cast<std::int16_t>(collision_normal[1]),
+        static_cast<std::int16_t>(collision_normal[2]),
+    };
+    collision_response_[0] -= fixed_multiply_q12(
+        normal_short[0], normal_scale);
+    collision_response_[1] /= 2;
+    collision_response_[2] -= fixed_multiply_q12(
+        normal_short[2], normal_scale);
 }
 
 void PlayerState::apply_orientation_recovery(

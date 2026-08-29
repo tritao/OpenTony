@@ -20,6 +20,7 @@ def test_initial_scenario_manifests_are_valid_and_intent_only():
         "warehouse-idle",
         "warehouse-ollie-land",
         "warehouse-straight",
+        "warehouse-turn-ollie",
         "warehouse-turn",
     ]
     for path in manifests:
@@ -47,7 +48,7 @@ def test_scenario_capture_commands_preserve_frame_intent():
 
     assert commands[:3] == [
         "tony-frame-clock frame_tick",
-        "tony-record-forensic core state collision",
+        "tony-record-forensic all",
         "tony-record-start build/scenarios/warehouse-ollie-land/retail.otrec --force --frames 256 --quit",
     ]
     assert commands[3:] == ["tony-action-edge kick 20 8"]
