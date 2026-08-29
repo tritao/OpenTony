@@ -972,10 +972,13 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                 desired = recovery_commit.position;
                             }
                         }
-                        if (current_player.physics_state() == 0) {
+                        if (current_player.physics_state() == 0
+                            && movement_collision->surface_bit_6) {
                             // The complementary FUN_004956f0 path modifies
                             // the response using the final recovery normal
-                            // before issuing its state-1 request.
+                            // before issuing its state-1 request. The direct
+                            // surface-bit-6-clear path keeps +0x4c intact
+                            // and only performs the common correction handoff.
                             current_player.apply_ground_leave_air_response(
                                 recovery_hit->normal);
                         }

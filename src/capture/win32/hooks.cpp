@@ -195,6 +195,25 @@ static int sha_file(const char *path, uint8_t output[32]) {
     return 1;
 }
 
+static void debug_sha256(const char *label, const uint8_t digest[32]) {
+    static const char hex[] = "0123456789abcdef";
+    char text[80];
+    uint32_t index;
+    uint32_t offset = 0;
+    while (label[offset] != 0 && offset < sizeof(text) - 1u) {
+        text[offset] = label[offset];
+        ++offset;
+    }
+    if (offset < sizeof(text) - 1u) text[offset++] = ':';
+    for (index = 0; index < 32u && offset + 2u < sizeof(text); ++index) {
+        text[offset++] = hex[digest[index] >> 4];
+        text[offset++] = hex[digest[index] & 0x0f];
+    }
+    text[offset] = 0;
+    OutputDebugStringA(text);
+    OutputDebugStringA("\n");
+}
+
 /*
  * Addresses are RVAs from the supported THawk2 image base 0x00400000.  The
  * expected bytes are read from the immutable executable and are checked again
@@ -269,9 +288,11 @@ int ot_capture_verify_build(void *module_base, const uint8_t expected_sha256[32]
         0x33, 0x1f, 0x01, 0xab, 0x61, 0x3a, 0x94, 0x78,
     };
     if (module_base == 0 || expected_sha256 == 0 || dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        OutputDebugStringA("OpenTony capture: invalid module or DOS header\n");
         return 0;
     }
     if (memcmp(expected_sha256, supported_sha, sizeof(supported_sha)) != 0) {
+        OutputDebugStringA("OpenTony capture: requested build hash is unsupported\n");
         return 0;
     }
     nt = (IMAGE_NT_HEADERS *)((unsigned char *)module_base + dos->e_lfanew);
@@ -280,13 +301,21 @@ int ot_capture_verify_build(void *module_base, const uint8_t expected_sha256[32]
         nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
         nt->OptionalHeader.ImageBase != 0x00400000u ||
         nt->FileHeader.TimeDateStamp != 978633206u) {
+        OutputDebugStringA("OpenTony capture: PE identity mismatch\n");
         return 0;
     }
-    module_path_size = GetModuleFileNameA(0, module_path, sizeof(module_path));
+    module_path[0] = 0;
+    module_path_size = GetModuleFileNameA((HMODULE)module_base, module_path, sizeof(module_path));
+    OutputDebugStringA("OpenTony capture: executable path: ");
+    OutputDebugStringA(module_path);
+    OutputDebugStringA("\n");
     if (module_path_size == 0 || module_path_size >= sizeof(module_path) ||
         !sha_file(module_path, actual_sha) ||
         (memcmp(actual_sha, supported_sha, sizeof(supported_sha)) != 0 &&
          memcmp(actual_sha, supported_nocd_sha, sizeof(supported_nocd_sha)) != 0)) {
+        OutputDebugStringA("OpenTony capture: executable file hash mismatch\n");
+        debug_sha256("OpenTony capture actual hash", actual_sha);
+        debug_sha256("OpenTony capture expected hash", expected_sha256);
         return 0;
     }
     return 1;
