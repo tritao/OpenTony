@@ -4,7 +4,7 @@ build:
   image_base: 0x00400000
   pe_timestamp: 978633206
   machine: i386
-  mode: observation-only
+  mode: in-process-recorder
 hooks:
   physics_frame:
     rva: 0x0009e680
@@ -20,11 +20,13 @@ hooks:
     rva: 0x00069de0
     expected: "57 e8 4a fc ff ff"
     overwrite: 6
+    relocate_rel32: [1]
     status: verified
   timer_update:
     rva: 0x0006a0f0
     expected: "e8 3b ea ff ff e8 26 e4 ff ff"
     overwrite: 10
+    relocate_rel32: [0, 5]
     status: verified
   clock_read:
     rva: 0x0009f1a0

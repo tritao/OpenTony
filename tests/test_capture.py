@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import struct
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -285,7 +287,10 @@ def test_capture_hook_manifest_matches_supported_pe():
 
 
 def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
-    source = Path("src/capture/win32/hooks.cpp").read_text()
+    source = "\n".join(
+        Path(path).read_text()
+        for path in ("src/capture/win32/hooks.cpp", "src/capture/win32/hook_engine.cpp")
+    )
 
     assert "VirtualAlloc" in source
     assert "VirtualProtect" in source
@@ -295,8 +300,9 @@ def test_physics_detour_is_a_trampoline_and_not_a_gdb_stop():
     assert "ot_capture_physics_after" in source
     assert "g_gameplay_ready" in source
     assert "ignore those setup calls" in source
-    assert "Relocate rel32 call/jump instructions" in source
-    assert "trampoline[index] != 0xe8" in source
+    assert "Relocate only the rel32 instructions declared" in source
+    assert "spec->rel32_offsets" in source
+    assert "trampoline[relocation_offset] != 0xe8" in source
     assert "pushad" in source
     assert "call dword ptr [g_physics_trampoline]" in source
     assert "target[0] = 0xe9" in source
@@ -311,6 +317,16 @@ def test_input_detour_reuses_post_poll_action_edge_boundary():
     assert "g_input_trampoline" in source
     assert "OTCAP_ACTION_MASK_ADDRESS" in source
     assert "Preserve the untouched high word" in source
+
+
+def test_capture_hook_table_is_generated_from_yaml():
+    generated = subprocess.run(
+        [sys.executable, "scripts/generate_capture_hooks.py", "re/config/capture_hooks.yml"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert generated == Path("src/capture/win32/capture_hooks_generated.h").read_text()
 
 
 def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
@@ -356,11 +372,17 @@ def test_frontend_detours_reuse_verified_bootstrap_boundaries():
     assert "g_frontend_play_armed" in source
     assert "g_frontend_level_override_valid" in source
     assert "disarm_frontend_hook" in source
+    assert "OTCAP_HOOK_GROUP_PERSISTENT" in source
+    assert "OTCAP_HOOK_GROUP_BOOTSTRAP" in source
+    assert "retire_bootstrap_hooks" in source
 
 
 def test_capture_host_fails_closed_when_frontend_never_reaches_gameplay():
     source = Path("src/capture/win32/capture_host.cpp").read_text()
 
+    assert "otcap_max_frames" in source
+    assert "exceeds mapping capacity" in source
+    assert "frames > 4096" not in source
     assert "OTCAP_ERROR_TIMEOUT" in source
     assert "GetTickCount()" in source
     assert "OTCAP_STATUS_FAILED" in source

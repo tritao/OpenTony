@@ -148,6 +148,9 @@ typedef struct CaptureTimerSample {
     uint64_t simulation_accumulator_raw;
 } CaptureTimerSample;
 
+/* Reserved wire space for the future typed causal seam.  Version 1 writers
+ * must leave this zero-filled; the decoder rejects non-zero event counts until
+ * a producer contract is proven. */
 typedef struct CaptureCausalEvent {
     uint32_t type;
     uint32_t phase;

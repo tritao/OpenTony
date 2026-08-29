@@ -1,4 +1,5 @@
 #include "hooks.h"
+#include "hook_engine.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -111,10 +112,7 @@ static volatile uint32_t g_frontend_summary_armed = 1;
 static volatile uint32_t g_frontend_summary_active = 0;
 static volatile uint32_t g_frontend_summary_key_ticks = 0;
 
-static int restore_target(
-    unsigned char *target,
-    uint32_t overwrite_size,
-    const uint8_t *original);
+static void retire_bootstrap_hooks(void);
 
 static void disarm_frontend_hook(
     void *target,
@@ -123,7 +121,7 @@ static void disarm_frontend_hook(
     int *installed) {
     if (target != 0 && overwrite_size != 0 && original != 0 &&
         installed != 0 && *installed != 0) {
-        if (restore_target(
+        if (ot_capture_restore_target(
                 (unsigned char *)target, overwrite_size, original)) {
             *installed = 0;
         }
@@ -284,97 +282,11 @@ static void debug_sha256(const char *label, const uint8_t digest[32]) {
     OutputDebugStringA("\n");
 }
 
-/*
- * Addresses are RVAs from the supported THawk2 image base 0x00400000.  The
- * expected bytes are read from the immutable executable and are checked again
- * in the live process before any future detour is allowed.
- */
-static const CaptureHookSpec k_hooks[] = {
-    {
-        "physics_frame",
-        0x0009e680,
-        {0x81, 0xec, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00},
-        6,
-        6,
-    },
-    {
-        "action_mask_injection",
-        0x00089a15,
-        {0xa0, 0xb9, 0xaf, 0x56, 0x00, 0x00, 0x00, 0x00},
-        5,
-        5,
-    },
-    {
-        "input_boundary",
-        0x00069de0,
-        {0x57, 0xe8, 0x4a, 0xfc, 0xff, 0xff, 0x00, 0x00},
-        6,
-        6,
-    },
-    {
-        "timer_update",
-        0x0006a0f0,
-        {0xe8, 0x3b, 0xea, 0xff, 0xff, 0xe8, 0x26, 0xe4, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-        10,
-        10,
-    },
-    {
-        "clock_read",
-        0x0009f1a0,
-        {0x8b, 0x15, 0x20, 0xe3, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-        6,
-        6,
-    },
-    {
-        "frontend_play_result",
-        0x000532aa,
-        {0x8b, 0x44, 0x24, 0x58, 0x83, 0xc4, 0x08},
-        7,
-        7,
-    },
-    {
-        "frontend_level_select",
-        0x0005355d,
-        {0x8b, 0x0d, 0x34, 0xb8, 0x56, 0x00},
-        6,
-        6,
-    },
-    {
-        "launch_level",
-        0x000544a0,
-        {0x6a, 0xff, 0x68, 0xcb, 0x46, 0x51, 0x00},
-        7,
-        7,
-    },
-    {
-        "skip_movie_primary",
-        0x000e5ec0,
-        {0x8b, 0x44, 0x24, 0x04, 0x83, 0xec, 0x1c},
-        7,
-        7,
-    },
-    {
-        "skip_movie_secondary",
-        0x000e6590,
-        {0x81, 0xec, 0x00, 0x01, 0x00, 0x00, 0x53},
-        7,
-        7,
-    },
-    {
-        "frontend_key_state",
-        0x000e41b0,
-        {0x8b, 0x44, 0x24, 0x04, 0x25, 0xff, 0x00, 0x00, 0x00},
-        9,
-        9,
-    },
-    {
-        "frontend_summary",
-        0x0007fb36,
-        {0x68, 0xd4, 0x5a, 0x53, 0x00},
-        5,
-        5,
-    },
-};
+#if defined(OTCAP_CAPTURE_GENERATED_INCLUDE)
+#include <capture_hooks_generated.h>
+#else
+#include "capture_hooks_generated.h"
+#endif
 
 const CaptureHookSpec *ot_capture_hook_manifest(uint32_t *count) {
     if (count != 0) {
@@ -802,7 +714,13 @@ void __cdecl ot_capture_input_boundary(void) {
         header->status != OTCAP_STATUS_CAPTURING) {
         return;
     }
-    g_gameplay_ready = 1;
+    if (g_gameplay_ready == 0) {
+        g_gameplay_ready = 1;
+        /* Frontend detours are only a one-shot path into gameplay.  Remove
+         * the bootstrap group as soon as the first canonical input boundary
+         * is observed, leaving only the persistent recorder seams installed. */
+        retire_bootstrap_hooks();
+    }
     frame_index = header->frame_count;
     config = (CaptureConfig *)(g_capture_buffer->mapping + header->config_offset);
     action_mask = ot_capture_action_mask(config, frame_index);
@@ -1128,148 +1046,124 @@ static __declspec(naked) void ot_capture_frontend_summary_hook(void) {
 }
 #endif
 
-static int create_trampoline(
-    unsigned char *target,
-    const CaptureHookSpec *spec,
-    uint8_t *original,
-    void **trampoline_out) {
-    unsigned char *trampoline;
-    long relative;
-    long absolute;
-    uint32_t size;
-    uint32_t index;
+/* One descriptor drives installation, rollback, and trampoline ownership for
+ * every active seam.  The small legacy slots remain named because the VC6
+ * naked wrappers address their trampolines directly; all lifecycle state is
+ * nevertheless traversed through this table. */
+#if defined(_MSC_VER) && defined(_M_IX86)
+typedef struct CaptureHookState {
+    const char *name;
+    const CaptureHookSpec *spec;
+    void *handler;
+    void **target_slot;
+    void **trampoline_slot;
+    uint8_t *original;
+    uint32_t *overwrite_size_slot;
+    int *installed_slot;
+    uint32_t group;
+    int needs_trampoline;
+    int patched;
+} CaptureHookState;
 
-    if (target == 0 || spec == 0 || spec->overwrite_size < 5u ||
-        original == 0 || trampoline_out == 0 ||
-        spec->overwrite_size > 16u) {
-        return 0;
-    }
-    size = spec->overwrite_size + 5u;
-    trampoline = (unsigned char *)VirtualAlloc(
-        0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (trampoline == 0) {
-        return 0;
-    }
-    memcpy(original, target, spec->overwrite_size);
-    memcpy(trampoline, target, spec->overwrite_size);
-    /* Relocate rel32 call/jump instructions copied into the trampoline.
-     * Several verified seams begin with one or more relative calls; leaving
-     * their original displacement intact would make the relocated code jump
-     * to an address relative to the trampoline rather than the retail image. */
-    for (index = 0; index + 5u <= spec->overwrite_size; ++index) {
-        if (trampoline[index] != 0xe8 && trampoline[index] != 0xe9) {
+enum {
+    OTCAP_HOOK_GROUP_PERSISTENT = 0,
+    OTCAP_HOOK_GROUP_BOOTSTRAP = 1
+};
+
+enum {
+    OTCAP_HOOK_PHYSICS = 0,
+    OTCAP_HOOK_ACTION,
+    OTCAP_HOOK_TIMER,
+    OTCAP_HOOK_CLOCK_READ,
+    OTCAP_HOOK_FRONTEND_PLAY,
+    OTCAP_HOOK_FRONTEND_LEVEL,
+    OTCAP_HOOK_LAUNCH_LEVEL,
+    OTCAP_HOOK_MOVIE_PRIMARY,
+    OTCAP_HOOK_MOVIE_SECONDARY,
+    OTCAP_HOOK_FRONTEND_KEY,
+    OTCAP_HOOK_FRONTEND_SUMMARY,
+    OTCAP_HOOK_COUNT
+};
+
+static CaptureHookState g_hook_states[OTCAP_HOOK_COUNT] = {
+    {"physics_frame", 0, (void *)ot_capture_physics_hook,
+        &g_physics_target, &g_physics_trampoline, g_physics_original,
+        &g_physics_overwrite_size, &g_physics_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"action_mask_injection", 0, (void *)ot_capture_input_hook,
+        &g_input_target, &g_input_trampoline, g_input_original,
+        &g_input_overwrite_size, &g_input_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"timer_update", 0, (void *)ot_capture_timer_hook,
+        &g_timer_target, &g_timer_trampoline, g_timer_original,
+        &g_timer_overwrite_size, &g_timer_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"clock_read", 0, (void *)ot_capture_clock_read_hook,
+        &g_clock_read_target, &g_clock_read_trampoline, g_clock_read_original,
+        &g_clock_read_overwrite_size, &g_clock_read_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"frontend_play_result", 0, (void *)ot_capture_frontend_play_hook,
+        &g_frontend_play_target, &g_frontend_play_trampoline,
+        g_frontend_play_original, &g_frontend_play_overwrite_size,
+        &g_frontend_play_installed, OTCAP_HOOK_GROUP_BOOTSTRAP, 1, 0},
+    {"frontend_level_select", 0, (void *)ot_capture_frontend_level_hook,
+        &g_frontend_level_target, &g_frontend_level_trampoline,
+        g_frontend_level_original, &g_frontend_level_overwrite_size,
+        &g_frontend_level_installed, OTCAP_HOOK_GROUP_BOOTSTRAP, 1, 0},
+    {"launch_level", 0, (void *)ot_capture_launch_level_hook,
+        &g_launch_level_target, &g_launch_level_trampoline,
+        g_launch_level_original, &g_launch_level_overwrite_size,
+        &g_launch_level_installed, OTCAP_HOOK_GROUP_BOOTSTRAP, 1, 0},
+    {"skip_movie_primary", 0, (void *)ot_capture_movie_primary_hook,
+        &g_movie_primary_target, 0, g_movie_primary_original,
+        &g_movie_primary_overwrite_size, &g_movie_primary_installed,
+        OTCAP_HOOK_GROUP_BOOTSTRAP, 0, 0},
+    {"skip_movie_secondary", 0, (void *)ot_capture_movie_secondary_hook,
+        &g_movie_secondary_target, 0, g_movie_secondary_original,
+        &g_movie_secondary_overwrite_size, &g_movie_secondary_installed,
+        OTCAP_HOOK_GROUP_BOOTSTRAP, 0, 0},
+    {"frontend_key_state", 0, (void *)ot_capture_frontend_key_hook,
+        &g_frontend_key_target, &g_frontend_key_trampoline,
+        g_frontend_key_original, &g_frontend_key_overwrite_size,
+        &g_frontend_key_installed, OTCAP_HOOK_GROUP_BOOTSTRAP, 1, 0},
+    {"frontend_summary", 0, (void *)ot_capture_frontend_summary_hook,
+        &g_frontend_summary_target, &g_frontend_summary_trampoline,
+        g_frontend_summary_original, &g_frontend_summary_overwrite_size,
+        &g_frontend_summary_installed, OTCAP_HOOK_GROUP_BOOTSTRAP, 1, 0}
+};
+#endif
+
+#if defined(_MSC_VER) && defined(_M_IX86)
+static void retire_bootstrap_hooks(void) {
+    uint32_t index;
+    for (index = 0; index < OTCAP_HOOK_COUNT; ++index) {
+        CaptureHookState *state = &g_hook_states[index];
+        if (state->group != OTCAP_HOOK_GROUP_BOOTSTRAP ||
+            *state->installed_slot == 0) {
             continue;
         }
-        memcpy(&relative, trampoline + index + 1u, sizeof(relative));
-        absolute = (long)(target + index + 5u) + relative;
-        relative = absolute - (long)(trampoline + index + 5u);
-        memcpy(trampoline + index + 1u, &relative, sizeof(relative));
-        index += 4u;
+        if (*state->target_slot != 0 && state->spec != 0) {
+            ot_capture_restore_target(
+                (unsigned char *)*state->target_slot,
+                state->spec->overwrite_size, state->original);
+        }
+        if (state->trampoline_slot != 0 && *state->trampoline_slot != 0) {
+            VirtualFree(*state->trampoline_slot, 0, MEM_RELEASE);
+            *state->trampoline_slot = 0;
+        }
+        *state->target_slot = 0;
+        *state->overwrite_size_slot = 0;
+        *state->installed_slot = 0;
+        state->patched = 0;
     }
-    trampoline[spec->overwrite_size] = 0xe9;
-    relative = (long)(target + spec->overwrite_size -
-        (trampoline + spec->overwrite_size + 5u));
-    memcpy(trampoline + spec->overwrite_size + 1u, &relative, sizeof(relative));
-    *trampoline_out = trampoline;
-    return 1;
 }
-
-static int patch_target(
-    unsigned char *target,
-    uint32_t overwrite_size,
-    void *hook,
-    const uint8_t *original) {
-    DWORD old_protect;
-    DWORD restored_protect;
-    long relative;
-    uint32_t index;
-
-#if !defined(_MSC_VER) || !defined(_M_IX86)
-    (void)target;
-    (void)overwrite_size;
-    (void)hook;
-    (void)original;
-    return 0;
 #else
-    if (target == 0 || overwrite_size < 5u || hook == 0 || original == 0) {
-        return 0;
-    }
-    if (!VirtualProtect(
-            target, overwrite_size, PAGE_EXECUTE_READWRITE, &old_protect)) {
-        return 0;
-    }
-    target[0] = 0xe9;
-    relative = (long)((unsigned char *)hook -
-        (target + 5u));
-    memcpy(target + 1u, &relative, sizeof(relative));
-    for (index = 5u; index < overwrite_size; ++index) {
-        target[index] = 0x90;
-    }
-    FlushInstructionCache(GetCurrentProcess(), target, overwrite_size);
-    if (VirtualProtect(target, overwrite_size, old_protect, &restored_protect)) {
-        return 1;
-    }
-    /* A protection-restore failure is fail-closed: put the exact original
-     * bytes back before reporting installation failure. */
-    if (VirtualProtect(
-            target, overwrite_size, PAGE_EXECUTE_READWRITE, &restored_protect)) {
-        memcpy(target, original, overwrite_size);
-        FlushInstructionCache(GetCurrentProcess(), target, overwrite_size);
-        VirtualProtect(target, overwrite_size, old_protect, &restored_protect);
-    }
-    return 0;
-#endif
+static void retire_bootstrap_hooks(void) {
 }
-
-static int restore_target(
-    unsigned char *target,
-    uint32_t overwrite_size,
-    const uint8_t *original) {
-    DWORD old_protect;
-    DWORD restored_protect;
-
-#if !defined(_MSC_VER) || !defined(_M_IX86)
-    (void)target;
-    (void)overwrite_size;
-    (void)original;
-    return 0;
-#else
-    if (target == 0 || original == 0 || overwrite_size == 0) {
-        return 0;
-    }
-    if (!VirtualProtect(
-            target, overwrite_size, PAGE_EXECUTE_READWRITE, &old_protect)) {
-        return 0;
-    }
-    memcpy(target, original, overwrite_size);
-    FlushInstructionCache(GetCurrentProcess(), target, overwrite_size);
-    return VirtualProtect(target, overwrite_size, old_protect, &restored_protect) != 0;
 #endif
-}
 
 int ot_capture_install_hooks(void *module_base) {
-    const CaptureHookSpec *physics;
-    const CaptureHookSpec *action;
-    const CaptureHookSpec *timer;
-    const CaptureHookSpec *clock_read;
-    const CaptureHookSpec *frontend_play;
-    const CaptureHookSpec *frontend_level;
-    const CaptureHookSpec *launch_level;
-    const CaptureHookSpec *movie_primary;
-    const CaptureHookSpec *movie_secondary;
-    const CaptureHookSpec *frontend_key;
-    const CaptureHookSpec *frontend_summary;
-    unsigned char *physics_target;
-    unsigned char *action_target;
-    unsigned char *timer_target;
-    unsigned char *clock_read_target;
-    unsigned char *frontend_play_target;
-    unsigned char *frontend_level_target;
-    unsigned char *launch_level_target;
-    unsigned char *movie_primary_target;
-    unsigned char *movie_secondary_target;
-    unsigned char *frontend_key_target;
-    unsigned char *frontend_summary_target;
+    uint32_t index;
 
     if (g_physics_installed || g_input_installed || g_timer_installed ||
         g_clock_read_installed || g_frontend_play_installed ||
@@ -1285,309 +1179,57 @@ int ot_capture_install_hooks(void *module_base) {
     (void)module_base;
     return 0;
 #else
-    int physics_patched = 0;
-    int action_patched = 0;
-    int timer_patched = 0;
-    int clock_read_patched = 0;
-    int frontend_play_patched = 0;
-    int frontend_level_patched = 0;
-    int launch_level_patched = 0;
-    int movie_primary_patched = 0;
-    int movie_secondary_patched = 0;
-    int frontend_key_patched = 0;
-    int frontend_summary_patched = 0;
-    physics = find_hook("physics_frame");
-    action = find_hook("action_mask_injection");
-    timer = find_hook("timer_update");
-    clock_read = find_hook("clock_read");
-    frontend_play = find_hook("frontend_play_result");
-    frontend_level = find_hook("frontend_level_select");
-    launch_level = find_hook("launch_level");
-    movie_primary = find_hook("skip_movie_primary");
-    movie_secondary = find_hook("skip_movie_secondary");
-    frontend_key = find_hook("frontend_key_state");
-    frontend_summary = find_hook("frontend_summary");
-    if (physics == 0 || action == 0 || physics->overwrite_size != 6u ||
-        action->overwrite_size != 5u || timer == 0 ||
-        timer->overwrite_size != 10u || clock_read == 0 ||
-        clock_read->overwrite_size != 6u || frontend_play == 0 ||
-        frontend_play->overwrite_size != 7u || frontend_level == 0 ||
-        frontend_level->overwrite_size != 6u || launch_level == 0 ||
-        launch_level->overwrite_size != 7u || movie_primary == 0 ||
-        movie_primary->overwrite_size != 7u || movie_secondary == 0 ||
-        movie_secondary->overwrite_size != 7u || frontend_key == 0 ||
-        frontend_key->overwrite_size != 9u ||
-        frontend_summary == 0 || frontend_summary->overwrite_size != 5u ||
-        !ot_capture_verify_hooks(module_base, 0)) {
+    if (!ot_capture_verify_hooks(module_base, 0)) {
         return 0;
     }
-    physics_target = (unsigned char *)module_base + physics->rva;
-    action_target = (unsigned char *)module_base + action->rva;
-    timer_target = (unsigned char *)module_base + timer->rva;
-    clock_read_target = (unsigned char *)module_base + clock_read->rva;
-    frontend_play_target = (unsigned char *)module_base + frontend_play->rva;
-    frontend_level_target = (unsigned char *)module_base + frontend_level->rva;
-    launch_level_target = (unsigned char *)module_base + launch_level->rva;
-    movie_primary_target = (unsigned char *)module_base + movie_primary->rva;
-    movie_secondary_target = (unsigned char *)module_base + movie_secondary->rva;
-    frontend_key_target = (unsigned char *)module_base + frontend_key->rva;
-    frontend_summary_target = (unsigned char *)module_base + frontend_summary->rva;
-    g_physics_target = physics_target;
-    g_physics_overwrite_size = physics->overwrite_size;
-    g_input_target = action_target;
-    g_input_overwrite_size = action->overwrite_size;
-    g_timer_target = timer_target;
-    g_timer_overwrite_size = timer->overwrite_size;
-    g_clock_read_target = clock_read_target;
-    g_clock_read_overwrite_size = clock_read->overwrite_size;
-    g_frontend_play_target = frontend_play_target;
-    g_frontend_play_overwrite_size = frontend_play->overwrite_size;
-    g_frontend_level_target = frontend_level_target;
-    g_frontend_level_overwrite_size = frontend_level->overwrite_size;
-    g_launch_level_target = launch_level_target;
-    g_launch_level_overwrite_size = launch_level->overwrite_size;
-    g_movie_primary_target = movie_primary_target;
-    g_movie_primary_overwrite_size = movie_primary->overwrite_size;
-    g_movie_secondary_target = movie_secondary_target;
-    g_movie_secondary_overwrite_size = movie_secondary->overwrite_size;
-    g_frontend_key_target = frontend_key_target;
-    g_frontend_key_overwrite_size = frontend_key->overwrite_size;
-    g_frontend_summary_target = frontend_summary_target;
-    g_frontend_summary_overwrite_size = frontend_summary->overwrite_size;
-    if (!create_trampoline(
-            physics_target, physics, g_physics_original, &g_physics_trampoline)) {
-        goto install_failed;
+    for (index = 0; index < OTCAP_HOOK_COUNT; ++index) {
+        CaptureHookState *state = &g_hook_states[index];
+        state->spec = find_hook(state->name);
+        if (state->spec == 0 || state->spec->overwrite_size < 5u ||
+            state->spec->overwrite_size > 16u ||
+            state->spec->expected_size > state->spec->overwrite_size) {
+            goto install_failed;
+        }
+        *state->target_slot = (unsigned char *)module_base + state->spec->rva;
+        *state->overwrite_size_slot = state->spec->overwrite_size;
+        if (state->needs_trampoline && !ot_capture_create_trampoline(
+                (unsigned char *)*state->target_slot, state->spec,
+                state->original, state->trampoline_slot)) {
+            goto install_failed;
+        }
+        if (!state->needs_trampoline) {
+            memcpy(state->original, *state->target_slot,
+                state->spec->overwrite_size);
+        }
+        if (!ot_capture_patch_target(
+                (unsigned char *)*state->target_slot,
+                state->spec->overwrite_size, state->handler, state->original)) {
+            goto install_failed;
+        }
+        state->patched = 1;
+        *state->installed_slot = 1;
     }
-    if (!create_trampoline(
-            action_target, action, g_input_original, &g_input_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            timer_target, timer, g_timer_original, &g_timer_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            clock_read_target, clock_read, g_clock_read_original,
-            &g_clock_read_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            frontend_play_target, frontend_play, g_frontend_play_original,
-            &g_frontend_play_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            frontend_level_target, frontend_level, g_frontend_level_original,
-            &g_frontend_level_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            launch_level_target, launch_level, g_launch_level_original,
-            &g_launch_level_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            frontend_key_target, frontend_key, g_frontend_key_original,
-            &g_frontend_key_trampoline)) {
-        goto install_failed;
-    }
-    if (!create_trampoline(
-            frontend_summary_target, frontend_summary,
-            g_frontend_summary_original, &g_frontend_summary_trampoline)) {
-        goto install_failed;
-    }
-    if (!patch_target(
-            physics_target, physics->overwrite_size,
-            (void *)ot_capture_physics_hook, g_physics_original)) {
-        goto install_failed;
-    }
-    physics_patched = 1;
-    if (!patch_target(
-            action_target, action->overwrite_size,
-            (void *)ot_capture_input_hook, g_input_original)) {
-        goto install_failed;
-    }
-    action_patched = 1;
-    if (!patch_target(
-            timer_target, timer->overwrite_size,
-            (void *)ot_capture_timer_hook, g_timer_original)) {
-        goto install_failed;
-    }
-    timer_patched = 1;
-    if (!patch_target(
-            clock_read_target, clock_read->overwrite_size,
-            (void *)ot_capture_clock_read_hook, g_clock_read_original)) {
-        goto install_failed;
-    }
-    clock_read_patched = 1;
-    if (!patch_target(
-            frontend_play_target, frontend_play->overwrite_size,
-            (void *)ot_capture_frontend_play_hook, g_frontend_play_original)) {
-        goto install_failed;
-    }
-    frontend_play_patched = 1;
-    if (!patch_target(
-            frontend_level_target, frontend_level->overwrite_size,
-            (void *)ot_capture_frontend_level_hook, g_frontend_level_original)) {
-        goto install_failed;
-    }
-    frontend_level_patched = 1;
-    if (!patch_target(
-            launch_level_target, launch_level->overwrite_size,
-            (void *)ot_capture_launch_level_hook, g_launch_level_original)) {
-        goto install_failed;
-    }
-    launch_level_patched = 1;
-    if (!patch_target(
-            movie_primary_target, movie_primary->overwrite_size,
-            (void *)ot_capture_movie_primary_hook, g_movie_primary_original)) {
-        goto install_failed;
-    }
-    movie_primary_patched = 1;
-    if (!patch_target(
-            movie_secondary_target, movie_secondary->overwrite_size,
-            (void *)ot_capture_movie_secondary_hook, g_movie_secondary_original)) {
-        goto install_failed;
-    }
-    movie_secondary_patched = 1;
-    if (!patch_target(
-            frontend_key_target, frontend_key->overwrite_size,
-            (void *)ot_capture_frontend_key_hook, g_frontend_key_original)) {
-        goto install_failed;
-    }
-    frontend_key_patched = 1;
-    if (!patch_target(
-            frontend_summary_target, frontend_summary->overwrite_size,
-            (void *)ot_capture_frontend_summary_hook,
-            g_frontend_summary_original)) {
-        goto install_failed;
-    }
-    frontend_summary_patched = 1;
-    g_physics_installed = 1;
-    g_input_installed = 1;
-    g_timer_installed = 1;
-    g_clock_read_installed = 1;
-    g_frontend_play_installed = 1;
-    g_frontend_level_installed = 1;
-    g_launch_level_installed = 1;
-    g_movie_primary_installed = 1;
-    g_movie_secondary_installed = 1;
-    g_frontend_key_installed = 1;
-    g_frontend_summary_installed = 1;
     return 1;
 
 install_failed:
-        if (frontend_summary_patched) {
-            restore_target(
-                frontend_summary_target, frontend_summary->overwrite_size,
-                g_frontend_summary_original);
+    for (index = OTCAP_HOOK_COUNT; index != 0; --index) {
+        CaptureHookState *state = &g_hook_states[index - 1u];
+        if (state->patched && *state->target_slot != 0 &&
+            state->spec != 0) {
+            ot_capture_restore_target(
+                (unsigned char *)*state->target_slot,
+                state->spec->overwrite_size, state->original);
         }
-        if (frontend_key_patched) {
-            restore_target(
-                frontend_key_target, frontend_key->overwrite_size,
-                g_frontend_key_original);
+        if (state->trampoline_slot != 0 && *state->trampoline_slot != 0) {
+            VirtualFree(*state->trampoline_slot, 0, MEM_RELEASE);
+            *state->trampoline_slot = 0;
         }
-        if (movie_secondary_patched) {
-            restore_target(
-                movie_secondary_target, movie_secondary->overwrite_size,
-                g_movie_secondary_original);
-        }
-        if (movie_primary_patched) {
-            restore_target(
-                movie_primary_target, movie_primary->overwrite_size,
-                g_movie_primary_original);
-        }
-        if (launch_level_patched) {
-            restore_target(
-                launch_level_target, launch_level->overwrite_size,
-                g_launch_level_original);
-        }
-        if (frontend_level_patched) {
-            restore_target(
-                frontend_level_target, frontend_level->overwrite_size,
-                g_frontend_level_original);
-        }
-        if (frontend_play_patched) {
-            restore_target(
-                frontend_play_target, frontend_play->overwrite_size,
-                g_frontend_play_original);
-        }
-        if (clock_read_patched) {
-            restore_target(
-                clock_read_target, clock_read->overwrite_size,
-                g_clock_read_original);
-        }
-        if (timer_patched) {
-            restore_target(
-                timer_target, timer->overwrite_size, g_timer_original);
-        }
-        if (action_patched) {
-            restore_target(
-                action_target, action->overwrite_size, g_input_original);
-        }
-        if (physics_patched) {
-            restore_target(
-                physics_target, physics->overwrite_size,
-                g_physics_original);
-        }
-        if (g_physics_trampoline != 0) {
-            VirtualFree(g_physics_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_input_trampoline != 0) {
-            VirtualFree(g_input_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_timer_trampoline != 0) {
-            VirtualFree(g_timer_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_clock_read_trampoline != 0) {
-            VirtualFree(g_clock_read_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_frontend_play_trampoline != 0) {
-            VirtualFree(g_frontend_play_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_frontend_level_trampoline != 0) {
-            VirtualFree(g_frontend_level_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_launch_level_trampoline != 0) {
-            VirtualFree(g_launch_level_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_frontend_key_trampoline != 0) {
-            VirtualFree(g_frontend_key_trampoline, 0, MEM_RELEASE);
-        }
-        if (g_frontend_summary_trampoline != 0) {
-            VirtualFree(g_frontend_summary_trampoline, 0, MEM_RELEASE);
-        }
-        g_physics_trampoline = 0;
-        g_input_trampoline = 0;
-        g_timer_trampoline = 0;
-        g_clock_read_trampoline = 0;
-        g_frontend_play_trampoline = 0;
-        g_frontend_level_trampoline = 0;
-        g_launch_level_trampoline = 0;
-        g_frontend_key_trampoline = 0;
-        g_frontend_summary_trampoline = 0;
-        g_physics_target = 0;
-        g_input_target = 0;
-        g_timer_target = 0;
-        g_clock_read_target = 0;
-        g_frontend_play_target = 0;
-        g_frontend_level_target = 0;
-        g_launch_level_target = 0;
-        g_movie_primary_target = 0;
-        g_movie_secondary_target = 0;
-        g_frontend_key_target = 0;
-        g_frontend_summary_target = 0;
-        g_physics_overwrite_size = 0;
-        g_input_overwrite_size = 0;
-        g_timer_overwrite_size = 0;
-        g_clock_read_overwrite_size = 0;
-        g_frontend_play_overwrite_size = 0;
-        g_frontend_level_overwrite_size = 0;
-        g_launch_level_overwrite_size = 0;
-        g_movie_primary_overwrite_size = 0;
-        g_movie_secondary_overwrite_size = 0;
-        g_frontend_key_overwrite_size = 0;
-        g_frontend_summary_overwrite_size = 0;
-        return 0;
+        *state->target_slot = 0;
+        *state->overwrite_size_slot = 0;
+        *state->installed_slot = 0;
+        state->spec = 0;
+        state->patched = 0;
+    }
+    return 0;
 #endif
 }

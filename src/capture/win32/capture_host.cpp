@@ -316,6 +316,7 @@ int main(int argc, char **argv) {
     uint32_t frames = 0;
     uint32_t level = 0;
     uint32_t action_count = 0;
+    uint32_t max_frames = 0;
     int force = 0;
     CaptureActionInterval actions[OTCAP_MAX_ACTION_INTERVALS];
     uint32_t index;
@@ -351,7 +352,7 @@ int main(int argc, char **argv) {
             ++action_count;
         } else { usage(); goto done; }
     }
-    if (exe_path == 0 || dll_path == 0 || output_path == 0 || sha_text == 0 || frames == 0 || frames > 4096) {
+    if (exe_path == 0 || dll_path == 0 || output_path == 0 || sha_text == 0 || frames == 0) {
         usage();
         goto done;
     }
@@ -389,6 +390,12 @@ int main(int argc, char **argv) {
     header->initial_state_size = OTCAP_INITIAL_STATE_BYTES;
     header->data_offset = otcap_align4096(header->initial_state_offset + header->initial_state_size);
     header->mapping_size = OTCAP_MAPPING_SIZE;
+    max_frames = otcap_max_frames(header->mapping_size, header->data_offset);
+    if (frames > max_frames) {
+        fprintf(stderr, "capture host: requested %lu frames exceeds mapping capacity %lu\n",
+            (unsigned long)frames, (unsigned long)max_frames);
+        goto cleanup_view;
+    }
     header->bytes_used = header->data_offset;
     header->frame_limit = frames;
     header->level_index = level;

@@ -15,6 +15,11 @@ cmake -S src/capture/win32 -B build/capture/win32 -A Win32
 cmake --build build/capture/win32 --config Release
 ```
 
+The C hook manifest is generated from `re/config/capture_hooks.yml`; regenerate
+the checked-in VC6-compatible header with
+`python scripts/generate_capture_hooks.py re/config/capture_hooks.yml
+src/capture/win32/capture_hooks_generated.h` after changing a seam.
+
 The host creates a bounded 64 MiB named mapping, launches the selected retail
 executable suspended, injects `opentony_capture.dll`, and saves the mapping as
 `retail.otcap`.  The host never drops records: a frame-limit or mapping
@@ -28,8 +33,12 @@ applies the configured level at the launch seam, and supplies the same
 keyboard-edge pulses used by the GDB frontend commands. Every frontend seam is
 covered by the same RVA/expected-byte manifest and is installed transactionally
 with the gameplay hooks.
+The installer tracks persistent recorder seams separately from one-shot
+frontend bootstrap seams; the latter are restored and their trampolines freed
+at the first canonical gameplay input boundary.
 The DLL copies the original prologues into executable trampolines, relocates
-any copied `rel32` calls/jumps, patches the entries with relative jumps, and
+only the `rel32` calls/jumps listed for that seam in
+`re/config/capture_hooks.yml`, patches the entries with relative jumps, and
 captures one `0x3210` player blob immediately before and after the original
 physics function.  At the post-poll boundary it applies the same low-word
 action mask that `tony-action-edge` writes, using the fixed scenario intervals
@@ -39,8 +48,10 @@ boundaries and stores those fixed-size observations in each frame.  A
 post-physics sample is assigned to the following frame, matching the GDB
 recorder's return-boundary semantics.  The offline
 decoder infers completed deliveries from counter deltas (deferring a torn
-callback when the simulation accumulator proves it is still in flight), which
-produces the same causal event metadata as the GDB sampler.  The wrappers
+callback when the simulation accumulator proves it is still in flight).  The
+fixed causal-event slots remain reserved and zero-filled until a typed
+service/RNG producer contract is proven; version 1 rejects non-zero entries.
+The wrappers
 preserve the game's ECX/stack, return-value, and flags contract.  An unknown
 executable or changed byte fails closed before capture begins.
 

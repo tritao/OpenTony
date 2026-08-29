@@ -489,6 +489,10 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
             raise CaptureDecodeError(f"capture frame {index} has invalid header")
         if timer_count > OTCAP_MAX_TIMER_SAMPLES or event_count > OTCAP_MAX_CAUSAL_EVENTS:
             raise CaptureDecodeError(f"capture frame {index} exceeds fixed event bounds")
+        if event_count:
+            raise CaptureDecodeError(
+                "capture contains reserved causal events; typed causal seams are not supported yet"
+            )
         before_start = 9
         after_start = before_start + 1
         before = values[before_start]
@@ -497,24 +501,12 @@ def decode_capture(path: str | Path) -> dict[str, Any]:
         timing_after = values[after_start + 7 : after_start + 13]
         timer_start = after_start + 13
         timer_values = values[timer_start : timer_start + OTCAP_MAX_TIMER_SAMPLES * 10]
-        event_start = timer_start + OTCAP_MAX_TIMER_SAMPLES * 10
-        event_values = values[event_start:]
         timer_samples = _normalize_timer_samples([
             tuple(timer_values[item * 10 : item * 10 + 10])
             for item in range(timer_count)
         ])
         timers = [_decode_timer(sample) for sample in timer_samples]
-        events = [
-            {
-                "type": "inproc_causal_event",
-                "event_code": event_values[item * 5],
-                "phase": event_values[item * 5 + 1],
-                "frame": event_values[item * 5 + 2],
-                "payload_size": event_values[item * 5 + 3],
-                "payload": event_values[item * 5 + 4].hex(),
-            }
-            for item in range(event_count)
-        ]
+        events: list[dict[str, Any]] = []
         frames.append(
             {
                 "frame": index,

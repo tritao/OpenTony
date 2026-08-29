@@ -7,12 +7,18 @@
 extern "C" {
 #endif
 
+#define OTCAP_MAX_REL32_RELOCATIONS 4u
+
 typedef struct CaptureHookSpec {
     const char *name;
     uint32_t rva;
     uint8_t expected[16];
     uint32_t expected_size;
     uint32_t overwrite_size;
+    /* Offsets of the verified rel32 instructions copied into the trampoline.
+     * The recorder never guesses instruction boundaries in retail code. */
+    uint8_t rel32_offsets[OTCAP_MAX_REL32_RELOCATIONS];
+    uint32_t rel32_count;
 } CaptureHookSpec;
 
 const CaptureHookSpec *ot_capture_hook_manifest(uint32_t *count);
