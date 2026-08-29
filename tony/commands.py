@@ -118,7 +118,18 @@ def capture_compare(args) -> int:
     """Compare two JSONL recordings at canonical frame boundaries."""
 
     try:
-        result = compare_recordings(args.left, args.right)
+        result = compare_recordings(args.left, args.right, scope=getattr(args, "scope", "all"))
+    except CaptureDecodeError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["equal"] else 1
+
+
+def capture_qualify(args) -> int:
+    """Run the M3 GDB/in-process overlapping-snapshot qualification."""
+
+    try:
+        result = compare_recordings(args.gdb, args.inproc, scope="snapshots")
     except CaptureDecodeError as exc:
         raise SystemExit(str(exc)) from exc
     print(json.dumps(result, indent=2, sort_keys=True))

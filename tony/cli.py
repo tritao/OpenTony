@@ -298,7 +298,20 @@ def build_parser() -> argparse.ArgumentParser:
     p = capture_sub.add_parser("compare", help="compare two JSONL recordings frame by frame")
     p.add_argument("left")
     p.add_argument("right")
+    p.add_argument(
+        "--scope",
+        choices=("all", "snapshots"),
+        default="all",
+        help="comparison scope; snapshots checks M3 overlapping frame state",
+    )
     p.set_defaults(func=commands.capture_compare)
+    p = capture_sub.add_parser(
+        "qualify",
+        help="qualify GDB and in-process before/after snapshots for M3",
+    )
+    p.add_argument("--gdb", required=True, help="GDB-produced .otrec")
+    p.add_argument("--inproc", required=True, help="in-process-produced .otrec")
+    p.set_defaults(func=commands.capture_qualify)
 
     gdb = sub.add_parser("gdb", help="generate and inspect OpenTony GDB support files")
     gdb_sub = gdb.add_subparsers(dest="gdb_command", required=True)

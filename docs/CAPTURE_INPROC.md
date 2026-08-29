@@ -38,5 +38,7 @@ until the GDB/in-process snapshots have been proven equivalent it exits with a
 clear error rather than silently producing a non-canonical recording.
 
 The qualification helpers are `scripts/benchmark_capture.py` for wall-clock
-measurements and `scripts/compare_recorders.py` (or `tony capture compare`) for
-same-frame JSONL comparisons.
+measurements and `scripts/compare_recorders.py --scope snapshots` (or
+`tony capture qualify --gdb GDB.otrec --inproc INPROC.otrec`) for M3
+same-frame before/after snapshot comparisons.  The default `tony capture
+compare` scope remains an exact comparison that includes all event arrays.

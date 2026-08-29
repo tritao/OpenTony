@@ -461,17 +461,53 @@ def _first_difference(expected: Any, actual: Any, path: tuple[Any, ...] = ()) ->
     return None if expected == actual else (path, expected, actual)
 
 
-def compare_recordings(left: str | Path, right: str | Path) -> dict[str, Any]:
+def _comparison_frame(record: dict[str, Any], scope: str) -> dict[str, Any]:
+    if scope == "all":
+        return record
+    if scope != "snapshots":
+        raise CaptureDecodeError(f"unknown recording comparison scope: {scope}")
+    input_record = record.get("input")
+    action_mask = input_record.get("action_mask") if isinstance(input_record, dict) else None
+    return {
+        "type": "frame",
+        "frame": record.get("frame"),
+        "input": {"action_mask": action_mask},
+        "before": record.get("before"),
+        "after": record.get("after"),
+    }
+
+
+def compare_recordings(
+    left: str | Path,
+    right: str | Path,
+    *,
+    scope: str = "all",
+) -> dict[str, Any]:
     """Compare two JSONL recordings at canonical frame/event boundaries.
 
     Recording IDs and timestamps are intentionally excluded; all input,
-    timer/service events, and player snapshots are compared exactly.
+    timer/service events, and player snapshots are compared exactly by default.
+    ``scope="snapshots"`` is the M3 qualification mode: it compares the
+    overlapping input/action-mask and before/after player snapshots while
+    ignoring recorder-specific diagnostic event arrays until those hooks are
+    migrated.
     """
+
+    if scope not in {"all", "snapshots"}:
+        raise CaptureDecodeError(f"unknown recording comparison scope: {scope}")
 
     left_records = _recording_records(left)
     right_records = _recording_records(right)
-    left_frames = [record for record in left_records if record.get("type") == "frame"]
-    right_frames = [record for record in right_records if record.get("type") == "frame"]
+    left_frames = [
+        _comparison_frame(record, scope)
+        for record in left_records
+        if record.get("type") == "frame"
+    ]
+    right_frames = [
+        _comparison_frame(record, scope)
+        for record in right_records
+        if record.get("type") == "frame"
+    ]
     left_header = next((record for record in left_records if record.get("type") == "header"), {})
     right_header = next((record for record in right_records if record.get("type") == "header"), {})
     for key in ("binary_sha256", "retail_executable_sha256", "level", "frame_boundary", "input_boundary"):
@@ -482,12 +518,14 @@ def compare_recordings(left: str | Path, right: str | Path) -> dict[str, Any]:
             path, expected, actual = difference
             return {
                 "equal": False,
+                "scope": scope,
                 "frames": {"left": len(left_frames), "right": len(right_frames)},
                 "difference": {"path": list(path), "left": expected, "right": actual},
             }
     if len(left_frames) != len(right_frames):
         return {
             "equal": False,
+            "scope": scope,
             "frames": {"left": len(left_frames), "right": len(right_frames)},
             "difference": {"path": ["frames", "length"], "left": len(left_frames), "right": len(right_frames)},
         }
@@ -495,8 +533,13 @@ def compare_recordings(left: str | Path, right: str | Path) -> dict[str, Any]:
         difference = _first_difference(left_frame, right_frame, ("frames", index))
         if difference is not None:
             path, expected, actual = difference
-            return {"equal": False, "frames": len(left_frames), "difference": {"path": list(path), "left": expected, "right": actual}}
-    return {"equal": True, "frames": len(left_frames), "difference": None}
+            return {
+                "equal": False,
+                "scope": scope,
+                "frames": len(left_frames),
+                "difference": {"path": list(path), "left": expected, "right": actual},
+            }
+    return {"equal": True, "scope": scope, "frames": len(left_frames), "difference": None}
 
 
 def _capture_binary(explicit: str | Path | None, names: tuple[str, ...]) -> Path:

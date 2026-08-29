@@ -165,12 +165,54 @@ def test_recording_comparator_reports_first_frame_difference(tmp_path):
     assert result["difference"]["path"] == ["frames", 0, "input", "action_mask"]
 
 
+def test_snapshot_comparator_ignores_recorder_specific_events(tmp_path):
+    left = tmp_path / "gdb.otrec"
+    right = tmp_path / "inproc.otrec"
+    before = {"position": {"raw": [1, 2, 3]}, "timing": {"simulation_time": {"raw": 4}}}
+    after = {"position": {"raw": [5, 6, 7]}, "timing": {"simulation_time": {"raw": 8}}}
+    left.write_text(
+        json.dumps({"type": "frame", "frame": 0, "input": {"action_mask": 64, "keyboard_state": "00"}, "before": before, "after": after, "events": [{"type": "timer_callback_delivery"}]})
+        + "\n"
+    )
+    right.write_text(
+        json.dumps({"type": "frame", "frame": 0, "input": {"action_mask": 64}, "before": before, "after": after, "events": []})
+        + "\n"
+    )
+
+    result = compare_recordings(left, right, scope="snapshots")
+
+    assert result == {"equal": True, "scope": "snapshots", "frames": 1, "difference": None}
+
+
+def test_snapshot_comparator_checks_before_and_after_state(tmp_path):
+    left = tmp_path / "gdb.otrec"
+    right = tmp_path / "inproc.otrec"
+    frame = {"type": "frame", "frame": 0, "input": {"action_mask": 0}, "before": {}, "after": {"physics_state": 1}}
+    changed = {**frame, "after": {"physics_state": 2}}
+    left.write_text(json.dumps(frame) + "\n")
+    right.write_text(json.dumps(changed) + "\n")
+
+    result = compare_recordings(left, right, scope="snapshots")
+
+    assert not result["equal"]
+    assert result["difference"]["path"] == ["frames", 0, "after", "physics_state"]
+
+
 def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
     default = build_parser().parse_args(["scenario", "capture", "warehouse-idle"])
     inproc = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "inproc"])
 
     assert default.backend == "gdb"
     assert inproc.backend == "inproc"
+
+
+def test_capture_qualification_parser_requires_two_recordings():
+    args = build_parser().parse_args(
+        ["capture", "qualify", "--gdb", "gdb.otrec", "--inproc", "inproc.otrec"]
+    )
+
+    assert args.gdb == "gdb.otrec"
+    assert args.inproc == "inproc.otrec"
 
 
 def test_capture_hook_manifest_matches_supported_pe():
