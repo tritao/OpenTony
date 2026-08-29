@@ -653,75 +653,95 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 const std::optional<PositionCollisionHit> recovery_hit =
                     hooks.collision_query(recovery_start, recovery_end);
                 if (recovery_hit.has_value()) {
-                    static_cast<void>(current_player.project_collision_velocity(
-                        recovery_hit->normal));
-                    collision_transient_exit_normal = recovery_hit->normal;
-                    const bool recovery_target_changed =
-                        current_player.update_ground_surface_recovery(
-                            recovery_hit->normal,
-                            hooks.ground_surface_recovery_delta_q11);
-                    ground_surface_target_changed =
-                        ground_surface_target_changed || recovery_target_changed;
-                    FixedPosition surface_correction{0, 0x1964, 0};
-                    static_cast<void>(remove_normal_component(
-                        surface_correction,
-                        recovery_hit->normal));
-                    // State 2 keeps the transition-owned +3118 vector from
-                    // FUN_004900b0.  The shared recovery path still produces
-                    // the per-frame +58 motion correction, but it must not
-                    // replace the vector consumed by FUN_0049c060 on the
-                    // following state-two frame.
-                    if (current_player.physics_state() != 2) {
-                        current_player.set_ground_surface_response_surface(
+                    // The grounded movement-hit path shares the long-recovery
+                    // exit with FUN_004956f0.  The sweep distance is measured
+                    // from the actual secondary query, so this remains causal
+                    // when the same geometry is reached on a different frame.
+                    const bool recovery_leave_air =
+                        retail_hit_distance(
+                            recovery_start,
+                            recovery_end,
+                            recovery_hit->hit_parameter_q14)
+                        > 0x74;
+                    if (recovery_leave_air) {
+                        // The long-recovery exit retains the ordinary
+                        // movement contact as the position candidate.  The
+                        // secondary sweep only decides the state handoff; it
+                        // does not replace that contact with its own recovery
+                        // candidate.
+                        desired = movement_candidate;
+                        ground_leave_air_requested = true;
+                    } else {
+                        static_cast<void>(current_player.project_collision_velocity(
+                            recovery_hit->normal));
+                        collision_transient_exit_normal = recovery_hit->normal;
+                        const bool recovery_target_changed =
+                            current_player.update_ground_surface_recovery(
+                                recovery_hit->normal,
+                                hooks.ground_surface_recovery_delta_q11);
+                        ground_surface_target_changed =
+                            ground_surface_target_changed || recovery_target_changed;
+                        FixedPosition surface_correction{0, 0x1964, 0};
+                        static_cast<void>(remove_normal_component(
                             surface_correction,
-                            recovery_hit->normal);
-                    }
-                    // FUN_00490610 adds the projected surface correction to
-                    // the transient correction already produced before the
-                    // movement query. The grounded tail then consumes that
-                    // complete accumulated +0x58 value.
-                    current_player.add_motion_correction(surface_correction);
-                    if (!use_movement_recovery_base) {
-                        // The direct surface-bit path reaches the shared
-                        // 0x004975c7 tail with the static 0x1964 correction
-                        // applied a second time. It also skips the generic
-                        // response-basis subtraction below.
+                            recovery_hit->normal));
+                        // State 2 keeps the transition-owned +3118 vector from
+                        // FUN_004900b0.  The shared recovery path still produces
+                        // the per-frame +58 motion correction, but it must not
+                        // replace the vector consumed by FUN_0049c060 on the
+                        // following state-two frame.
+                        if (current_player.physics_state() != 2) {
+                            current_player.set_ground_surface_response_surface(
+                                surface_correction,
+                                recovery_hit->normal);
+                        }
+                        // FUN_00490610 adds the projected surface correction to
+                        // the transient correction already produced before the
+                        // movement query. The grounded tail then consumes that
+                        // complete accumulated +0x58 value.
                         current_player.add_motion_correction(surface_correction);
-                    }
-                    const FixedPosition recovery_candidate = offset(
-                        recovery_hit->position,
-                        recovery_direction,
-                        30);
-                    const PositionCollisionProbe recovery_probe =
-                        [&hooks, &recovery_base](
-                            const FixedPosition& candidate) {
-                            return hooks.collision_query(
+                        if (!use_movement_recovery_base) {
+                            // The direct surface-bit path reaches the shared
+                            // 0x004975c7 tail with the static 0x1964 correction
+                            // applied a second time. It also skips the generic
+                            // response-basis subtraction below.
+                            current_player.add_motion_correction(surface_correction);
+                        }
+                        const FixedPosition recovery_candidate = offset(
+                            recovery_hit->position,
+                            recovery_direction,
+                            30);
+                        const PositionCollisionProbe recovery_probe =
+                            [&hooks, &recovery_base](
+                                const FixedPosition& candidate) {
+                                return hooks.collision_query(
+                                    recovery_base,
+                                    candidate).has_value();
+                            };
+                        const PositionCommitResult recovery_commit =
+                            PositionCommitter::commit(
                                 recovery_base,
-                                candidate).has_value();
+                                recovery_candidate,
+                                recovery_probe,
+                                hooks.bypass_collision);
+                        // FUN_004f5f90 rejects a short secondary recovery
+                        // displacement after FUN_00496060 selects its candidate.
+                        // The wall branch therefore falls back to the live
+                        // position for the small frame-206 correction, while the
+                        // larger Warehouse recovery in the canonical corpus is
+                        // still committed.
+                        const FixedPosition recovery_displacement{
+                            recovery_commit.position[0] - recovery_base[0],
+                            recovery_commit.position[1] - recovery_base[1],
+                            recovery_commit.position[2] - recovery_base[2],
                         };
-                    const PositionCommitResult recovery_commit =
-                        PositionCommitter::commit(
-                            recovery_base,
-                            recovery_candidate,
-                            recovery_probe,
-                            hooks.bypass_collision);
-                    // FUN_004f5f90 rejects a short secondary recovery
-                    // displacement after FUN_00496060 selects its candidate.
-                    // The wall branch therefore falls back to the live
-                    // position for the small frame-206 correction, while the
-                    // larger Warehouse recovery in the canonical corpus is
-                    // still committed.
-                    const FixedPosition recovery_displacement{
-                        recovery_commit.position[0] - recovery_base[0],
-                        recovery_commit.position[1] - recovery_base[1],
-                        recovery_commit.position[2] - recovery_base[2],
-                    };
-                    if (fixed_dot_q12(
-                            recovery_displacement,
-                            recovery_displacement) >= 0x1000) {
-                        desired = recovery_commit.position;
-                        movement_recovery_candidate_selected =
-                            recovery_commit.position != recovery_base;
+                        if (fixed_dot_q12(
+                                recovery_displacement,
+                                recovery_displacement) >= 0x1000) {
+                            desired = recovery_commit.position;
+                            movement_recovery_candidate_selected =
+                                recovery_commit.position != recovery_base;
+                        }
                     }
                 } else {
                     FixedPosition surface_correction{0, 0x1964, 0};

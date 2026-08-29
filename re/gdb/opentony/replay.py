@@ -257,6 +257,13 @@ class RetailReplay:
         # finished but before the first gameplay timer boundary can run.
         self.suppress_uncontrolled_timer_callback()
         self._timer_callback_suppressed = True
+        # A recording may legitimately contain no delivery at its first
+        # gameplay boundary.  Publish the captured baseline before retail
+        # enters that frame so live startup timing cannot leak into the
+        # replay.  This is the causal initial state, not a per-frame derived
+        # state injection; subsequent clock changes still come only from
+        # recorded delivery events.
+        self.timer_service.publish(mem)
         self.active = True
         self.action_breakpoint = RetailReplayActionBuildBreakpoint(self)
 

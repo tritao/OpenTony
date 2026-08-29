@@ -640,7 +640,9 @@ int run(int argc, char** argv) {
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
         }
-        if (animation.finished && animation.id == 14) {
+        if (animation.finished
+            && animation.id == 14
+            && session.player().physics_state() == 2) {
             // FUN_0049a480 re-seats the completed landing pose before the
             // state-2 landing handoff has finished. Keep the animation in
             // the same pose while the state transition is consumed.

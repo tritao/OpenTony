@@ -243,7 +243,13 @@ PsxCollisionWorld PsxCollisionWorld::build(const PsxArchive& archive) {
             face.vertex_count = (source_face.flags & 0x0010U) != 0 ? 3 : 4;
             const std::array<std::size_t, 4> corner_order =
                 face.vertex_count == 3
-                ? std::array<std::size_t, 4>{2, 1, 0, 3}
+                // FUN_00462a20 anchors its quantized plane equation at the
+                // first cached triangle vertex. Preserve the source order
+                // here: reversing the triangle makes the approximate stored
+                // normal use a different anchor and shifts the Q14 hit on
+                // sloped faces, even though the geometric triangle is the
+                // same.
+                ? std::array<std::size_t, 4>{0, 1, 2, 3}
                 : std::array<std::size_t, 4>{0, 2, 3, 1};
             for (std::size_t corner = 0; corner < face.vertex_count; ++corner) {
                 face.vertices[corner] = world_vertex(

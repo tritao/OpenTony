@@ -38,6 +38,7 @@ ACTION_MASKS = {
     "down": 0x4000,
 }
 FORENSIC_FAMILIES = {
+    "all",
     "core",
     "collision",
     "service",
