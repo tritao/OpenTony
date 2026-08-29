@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from . import ghidra_inspect as ghidra_inspection
@@ -101,6 +102,25 @@ from .worktrees import (  # noqa: F401 - command handlers are consumed by cli.py
     worktree_prepare,
     worktree_verify,
 )
+
+
+def _python_environment_status() -> tuple[bool, str]:
+    """Report whether this command is running in OpenTony's canonical venv."""
+
+    canonical = resolve(".tools/venv")
+    active = Path(sys.prefix)
+    try:
+        active = active.resolve()
+        canonical = canonical.resolve()
+    except OSError:
+        # Resolution is diagnostic only; preserve useful path text below.
+        pass
+    if active == canonical:
+        return True, f"canonical environment ({canonical})"
+    return False, (
+        f"active environment is {active}; expected {canonical}; "
+        "run ./tony.sh (or activate .tools/venv)"
+    )
 
 
 def capture_decode(args) -> int:
@@ -235,6 +255,7 @@ def doctor(_args) -> int:
     checks: list[tuple[str, bool, str]] = []
 
     checks.append(("python", sys.version_info >= (3, 12), sys.version.split()[0]))
+    checks.append(("python-env", *_python_environment_status()))
 
     for name, command in (
         ("git", ["git", "--version"]),
@@ -276,7 +297,7 @@ def doctor(_args) -> int:
 
     width = max(len(name) for name, _, _ in checks)
     failed_required = False
-    optional = {"jq", "rg", "cmake", "ninja", "clang", "xorriso"}
+    optional = {"jq", "rg", "cmake", "ninja", "clang", "xorriso", "python-env"}
     for name, ok, detail in checks:
         marker = "OK" if ok else ("WARN" if name in optional else "FAIL")
         print(f"{marker:4} {name:<{width}}  {detail}")

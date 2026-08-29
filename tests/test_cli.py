@@ -1,11 +1,37 @@
 import pytest
 
+from tony import commands
 from tony.cli import build_parser, parse_args
 
 
 def test_parser_builds():
     parser = build_parser()
     assert parser.prog == "tony"
+
+
+def test_python_environment_status_explains_noncanonical_interpreter(tmp_path, monkeypatch):
+    canonical = tmp_path / "repo" / ".tools" / "venv"
+    active = tmp_path / "other" / ".venv"
+    monkeypatch.setattr(commands, "resolve", lambda _path: canonical)
+    monkeypatch.setattr(commands.sys, "prefix", str(active))
+
+    ok, detail = commands._python_environment_status()
+
+    assert not ok
+    assert str(active) in detail
+    assert str(canonical) in detail
+    assert "./tony.sh" in detail
+
+
+def test_python_environment_status_accepts_canonical_interpreter(tmp_path, monkeypatch):
+    canonical = tmp_path / "repo" / ".tools" / "venv"
+    monkeypatch.setattr(commands, "resolve", lambda _path: canonical)
+    monkeypatch.setattr(commands.sys, "prefix", str(canonical))
+
+    ok, detail = commands._python_environment_status()
+
+    assert ok
+    assert "canonical environment" in detail
 
 
 def test_verify_all_parse():

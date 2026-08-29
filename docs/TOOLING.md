@@ -23,6 +23,13 @@
 
 We use PyGhidra's native CPython integration. Java GhidraScripts remain an escape hatch for a future custom loader/analyzer/plugin, not the default automation language.
 
+Use `./tony.sh ...` (or activate `.tools/venv`) when invoking the workflow. The
+repository wrapper selects the canonical environment and adds the shared
+PyGhidra installation used by linked worktrees. Running an editable `tony`
+entry point from another environment is allowed for lightweight commands, but
+`tony doctor` reports a `python-env` warning and points back to the wrapper when
+Ghidra/PyGhidra operations may be unavailable there.
+
 ## Wine
 
 Wine itself is installed through the OS package manager because graphics, audio, libc, and driver integration are distribution-level concerns. The Ubuntu bootstrap installs WineHQ's stable branch.
