@@ -197,7 +197,7 @@ static int sha_file(const char *path, uint8_t output[32]) {
 
 static void debug_sha256(const char *label, const uint8_t digest[32]) {
     static const char hex[] = "0123456789abcdef";
-    char text[80];
+    char text[128];
     uint32_t index;
     uint32_t offset = 0;
     while (label[offset] != 0 && offset < sizeof(text) - 1u) {
@@ -284,8 +284,8 @@ int ot_capture_verify_build(void *module_base, const uint8_t expected_sha256[32]
     static const uint8_t supported_nocd_sha[32] = {
         0x03, 0xd5, 0xba, 0x74, 0xdb, 0xc9, 0x09, 0xe3,
         0xa4, 0x17, 0xf1, 0xf5, 0xb8, 0x54, 0xa8, 0x36,
-        0xc8, 0xc9, 0xe8, 0x9b, 0xd3, 0x1e, 0x9d, 0x1c,
-        0x33, 0x1f, 0x01, 0xab, 0x61, 0x3a, 0x94, 0x78,
+        0xc8, 0xc9, 0xe8, 0xbd, 0x31, 0xe9, 0xd1, 0xc3,
+        0x31, 0xf0, 0x1a, 0xb6, 0x13, 0xa9, 0x47, 0x78,
     };
     if (module_base == 0 || expected_sha256 == 0 || dos->e_magic != IMAGE_DOS_SIGNATURE) {
         OutputDebugStringA("OpenTony capture: invalid module or DOS header\n");
