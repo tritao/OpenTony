@@ -16,11 +16,11 @@ from tony.capture import (
     FRAME_STRUCT_V3,
     HEADER_STRUCT,
     INITIAL_STATE_STRUCT,
+    OTCAP_LEGACY_MAX_CAUSAL_EVENTS,
     OTCAP_MAGIC,
     OTCAP_MAGIC_V3,
     OTCAP_MAX_ACTION_INTERVALS,
     OTCAP_MAX_CAUSAL_EVENTS,
-    OTCAP_LEGACY_MAX_CAUSAL_EVENTS,
     OTCAP_PLAYER_BLOB_SIZE,
     CaptureDecodeError,
     _capture_desktop_spec,
@@ -320,6 +320,112 @@ def test_snapshot_comparator_checks_before_and_after_state(tmp_path):
     assert result["difference"]["path"] == ["frames", 0, "after", "physics_state"]
 
 
+def test_qualification_comparator_normalizes_timer_phase_and_stop_clock(tmp_path):
+    left = tmp_path / "gdb.otrec"
+    right = tmp_path / "inproc.otrec"
+    before = {
+        "position": {"raw": [1, 2, 3]},
+        "timing": {"simulation_time": {"raw": 4}},
+    }
+    left_after = {
+        "position": {"raw": [5, 6, 7]},
+        "timing": {"simulation_time": {"raw": 8}},
+    }
+    right_after = {
+        "position": {"raw": [5, 6, 7]},
+        "timing": {"simulation_time": {"raw": 9}},
+    }
+    sample = {
+        "type": "timer_boundary_sample",
+        "timer_boundary_before": {"accumulated_ms": 0, "interval_ms": 16},
+        "timer_boundary_after": {"accumulated_ms": 0, "interval_ms": 16},
+    }
+    left_events = [
+        sample,
+        {
+            "type": "timer_callback_delivery",
+            "timer_boundary_before": {"accumulated_ms": 0, "interval_ms": 16},
+            "timer_boundary_after": {"accumulated_ms": 16, "interval_ms": 16},
+            "timer_boundary_delivery_count": 1,
+            "timer_boundary_phase": "physics_entry",
+        },
+        {
+            "type": "timer_callback_delivery",
+            "timer_boundary_before": {"accumulated_ms": 16, "interval_ms": 16},
+            "timer_boundary_after": {"accumulated_ms": 32, "interval_ms": 16},
+            "timer_boundary_delivery_count": 1,
+            "timer_boundary_phase": "clock_read",
+        },
+    ]
+    right_events = [
+        sample,
+        {
+            "type": "timer_callback_delivery",
+            "timer_boundary_before": {"accumulated_ms": 0, "interval_ms": 16},
+            "timer_boundary_after": {"accumulated_ms": 32, "interval_ms": 16},
+            "timer_boundary_delivery_count": 2,
+            "timer_boundary_phase": "timer_update",
+        },
+        {
+            "type": "timer_callback_delivery",
+            "timer_boundary_before": {"accumulated_ms": 0, "interval_ms": 16},
+            "timer_boundary_after": {"accumulated_ms": 32, "interval_ms": 16},
+            "timer_boundary_delivery_count": 2,
+            "timer_boundary_phase": "timer_update",
+        },
+    ]
+    left.write_text(
+        json.dumps(
+            {
+                "type": "frame",
+                "frame": 0,
+                "input": {"action_mask": 64},
+                "before": before,
+                "after": left_after,
+                "events": left_events,
+            }
+        )
+        + "\n"
+    )
+    right.write_text(
+        json.dumps(
+            {
+                "type": "frame",
+                "frame": 0,
+                "input": {"action_mask": 64, "keyboard_state": "00"},
+                "before": before,
+                "after": right_after,
+                "events": right_events,
+            }
+        )
+        + "\n"
+    )
+
+    result = compare_recordings(left, right, scope="qualification")
+
+    assert result == {"equal": True, "scope": "qualification", "frames": 1, "difference": None}
+
+
+def test_qualification_comparator_reports_timer_path_difference(tmp_path):
+    left = tmp_path / "gdb.otrec"
+    right = tmp_path / "inproc.otrec"
+    event = {
+        "type": "timer_callback_delivery",
+        "timer_boundary_before": {"accumulated_ms": 0, "interval_ms": 16},
+        "timer_boundary_after": {"accumulated_ms": 16, "interval_ms": 16},
+        "timer_boundary_delivery_count": 1,
+    }
+    changed = {**event, "timer_boundary_after": {"accumulated_ms": 48, "interval_ms": 16}}
+    frame = {"type": "frame", "frame": 0, "input": {"action_mask": 0}, "before": {}, "after": {}, "events": [event]}
+    left.write_text(json.dumps(frame) + "\n")
+    right.write_text(json.dumps({**frame, "events": [changed]}) + "\n")
+
+    result = compare_recordings(left, right, scope="qualification")
+
+    assert not result["equal"]
+    assert result["difference"]["path"] == ["timer_boundary_summary", "end"]
+
+
 def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
     default = build_parser().parse_args(["scenario", "capture", "warehouse-idle"])
     inproc = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "inproc"])
@@ -337,6 +443,7 @@ def test_capture_qualification_parser_requires_two_recordings():
 
     assert args.gdb == "gdb.otrec"
     assert args.inproc == "inproc.otrec"
+    assert args.scope == "qualification"
 
 
 def test_capture_hook_manifest_matches_supported_pe():

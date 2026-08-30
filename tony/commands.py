@@ -179,7 +179,7 @@ def capture_qualify(args) -> int:
         result = compare_recordings(
             args.gdb,
             args.inproc,
-            scope=getattr(args, "scope", "snapshots"),
+            scope=getattr(args, "scope", "qualification"),
         )
     except CaptureDecodeError as exc:
         raise SystemExit(str(exc)) from exc

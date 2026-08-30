@@ -323,9 +323,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("right")
     p.add_argument(
         "--scope",
-        choices=("all", "snapshots"),
+        choices=("all", "snapshots", "qualification"),
         default="all",
-        help="comparison scope; snapshots checks M3 overlapping frame state",
+        help="comparison scope; qualification checks stable snapshots and timer boundaries",
     )
     p.set_defaults(func=commands.capture_compare)
     p = capture_sub.add_parser(
@@ -336,9 +336,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inproc", required=True, help="in-process-produced .otrec")
     p.add_argument(
         "--scope",
-        choices=("snapshots", "all"),
-        default="snapshots",
-        help="compare overlapping snapshots only (default) or all events too",
+        choices=("qualification", "snapshots", "all"),
+        default="qualification",
+        help="qualification checks stable snapshots and timer boundaries (default)",
     )
     p.set_defaults(func=commands.capture_qualify)
 

@@ -753,10 +753,106 @@ def _first_difference(expected: Any, actual: Any, path: tuple[Any, ...] = ()) ->
     return None if expected == actual else (path, expected, actual)
 
 
+def _timer_boundary_path(records: list[dict[str, Any]]) -> list[list[int | None]]:
+    """Return a phase-independent path of observed timer counter values.
+
+    GDB and the in-process recorder can observe the same callback batch at
+    different gameplay boundaries.  A delivery may also be reported as one
+    event with a count greater than one, or as duplicate events for each
+    callback.  Expand those batches and retain only the counter/interval path;
+    the asynchronous stop-time phase and sampled clock value are not part of
+    the qualification contract.
+    """
+
+    path: list[list[int | None]] = []
+
+    def append(value: Any, interval: Any) -> None:
+        if not isinstance(value, int):
+            return
+        item = [value, interval if isinstance(interval, int) else None]
+        if not path or path[-1] != item:
+            path.append(item)
+
+    for record in records:
+        if record.get("type") != "frame":
+            continue
+        duplicate_deliveries: set[tuple[Any, ...]] = set()
+        events = record.get("events", ())
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("type")
+            if event_type not in {"timer_boundary_sample", "timer_callback_delivery"}:
+                continue
+            before = event.get("timer_boundary_before")
+            after = event.get("timer_boundary_after")
+            if not isinstance(before, dict):
+                before = {}
+            if not isinstance(after, dict):
+                after = {}
+            interval = after.get("interval_ms")
+            if not isinstance(interval, int):
+                interval = before.get("interval_ms", event.get("interval_ms"))
+
+            if event_type == "timer_callback_delivery":
+                before_value = before.get("accumulated_ms")
+                after_value = after.get("accumulated_ms")
+                count = event.get("timer_boundary_delivery_count", 1)
+                key = (before_value, after_value, interval, count)
+                if key in duplicate_deliveries:
+                    continue
+                duplicate_deliveries.add(key)
+                if (
+                    isinstance(before_value, int)
+                    and isinstance(after_value, int)
+                    and isinstance(interval, int)
+                    and interval > 0
+                    and isinstance(count, int)
+                    and count > 0
+                    and after_value - before_value == interval * count
+                ):
+                    for index in range(count + 1):
+                        append(before_value + interval * index, interval)
+                else:
+                    append(before_value, interval)
+                    append(after_value, interval)
+                continue
+
+            # The sampled value can race the callback boundary.  The raw
+            # before/after counter fields are the stable observation shared by
+            # both recorders, so deliberately do not use the sampled field.
+            append(before.get("accumulated_ms"), interval)
+            append(after.get("accumulated_ms"), interval)
+    return path
+
+
+def _timer_boundary_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize timer evidence without comparing debugger-dependent timing."""
+
+    path = _timer_boundary_path(records)
+    if not path:
+        return {"start": None, "end": None, "interval": None, "deliveries": None}
+    intervals = {item[1] for item in path}
+    interval = next(iter(intervals)) if len(intervals) == 1 else None
+    start = path[0][0]
+    end = path[-1][0]
+    deliveries = None
+    if isinstance(interval, int) and interval > 0 and (end - start) % interval == 0:
+        deliveries = (end - start) // interval
+    return {
+        "start": start,
+        "end": end,
+        "interval": interval,
+        "deliveries": deliveries,
+    }
+
+
 def _comparison_frame(record: dict[str, Any], scope: str) -> dict[str, Any]:
     if scope == "all":
         return record
-    if scope != "snapshots":
+    if scope not in {"snapshots", "qualification"}:
         raise CaptureDecodeError(f"unknown recording comparison scope: {scope}")
     input_record = record.get("input")
     action_mask = input_record.get("action_mask") if isinstance(input_record, dict) else None
@@ -772,12 +868,29 @@ def _comparison_frame(record: dict[str, Any], scope: str) -> dict[str, Any]:
             return [without_process_identity(item) for item in value]
         return value
 
+    def without_stop_time_clock(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: without_stop_time_clock(item)
+                for key, item in value.items()
+                if key != "timing"
+            }
+        if isinstance(value, list):
+            return [without_stop_time_clock(item) for item in value]
+        return value
+
+    snapshot = without_process_identity
+    if scope == "qualification":
+        snapshot = lambda value: without_stop_time_clock(
+            without_process_identity(value)
+        )
+
     return {
         "type": "frame",
         "frame": record.get("frame"),
         "input": {"action_mask": action_mask},
-        "before": without_process_identity(record.get("before")),
-        "after": without_process_identity(record.get("after")),
+        "before": snapshot(record.get("before")),
+        "after": snapshot(record.get("after")),
     }
 
 
@@ -791,13 +904,14 @@ def compare_recordings(
 
     Recording IDs and timestamps are intentionally excluded; all input,
     timer/service events, and player snapshots are compared exactly by default.
-    ``scope="snapshots"`` is the M3 qualification mode: it compares the
-    overlapping input/action-mask and before/after player snapshots while
-    ignoring recorder-specific diagnostic event arrays until those hooks are
-    migrated.
+    ``scope="snapshots"`` compares overlapping input/action-mask and
+    before/after player snapshots while ignoring recorder-specific diagnostic
+    event arrays.  ``scope="qualification"`` is the same-run GDB/in-process
+    gate: it excludes asynchronous stop-time clock fields from those snapshots
+    and compares the phase-independent timer boundary path separately.
     """
 
-    if scope not in {"all", "snapshots"}:
+    if scope not in {"all", "snapshots", "qualification"}:
         raise CaptureDecodeError(f"unknown recording comparison scope: {scope}")
 
     left_records = _recording_records(left)
@@ -812,6 +926,54 @@ def compare_recordings(
         for record in right_records
         if record.get("type") == "frame"
     ]
+    if scope == "qualification":
+        left_timer = _timer_boundary_summary(left_records)
+        right_timer = _timer_boundary_summary(right_records)
+        for key in ("start", "interval"):
+            difference = _first_difference(
+                left_timer[key],
+                right_timer[key],
+                ("timer_boundary_summary", key),
+            )
+            if difference is not None:
+                path, expected, actual = difference
+                return {
+                    "equal": False,
+                    "scope": scope,
+                    "frames": {"left": len(left_frames), "right": len(right_frames)},
+                    "difference": {"path": list(path), "left": expected, "right": actual},
+                }
+        if (
+            isinstance(left_timer["end"], int)
+            and isinstance(right_timer["end"], int)
+            and isinstance(left_timer["interval"], int)
+            and abs(left_timer["end"] - right_timer["end"]) > left_timer["interval"]
+        ):
+            return {
+                "equal": False,
+                "scope": scope,
+                "frames": {"left": len(left_frames), "right": len(right_frames)},
+                "difference": {
+                    "path": ["timer_boundary_summary", "end"],
+                    "left": left_timer["end"],
+                    "right": right_timer["end"],
+                },
+            }
+        if (
+            isinstance(left_timer["deliveries"], int)
+            and isinstance(right_timer["deliveries"], int)
+            and abs(left_timer["deliveries"] - right_timer["deliveries"]) > 1
+        ):
+            return {
+                "equal": False,
+                "scope": scope,
+                "frames": {"left": len(left_frames), "right": len(right_frames)},
+                "difference": {
+                    "path": ["timer_boundary_summary", "deliveries"],
+                    "left": left_timer["deliveries"],
+                    "right": right_timer["deliveries"],
+                },
+            }
     left_header = next((record for record in left_records if record.get("type") == "header"), {})
     right_header = next((record for record in right_records if record.get("type") == "header"), {})
     for key in ("binary_sha256", "retail_executable_sha256", "level", "frame_boundary", "input_boundary"):
@@ -1235,7 +1397,7 @@ def run_hybrid_capture(
 
     try:
         summary = convert_capture_binary(capture_path, target, force=force)
-        result = compare_recordings(gdb_path, target, scope="snapshots")
+        result = compare_recordings(gdb_path, target, scope="qualification")
     except (CaptureDecodeError, OSError) as exc:
         print(str(exc))
         return 1

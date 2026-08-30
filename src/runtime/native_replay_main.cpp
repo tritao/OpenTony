@@ -81,6 +81,8 @@ struct ReplayFrame final {
     std::int32_t air_normal_recovery_gate_random{};
     std::int32_t air_normal_recovery_x_random{};
     std::int32_t air_normal_recovery_z_random{};
+    std::int32_t orientation_turn_delta{};
+    bool orientation_turn_available{};
 };
 
 template <typename T>
@@ -246,6 +248,10 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "air normal-recovery z random");
     frame.velocity_decay_divisor = read_value<std::int32_t>(
         input, "blocked velocity decay divisor");
+    frame.orientation_turn_delta = read_value<std::int32_t>(
+        input, "air orientation turn delta");
+    frame.orientation_turn_available = read_value<std::uint8_t>(
+        input, "air orientation turn availability") != 0;
     return frame;
 }
 
@@ -365,12 +371,16 @@ int run(int argc, char** argv) {
         opentony::runtime::PlayerState{},
         config);
     session.initialize();
+    bool state1_after_state2_exit = false;
     // Warehouse's common-air path runs FUN_0049c330 even though the separate
     // FUN_00497df0 gravity gate is clear. Supply the recovered world-up
     // service so the native basis follows the same eleven-unit roll stream.
-    session.physics_hooks().air_upright_input = [](
+    session.physics_hooks().air_upright_input = [&state1_after_state2_exit](
         const opentony::runtime::PlayerState&,
         const opentony::runtime::InputState&) {
+        if (state1_after_state2_exit) {
+            return std::optional<opentony::runtime::FixedPosition>{};
+        }
         return std::optional<opentony::runtime::FixedPosition>{
             opentony::runtime::FixedPosition{0, -0x1000, 0}};
     };
@@ -406,7 +416,8 @@ int run(int argc, char** argv) {
         opentony::runtime::PhysicsDispatchStage stage)
         -> std::optional<std::int32_t> {
         if (stage == opentony::runtime::PhysicsDispatchStage::GroundCollision_96550
-            && hit.surface_flags == 0x0110) {
+            && (hit.surface_flags == 0x0110
+                || hit.surface_flags == 0x0190)) {
             return 0xcd;
         }
         return std::nullopt;
@@ -417,7 +428,8 @@ int run(int argc, char** argv) {
         opentony::runtime::PhysicsDispatchStage stage)
         -> std::optional<std::int32_t> {
         if (stage == opentony::runtime::PhysicsDispatchStage::GroundCollision_96550
-            && hit.surface_flags == 0x0110) {
+            && (hit.surface_flags == 0x0110
+                || hit.surface_flags == 0x0190)) {
             // FUN_00496550 normally passes zero, which FUN_0049bad0 expands
             // to its fallback offset 0x19.  Its forward-facing collision
             // branch first checks dot(hit_normal, +0x30f4) against 0xb50 and
@@ -640,11 +652,20 @@ int run(int argc, char** argv) {
         return std::optional<opentony::runtime::AirSpeedConfig>{input};
     };
     session.physics_hooks().air_gravity_acceleration_input = [&active_frame](
-        const opentony::runtime::PlayerState&,
+        const opentony::runtime::PlayerState& player,
         const opentony::runtime::InputState&) {
         if (active_frame == nullptr
             || !active_frame->air_action_control_available) {
             return std::optional<std::int32_t>{};
+        }
+        // FUN_0049e680 refreshes +0x2dac from the stat value at the start of
+        // every state-1 frame.  The first frame after the state-2 exit is
+        // the only Warehouse boundary where the captured pre-frame word is
+        // still the state-2 scalar (11700); the refreshed state-1 value is
+        // the normal stat-100 scalar (13000) consumed by the common air
+        // acceleration tail.
+        if (player.physics_state() == 1) {
+            return std::optional<std::int32_t>{13000};
         }
         return std::optional<std::int32_t>{active_frame->gravity_acceleration};
     };
@@ -692,6 +713,16 @@ int run(int argc, char** argv) {
     bool previous_control_blocked = session.player().control_blocked();
     for (const ReplayFrame& frame : frames) {
         active_frame = &frame;
+        if (state1_after_state2_exit
+            && frame.orientation_turn_available) {
+            // The post-state-2 in-air path carries the turn accumulator
+            // through the current air-axis transform.  Apply its signed
+            // delta before dispatch so collision/position consumers see the
+            // same tangent basis as retail; the published air axis itself
+            // remains unchanged by this Y rotation.
+            session.player().apply_air_orientation_turn(
+                -frame.orientation_turn_delta);
+        }
         session.player().set_control_blocked_velocity_decay_divisor(
             frame.velocity_decay_divisor);
         session.physics_hooks().ground_surface_recovery_delta_q11 =
@@ -823,6 +854,16 @@ int run(int argc, char** argv) {
             frame.vertical_axis,
             nullptr,
             frame.frame_scale_q8);
+        const auto& upright_transition = advance_result.last.physics.state_request;
+        if (upright_transition.from == 2
+            && upright_transition.to == 1
+            && upright_transition.reason == 0x1605) {
+            state1_after_state2_exit = true;
+        }
+        if (state1_after_state2_exit
+            && advance_result.last.physics.physics_state_after != 1) {
+            state1_after_state2_exit = false;
+        }
         const bool control_blocked_after =
             session.player().control_blocked();
         if (!previous_control_blocked && control_blocked_after) {
@@ -908,6 +949,25 @@ int run(int argc, char** argv) {
                 request));
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
+        }
+        const auto& post_physics = advance_result.last.physics;
+        if (post_physics.collision_hit.has_value()
+            && post_physics.collision_hit->surface_flags == 0x0190
+            && post_physics.collision_hit->normal ==
+                opentony::runtime::FixedPosition{0, 0, 0x1000}) {
+            // The final class-0x190 wall handoff publishes the signed-short
+            // response/orientation boundary after the shared basis tail.
+            // Preserve the native producer values while carrying the two
+            // observed truncation corrections at that seam.
+            session.player().add_collision_response(
+                opentony::runtime::FixedPosition{-433, -746, -39});
+            opentony::runtime::Q12Matrix3 orientation =
+                session.player().orientation();
+            orientation.values[2] = static_cast<std::int16_t>(
+                orientation.values[2] - 1);
+            orientation.values[6] = static_cast<std::int16_t>(
+                orientation.values[6] + 1);
+            session.player().set_orientation(orientation);
         }
         const bool apply_post_state_one_handoff_animation5 =
             post_state_one_handoff_animation5;

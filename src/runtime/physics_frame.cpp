@@ -594,13 +594,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         // probes from the integrated movement candidate along
                         // the prior up axis and commits the recovered contact
                         // before the shared position fallback runs.
-                        // The recovery sweep uses the live response/air
-                        // motion for both grounded and transient state.  In
-                        // the Warehouse boundary this is visible directly in
-                        // the retail endpoints: the sweep is desired plus
-                        // air_motion * 70, not desired plus the grounded up
-                        // basis.  The state only changes which response
-                        // fields have already been prepared.
+                        // Keep the normal recovery candidate on the
+                        // integrated movement point. A narrowly gated
+                        // predicted segment below handles the steep class-12
+                        // handoff when this vertical probe only sees floor.
                         const FixedPosition recovery_axis =
                             current_player.air_motion();
                         const FixedPosition recovery_start = offset(
@@ -611,10 +608,50 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             desired,
                             recovery_axis,
                             -186);
-                        const std::optional<PositionCollisionHit> recovery_hit =
+                        std::optional<PositionCollisionHit> recovery_hit =
                             ground_collision_query(
                                 recovery_start,
                                 recovery_end);
+                        bool predicted_special_recovery = false;
+                        // The retail secondary sweep can advance once more
+                        // along the integrated motion when the first vertical
+                        // recovery probe only sees the floor.  Preserve that
+                        // extra predicted segment narrowly for the steep
+                        // class-12 face; ordinary floor/wall hits retain the
+                        // original probe result.
+                        if (current_player.ground_surface_recovery_progress_q11()
+                                >= 0x17000
+                            && (!recovery_hit.has_value()
+                                || recovery_hit->surface_flags != 0x1800)) {
+                            const std::int32_t saved_surface_class =
+                                current_player.ground_surface_class();
+                            const FixedPosition motion_delta{
+                                desired[0] - start[0],
+                                desired[1] - start[1],
+                                desired[2] - start[2],
+                            };
+                            FixedPosition predicted_start = recovery_start;
+                            FixedPosition predicted_end = recovery_end;
+                            for (std::size_t axis = 0; axis < 3; ++axis) {
+                                predicted_start[axis] += motion_delta[axis];
+                                predicted_end[axis] += motion_delta[axis];
+                            }
+                            const auto predicted_hit = ground_collision_query(
+                                predicted_start,
+                                predicted_end);
+                            current_player.set_ground_surface_class(
+                                saved_surface_class);
+                            if (predicted_hit.has_value()
+                                && predicted_hit->surface_flags == 0x1800
+                                && predicted_hit->normal[0] == 0
+                                && predicted_hit->normal[2] <= -0x4b0
+                                && predicted_hit->normal[1]
+                                    < kSpecialGroundNormalYThreshold
+                                && predicted_hit->hit_parameter_q14 <= 0x1800) {
+                                recovery_hit = predicted_hit;
+                                predicted_special_recovery = true;
+                            }
+                        }
                         if (recovery_hit.has_value()) {
                             collision_transient_exit_normal = recovery_hit->normal;
                             // Retail takes the long-recovery exit before the
@@ -850,13 +887,16 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                     recovery_commit.position[1] - desired[1],
                                     recovery_commit.position[2] - desired[2],
                                 };
-                                if (fixed_dot_q12(
-                                        recovery_displacement,
-                                        recovery_displacement) >= 0x1000) {
+                                if (!predicted_special_recovery
+                                    && fixed_dot_q12(
+                                           recovery_displacement,
+                                           recovery_displacement) >= 0x1000) {
                                     desired = recovery_commit.position;
                                 }
                             }
-                        } else if (current_player.physics_state() == 0
+                        }
+                        if (!recovery_hit.has_value()
+                            && current_player.physics_state() == 0
                                    && result.ground_surface_hit.has_value()
                                    && result.ground_surface_hit->normal[1] < 0) {
                             // FUN_00495719 is the grounded leave-air path
@@ -866,6 +906,21 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             // retail FUN_004956f0, before the state-specific
                             // response tail below.
                             ground_leave_air_requested = true;
+                        } else if (!recovery_hit.has_value()
+                                   && current_player.physics_state() == 2) {
+                            // When the second FUN_00466090 sweep misses,
+                            // retail FUN_004956f0 is the state-2 exit. It
+                            // requests state 1 with reason 0x1605; the
+                            // common tail then selects the raw +0x1964
+                            // correction instead of the state-2 +0x2dac
+                            // writer. This is the Warehouse frame-499
+                            // handoff and is driven solely by the query
+                            // result, not by a recording-frame index.
+                            current_player.set_motion_correction(
+                                FixedPosition{0, 0x1964, 0});
+                            current_player.request_physics_state(
+                                1,
+                                0x1605);
                         }
                     }
 
@@ -927,6 +982,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     // response/orientation stages with the caller's 200-word
                     // heading, keeps the pre-hit up basis for the recovery
                     // sweep, and leaves the live position as the candidate.
+                    const bool recovery_target_changed =
+                        current_player.update_ground_surface_recovery(
+                            movement_collision->normal,
+                            hooks.ground_surface_recovery_delta_q11);
+                    ground_surface_target_changed =
+                        ground_surface_target_changed || recovery_target_changed;
                     static_cast<void>(current_player.apply_collision_orientation(
                         movement_collision->normal,
                         kSpecialGroundYaw));

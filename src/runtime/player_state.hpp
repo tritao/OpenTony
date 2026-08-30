@@ -487,6 +487,11 @@ public:
     void apply_upright_correction(
         const FixedPosition& global_up) noexcept;
 
+    // Applies the recovered in-air turn accumulator to the orientation
+    // matrix. Retail rotates around the published air axis, so the Q12 yaw
+    // leaves +0x310c unchanged while updating the two tangent axes.
+    void apply_air_orientation_turn(std::int32_t angle12) noexcept;
+
     // Applies the confirmed in-air Up/Down action contribution to the
     // temporary +58 correction using an explicit +0x2dac scalar.
     [[nodiscard]] AirDirectionInputResult apply_air_direction_input(
@@ -679,6 +684,10 @@ public:
 
     [[nodiscard]] std::int32_t ground_surface_class() const noexcept {
         return ground_surface_class_;
+    }
+
+    [[nodiscard]] std::int32_t ground_surface_recovery_progress_q11() const noexcept {
+        return ground_surface_recovery_progress_q11_;
     }
 
     // The outer FUN_0049e680 frame applies +58/+5c/+60 back into +4c/+50/+54

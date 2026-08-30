@@ -587,6 +587,21 @@ void PlayerState::apply_upright_correction(
     orientation_basis_normalization_pending_ = false;
 }
 
+void PlayerState::apply_air_orientation_turn(
+    std::int32_t angle12) noexcept {
+    if (angle12 == 0) {
+        return;
+    }
+    // The in-air turn producer uses the same right-multiplied Y transform as
+    // the recovered retail orientation path. This preserves the air axis
+    // while publishing the rotated tangent basis through FUN_0049c7d0.
+    orientation_ = q12_matrix_multiply(
+        orientation_,
+        q12_yaw_matrix(angle12));
+    retail_basis_ = retail_basis_from_matrix(orientation_);
+    orientation_basis_normalization_pending_ = false;
+}
+
 void PlayerState::normalize_orientation_basis() noexcept {
     if (!orientation_basis_normalization_pending_) {
         return;
@@ -1224,8 +1239,8 @@ void PlayerState::apply_orientation_recovery(
 bool PlayerState::update_ground_surface_recovery(
     const FixedPosition& surface_normal,
     std::int32_t delta_q11) noexcept {
-    const bool target_changed = ground_surface_recovery_target_
-        != surface_normal;
+    const bool target_changed =
+        ground_surface_recovery_target_ != surface_normal;
     if (target_changed) {
         ground_surface_recovery_target_ = surface_normal;
         ground_surface_recovery_progress_q11_ = 0;
