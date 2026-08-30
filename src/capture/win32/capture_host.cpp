@@ -394,7 +394,12 @@ int main(int argc, char **argv) {
         CloseHandle(mapping);
         goto done;
     }
-    ZeroMemory(view, OTCAP_MAPPING_SIZE);
+    /* Pagefile-backed mappings are zero-initialized by Windows.  Do not
+     * eagerly touch the entire 64 MiB reservation here: only the header,
+     * configuration, initial state, and published frame slots are part of a
+     * bounded capture.  Each frame slot is cleared by the single writer
+     * immediately before it is filled, so this preserves the wire contract
+     * while avoiding an unnecessary cold-start fault across every page. */
     header = (CaptureHeader *)view;
     config = (CaptureConfig *)((unsigned char *)view + OTCAP_HEADER_BYTES);
     initial = (CaptureInitialState *)((unsigned char *)config + OTCAP_CONFIG_BYTES);

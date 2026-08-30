@@ -464,6 +464,16 @@ def test_capture_host_launches_suspended_then_resumes_after_injection():
     assert "wait_for_resume_file" in source
 
 
+def test_capture_host_does_not_touch_unused_mapping_pages_at_startup():
+    source = Path("src/capture/win32/capture_host.cpp").read_text()
+
+    # Pagefile-backed mappings are already zeroed by Windows.  Clearing the
+    # complete 64 MiB reservation only faults pages that the bounded capture
+    # will never publish and regresses cold-start time.
+    assert "ZeroMemory(view, OTCAP_MAPPING_SIZE)" not in source
+    assert "Pagefile-backed mappings are zero-initialized" in source
+
+
 def test_hybrid_gdb_shadow_uses_post_detour_boundaries():
     source = Path("re/gdb/opentony/commands/recording.py").read_text()
 
