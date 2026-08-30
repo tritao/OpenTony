@@ -244,6 +244,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     std::int32_t ground_leave_air_reason = 0x1ab6;
     bool state_two_entered_from_recovery = false;
     bool air_normal_recovery_handled = false;
+    bool special_air_landing_handoff_pending = false;
     FixedPosition collision_transient_exit_normal{};
     FixedPosition collision_transient_basis{};
     bool collision_transient_basis_valid = false;
@@ -255,6 +256,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
          &ground_leave_air_reason,
          &state_two_entered_from_recovery,
          &air_normal_recovery_handled,
+         &special_air_landing_handoff_pending,
          &collision_transient_exit_normal, &collision_transient_basis,
          &collision_transient_basis_valid,
          frame_scale_q8](
@@ -1133,6 +1135,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             *contact_input);
                 }
             }
+            const bool special_air_landing =
+                result.collision_hit.has_value()
+                && stage == PhysicsDispatchStage::InAir_97f40
+                && air_contact_disposition == StandardAirContactDisposition::Landing
+                && !current_player.control_blocked()
+                && result.collision_hit->raw_type_bits_9_12 == 12;
             std::optional<AirNormalRecoveryInput> air_normal_recovery_input;
             if (result.collision_hit.has_value()
                 && stage == PhysicsDispatchStage::InAir_97f40
@@ -1143,7 +1151,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     *result.collision_hit);
             }
             if (result.collision_hit.has_value()
-                && hooks.collision_response_bias_q12) {
+                && hooks.collision_response_bias_q12
+                && !special_air_landing) {
                 const std::optional<std::int32_t> bias =
                     hooks.collision_response_bias_q12(
                         current_player,
@@ -1174,6 +1183,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 && hooks.remove_hit_normal_component
                 && !result.ground_surface_hit.has_value()
                 && !air_normal_recovery_input.has_value()
+                && !special_air_landing
                 && air_contact_disposition
                     != StandardAirContactDisposition::SurfaceRecovery) {
                 static_cast<void>(current_player.remove_collision_normal_component(
@@ -1278,11 +1288,24 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     contact_position,
                     probe,
                     hooks.bypass_collision);
-                result.landed = current_player.accept_air_contact(
-                    current_player.position(),
-                    result.collision_hit.has_value()
-                    ? result.collision_hit->normal
-                    : current_player.air_motion());
+                if (special_air_landing) {
+                    // The class-12 contact follows the ordinary landing
+                    // commit, then executes FUN_00491780/FUN_00497960. The
+                    // latter returns the player to state 1 in the same
+                    // frame, so do not let accept_air_contact's normal
+                    // state-0 orientation overwrite that handoff.
+                    current_player.request_physics_state(0, 0x1fd6);
+                    current_player.apply_collision_transient_exit_orientation(
+                        result.collision_hit->normal);
+                    special_air_landing_handoff_pending = true;
+                    result.landed = true;
+                } else {
+                    result.landed = current_player.accept_air_contact(
+                        current_player.position(),
+                        result.collision_hit.has_value()
+                        ? result.collision_hit->normal
+                        : current_player.air_motion());
+                }
                 if (result.landed && hooks.landing_animation_request) {
                     result.landing_animation_request =
                         hooks.landing_animation_request(
@@ -1293,6 +1316,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             if (stage == PhysicsDispatchStage::GroundCollision_96550
                 && current_player.physics_state() == 0
                 && hooks.apply_ground_basis_correction
+                && !current_player.control_blocked()
                 && use_ground_response_basis_tail) {
                 // This tail runs after the candidate position has been
                 // integrated/committed. Its response projection is visible
@@ -1306,6 +1330,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             if (stage == PhysicsDispatchStage::GroundCollision_96550
                 && current_player.physics_state() == 0
                 && hooks.apply_ground_basis_correction
+                && !current_player.control_blocked()
                 && current_player.ground_surface_class() == 3) {
                 // The class-3 tail at 0x0049789f follows the ordinary basis
                 // correction, but is not gated by its local response/profile
@@ -1382,6 +1407,14 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         collision_response_projection_pending = false;
     }
 
+    // FUN_0049d8a0 runs after the selected dispatcher stage.  The in-process
+    // state reset currently models the proven +0x2f64 lateral-correction
+    // gate; preserve Y so the just-produced ground correction is integrated
+    // into the persistent response below.
+    if (player.control_blocked()) {
+        player.apply_control_blocked_reset(frame_scale_q8);
+    }
+
     // The state-2 +0x2dac value is published after the collision candidate
     // has been selected. It participates in the outer +58 -> +4c handoff,
     // but not in this frame's position integration.
@@ -1428,6 +1461,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         // This is the outer-frame +58 -> +4c handoff after dispatch.
         player.integrate_motion_correction(frame_scale_q8);
         result.motion_correction_integrated = true;
+    }
+    if (special_air_landing_handoff_pending) {
+        player.complete_air_landing_ground_handoff();
     }
     if (hooks.motion_correction_input) {
         const std::optional<FixedPosition> motion_correction =

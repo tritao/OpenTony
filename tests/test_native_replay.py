@@ -37,7 +37,7 @@ def test_native_wire_preserves_initial_state_and_direct_input() -> None:
     }
     wire = _wire_input(recording["initial"], recording["frames"])
 
-    assert "version 8" in wire
+    assert "version 9" in wire
     assert "init -1 0 0" in wire
     assert "frame 0 36864 -41 40 256 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" in wire
     assert wire.endswith("end\n")

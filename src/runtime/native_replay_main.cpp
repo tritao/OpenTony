@@ -76,6 +76,7 @@ struct ReplayFrame final {
     std::int32_t ground_surface_response_target_random{};
     std::int32_t ground_surface_response_denominator_random{};
     bool ground_surface_response_capped_random_available{};
+    std::int32_t velocity_decay_divisor{};
     bool air_normal_recovery_random_available{};
     std::int32_t air_normal_recovery_gate_random{};
     std::int32_t air_normal_recovery_x_random{};
@@ -243,6 +244,8 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "air normal-recovery x random");
     frame.air_normal_recovery_z_random = read_value<std::int32_t>(
         input, "air normal-recovery z random");
+    frame.velocity_decay_divisor = read_value<std::int32_t>(
+        input, "blocked velocity decay divisor");
     return frame;
 }
 
@@ -435,6 +438,10 @@ int run(int argc, char** argv) {
             (asset_root / "SK2ANIM.PSX").string());
     const opentony::runtime::AnimationTableView animation_view{
         animation_table.frame_counts()};
+    const std::int32_t recovery_pose56_last =
+        static_cast<std::int32_t>(animation_view.frame_count(56)) - 1;
+    const std::int32_t recovery_pose207_last =
+        static_cast<std::int32_t>(animation_view.frame_count(207)) - 1;
     session.physics_hooks().ground_motion_input = [&active_frame, &animation](
         const opentony::runtime::PlayerState&,
         const opentony::runtime::InputState&,
@@ -674,10 +681,48 @@ int run(int argc, char** argv) {
     session.reset_clock();
 
     std::cout << "native-replay-v1\n";
+    enum class RecoveryAnimationPhase : std::uint8_t {
+        None,
+        Pose56,
+        Pose207,
+    };
+    RecoveryAnimationPhase recovery_animation_phase =
+        RecoveryAnimationPhase::None;
+    std::int32_t recovery_animation_frame = 0;
+    bool previous_control_blocked = session.player().control_blocked();
     for (const ReplayFrame& frame : frames) {
         active_frame = &frame;
+        session.player().set_control_blocked_velocity_decay_divisor(
+            frame.velocity_decay_divisor);
         session.physics_hooks().ground_surface_recovery_delta_q11 =
             frame.ground_surface_recovery_delta_q11;
+        if (recovery_animation_phase
+            != RecoveryAnimationPhase::None) {
+            ++recovery_animation_frame;
+            if (recovery_animation_phase
+                    == RecoveryAnimationPhase::Pose56
+                && recovery_animation_frame >= recovery_pose56_last) {
+                // A completed recovery pose starts the short rolling pose;
+                // FUN_004904d0 also clears the transient response before the
+                // next physics boundary.
+                session.player().set_collision_response(
+                    opentony::runtime::FixedPosition{0, 0, 0});
+                recovery_animation_phase = RecoveryAnimationPhase::Pose207;
+                recovery_animation_frame = 0;
+            } else if (recovery_animation_phase
+                           == RecoveryAnimationPhase::Pose207
+                       && recovery_animation_frame >= recovery_pose207_last) {
+                // The rolling pose completion returns to idle and releases
+                // the control-blocked window. Keep the zeroed response for
+                // this boundary; the grounded collision producer repopulates
+                // it after the position candidate is selected.
+                session.player().set_collision_response(
+                    opentony::runtime::FixedPosition{0, 0, 0});
+                session.player().set_control_blocked(false);
+                recovery_animation_phase = RecoveryAnimationPhase::None;
+                recovery_animation_frame = 0;
+            }
+        }
         // Retail updates the animation cursor between gameplay frames. The
         // first recording frame carries the startup scale (normally zero),
         // so applying this at frame entry preserves the observed before-frame
@@ -778,6 +823,13 @@ int run(int argc, char** argv) {
             frame.vertical_axis,
             nullptr,
             frame.frame_scale_q8);
+        const bool control_blocked_after =
+            session.player().control_blocked();
+        if (!previous_control_blocked && control_blocked_after) {
+            recovery_animation_phase = RecoveryAnimationPhase::Pose56;
+            recovery_animation_frame = 0;
+        }
+        previous_control_blocked = control_blocked_after;
         if (advance_result.stepped
             && advance_result.last.physics.ground_animation.has_value()
             && advance_result.last.physics.ground_animation->request.issued) {

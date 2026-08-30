@@ -124,6 +124,41 @@ public:
     [[nodiscard]] bool ground_motion_correction_gate_open() const noexcept {
         return !ground_turn_wide_profile_ || !ground_turn_policy_changed_;
     }
+    // FUN_004904d0 leaves +0x2f64 set while the post-landing control-blocked
+    // window is active.  Grounded collision tails and the later reset use
+    // this raw gate independently of the physics-state enum.
+    [[nodiscard]] bool control_blocked() const noexcept {
+        return control_blocked_;
+    }
+    void set_control_blocked(bool blocked) noexcept {
+        control_blocked_ = blocked;
+    }
+    void set_control_blocked_velocity_decay_divisor(
+        std::int32_t divisor) noexcept {
+        control_blocked_velocity_decay_divisor_ = divisor;
+    }
+    // The deterministic part of FUN_0049d8a0 clears the lateral transient
+    // correction while preserving its Y component for the outer velocity
+    // integration.  The remaining launch/animation side effects stay with
+    // their existing owners.
+    void apply_control_blocked_reset(
+        std::int32_t frame_scale_q8 = 0x100) noexcept {
+        motion_correction_[0] = 0;
+        motion_correction_[2] = 0;
+        if (collision_response_[1] < 0) {
+            collision_response_[1] = 0;
+        }
+        if (control_blocked_velocity_decay_divisor_ != 0) {
+            for (std::size_t index = 0;
+                 index < collision_response_.size();
+                 ++index) {
+                const std::int32_t quotient = collision_response_[index]
+                    / control_blocked_velocity_decay_divisor_;
+                collision_response_[index] -= static_cast<std::int32_t>(
+                    (static_cast<std::int64_t>(quotient) * frame_scale_q8) / 0x100);
+            }
+        }
+    }
     [[nodiscard]] std::int32_t ground_motion_cooldown() const noexcept {
         return ground_motion_cooldown_;
     }
@@ -561,6 +596,12 @@ public:
     void apply_collision_transient_exit_orientation(
         const FixedPosition& collision_normal) noexcept;
 
+    // Completes the special accepted-air-contact handoff used by the
+    // collision class that enters FUN_00497960 after the ordinary landing
+    // request.  Retail reorients the basis, resets the response onto the
+    // former up axis, and re-enters raw state 1 with reason 0x715.
+    void complete_air_landing_ground_handoff() noexcept;
+
     [[nodiscard]] CollisionResponseResult apply_collision_response(
         const FixedPosition& surface_delta,
         std::int32_t bias_q12 = 0xcd);
@@ -678,6 +719,8 @@ private:
     std::int32_t turn_mirror_{};
     bool ground_turn_wide_profile_{};
     bool ground_turn_policy_changed_{};
+    bool control_blocked_{};
+    std::int32_t control_blocked_velocity_decay_divisor_{};
     std::uint16_t animation_state_{};
     std::int16_t animation_frame_{};
     std::int32_t field_2cdc_{};

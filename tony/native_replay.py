@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from typing import Any
 from .common import resolve
 from .recording import load_recording, validate_recording
 
-NATIVE_REPLAY_WIRE_VERSION = 8
+NATIVE_REPLAY_WIRE_VERSION = 9
 
 
 def _signed(value: int, bits: int) -> int:
@@ -135,6 +136,11 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     ground_surface_recovery_delta_q11 = (
         _signed(int(delta_raw), 32) if isinstance(delta_raw, int) else 0
     )
+    raw = frame.get("raw")
+    raw_after = raw.get("player_after") if isinstance(raw, dict) else None
+    velocity_decay_divisor = 0
+    if isinstance(raw_after, (bytes, bytearray)) and len(raw_after) >= 0x2C14:
+        velocity_decay_divisor = struct.unpack_from("<i", raw_after, 0x2C10)[0]
     random_by_purpose: dict[str, int] = {}
     events = frame.get("events", [])
     if isinstance(events, list):
@@ -525,6 +531,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             *state_two_motion_values,
             *surface_response_values,
             *normal_recovery_values,
+            velocity_decay_divisor,
         )
     )
 
@@ -636,7 +643,7 @@ def replay_native(args) -> int:
 
     header = recording.header
     initial_state = recording.initial_state
-    frames = recording.frame_dicts()
+    frames = recording.frame_dicts(include_raw=True)
     if not initial_state:
         raise SystemExit("native replay requires exactly one initial_state record")
     trg, psx, asset_root = _level_paths(args, header)

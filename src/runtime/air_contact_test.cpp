@@ -9,7 +9,7 @@ int main() {
     const opentony::runtime::PositionCollisionHit ordinary{
         1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0, 0};
     CHECK(opentony::runtime::accepts_standard_air_contact(
-        ordinary, 1, false, 0, 1, {false, 0}));
+        ordinary, 1, false, 0, 100, {false, 0}));
 
     const opentony::runtime::PositionCollisionHit rejected{
         1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0,
@@ -22,9 +22,9 @@ int main() {
     const opentony::runtime::PositionCollisionHit wall_like{
         1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0x80, 0,
         0x00400000U};
-    CHECK(!opentony::runtime::accepts_standard_air_contact(
-        wall_like, 1, true, 0, 100, {false, 0}));
     CHECK(opentony::runtime::accepts_standard_air_contact(
+        wall_like, 1, true, 0, 100, {false, 0}));
+    CHECK(!opentony::runtime::accepts_standard_air_contact(
         wall_like, 1, true, 0, 100, {true, 0}));
 
     opentony::runtime::PlayerState player({0, 100, 0});
@@ -41,7 +41,8 @@ int main() {
         -> std::optional<opentony::runtime::PositionCollisionHit> {
         if (start[1] > 0 && end[1] <= 0) {
             return opentony::runtime::PositionCollisionHit{
-                1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0, 0};
+                1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0,
+                0x01000000U};
         }
         return std::nullopt;
     };

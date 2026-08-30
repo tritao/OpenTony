@@ -11,6 +11,8 @@ StandardAirContactDisposition classify_standard_air_contact(
     std::uint32_t jump_inactive_counter,
     std::int32_t current_frame,
     StandardAirContactInput input) noexcept {
+    (void)jump_held;
+    (void)jump_inactive_counter;
     // These are the exact source expressions from FUN_0048ea80. Recompute
     // them from the packed face fields so synthetic/native hit producers do
     // not need to manufacture a second copy of the decoded globals.
@@ -27,14 +29,20 @@ StandardAirContactDisposition classify_standard_air_contact(
     const std::int64_t surface_age =
         static_cast<std::int64_t>(current_frame)
         - static_cast<std::int64_t>(input.last_surface_frame);
-    const bool landing_gate =
-        (material_flags_transient != 0
-            && (material_flags == 0 || material_flags_contact == 0))
-        || material_flags_secondary == 0
+    // FUN_00497f40 rejects the hit at each of these branches.  The previous
+    // native implementation accidentally treated the reject conditions as
+    // an acceptance gate, which made a non-material air contact land in the
+    // native replay even though retail retained the in-air state.  Keep the
+    // branch polarity explicit: every condition below is required to survive
+    // the retail rejection path.
+    if (material_flags_transient != 0
+        && material_flags != 0
+        && material_flags_contact == 0) {
+        return StandardAirContactDisposition::None;
+    }
+    if (material_flags_secondary == 0
         || input.prephysics_blocked
-        || (!jump_held && jump_inactive_counter > 0x13U)
-        || surface_age < 0x29;
-    if (!landing_gate) {
+        || surface_age <= 0x28) {
         return StandardAirContactDisposition::None;
     }
     if (material_flags_transient == 0

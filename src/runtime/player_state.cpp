@@ -871,6 +871,57 @@ void PlayerState::apply_collision_transient_exit_orientation(
     publish_basis();
 }
 
+void PlayerState::complete_air_landing_ground_handoff() noexcept {
+    // FUN_004991fe has already requested raw state 0 and FUN_00491780 has
+    // published the landing basis.  This final FUN_00497960 handoff runs
+    // after the outer +58 -> +4c response integration, so its response write
+    // is authoritative for the completed frame.
+    const FixedPosition previous_forward = retail_basis_.at_30f4;
+    const FixedPosition previous_up = retail_basis_.at_310c;
+    air_motion_ = previous_forward;
+    retail_basis_.at_30f4 = FixedPosition{
+        -previous_up[0],
+        -previous_up[1],
+        -previous_up[2],
+    };
+    retail_basis_.at_310c = previous_forward;
+
+    // FUN_00497960 scales the former up axis by ten for the lateral response
+    // and explicitly clears its Y component before returning to state 1.
+    collision_response_ = FixedPosition{
+        previous_up[0] * 10,
+        0,
+        previous_up[2] * 10,
+    };
+
+    const auto publish_basis = [this]() noexcept {
+        orientation_.at(0, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[0]);
+        orientation_.at(1, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[1]);
+        orientation_.at(2, 0) = static_cast<std::int16_t>(
+            retail_basis_.at_3100[2]);
+        orientation_.at(0, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[0]);
+        orientation_.at(1, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[1]);
+        orientation_.at(2, 1) = static_cast<std::int16_t>(
+            retail_basis_.at_310c[2]);
+        orientation_.at(0, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[0]);
+        orientation_.at(1, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[1]);
+        orientation_.at(2, 2) = static_cast<std::int16_t>(
+            retail_basis_.at_30f4[2]);
+    };
+    publish_basis();
+    // FUN_004904d0's control-blocked reset leaves +0x2f64 asserted until
+    // the landing animation/service clears the window.  It gates the
+    // grounded collision tail and is consumed by the outer reset below.
+    control_blocked_ = true;
+    request_physics_state(1, 0x715);
+}
+
 CollisionResponseResult PlayerState::apply_collision_response(
     const FixedPosition& surface_delta,
     std::int32_t bias_q12) {

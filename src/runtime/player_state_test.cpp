@@ -157,6 +157,17 @@ int main() {
     ground_player.prepare_ground_basis_correction(true, 0x280);
     CHECK(ground_player.motion_correction()[2] == -20);
 
+    opentony::runtime::PlayerState blocked_player;
+    blocked_player.set_control_blocked(true);
+    blocked_player.set_collision_response({100, -30, 50});
+    blocked_player.set_motion_correction({1, 2, 3});
+    blocked_player.set_control_blocked_velocity_decay_divisor(4);
+    blocked_player.apply_control_blocked_reset();
+    CHECK(blocked_player.collision_response()
+        == opentony::runtime::FixedPosition({75, 0, 38}));
+    CHECK(blocked_player.motion_correction()
+        == opentony::runtime::FixedPosition({0, 2, 0}));
+
     opentony::runtime::PlayerState integrated;
     integrated.set_collision_response({100, 200, 300});
     integrated.set_motion_correction({0x1000, 0, 0});

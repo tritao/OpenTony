@@ -34,6 +34,16 @@ _INPUT_INJECTION_ADDRESS = 0x00469DE0
 # update.  ``physics_dispatch`` is an inner state switch and can be entered
 # more than once without advancing the recording frame.
 _PHYSICS_FRAME_ADDRESS = 0x0049E680
+# Animation objects are advanced before the physics wrapper.  The retail
+# animation step consumes the global scale published by the previous level
+# loop; replaying a fast in-process capture under GDB otherwise lets debugger
+# wall time change that scale before the next player's cursor update.
+_ANIMATION_DISPATCH_ADDRESS = 0x00480FA0
+_ANIMATION_CLOCK_ADDRESS = 0x005685F4
+_ANIMATION_SCALE_ADDRESS = 0x0056865C
+_ANIMATION_SCALE_SQUARE_ADDRESS = 0x00568804
+_ANIMATION_CLOCK_ACCUMULATOR_ADDRESS = 0x00568810
+_TIMING_DELTA_ADDRESS = 0x0056A93C
 # The physics wrapper reads simulation time at this instruction.  The replay
 # timer service supplies the causal deliveries before this load.
 _SIMULATION_TIME_LOAD_ADDRESS = 0x0049F1A0
@@ -182,6 +192,7 @@ class RetailReplay:
         self.action_breakpoint: RetailReplayActionBuildBreakpoint | None = None
         self.action_update_breakpoint = RetailReplayActionUpdateBreakpoint(self)
         self.entry_breakpoint = RetailReplayFrameEntryBreakpoint(self)
+        self.animation_breakpoint = RetailReplayAnimationBreakpoint(self)
         self.timer_clock_read_breakpoint = RetailReplayTimerClockReadBreakpoint(self)
         self.timer_frame_entry_breakpoint = RetailReplayTimerFrameEntryBreakpoint(self)
         self.timer_producer_read_breakpoint = RetailReplayTimerProducerReadBreakpoint(self)
@@ -273,6 +284,37 @@ class RetailReplay:
         self.timer_service.publish(mem)
         self.active = True
         self.action_breakpoint = RetailReplayActionBuildBreakpoint(self)
+
+    def publish_animation_timing(self) -> None:
+        """Publish the recorded animation producer state before object update.
+
+        ``Animation_Advance`` runs before ``Skater_PhysicsFrame`` and consumes
+        the previous level-loop's global scale.  The in-process recorder can
+        complete that loop in a few milliseconds, while a GDB replay pauses
+        between every boundary; letting the live producer run here changes a
+        player's fractional animation frame before the first comparison.  The
+        raw words are already part of each recording snapshot, so publishing
+        them at the proven animation boundary preserves the captured causal
+        state without writing player fields directly.
+        """
+
+        if self._stopped or self.index >= len(self.frames):
+            return
+        timing = self.frames[self.index].get("before", {}).get("timing", {})
+        if not isinstance(timing, dict):
+            return
+        addresses = {
+            "animation_clock": _ANIMATION_CLOCK_ADDRESS,
+            "animation_time_scale": _ANIMATION_SCALE_ADDRESS,
+            "animation_time_scale_square": _ANIMATION_SCALE_SQUARE_ADDRESS,
+            "animation_clock_accumulator": _ANIMATION_CLOCK_ACCUMULATOR_ADDRESS,
+            "timing_delta_q11": _TIMING_DELTA_ADDRESS,
+        }
+        for name, address in addresses.items():
+            value = timing.get(name)
+            raw = value.get("raw") if isinstance(value, dict) else None
+            if isinstance(raw, int):
+                mem.write_u32(address, raw)
 
     def frame_entry(self, ctx: Context) -> None:
         if self._stopped:
@@ -493,6 +535,21 @@ class RetailReplayFrameEntryBreakpoint(TonyBreakpoint):
 
     def on_hit(self, ctx: Context) -> None:
         self.replay.frame_entry(ctx)
+
+
+class RetailReplayAnimationBreakpoint(TonyBreakpoint):
+    """Restore the captured global animation timing before cursor advance."""
+
+    def __init__(self, replay: RetailReplay):
+        self.replay = replay
+        super().__init__(_ANIMATION_DISPATCH_ADDRESS, internal=True)
+
+    def on_hit(self, ctx: Context) -> None:
+        if self.replay._stopped or not self.replay.active:
+            return
+        player = mem.u32(GLOBALS["Player"])
+        if mem.valid(player) and ctx.this_ptr() == player:
+            self.replay.publish_animation_timing()
 
 
 class RetailReplayTimerClockReadBreakpoint(TonyBreakpoint):
