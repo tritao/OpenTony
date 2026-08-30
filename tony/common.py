@@ -108,7 +108,9 @@ def headless_wine_command(command: Sequence[str | Path]) -> list[str | Path]:
         "-c",
         (
             'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
-            'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -i && '
+            'if [ ! -f "$WINEPREFIX/system.reg" ]; then '
+            'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -i; '
+            'fi && '
             'wine reg add "HKCU\\Software\\Wine\\Direct3D" /v renderer /d gl /f >/dev/null 2>&1 && '
             'mkdir -p "$WINEPREFIX/dosdevices" && '
             'if [ -L "$WINEPREFIX/dosdevices/d:" ] && '

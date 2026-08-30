@@ -195,5 +195,6 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
 def test_headless_wine_command_initializes_empty_prefixes():
     command = common.headless_wine_command(["winedbg", "--gdb"])
 
+    assert 'if [ ! -f "$WINEPREFIX/system.reg" ]; then' in command[2]
     assert "wineboot -i" in command[2]
     assert "wineboot -u" not in command[2]
