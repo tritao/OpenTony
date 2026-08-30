@@ -354,7 +354,7 @@ def scenario_capture(args) -> int:
             raise SystemExit("\n".join(errors))
     output = resolve(args.output) if getattr(args, "output", None) else scenario_recording_path(scenario)
     output.parent.mkdir(parents=True, exist_ok=True)
-    backend = getattr(args, "backend", "gdb")
+    backend = getattr(args, "backend", "inproc")
     if backend == "inproc":
         from .capture import run_inproc_capture
 
@@ -366,6 +366,7 @@ def scenario_capture(args) -> int:
             host=getattr(args, "capture_host", None),
             dll=getattr(args, "capture_dll", None),
             wine_prefix=getattr(args, "headless_prefix", None),
+            keep_raw_capture=bool(getattr(args, "keep_raw_capture", False)),
         )
         if code or not _validated_scenario_recording(scenario, output):
             return code or 1

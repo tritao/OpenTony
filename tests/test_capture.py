@@ -27,9 +27,11 @@ from tony.capture import (
     _headless_capture_command,
     compare_recordings,
     convert_capture,
+    convert_capture_legacy_jsonl,
     decode_capture,
 )
 from tony.cli import build_parser
+from tony.recording import load_recording
 
 BUILD_SHA = bytes.fromhex("f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c")
 
@@ -254,12 +256,27 @@ def test_capture_decoder_rejects_complete_but_short_bounded_run(tmp_path):
         decode_capture(source)
 
 
-def test_capture_conversion_keeps_otrec_contract(tmp_path):
+def test_capture_conversion_promotes_canonical_otrec2(tmp_path):
     source = tmp_path / "capture.otcap"
     output = tmp_path / "recording.otrec"
     _capture(source)
 
     summary = convert_capture(source, output)
+
+    assert summary["frames"] == 1
+    assert summary["format"] == "opentony-retail-recording-v2"
+    assert output.read_bytes()[:8] == b"OTREC2\0\0"
+    recording = load_recording(output)
+    assert recording.source_format == "otrec2"
+    assert len(recording.frames) == 1
+
+
+def test_legacy_capture_conversion_is_explicit(tmp_path):
+    source = tmp_path / "capture.otcap"
+    output = tmp_path / "recording.jsonl"
+    _capture(source)
+
+    summary = convert_capture_legacy_jsonl(source, output)
 
     assert summary["frames"] == 1
     records = [json.loads(line) for line in output.read_text().splitlines()]
@@ -460,14 +477,19 @@ def test_qualification_comparator_allows_one_timer_interval_start_skew(tmp_path)
     assert result["equal"]
 
 
-def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
+def test_capture_backend_parser_defaults_to_inproc_and_exposes_gdb():
     default = build_parser().parse_args(["scenario", "capture", "warehouse-idle"])
-    inproc = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "inproc"])
+    gdb = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "gdb"])
 
-    assert default.backend == "gdb"
+    assert default.backend == "inproc"
     assert not default.no_forensics
     assert default.frames is None
-    assert inproc.backend == "inproc"
+    assert gdb.backend == "gdb"
+    assert default.keep_raw_capture is False
+    keep_raw = build_parser().parse_args(
+        ["scenario", "capture", "warehouse-idle", "--keep-raw-capture"]
+    )
+    assert keep_raw.keep_raw_capture is True
 
 
 def test_capture_qualification_parser_requires_two_recordings():

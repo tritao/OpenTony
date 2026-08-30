@@ -447,14 +447,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--backend",
         choices=("gdb", "inproc", "hybrid"),
-        default="gdb",
-        help="capture backend (inproc uses the standalone Win32 recorder)",
+        default="inproc",
+        help="capture backend (inproc is the canonical default; gdb is diagnostic)",
     )
     p.add_argument("--capture-host", help="path to opentony_capture_host.exe for --backend inproc")
     p.add_argument("--capture-dll", help="path to opentony_capture.dll for --backend inproc")
     p.add_argument(
+        "--keep-raw-capture",
+        action="store_true",
+        help="retain the bounded .otcap transport beside a successful in-process capture",
+    )
+    p.add_argument(
         "--headless-prefix",
-        help="optional isolated Wine prefix for in-process capture qualification",
+        help="optional isolated Wine prefix for in-process capture",
     )
     p.add_argument("--session", help="named debug session")
     p.add_argument("--port", type=int)

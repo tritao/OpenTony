@@ -1,11 +1,15 @@
 # In-process capture (Windows)
 
-The normal scenario recorder remains GDB-owned.  The first migration slice is
-available explicitly with `--backend inproc`:
+The normal scenario recorder is the standalone in-process component.  GDB
+remains available explicitly with `--backend gdb` for diagnostics, and
+`--backend hybrid` remains the same-run qualification mode:
 
 ```text
-tony scenario capture warehouse-idle --backend inproc
+tony scenario capture warehouse-idle
 ```
+
+The explicit equivalent is `--backend inproc`; use `--backend gdb` only for
+diagnostics or `--backend hybrid` for same-run qualification.
 
 Build the standalone 32-bit Windows component from a Windows CMake generator
 (the Linux/native CMake project does not include these targets):
@@ -22,12 +26,13 @@ src/capture/win32/capture_hooks_generated.h` after changing a seam.
 
 The host creates a bounded 64 MiB named mapping, launches the selected retail
 executable suspended, injects `opentony_capture.dll`, and saves the mapping as
-`retail.otcap`.  The host never drops records: a frame-limit or mapping
-overflow is a failed capture.  The current v3 wire layout reserves 32 timer
-samples and 32 causal events per frame.  Python validates it and promotes it
-to canonical binary OTREC2 `retail.otrec`; version-1 and version-2 `.otcap`
-files remain readable, and the `.otcap` remains available as bounded raw
-transport evidence.
+temporary `retail.otcap` transport.  The host never drops records: a
+frame-limit or mapping overflow is a failed capture.  The current v3 wire
+layout reserves 32 timer samples and 32 causal events per frame.  Python
+validates it and promotes it to canonical binary OTREC2 `retail.otrec`;
+version-1 and version-2 `.otcap` files remain readable.  Successful normal
+captures remove the temporary transport; pass `--keep-raw-capture` to retain
+it for inspection.  Failed captures retain their raw transport automatically.
 
 Legacy GDB `.otrec` files remain readable during migration.  Use
 `tony record export-json recording.otrec --output recording.jsonl` (or

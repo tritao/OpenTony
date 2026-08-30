@@ -621,21 +621,13 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
     }
 
 
-def convert_capture(
+def convert_capture_legacy_jsonl(
     source: str | Path,
     output: str | Path,
     *,
     force: bool = False,
-    binary: bool = False,
 ) -> dict[str, Any]:
-    """Convert a complete ``.otcap`` into an OTREC recording.
-
-    ``binary=False`` is retained for the migration's legacy JSONL fixtures;
-    callers producing canonical artifacts should pass ``binary=True``.
-    """
-
-    if binary:
-        return convert_capture_binary(source, output, force=force)
+    """Write the historical JSONL view for an explicitly legacy caller."""
 
     capture = decode_capture(source)
     target = resolve(output)
@@ -693,12 +685,7 @@ def convert_capture(
 
 
 def convert_capture_binary(source: str | Path, output: str | Path, *, force: bool = False) -> dict[str, Any]:
-    """Convert a bounded capture to canonical binary OTREC2.
-
-    ``convert_capture`` remains the compatibility JSONL conversion entrypoint
-    while existing GDB fixtures migrate.  New in-process callers can use this
-    function immediately; it shares the exact same decoder and model.
-    """
+    """Convert a bounded capture to canonical binary OTREC2."""
 
     from .recording import recording_from_capture, write_recording
 
@@ -719,6 +706,17 @@ def convert_capture_binary(source: str | Path, output: str | Path, *, force: boo
         return write_recording(recording, target, force=force)
     except ValueError as exc:
         raise CaptureDecodeError(str(exc)) from exc
+
+
+def convert_capture(
+    source: str | Path,
+    output: str | Path,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Convert a bounded capture to the canonical binary OTREC2 artifact."""
+
+    return convert_capture_binary(source, output, force=force)
 
 
 def _recording_records(path: str | Path) -> list[dict[str, Any]]:
@@ -1131,6 +1129,7 @@ def run_inproc_capture(
     host: str | Path | None = None,
     dll: str | Path | None = None,
     wine_prefix: str | Path | None = None,
+    keep_raw_capture: bool = False,
 ) -> int:
     """Run the Windows host/injected recorder and convert its bounded output."""
 
@@ -1199,13 +1198,20 @@ def run_inproc_capture(
         return result_code
     try:
         # In-process captures are promoted directly to canonical OTREC2.  The
-        # fixed .otcap remains available beside it as bounded transport/debug
-        # evidence; replay and qualification consume the promoted recording.
-        summary = convert_capture_binary(capture_path, target, force=force)
+        # fixed .otcap is retained only when explicitly requested as bounded
+        # transport/debug evidence; replay consumes the promoted recording.
+        summary = convert_capture(capture_path, target, force=force)
     except CaptureDecodeError as exc:
         print(str(exc))
         return 1
-    print(f"capture: {summary['path']} ({summary['frames']} frames, converted from {capture_path})")
+    if not keep_raw_capture:
+        try:
+            capture_path.unlink()
+        except OSError as exc:
+            print(f"capture converted but could not remove raw transport {capture_path}: {exc}")
+            return 1
+    raw_status = "raw transport retained" if keep_raw_capture else "raw transport removed"
+    print(f"capture: {summary['path']} ({summary['frames']} frames; {raw_status})")
     return 0
 
 
@@ -1426,7 +1432,7 @@ def run_hybrid_capture(
         gate.unlink(missing_ok=True)
 
     try:
-        summary = convert_capture_binary(capture_path, target, force=force)
+        summary = convert_capture(capture_path, target, force=force)
         result = compare_recordings(gdb_path, target, scope="qualification")
     except (CaptureDecodeError, OSError) as exc:
         print(str(exc))

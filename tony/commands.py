@@ -24,7 +24,7 @@ from .capture import (
     CaptureDecodeError,
     compare_recordings,
     convert_capture,
-    convert_capture_binary,
+    convert_capture_legacy_jsonl,
 )
 from .common import capture, load_yaml, resolve, sha256
 from .debug import debug_game as _debug_game
@@ -134,7 +134,11 @@ def capture_decode(args) -> int:
     """Decode one bounded .otcap file into an .otrec recording."""
 
     try:
-        converter = convert_capture_binary if getattr(args, "binary", False) else convert_capture
+        converter = (
+            convert_capture
+            if getattr(args, "binary", False)
+            else convert_capture_legacy_jsonl
+        )
         summary = converter(args.path, args.output, force=bool(getattr(args, "force", False)))
     except CaptureDecodeError as exc:
         raise SystemExit(str(exc)) from exc

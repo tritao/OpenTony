@@ -122,6 +122,7 @@ def test_scenario_capture_uses_batch_level_debugger(monkeypatch, tmp_path):
         name="warehouse-idle",
         output=str(tmp_path / "idle.otrec"),
         force=False,
+        backend="gdb",
         session="scenario-test",
         port=31340,
         unmute=True,
