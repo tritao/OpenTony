@@ -5,7 +5,12 @@ frames: 256
 input: []
 
 forensics:
-  - all
+  # Native replay consumes only the shared random service and its qualified
+  # call-site draws for this idle qualification. Keep the broader families
+  # available for diagnosis, but do not make them part of the canonical
+  # recording path.
+  - service
+  - rng
 
 expect:
   retail: match

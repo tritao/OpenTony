@@ -30,6 +30,13 @@ def test_initial_scenario_manifests_are_valid_and_intent_only():
         assert scenario["expect"]["retail"] == "match"
 
 
+def test_idle_manifest_declares_only_qualified_causal_forensics():
+    scenario = load_scenario("warehouse-idle")
+
+    assert scenario["forensics"] == ["service", "rng"]
+    assert "all" not in scenario["forensics"]
+
+
 def test_scenario_parser_exposes_all_phase_one_commands():
     for command in ("list", "capture", "retail", "native", "verify"):
         operands = [] if command == "list" else ["warehouse-idle"]

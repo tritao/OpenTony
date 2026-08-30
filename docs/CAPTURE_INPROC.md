@@ -114,3 +114,10 @@ under the benchmark output root; `--warm-prefix` deliberately reuses one per
 backend.
 The default `tony capture compare` scope remains an exact comparison that
 includes all event arrays.
+
+`warehouse-idle` is the first fixture whose manifest names only its qualified
+causal evidence (`service` and `rng`); the other forensic families remain
+available for diagnosis. This narrows the oracle's capture payload without
+claiming that debugger timing is equivalent to the in-process run. Backend
+wall time must still be measured separately: short runs can be dominated by
+Wine/Xvfb startup, while longer runs expose the actual per-frame slope.
