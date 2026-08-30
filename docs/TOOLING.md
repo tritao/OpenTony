@@ -42,10 +42,11 @@ New `tony debug` launches are isolated in Xvfb by default; use `tony debug --pid
 Debug sessions are muted by default: `tony debug` routes game audio to a temporary
 PulseAudio null sink and removes it when the session ends. Sink ownership is stored
 in the session metadata so `tony sessions stop` and `tony sessions clean` can retry
-cleanup after an interrupted debugger. Use `tony debug --unmute` when audio is
-needed. If `pactl` is unavailable, the session continues without the forced mute.
-This applies to debugger-launched games; attaching with `--pid` does not change
-audio for an already-running game.
+cleanup after an interrupted debugger. For `--pid` attaches, OpenTony moves only
+the target THPS2 process's existing PulseAudio streams and restores their original
+sinks when the debugger exits. Use `tony debug --unmute` when audio is needed.
+If the requested mute cannot be installed, the debug launch fails closed instead
+of silently starting an audible session.
 
 Debug session metadata and disposable Wine prefixes are shared across Git
 worktrees. A normally stopped debugger removes its isolated Wine prefix while

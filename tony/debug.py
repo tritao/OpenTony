@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .audio import start_muted_audio
+from .audio import move_process_audio_to_sink, start_muted_audio
 from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .gdb_knowledge import generate as generate_gdb_knowledge
@@ -157,6 +157,40 @@ def _find_game_pid(env: dict[str, str]) -> int:
     return matches[0]
 
 
+def _find_game_linux_pid(env: dict[str, str], proc_root: Path = Path("/proc")) -> int:
+    """Find the Linux Wine-preloader PID for the one attached THPS2 game."""
+
+    prefix = env.get("WINEPREFIX")
+    expected_prefix = str(Path(prefix).resolve()) if prefix else None
+    matches: list[int] = []
+    try:
+        processes = list(proc_root.iterdir())
+    except OSError as exc:
+        raise SystemExit(f"could not inspect Wine processes for audio mute: {exc}") from exc
+    for process in processes:
+        if not process.name.isdigit():
+            continue
+        try:
+            environment = (process / "environ").read_bytes().split(b"\0")
+            if expected_prefix is not None and f"WINEPREFIX={expected_prefix}".encode() not in environment:
+                continue
+            command_line = (process / "cmdline").read_bytes().replace(b"\0", b" ").decode(
+                errors="replace"
+            )
+            state = (process / "stat").read_text(encoding="ascii").rsplit(") ", 1)[1][0]
+        except (FileNotFoundError, OSError, IndexError, UnicodeError):
+            continue
+        if state == "Z" or "thawk2.nocd.exe" not in command_line.casefold():
+            continue
+        matches.append(int(process.name))
+    if len(matches) != 1:
+        if not matches:
+            raise SystemExit("could not find the attached THawk2 Linux process for audio mute")
+        joined = ", ".join(str(pid) for pid in sorted(matches))
+        raise SystemExit(f"multiple attached THawk2 Linux processes found ({joined}); audio mute is ambiguous")
+    return matches[0]
+
+
 def _wait_port(port: int, timeout: float = 45.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -253,29 +287,65 @@ def debug_game(args) -> int:
         env = headless_wine_env(session.prefix) if headless_launch else wine_env()
         env["TONY_SESSION_ID"] = session.session_id
         env["TONY_SESSION_DIR"] = str(session.path)
-        if pid_arg is None and not getattr(args, "unmute", False) and cfg.get("debug_mute_audio", True):
-            audio_start = start_muted_audio(env, session.session_id)
-            if audio_start.route is not None:
-                session.update(
-                    audio_muted=True,
-                    audio_backend="pulse-null-sink",
-                    audio_pactl=audio_start.route.pactl,
-                    audio_module_id=audio_start.route.module_id,
-                    audio_sink=audio_start.route.sink_name,
-                    audio_pulse_server=audio_start.route.pulse_server,
-                    audio_error=None,
-                )
-            else:
-                session.update(audio_muted=False, audio_error=audio_start.error)
         if pid_arg is None and not headless_launch and getattr(args, "virtual_desktop", False):
             _configure_virtual_desktop(env, cfg)
+        mute_audio = not getattr(args, "unmute", False) and cfg.get("debug_mute_audio", True)
+        attached_linux_pid = None
         if pid_arg is not None:
             target = [str(_find_game_pid(env) if pid_arg == "auto" else pid_arg)]
+            if mute_audio:
+                attached_linux_pid = _find_game_linux_pid(env)
             cwd = ROOT
         else:
             exe = nocd_executable()
             target = [str(exe), *args.game_args]
             cwd = exe.parent
+        if mute_audio:
+            audio_start = start_muted_audio(env, session.session_id)
+            if audio_start.route is None:
+                session.update(audio_muted=False, audio_error=audio_start.error)
+                raise SystemExit(
+                    f"could not mute debug session audio: {audio_start.error}; "
+                    "use --unmute to continue with audio enabled"
+                )
+            route = audio_start.route
+            moved_inputs = ()
+            # Publish ownership before touching an attached process.  If the
+            # launcher is interrupted during stream migration, the normal
+            # finally/``sessions clean`` path can still unload this sink.
+            session.update(
+                audio_muted=True,
+                audio_backend="pulse-null-sink",
+                audio_pactl=route.pactl,
+                audio_module_id=route.module_id,
+                audio_sink=route.sink_name,
+                audio_pulse_server=route.pulse_server,
+                audio_moved_inputs=[],
+                audio_error=None,
+            )
+            if attached_linux_pid is not None:
+                moved_inputs, move_error = move_process_audio_to_sink(
+                    route, attached_linux_pid
+                )
+                if move_error is not None:
+                    session.update(
+                        audio_muted=False,
+                        audio_error=move_error,
+                        audio_pactl=route.pactl,
+                        audio_module_id=route.module_id,
+                        audio_sink=route.sink_name,
+                        audio_pulse_server=route.pulse_server,
+                    )
+                    raise SystemExit(
+                        f"could not mute attached game audio: {move_error}; "
+                        "use --unmute to leave it unchanged"
+                    )
+                session.update(
+                    audio_moved_inputs=[
+                        {"input_id": input_id, "original_sink": original_sink}
+                        for input_id, original_sink in moved_inputs
+                    ]
+                )
         proxy_command = ["winedbg", "--gdb", "--no-start", "--port", str(port), *target]
         if headless_launch:
             proxy_command = headless_wine_command(proxy_command)

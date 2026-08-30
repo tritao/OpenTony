@@ -109,6 +109,90 @@ def test_cleanup_muted_audio_rejects_reused_module_id(monkeypatch):
     assert calls == [["/usr/bin/pactl", "list", "short", "modules"]]
 
 
+def test_move_process_audio_to_sink_targets_only_matching_process(monkeypatch):
+    calls = []
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/pactl")
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[1:] == ["list", "sink-inputs"]:
+            return _winedbg_result(
+                """Sink Input #41
+\tSink: 1
+\tProperties:
+\t\tapplication.process.id = \"1234\"
+Sink Input #42
+\tSink: 2
+\tProperties:
+\t\tapplication.process.id = \"5678\"
+"""
+            )
+        return _winedbg_result("")
+
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    route = audio.MutedAudio("/usr/bin/pactl", "271", "opentony_debug_attached", None)
+
+    moved, error = audio.move_process_audio_to_sink(route, 1234)
+
+    assert error is None
+    assert moved == (("41", "1"),)
+    assert calls == [
+        ["/usr/bin/pactl", "list", "sink-inputs"],
+        ["/usr/bin/pactl", "move-sink-input", "41", "opentony_debug_attached"],
+    ]
+
+
+def test_cleanup_muted_audio_restores_owned_stream_before_unloading_sink(monkeypatch):
+    calls = []
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/pactl")
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[1:] == ["list", "sink-inputs"]:
+            return _winedbg_result(
+                """Sink Input #41
+\tSink: opentony_debug_attached
+\tProperties:
+\t\tapplication.process.id = \"1234\"
+"""
+            )
+        if command[1:4] == ["list", "short", "modules"]:
+            return _winedbg_result(
+                "271\tmodule-null-sink\tsink_name=opentony_debug_attached\n"
+            )
+        return _winedbg_result("")
+
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    result = audio.cleanup_muted_audio(
+        {
+            "audio_pactl": "/usr/bin/pactl",
+            "audio_module_id": "271",
+            "audio_sink": "opentony_debug_attached",
+            "audio_moved_inputs": [{"input_id": "41", "original_sink": "1"}],
+        }
+    )
+
+    assert result.ok is True
+    assert calls == [
+        ["/usr/bin/pactl", "list", "sink-inputs"],
+        ["/usr/bin/pactl", "move-sink-input", "41", "1"],
+        ["/usr/bin/pactl", "list", "short", "modules"],
+        ["/usr/bin/pactl", "unload-module", "271"],
+    ]
+
+
+def test_find_game_linux_pid_matches_prefix_and_executable(monkeypatch, tmp_path: Path):
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    proc = tmp_path / "proc"
+    game = proc / "1234"
+    game.mkdir(parents=True)
+    (game / "environ").write_bytes(f"WINEPREFIX={prefix}\0".encode())
+    (game / "cmdline").write_bytes(b"wine-preloader\0Z:\\game\\THawk2.nocd.exe\0")
+    (game / "stat").write_text("1234 (wine-preloader) R 1 1 1", encoding="ascii")
+    assert debug._find_game_linux_pid({"WINEPREFIX": str(prefix)}, proc) == 1234
+
+
 def test_xvfb_command_uses_16_bit_software_profile(monkeypatch):
     monkeypatch.setattr(display.shutil, "which", lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None)
     env = {"WINEPREFIX": "/tmp/prefix"}

@@ -196,6 +196,7 @@ def cleanup_session_audio(session: DebugSession) -> bool:
             audio_module_id=None,
             audio_sink=None,
             audio_pulse_server=None,
+            audio_moved_inputs=None,
             audio_error=None if had_recorded_route else session.data.get("audio_error"),
             audio_cleanup_error=None,
         )
@@ -247,6 +248,7 @@ def create_session(session_id: str | None, requested_port: int | None, *, isolat
         "audio_module_id": None,
         "audio_sink": None,
         "audio_pulse_server": None,
+        "audio_moved_inputs": None,
         "audio_error": None,
         "audio_cleanup": None,
         "audio_cleanup_error": None,
