@@ -104,7 +104,11 @@ int ot_capture_append_frame(
         return 0;
     }
     record = (CaptureFrameRecord *)(buffer->mapping + header->data_offset) + slot;
-    ZeroMemory(record, sizeof(*record));
+    /* Each slot is append-only and comes from a newly-created pagefile
+     * mapping, so it is already zero-filled.  Do not clear the complete
+     * 28 KiB record here: the fixed payload fields below overwrite every
+     * value the decoder consumes, while the bounded count fields make the
+     * unused timer/event tails semantically irrelevant. */
     record->header.frame_index = frame_index;
     record->header.input_mask = input_mask;
     record->header.input_flags = input_flags;
@@ -112,6 +116,7 @@ int ot_capture_append_frame(
     record->header.before_size = OTCAP_PLAYER_BLOB_SIZE;
     record->header.after_size = OTCAP_PLAYER_BLOB_SIZE;
     record->header.timer_sample_count = timer_sample_count;
+    record->header.flags = 0;
     memcpy(record->player_before, before, OTCAP_PLAYER_BLOB_SIZE);
     memcpy(record->player_after, after, OTCAP_PLAYER_BLOB_SIZE);
     if (timing_before != 0) {
