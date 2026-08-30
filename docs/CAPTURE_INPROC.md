@@ -102,9 +102,10 @@ same-frame before/after snapshot and timer-boundary comparisons.  The
 qualification scope removes only asynchronous stop-time clock fields from
 player snapshots; it checks the global accumulated-counter start/end,
 interval, and delivery invariants after expanding callback batches.  A
-one-interval end skew is allowed because GDB stop-the-world observation can
-move one callback across the bounded run; recorder-specific phases and sampled
-clock values are ignored.  The benchmark reports per-run
+one-interval start or end skew is allowed because GDB stop-the-world
+observation can enter or leave the bounded run one callback apart;
+recorder-specific phases and sampled clock values are ignored.  The benchmark
+reports per-run
 and aggregate seconds for GDB, in-process, and optional hybrid backends.  Add
 `--no-forensics` when comparing recorder hot paths without the diagnostic GDB
 probe families; ordinary GDB scenario capture still includes them by default.

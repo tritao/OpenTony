@@ -426,6 +426,40 @@ def test_qualification_comparator_reports_timer_path_difference(tmp_path):
     assert result["difference"]["path"] == ["timer_boundary_summary", "end"]
 
 
+def test_qualification_comparator_allows_one_timer_interval_start_skew(tmp_path):
+    left = tmp_path / "gdb.otrec"
+    right = tmp_path / "inproc.otrec"
+
+    def frame(start):
+        return {
+            "type": "frame",
+            "frame": 0,
+            "input": {"action_mask": 0},
+            "before": {},
+            "after": {},
+            "events": [
+                {
+                    "type": "timer_boundary_sample",
+                    "timer_boundary_before": {
+                        "accumulated_ms": start,
+                        "interval_ms": 16,
+                    },
+                    "timer_boundary_after": {
+                        "accumulated_ms": start,
+                        "interval_ms": 16,
+                    },
+                }
+            ],
+        }
+
+    left.write_text(json.dumps(frame(480)) + "\n")
+    right.write_text(json.dumps(frame(496)) + "\n")
+
+    result = compare_recordings(left, right, scope="qualification")
+
+    assert result["equal"]
+
+
 def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
     default = build_parser().parse_args(["scenario", "capture", "warehouse-idle"])
     inproc = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "inproc"])

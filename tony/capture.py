@@ -929,7 +929,7 @@ def compare_recordings(
     if scope == "qualification":
         left_timer = _timer_boundary_summary(left_records)
         right_timer = _timer_boundary_summary(right_records)
-        for key in ("start", "interval"):
+        for key in ("interval",):
             difference = _first_difference(
                 left_timer[key],
                 right_timer[key],
@@ -943,6 +943,36 @@ def compare_recordings(
                     "frames": {"left": len(left_frames), "right": len(right_frames)},
                     "difference": {"path": list(path), "left": expected, "right": actual},
                 }
+        start_difference = None
+        if (
+            isinstance(left_timer["start"], int)
+            and isinstance(right_timer["start"], int)
+            and isinstance(left_timer["interval"], int)
+        ):
+            if abs(left_timer["start"] - right_timer["start"]) > left_timer["interval"]:
+                start_difference = (
+                    ("timer_boundary_summary", "start"),
+                    left_timer["start"],
+                    right_timer["start"],
+                )
+        else:
+            start_difference = _first_difference(
+                left_timer["start"],
+                right_timer["start"],
+                ("timer_boundary_summary", "start"),
+            )
+        if start_difference is not None:
+            path, expected, actual = start_difference
+            return {
+                "equal": False,
+                "scope": scope,
+                "frames": {"left": len(left_frames), "right": len(right_frames)},
+                "difference": {
+                    "path": list(path),
+                    "left": expected,
+                    "right": actual,
+                },
+            }
         if (
             isinstance(left_timer["end"], int)
             and isinstance(right_timer["end"], int)
