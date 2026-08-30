@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from fcntl import LOCK_EX, flock
 from pathlib import Path
 
+from .audio import cleanup_muted_audio, start_muted_audio
 from .common import ROOT, capture, headless_wine_command, headless_wine_env, load_yaml, resolve, wine_env
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process
 from .identity import recorded_executable
@@ -267,6 +268,12 @@ def run_game(args) -> int:
             raise SystemExit("visual capture requires --headless")
         return subprocess.run(command, cwd=exe.parent, env=env, check=False).returncode
 
+    audio_start = start_muted_audio(env, f"run_headless_{os.getpid()}")
+    if audio_start.route is None:
+        raise SystemExit(
+            f"could not mute headless game audio: {audio_start.error}"
+        )
+    audio_route = audio_start.route
     cfg = load_yaml("re/config/wine.yml")["wine"]
     display = HeadlessDisplay(cfg, env)
     process = None
@@ -282,3 +289,11 @@ def run_game(args) -> int:
         display.stop_recording()
         subprocess.run(["wineserver", "-k"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         display.close()
+        cleanup_muted_audio(
+            {
+                "audio_pactl": audio_route.pactl,
+                "audio_module_id": audio_route.module_id,
+                "audio_sink": audio_route.sink_name,
+                "audio_pulse_server": audio_route.pulse_server,
+            }
+        )

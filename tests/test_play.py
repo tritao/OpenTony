@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tony import commands, common, wine
+from tony import audio, commands, common, wine
 from tony.cli import parse_args
 
 
@@ -151,6 +151,18 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(wine, "headless_wine_command", lambda command: ["headless-wrapper", *command])
     monkeypatch.setattr(wine, "HeadlessDisplay", FakeDisplay)
     monkeypatch.setattr(wine, "configure_visual_capture", lambda display, args: calls.append("capture"))
+    route = audio.MutedAudio("/usr/bin/pactl", "271", "opentony_debug_run", None)
+
+    def start_muted(env, session_id):
+        env["PULSE_SINK"] = route.sink_name
+        return audio.AudioStart(route)
+
+    monkeypatch.setattr(wine, "start_muted_audio", start_muted)
+    monkeypatch.setattr(
+        wine,
+        "cleanup_muted_audio",
+        lambda data: calls.append(("cleanup-audio", data)) or audio.AudioCleanup(True, "removed"),
+    )
 
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"], headless=True))
 
@@ -164,7 +176,20 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
         str(executable),
         "--fullscreen",
     ]
-    assert calls[-2:] == ["stop-recording", "close"]
+    assert calls[-3:] == [
+        "stop-recording",
+        "close",
+        (
+            "cleanup-audio",
+            {
+                "audio_pactl": "/usr/bin/pactl",
+                "audio_module_id": "271",
+                "audio_sink": "opentony_debug_run",
+                "audio_pulse_server": None,
+            },
+        ),
+    ]
+    assert calls[0][2]["PULSE_SINK"] == "opentony_debug_run"
 
 
 def test_headless_wine_command_initializes_empty_prefixes():
