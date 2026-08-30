@@ -226,7 +226,7 @@ def load_recording(path: str | Path) -> Recording:
         prefix = source.read_bytes()[:8]
     except OSError as exc:
         raise ValueError(f"could not read recording {source}: {exc}") from exc
-    if prefix in {b"OTCAP\0\0\1", b"OTCAP\0\0\2"}:
+    if prefix in {b"OTCAP\0\0\1", b"OTCAP\0\0\2", b"OTCAP\0\0\3"}:
         from .capture import decode_capture  # local import avoids capture → recording cycle
 
         capture = decode_capture(source, include_raw=True)

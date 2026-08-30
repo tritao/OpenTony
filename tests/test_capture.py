@@ -13,11 +13,14 @@ from tony.capture import (
     ACTION_STRUCT,
     CONFIG_PREFIX_STRUCT,
     FRAME_STRUCT,
+    FRAME_STRUCT_V3,
     HEADER_STRUCT,
     INITIAL_STATE_STRUCT,
     OTCAP_MAGIC,
+    OTCAP_MAGIC_V3,
     OTCAP_MAX_ACTION_INTERVALS,
     OTCAP_MAX_CAUSAL_EVENTS,
+    OTCAP_LEGACY_MAX_CAUSAL_EVENTS,
     OTCAP_PLAYER_BLOB_SIZE,
     CaptureDecodeError,
     _capture_desktop_spec,
@@ -37,15 +40,22 @@ def _capture(
     frame_count: int = 1,
     timer_samples: dict[int, list[tuple[int, ...]]] | None = None,
     causal_events: dict[int, list[tuple[int, int, int, int, bytes]]] | None = None,
+    transport_version: int = 1,
 ) -> None:
+    frame_struct = FRAME_STRUCT_V3 if transport_version == 3 else FRAME_STRUCT
+    magic = OTCAP_MAGIC_V3 if transport_version == 3 else OTCAP_MAGIC
+    max_timer_samples = 32 if transport_version == 3 else 8
+    max_causal_events = (
+        OTCAP_MAX_CAUSAL_EVENTS if transport_version == 3 else OTCAP_LEGACY_MAX_CAUSAL_EVENTS
+    )
     config_offset = HEADER_STRUCT.size
     config_size = CONFIG_PREFIX_STRUCT.size + ACTION_STRUCT.size * OTCAP_MAX_ACTION_INTERVALS
     initial_offset = config_offset + config_size
     data_offset = (initial_offset + INITIAL_STATE_STRUCT.size + 4095) & ~4095
     frame_limit = max(1, frame_count)
     header = HEADER_STRUCT.pack(
-        OTCAP_MAGIC,
-        1,
+        magic,
+        transport_version,
         HEADER_STRUCT.size,
         config_offset,
         config_size,
@@ -53,7 +63,7 @@ def _capture(
         INITIAL_STATE_STRUCT.size,
         data_offset,
         64 * 1024 * 1024,
-        data_offset + frame_count * FRAME_STRUCT.size,
+        data_offset + frame_count * frame_struct.size,
         frame_count,
         frame_limit,
         3,
@@ -64,7 +74,7 @@ def _capture(
         42,
         BUILD_SHA,
     )
-    config = CONFIG_PREFIX_STRUCT.pack(1, config_size, frame_limit, 1, 12, 0, BUILD_SHA)
+    config = CONFIG_PREFIX_STRUCT.pack(transport_version, config_size, frame_limit, 1, 12, 0, BUILD_SHA)
     config += ACTION_STRUCT.pack(0x40, 20, 8) + b"\0" * (ACTION_STRUCT.size * (OTCAP_MAX_ACTION_INTERVALS - 1))
     initial = INITIAL_STATE_STRUCT.pack(INITIAL_STATE_STRUCT.size, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     frames = []
@@ -73,17 +83,17 @@ def _capture(
         struct.pack_into("<I", blob, 0x08, index)
         timing = (index, 0, 0, 0, 0, 0)
         frame_timers = (timer_samples or {}).get(index, [])
-        timers = [0] * 10 * 8
+        timers = [0] * 10 * max_timer_samples
         for timer_index, timer in enumerate(frame_timers):
             timers[timer_index * 10 : timer_index * 10 + 10] = timer
         frame_events = (causal_events or {}).get(index, [])
         event_fields = []
         for event in frame_events:
             event_fields.extend(event)
-        for _ in range(OTCAP_MAX_CAUSAL_EVENTS - len(frame_events)):
+        for _ in range(max_causal_events - len(frame_events)):
             event_fields.extend((0, 0, 0, 0, b"\0" * 64))
         frames.append(
-            FRAME_STRUCT.pack(
+            frame_struct.pack(
                 index,
                 0x40 if 20 <= index < 28 else 0,
                 0,
@@ -183,6 +193,22 @@ def test_capture_decoder_preserves_shared_random_causal_event(tmp_path):
         "state_after": None,
         "state_status": "not-established",
     }
+
+
+def test_capture_v3_accepts_widened_causal_event_budget(tmp_path):
+    source = tmp_path / "capture-v3.otcap"
+    payload = struct.pack("<3I", 0x0049E742, 1, 50) + b"\0" * 52
+    events = [(1, 1, 0, 12, payload)] * 17
+    _capture(source, causal_events={0: events}, transport_version=3)
+
+    decoded = decode_capture(source)
+
+    shared_random = [
+        event for event in decoded["frames"][0]["events"]
+        if event["type"] == "shared_random_call"
+    ]
+    assert len(shared_random) == 17
+    assert decoded["capture_layout_version"] == 3
 
 
 def test_capture_decoder_rejects_unknown_causal_event_type(tmp_path):

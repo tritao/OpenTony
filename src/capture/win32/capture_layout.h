@@ -22,7 +22,7 @@ typedef unsigned __int64 uint64_t;
 #endif
 
 #define OTCAP_MAGIC_SIZE 8u
-#define OTCAP_VERSION 2u
+#define OTCAP_VERSION 3u
 #define OTCAP_MAPPING_SIZE (64u * 1024u * 1024u)
 #define OTCAP_MAX_ACTION_INTERVALS 128u
 /*
@@ -32,7 +32,7 @@ typedef unsigned __int64 uint64_t;
  * The wire-layout revision is bumped when this fixed array changes.
  */
 #define OTCAP_MAX_TIMER_SAMPLES 32u
-#define OTCAP_MAX_CAUSAL_EVENTS 16u
+#define OTCAP_MAX_CAUSAL_EVENTS 32u
 #define OTCAP_PLAYER_BLOB_SIZE 0x3210u
 #define OTCAP_BUILD_SHA256_SIZE 32u
 #define OTCAP_MAPPING_ENV "OPENTONY_CAPTURE_MAPPING"
