@@ -440,6 +440,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--output", help="generated recording path; defaults under build/scenarios/")
     p.add_argument(
+        "--frames",
+        type=int,
+        help="override the manifest frame count (useful for capture benchmarks)",
+    )
+    p.add_argument(
         "--backend",
         choices=("gdb", "inproc", "hybrid"),
         default="gdb",

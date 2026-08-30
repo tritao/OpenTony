@@ -70,6 +70,14 @@ def test_scenario_capture_commands_can_omit_diagnostic_forensics():
     ]
 
 
+def test_scenario_capture_parser_accepts_benchmark_frame_override():
+    args = build_parser().parse_args(
+        ["scenario", "capture", "warehouse-idle", "--frames", "1024"]
+    )
+
+    assert args.frames == 1024
+
+
 def test_scenario_validation_rejects_invalid_edges_and_unknown_forensics():
     errors = validate_scenario(
         {

@@ -344,6 +344,14 @@ def scenario_list(_args=None) -> int:
 
 def scenario_capture(args) -> int:
     scenario = _load_cli_scenario(args.name)
+    frame_override = getattr(args, "frames", None)
+    if frame_override is not None:
+        if frame_override <= 0:
+            raise SystemExit("--frames must be positive")
+        scenario = {**scenario, "frames": frame_override}
+        errors = validate_scenario(scenario, path=args.name)
+        if errors:
+            raise SystemExit("\n".join(errors))
     output = resolve(args.output) if getattr(args, "output", None) else scenario_recording_path(scenario)
     output.parent.mkdir(parents=True, exist_ok=True)
     backend = getattr(args, "backend", "gdb")

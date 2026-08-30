@@ -300,6 +300,7 @@ def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
 
     assert default.backend == "gdb"
     assert not default.no_forensics
+    assert default.frames is None
     assert inproc.backend == "inproc"
 
 

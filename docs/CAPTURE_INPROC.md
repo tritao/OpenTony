@@ -100,9 +100,16 @@ same-frame before/after snapshot comparisons.  The benchmark reports per-run
 and aggregate seconds for GDB, in-process, and optional hybrid backends.  Add
 `--no-forensics` when comparing recorder hot paths without the diagnostic GDB
 probe families; ordinary GDB scenario capture still includes them by default.
+Use `--frames 1024 --runs 2 --warm-prefix` to separate one-time startup from
+the per-frame slope.  The fixed 64 MiB transport has theoretical room for
+about 2,450 frame records, but each frame currently reserves eight timer-sample
+slots; unusually stalled runs can therefore fail earlier with a bounded
+overflow.  Each sample records its frame count and whether it reused its
+prefix.
 The aggregate includes failed runs as well as successful ones, so a rejected
 hybrid qualification still contributes a useful wall-clock measurement.
-Each benchmark sample gets its own isolated headless Wine prefix under the
-benchmark output root.
+By default each benchmark sample gets its own isolated headless Wine prefix
+under the benchmark output root; `--warm-prefix` deliberately reuses one per
+backend.
 The default `tony capture compare` scope remains an exact comparison that
 includes all event arrays.
