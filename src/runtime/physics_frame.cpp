@@ -10,6 +10,10 @@ bool has_position_integrator(PhysicsDispatchStage stage) noexcept {
         || stage == PhysicsDispatchStage::InAir_97f40;
 }
 
+constexpr std::uint16_t kSpecialGroundSurfaceFlags = 0x1800;
+constexpr std::int32_t kSpecialGroundNormalYThreshold = -0x400;
+constexpr std::int32_t kSpecialGroundYaw = 200;
+
 // FUN_00462a20 stores the segment length in world units and the collision
 // parameter as Q14.  The native query retains the latter; recover the former
 // from the fixed-point endpoint delta using the same Q12 magnitude helper.
@@ -851,13 +855,36 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 use_ground_response_basis_tail = use_movement_recovery_base;
                 const bool ground_facing_movement =
                     movement_collision->normal[1] < 0;
-                if (use_movement_recovery_base && ground_facing_movement) {
+                // The Warehouse class-12 movement face is a separate steep
+                // ground branch in retail.  Its raw 0x1800 surface flags and
+                // normal-Y threshold are the observable selector; do not
+                // broaden this behavior to ordinary floor or wall hits.
+                const bool special_ground_movement =
+                    movement_collision->surface_flags
+                        == kSpecialGroundSurfaceFlags
+                    && movement_collision->normal[1]
+                        < kSpecialGroundNormalYThreshold;
+                if (use_movement_recovery_base
+                    && ground_facing_movement
+                    && !special_ground_movement) {
                     const bool recovery_target_changed =
                         current_player.update_ground_surface_recovery(
                             movement_collision->normal,
                             hooks.ground_surface_recovery_delta_q11);
                     ground_surface_target_changed =
                         ground_surface_target_changed || recovery_target_changed;
+                }
+                if (special_ground_movement) {
+                    // The qualified retail path applies the shared inward
+                    // response/orientation stages with the caller's 200-word
+                    // heading, keeps the pre-hit up basis for the recovery
+                    // sweep, and leaves the live position as the candidate.
+                    static_cast<void>(current_player.apply_collision_orientation(
+                        movement_collision->normal,
+                        kSpecialGroundYaw));
+                    static_cast<void>(current_player.apply_collision_response(
+                        movement_collision->normal,
+                        0xcd));
                 }
                 const FixedPosition recovery_direction =
                     current_player.air_motion();
@@ -874,8 +901,14 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 }
                 const FixedPosition recovery_base = !use_movement_recovery_base
                     ? desired
+                    : special_ground_movement ? start
                     : ground_facing_movement ? movement_candidate : start;
-                if (use_movement_recovery_base && ground_facing_movement) {
+                if (special_ground_movement) {
+                    desired = start;
+                }
+                if (use_movement_recovery_base
+                    && ground_facing_movement
+                    && !special_ground_movement) {
                     // The ordinary ground-facing movement-hit path commits
                     // the contact-plus-normal candidate itself. The later
                     // secondary recovery sweep can alter response/basis
@@ -892,7 +925,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     recovery_base,
                     recovery_direction,
                     -186);
-                    const std::optional<PositionCollisionHit> recovery_hit =
+                const std::optional<PositionCollisionHit> recovery_hit =
                     ground_collision_query(recovery_start, recovery_end);
                 if (recovery_hit.has_value()) {
                     // The grounded movement-hit path shares the long-recovery
@@ -938,7 +971,9 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         // secondary sweep only decides the state handoff; it
                         // does not replace that contact with its own recovery
                         // candidate.
-                        if (!movement_collision->surface_bit_6) {
+                        if (special_ground_movement) {
+                            desired = start;
+                        } else if (!movement_collision->surface_bit_6) {
                             desired = movement_candidate;
                         } else {
                             // The direct surface path still runs the shared
