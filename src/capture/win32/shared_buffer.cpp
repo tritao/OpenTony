@@ -78,6 +78,8 @@ int ot_capture_append_frame(
     const uint8_t *after,
     const CaptureTimingSnapshot *timing_before,
     const CaptureTimingSnapshot *timing_after,
+    const CaptureCausalEvent *causal_events,
+    uint32_t causal_event_count,
     const CaptureTimerSample *timer_samples,
     uint32_t timer_sample_count) {
     CaptureHeader *header;
@@ -85,6 +87,8 @@ int ot_capture_append_frame(
     uint32_t slot;
     uint32_t max_frames;
     if (buffer == 0 || buffer->mapping == 0 || before == 0 || after == 0 ||
+        causal_event_count > OTCAP_MAX_CAUSAL_EVENTS ||
+        (causal_event_count != 0 && causal_events == 0) ||
         timer_sample_count > OTCAP_MAX_TIMER_SAMPLES ||
         (timer_sample_count != 0 && timer_samples == 0)) {
         return 0;
@@ -115,6 +119,11 @@ int ot_capture_append_frame(
     }
     if (timing_after != 0) {
         memcpy(&record->timing_after, timing_after, sizeof(record->timing_after));
+    }
+    record->header.causal_event_count = causal_event_count;
+    if (causal_event_count != 0) {
+        memcpy(record->causal_events, causal_events,
+            causal_event_count * sizeof(record->causal_events[0]));
     }
     if (timer_sample_count != 0) {
         memcpy(record->timer_samples, timer_samples,

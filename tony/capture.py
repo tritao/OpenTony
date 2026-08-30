@@ -28,6 +28,7 @@ OTCAP_PLAYER_BLOB_SIZE = 0x3210
 OTCAP_MAX_ACTION_INTERVALS = 128
 OTCAP_MAX_TIMER_SAMPLES = 8
 OTCAP_MAX_CAUSAL_EVENTS = 16
+OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL = 1
 SUPPORTED_BUILD_SHA256 = "f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c"
 
 STATUS_INITIALIZING = 0
@@ -230,6 +231,34 @@ def _decode_timer(values: tuple[int, ...]) -> dict[str, Any]:
             "raw": simulation_accumulator_raw,
             "value": _float_value(simulation_accumulator_raw),
         },
+    }
+
+
+def _decode_causal_event(values: tuple[int, ...]) -> dict[str, Any]:
+    """Decode one fixed transport event into the shared recording model."""
+
+    event_type, phase, frame_index, size = values[:4]
+    payload = values[4]
+    if event_type != OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL or size != 12:
+        raise CaptureDecodeError(
+            f"capture contains unsupported causal event type {event_type}"
+        )
+    caller, argument, result = struct.unpack_from("<3I", payload)
+    return {
+        "type": "shared_random_call",
+        "function": "FUN_0048f3a0",
+        "address": "0x0048f3a0",
+        "frame": frame_index,
+        "phase": _phase_name(phase),
+        "caller": f"0x{caller:08x}",
+        "return_address": f"0x{(caller + 5) & 0xFFFFFFFF:08x}",
+        "argument_raw": argument,
+        "argument_s32": _signed32(argument),
+        "return_value_raw": result,
+        "return_value_s32": _signed32(result),
+        "state_before": None,
+        "state_after": None,
+        "state_status": "not-established",
     }
 
 
@@ -495,10 +524,6 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
             raise CaptureDecodeError(f"capture frame {index} has invalid header")
         if timer_count > OTCAP_MAX_TIMER_SAMPLES or event_count > OTCAP_MAX_CAUSAL_EVENTS:
             raise CaptureDecodeError(f"capture frame {index} exceeds fixed event bounds")
-        if event_count:
-            raise CaptureDecodeError(
-                "capture contains reserved causal events; typed causal seams are not supported yet"
-            )
         before_start = 9
         after_start = before_start + 1
         before = values[before_start]
@@ -512,7 +537,13 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
             for item in range(timer_count)
         ])
         timers = [_decode_timer(sample) for sample in timer_samples]
-        events: list[dict[str, Any]] = []
+        events = []
+        causal_values = values[
+            timer_start + OTCAP_MAX_TIMER_SAMPLES * 10 :
+        ]
+        for event_index in range(event_count):
+            event_start = event_index * 5
+            events.append(_decode_causal_event(tuple(causal_values[event_start : event_start + 5])))
         frame_record = {
                 "frame": index,
                 "input": {"action_mask": input_mask},
@@ -833,7 +864,13 @@ def _headless_capture_command(
 
     script = (
         'desktop="$1"; output="$2"; shift 2; '
-        'wine explorer "$desktop" "$@" >/dev/null 2>&1 & desktop_pid=$!; '
+        # ``command`` is a normal Wine command (``wine host.exe ...``), but
+        # explorer's virtual-desktop form expects the Windows executable
+        # directly.  Passing the leading ``wine`` made explorer try to launch
+        # a program literally named ``wine`` and left the desktop alive until
+        # the outer timeout.
+        'if [ "$1" = wine ]; then shift; fi; '
+        'wine explorer "$desktop" "$@" & desktop_pid=$!; '
         'ticks=0; '
         'while [ ! -s "$output" ] && kill -0 "$desktop_pid" 2>/dev/null; do '
         'sleep 0.1; ticks=$((ticks + 1)); '

@@ -164,6 +164,27 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     )
     random_values = [random_by_purpose.get(purpose, 0) for purpose in random_purposes]
     random_available = int(bool(random_by_purpose))
+    generic_random_by_caller: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict) or event.get("type") != "shared_random_call":
+                continue
+            caller = event.get("caller")
+            result = event.get("return_value_s32")
+            if isinstance(caller, str) and isinstance(result, int):
+                generic_random_by_caller.setdefault(caller, []).append(event)
+
+    def generic_random_event(caller: str, purpose: str) -> dict[str, Any] | None:
+        candidates = generic_random_by_caller.get(caller, [])
+        if not candidates:
+            return None
+        event = candidates[0]
+        return {
+            "type": "ground_motion_random_input",
+            "purpose": purpose,
+            "raw_roll": int(event["return_value_s32"]),
+        }
+
     surface_response_events = [
         event
         for event in events
@@ -272,6 +293,12 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         and event.get("type") == "ground_motion_random_input"
         and event.get("purpose") == "state_two_motion_seed"
     ] if isinstance(events, list) else []
+    if not state_two_events:
+        generic_state_two = generic_random_event(
+            "0x0049e742", "state_two_motion_seed"
+        )
+        if generic_state_two is not None:
+            state_two_events.append(generic_state_two)
     if len(state_two_events) > 1:
         raise ValueError(
             f"frame {frame_index} has duplicate state-two motion random events"
@@ -415,6 +442,15 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         and event.get("type") == "ground_motion_random_input"
         and event.get("purpose") in {"threshold_seed_0xaa", "threshold_seed_0xdc"}
     ] if isinstance(events, list) else []
+    if not threshold_events:
+        for caller, purpose in (
+            ("0x0049eae9", "threshold_seed_0xdc"),
+            ("0x0049eb23", "threshold_seed_0xaa"),
+        ):
+            generic_threshold = generic_random_event(caller, purpose)
+            if generic_threshold is not None:
+                threshold_events.append(generic_threshold)
+                break
     if len(threshold_events) > 1:
         raise ValueError(
             f"frame {frame_index} has duplicate ground-motion threshold events"
@@ -438,6 +474,15 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         and event.get("type") == "ground_motion_random_input"
         and event.get("purpose") in {"random_seed_0xaa", "random_seed_0xdc"}
     ] if isinstance(events, list) else []
+    if not rearm_events:
+        for caller, purpose in (
+            ("0x0049b1bf", "random_seed_0xaa"),
+            ("0x0049b411", "random_seed_0xdc"),
+        ):
+            generic_rearm = generic_random_event(caller, purpose)
+            if generic_rearm is not None:
+                rearm_events.append(generic_rearm)
+                break
     if len(rearm_events) > 1:
         raise ValueError(
             f"frame {frame_index} has duplicate ground-motion rearm events"

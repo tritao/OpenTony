@@ -17,6 +17,7 @@ from tony.capture import (
     INITIAL_STATE_STRUCT,
     OTCAP_MAGIC,
     OTCAP_MAX_ACTION_INTERVALS,
+    OTCAP_MAX_CAUSAL_EVENTS,
     OTCAP_PLAYER_BLOB_SIZE,
     CaptureDecodeError,
     _capture_desktop_spec,
@@ -35,6 +36,7 @@ def _capture(
     *,
     frame_count: int = 1,
     timer_samples: dict[int, list[tuple[int, ...]]] | None = None,
+    causal_events: dict[int, list[tuple[int, int, int, int, bytes]]] | None = None,
 ) -> None:
     config_offset = HEADER_STRUCT.size
     config_size = CONFIG_PREFIX_STRUCT.size + ACTION_STRUCT.size * OTCAP_MAX_ACTION_INTERVALS
@@ -74,9 +76,12 @@ def _capture(
         timers = [0] * 10 * 8
         for timer_index, timer in enumerate(frame_timers):
             timers[timer_index * 10 : timer_index * 10 + 10] = timer
-        events = []
-        for _ in range(16):
-            events.extend((0, 0, 0, 0, b"\0" * 64))
+        frame_events = (causal_events or {}).get(index, [])
+        event_fields = []
+        for event in frame_events:
+            event_fields.extend(event)
+        for _ in range(OTCAP_MAX_CAUSAL_EVENTS - len(frame_events)):
+            event_fields.extend((0, 0, 0, 0, b"\0" * 64))
         frames.append(
             FRAME_STRUCT.pack(
                 index,
@@ -84,7 +89,7 @@ def _capture(
                 0,
                 0x12340000,
                 len(frame_timers),
-                0,
+                len(frame_events),
                 len(blob),
                 len(blob),
                 0,
@@ -93,7 +98,7 @@ def _capture(
                 *timing,
                 *timing,
                 *timers,
-                *events,
+                *event_fields,
             )
         )
     path.write_bytes(header + config + initial + b"\0" * (data_offset - initial_offset - len(initial)) + b"".join(frames))
@@ -153,6 +158,40 @@ def test_capture_decoder_rephases_timer_delivery_before_physics_entry(tmp_path):
     ]
     assert len(deliveries) == 1
     assert deliveries[0]["timer_boundary_phase"] == "timer_update"
+
+
+def test_capture_decoder_preserves_shared_random_causal_event(tmp_path):
+    source = tmp_path / "capture.otcap"
+    payload = struct.pack("<3I", 0x0049E742, 1, 50) + b"\0" * 52
+    _capture(source, causal_events={0: [(1, 1, 0, 12, payload)]})
+
+    decoded = decode_capture(source)
+
+    assert decoded["frames"][0]["events"][-1] == {
+        "type": "shared_random_call",
+        "function": "FUN_0048f3a0",
+        "address": "0x0048f3a0",
+        "frame": 0,
+        "phase": "physics_entry",
+        "caller": "0x0049e742",
+        "return_address": "0x0049e747",
+        "argument_raw": 1,
+        "argument_s32": 1,
+        "return_value_raw": 50,
+        "return_value_s32": 50,
+        "state_before": None,
+        "state_after": None,
+        "state_status": "not-established",
+    }
+
+
+def test_capture_decoder_rejects_unknown_causal_event_type(tmp_path):
+    source = tmp_path / "capture.otcap"
+    payload = b"\0" * 64
+    _capture(source, causal_events={0: [(99, 1, 0, 12, payload)]})
+
+    with pytest.raises(CaptureDecodeError, match="unsupported causal event type 99"):
+        decode_capture(source)
 
 
 def test_capture_decoder_rejects_unknown_status(tmp_path):
@@ -329,6 +368,29 @@ def test_capture_hook_table_is_generated_from_yaml():
     assert generated == Path("src/capture/win32/capture_hooks_generated.h").read_text()
 
 
+def test_capture_manifest_includes_exact_simulation_store_and_causal_service():
+    manifest = yaml.safe_load(Path("re/config/capture_hooks.yml").read_text())
+
+    assert manifest["hooks"]["simulation_time_store"] == {
+        "rva": 0x0009F1A9,
+        "expected": "89 95 44 2f 00 00",
+        "overwrite": 6,
+        "status": "verified",
+    }
+    assert manifest["hooks"]["shared_random_call"]["rva"] == 0x0008F3A0
+    assert manifest["hooks"]["shared_random_call"]["overwrite"] == 10
+
+
+def test_inproc_causal_hooks_capture_exact_store_and_shared_random_edges():
+    source = Path("src/capture/win32/hooks.cpp").read_text()
+
+    assert "ot_capture_simulation_time_store" in source
+    assert "OTCAP_SIMULATION_TIME_PLAYER_OFFSET" in source
+    assert "ot_capture_shared_random_call" in source
+    assert "OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL" in source
+    assert "g_frame_causal_events" in source
+
+
 def test_timer_detour_records_boundary_samples_and_reuses_counter_inference():
     source = Path("src/capture/win32/hooks.cpp").read_text()
 
@@ -415,6 +477,7 @@ def test_inproc_capture_starts_a_managed_wine_virtual_desktop():
     assert "/desktop=OpenTony,1024x768" in wrapped
     assert "capture.otcap" in wrapped
     assert "--frames" in wrapped
+    assert 'if [ "$1" = wine ]; then shift; fi' in wrapped[2]
 
 
 def test_physics_capture_publishes_complete_records_before_count():

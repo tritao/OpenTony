@@ -35,6 +35,9 @@ int ot_capture_install_hooks(void *module_base);
  * the wrappers must preserve the game's register and return-value contract. */
 void __cdecl ot_capture_physics_before(uint32_t player);
 void __cdecl ot_capture_physics_after(void);
+void __cdecl ot_capture_simulation_time_store(uint32_t player, uint32_t value);
+void __cdecl ot_capture_shared_random_call(
+    uint32_t caller, uint32_t argument, uint32_t result);
 void __cdecl ot_capture_input_boundary(void);
 void __cdecl ot_capture_timer_boundary(uint32_t phase);
 void __cdecl ot_capture_frontend_play_boundary(uint32_t stack_pointer);

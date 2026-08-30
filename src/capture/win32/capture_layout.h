@@ -68,6 +68,11 @@ enum {
     OTCAP_INPUT_FLAG_INJECTED = 2
 };
 
+/* Typed causal observations currently emitted by the in-process recorder. */
+enum {
+    OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL = 1
+};
+
 #pragma pack(push, 1)
 
 typedef struct CaptureActionInterval {
@@ -148,9 +153,8 @@ typedef struct CaptureTimerSample {
     uint64_t simulation_accumulator_raw;
 } CaptureTimerSample;
 
-/* Reserved wire space for the future typed causal seam.  Version 1 writers
- * must leave this zero-filled; the decoder rejects non-zero event counts until
- * a producer contract is proven. */
+/* Fixed transport space for typed causal observations.  Version 1 currently
+ * emits shared-random calls; unused slots remain zero-filled. */
 typedef struct CaptureCausalEvent {
     uint32_t type;
     uint32_t phase;

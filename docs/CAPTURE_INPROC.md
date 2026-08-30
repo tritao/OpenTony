@@ -52,11 +52,15 @@ in the shared config.  The timer detour samples the callback-owned counter,
 accumulators, and pause gates at the timer-update and simulation-clock-read
 boundaries and stores those fixed-size observations in each frame.  A
 post-physics sample is assigned to the following frame, matching the GDB
-recorder's return-boundary semantics.  The offline
-decoder infers completed deliveries from counter deltas (deferring a torn
-callback when the simulation accumulator proves it is still in flight).  The
-fixed causal-event slots remain reserved and zero-filled until a typed
-service/RNG producer contract is proven; version 1 rejects non-zero entries.
+recorder's return-boundary semantics.  The offline decoder infers completed
+deliveries from counter deltas (deferring a torn callback when the simulation
+accumulator proves it is still in flight).  The exact simulation-time store
+seam is also observed so the after-snapshot preserves the value retail wrote
+at that boundary.  Version 1 emits typed shared-random call events from the
+proven `0x0048f3a0` service; unused fixed event slots remain zero-filled and
+the decoder rejects unknown event types.  Native replay maps the currently
+qualified callsites into its existing causal random channels while the raw
+caller, argument, and return value remain available for later analysis.
 The wrappers
 preserve the game's ECX/stack, return-value, and flags contract.  An unknown
 executable or changed byte fails closed before capture begins.

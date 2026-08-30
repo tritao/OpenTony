@@ -25,6 +25,7 @@
 #define OTCAP_TIMER_PAUSE_GATE_A_ADDRESS 0x00561c04u
 #define OTCAP_TIMER_PAUSE_GATE_B_ADDRESS 0x0056a8e0u
 #define OTCAP_KEYBOARD_STATE_ADDRESS 0x006a43e4u
+#define OTCAP_SIMULATION_TIME_PLAYER_OFFSET 0x2f44u
 #define OTCAP_FRONTEND_LEVEL_RESULT_ADDRESS 0x0045359bu
 #define OTCAP_FRONTEND_SELECTION_CALL_RETURN 0x0046af9fu
 #define OTCAP_FRONTEND_CONFIRM_SCAN_CODE 0x10u
@@ -35,6 +36,10 @@ static uint32_t g_physics_frame_index = 0;
 static uint32_t g_physics_player = 0;
 static uint32_t g_physics_input_mask = 0;
 static uint32_t g_physics_input_flags = 0;
+static CaptureCausalEvent g_frame_causal_events[OTCAP_MAX_CAUSAL_EVENTS];
+static uint32_t g_frame_causal_count = 0;
+static volatile uint32_t g_simulation_time_store_seen = 0;
+static volatile uint32_t g_simulation_time_store_value = 0;
 static uint8_t g_physics_before[OTCAP_PLAYER_BLOB_SIZE];
 static CaptureTimingSnapshot g_physics_timing_before;
 static void *g_physics_target = 0;
@@ -66,6 +71,16 @@ static void *g_clock_read_trampoline = 0;
 static uint8_t g_clock_read_original[16];
 static uint32_t g_clock_read_overwrite_size = 0;
 static int g_clock_read_installed = 0;
+static void *g_simulation_time_store_target = 0;
+static void *g_simulation_time_store_trampoline = 0;
+static uint8_t g_simulation_time_store_original[16];
+static uint32_t g_simulation_time_store_overwrite_size = 0;
+static int g_simulation_time_store_installed = 0;
+static void *g_shared_random_target = 0;
+static void *g_shared_random_trampoline = 0;
+static uint8_t g_shared_random_original[16];
+static uint32_t g_shared_random_overwrite_size = 0;
+static int g_shared_random_installed = 0;
 static void *g_frontend_play_target = 0;
 static void *g_frontend_play_trampoline = 0;
 static uint8_t g_frontend_play_original[16];
@@ -388,7 +403,8 @@ static const CaptureHookSpec *find_hook(const char *name) {
 int ot_capture_bind_buffer(CaptureBuffer *buffer) {
     if (buffer == 0 || buffer->mapping == 0 || buffer->mapping_size == 0 ||
         g_physics_installed || g_input_installed || g_timer_installed ||
-        g_clock_read_installed || g_frontend_play_installed ||
+        g_clock_read_installed || g_simulation_time_store_installed ||
+        g_shared_random_installed || g_frontend_play_installed ||
         g_frontend_level_installed || g_launch_level_installed ||
         g_movie_primary_installed || g_movie_secondary_installed ||
         g_frontend_key_installed || g_frontend_summary_installed) {
@@ -614,6 +630,9 @@ void __cdecl ot_capture_physics_before(uint32_t player) {
     g_physics_frame_index = header->frame_count;
     g_frontend_summary_active = 0;
     g_frame_timer_count = 0;
+    g_frame_causal_count = 0;
+    g_simulation_time_store_seen = 0;
+    g_simulation_time_store_value = 0;
     if (!capture_initial_timer_state() ||
         !drain_pending_timer_samples(g_physics_frame_index) ||
         !append_frame_timer_sample(
@@ -665,6 +684,7 @@ void __cdecl ot_capture_physics_after(void) {
     CaptureHeader *header;
     uint8_t after[OTCAP_PLAYER_BLOB_SIZE];
     CaptureTimingSnapshot timing_after;
+    uint32_t simulation_time_store_value;
 
     if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
         g_physics_frame_active == 0) {
@@ -681,9 +701,28 @@ void __cdecl ot_capture_physics_after(void) {
         g_physics_frame_active = 0;
         return;
     }
-    if (!copy_player_and_timing(
-            g_physics_player, after, &timing_after) ||
-        !ot_capture_append_frame(
+    if (!copy_player_and_timing(g_physics_player, after, &timing_after)) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_FAILED, OTCAP_ERROR_SNAPSHOT);
+        g_physics_frame_active = 0;
+        return;
+    }
+    if (g_simulation_time_store_seen != 0) {
+        simulation_time_store_value = g_simulation_time_store_value;
+        memcpy(
+            after + OTCAP_SIMULATION_TIME_PLAYER_OFFSET,
+            &simulation_time_store_value,
+            sizeof(simulation_time_store_value));
+    }
+    /* A causal hook can fail the bounded capture while retail is still
+     * unwinding this physics call (for example, on event-slot overflow).
+     * Never publish a record or replace that failure with COMPLETE. */
+    if (header->status == OTCAP_STATUS_FAILED ||
+        header->status == OTCAP_STATUS_OVERFLOW) {
+        g_physics_frame_active = 0;
+        return;
+    }
+    if (!ot_capture_append_frame(
             g_capture_buffer,
             g_physics_frame_index,
             g_physics_input_mask,
@@ -693,6 +732,8 @@ void __cdecl ot_capture_physics_after(void) {
             after,
             &g_physics_timing_before,
             &timing_after,
+            g_frame_causal_events,
+            g_frame_causal_count,
             g_frame_timer_samples,
             g_frame_timer_count)) {
         ot_capture_buffer_fail(
@@ -706,6 +747,40 @@ void __cdecl ot_capture_physics_after(void) {
         InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_COMPLETE);
     }
     g_physics_frame_active = 0;
+}
+
+void __cdecl ot_capture_simulation_time_store(uint32_t player, uint32_t value) {
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        g_physics_frame_active == 0 || player != g_physics_player) {
+        return;
+    }
+    g_simulation_time_store_seen = 1;
+    g_simulation_time_store_value = value;
+}
+
+void __cdecl ot_capture_shared_random_call(
+    uint32_t caller, uint32_t argument, uint32_t result) {
+    CaptureCausalEvent *event;
+    uint32_t callsite;
+    if (g_capture_buffer == 0 || g_capture_buffer->mapping == 0 ||
+        g_physics_frame_active == 0) {
+        return;
+    }
+    if (g_frame_causal_count >= OTCAP_MAX_CAUSAL_EVENTS) {
+        ot_capture_buffer_fail(
+            g_capture_buffer, OTCAP_STATUS_OVERFLOW, OTCAP_ERROR_OVERFLOW);
+        return;
+    }
+    callsite = caller >= 5u ? caller - 5u : caller;
+    event = &g_frame_causal_events[g_frame_causal_count++];
+    ZeroMemory(event, sizeof(*event));
+    event->type = OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL;
+    event->phase = OTCAP_TIMER_PHASE_PHYSICS_ENTRY;
+    event->frame_index = g_physics_frame_index;
+    event->size = 12u;
+    memcpy(event->payload + 0u, &callsite, sizeof(callsite));
+    memcpy(event->payload + 4u, &argument, sizeof(argument));
+    memcpy(event->payload + 8u, &result, sizeof(result));
 }
 
 void __cdecl ot_capture_input_boundary(void) {
@@ -962,6 +1037,45 @@ static __declspec(naked) void ot_capture_clock_read_hook(void) {
     }
 }
 
+/* Observe the exact EDX -> player+0x2f44 publication while preserving the
+ * original six-byte store in the trampoline. */
+static __declspec(naked) void ot_capture_simulation_time_store_hook(void) {
+    __asm {
+        pushad
+        pushfd
+        push edx
+        push ebp
+        call ot_capture_simulation_time_store
+        add esp, 8
+        popfd
+        popad
+        jmp dword ptr [g_simulation_time_store_trampoline]
+    }
+}
+
+/* FUN_0048f3a0 is __thiscall with one stack selector and returns with RET 4.
+ * Duplicate that selector before calling the trampoline so its callee cleanup
+ * removes the duplicate; the wrapper then performs the original RET 4 after
+ * recording the result. */
+static __declspec(naked) void ot_capture_shared_random_hook(void) {
+    __asm {
+        push dword ptr [esp + 4]
+        call dword ptr [g_shared_random_trampoline]
+        pushad
+        pushfd
+        mov ecx, dword ptr [esp + 36]
+        mov edx, dword ptr [esp + 40]
+        push eax
+        push edx
+        push ecx
+        call ot_capture_shared_random_call
+        add esp, 12
+        popfd
+        popad
+        ret 4
+    }
+}
+
 static __declspec(naked) void ot_capture_frontend_play_hook(void) {
     __asm {
         mov eax, esp
@@ -1077,6 +1191,8 @@ enum {
     OTCAP_HOOK_ACTION,
     OTCAP_HOOK_TIMER,
     OTCAP_HOOK_CLOCK_READ,
+    OTCAP_HOOK_SIMULATION_TIME_STORE,
+    OTCAP_HOOK_SHARED_RANDOM,
     OTCAP_HOOK_FRONTEND_PLAY,
     OTCAP_HOOK_FRONTEND_LEVEL,
     OTCAP_HOOK_LAUNCH_LEVEL,
@@ -1103,6 +1219,18 @@ static CaptureHookState g_hook_states[OTCAP_HOOK_COUNT] = {
     {"clock_read", 0, (void *)ot_capture_clock_read_hook,
         &g_clock_read_target, &g_clock_read_trampoline, g_clock_read_original,
         &g_clock_read_overwrite_size, &g_clock_read_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"simulation_time_store", 0,
+        (void *)ot_capture_simulation_time_store_hook,
+        &g_simulation_time_store_target, &g_simulation_time_store_trampoline,
+        g_simulation_time_store_original,
+        &g_simulation_time_store_overwrite_size,
+        &g_simulation_time_store_installed,
+        OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
+    {"shared_random_call", 0, (void *)ot_capture_shared_random_hook,
+        &g_shared_random_target, &g_shared_random_trampoline,
+        g_shared_random_original, &g_shared_random_overwrite_size,
+        &g_shared_random_installed,
         OTCAP_HOOK_GROUP_PERSISTENT, 1, 0},
     {"frontend_play_result", 0, (void *)ot_capture_frontend_play_hook,
         &g_frontend_play_target, &g_frontend_play_trampoline,
@@ -1168,7 +1296,8 @@ int ot_capture_install_hooks(void *module_base) {
     uint32_t index;
 
     if (g_physics_installed || g_input_installed || g_timer_installed ||
-        g_clock_read_installed || g_frontend_play_installed ||
+        g_clock_read_installed || g_simulation_time_store_installed ||
+        g_shared_random_installed || g_frontend_play_installed ||
         g_frontend_level_installed || g_launch_level_installed ||
         g_movie_primary_installed || g_movie_secondary_installed ||
         g_frontend_key_installed || g_frontend_summary_installed ||

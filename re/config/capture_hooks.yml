@@ -33,6 +33,16 @@ hooks:
     expected: "8b 15 20 e3 56 00"
     overwrite: 6
     status: verified
+  simulation_time_store:
+    rva: 0x0009f1a9
+    expected: "89 95 44 2f 00 00"
+    overwrite: 6
+    status: verified
+  shared_random_call:
+    rva: 0x0008f3a0
+    expected: "53 56 8b d9 57 bf 30 6a 53 00"
+    overwrite: 10
+    status: verified
   frontend_play_result:
     rva: 0x000532aa
     expected: "8b 44 24 58 83 c4 08"
