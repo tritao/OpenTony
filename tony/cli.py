@@ -454,6 +454,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="named debug session")
     p.add_argument("--port", type=int)
     p.add_argument("--unmute", action="store_true", help="leave game audio enabled")
+    p.add_argument(
+        "--no-forensics",
+        action="store_true",
+        help="omit diagnostic GDB probes during a GDB benchmark/capture",
+    )
     p.add_argument("--force", action="store_true", help="replace an existing recording")
     p.set_defaults(func=commands.scenario_capture)
 

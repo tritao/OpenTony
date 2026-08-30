@@ -123,15 +123,19 @@ def _recover_incomplete_recording(session, reason: str) -> bool:
 
 
 def _find_game_pid(env: dict[str, str]) -> int:
-    result = subprocess.run(
-        ["winedbg", "--command", "info proc"],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["winedbg", "--command", "info proc"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=5.0,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit("timed out listing Wine processes with winedbg") from exc
     matches: list[int] = []
     for line in result.stdout.splitlines():
         match = _WINE_PROC_LINE.match(line)

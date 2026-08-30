@@ -54,6 +54,22 @@ def test_scenario_capture_commands_preserve_frame_intent():
     assert commands[3:] == ["tony-action-edge kick 20 8"]
 
 
+def test_scenario_capture_commands_can_omit_diagnostic_forensics():
+    scenario = load_scenario("warehouse-ollie-land")
+    commands = scenario_capture_commands(
+        scenario,
+        Path("build/scenarios/warehouse-ollie-land/retail.otrec"),
+        force=False,
+        include_forensics=False,
+    )
+
+    assert commands == [
+        "tony-frame-clock frame_tick",
+        "tony-record-start build/scenarios/warehouse-ollie-land/retail.otrec --frames 256 --quit",
+        "tony-action-edge kick 20 8",
+    ]
+
+
 def test_scenario_validation_rejects_invalid_edges_and_unknown_forensics():
     errors = validate_scenario(
         {

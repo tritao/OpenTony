@@ -14,7 +14,8 @@
 static void usage(void) {
     fprintf(stderr,
         "usage: opentony_capture_host.exe --exe FILE --dll FILE --output FILE "
-        "--build-sha256 HEX --frames N [--level N] [--force] [--action MASK:START:HOLD]...\n");
+        "--build-sha256 HEX --frames N [--level N] [--force] "
+        "[--resume-file FILE] [--action MASK:START:HOLD]...\n");
 }
 
 static int parse_u32(const char *text, uint32_t *value) {
@@ -264,6 +265,20 @@ static int wait_for_ready(CaptureHeader *header, HANDLE process) {
     return 0;
 }
 
+static int wait_for_resume_file(const char *path) {
+    DWORD elapsed;
+    if (path == 0 || *path == 0) {
+        return 1;
+    }
+    for (elapsed = 0; elapsed < 120000u; ++elapsed) {
+        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) {
+            return 1;
+        }
+        Sleep(1);
+    }
+    return 0;
+}
+
 static DWORD wait_for_bounded_capture(CaptureHeader *header, HANDLE process) {
     DWORD start = GetTickCount();
     for (;;) {
@@ -303,6 +318,7 @@ int main(int argc, char **argv) {
     const char *dll_path = 0;
     const char *output_path = 0;
     const char *sha_text = 0;
+    const char *resume_file = 0;
     char mapping_name[128];
     char command_line[2048];
     char working_directory[MAX_PATH];
@@ -345,6 +361,7 @@ int main(int argc, char **argv) {
         else if (strcmp(argv[index], "--build-sha256") == 0 && index + 1 < (uint32_t)argc) sha_text = argv[++index];
         else if (strcmp(argv[index], "--frames") == 0 && index + 1 < (uint32_t)argc) { if (!parse_u32(argv[++index], &frames)) goto done; }
         else if (strcmp(argv[index], "--level") == 0 && index + 1 < (uint32_t)argc) { if (!parse_u32(argv[++index], &level)) goto done; }
+        else if (strcmp(argv[index], "--resume-file") == 0 && index + 1 < (uint32_t)argc) resume_file = argv[++index];
         else if (strcmp(argv[index], "--force") == 0) force = 1;
         else if (strcmp(argv[index], "--action") == 0 && index + 1 < (uint32_t)argc) {
             if (action_count >= OTCAP_MAX_ACTION_INTERVALS) goto done;
@@ -435,6 +452,17 @@ int main(int argc, char **argv) {
             &injection_thread, &injection_path)) {
         fprintf(stderr, "capture host: DLL injection failed\n");
         TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        goto cleanup_view;
+    }
+    if (!wait_for_resume_file(resume_file)) {
+        fprintf(stderr, "capture host: resume rendezvous timed out\n");
+        InterlockedExchange((LONG *)&header->error_code, OTCAP_ERROR_TIMEOUT);
+        InterlockedExchange((LONG *)&header->status, OTCAP_STATUS_FAILED);
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(injection_thread);
+        VirtualFreeEx(process.hProcess, injection_path, 0, MEM_RELEASE);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         goto cleanup_view;

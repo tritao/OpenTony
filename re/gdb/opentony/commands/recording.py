@@ -241,9 +241,9 @@ class TonyRecordingTimerClockReadBreakpoint(TonyBreakpoint):
 
     ADDRESS = 0x0049F1A0
 
-    def __init__(self, controller: RecordingController):
+    def __init__(self, controller: RecordingController, address: int | None = None):
         self.controller = controller
-        super().__init__(self.ADDRESS, internal=True)
+        super().__init__(self.ADDRESS if address is None else address, internal=True)
 
     def on_hit(self, _ctx: Context) -> None:
         if self.controller.active_frame is None:
@@ -262,9 +262,9 @@ class TonyRecordingTimerUpdateBreakpoint(TonyBreakpoint):
 
     ADDRESS = 0x0046A0F0
 
-    def __init__(self, controller: RecordingController):
+    def __init__(self, controller: RecordingController, address: int | None = None):
         self.controller = controller
-        super().__init__(self.ADDRESS, internal=True)
+        super().__init__(self.ADDRESS if address is None else address, internal=True)
 
     def on_hit(self, _ctx: Context) -> None:
         global _recording_timer_initial_state, _recording_timer_recording_id
@@ -634,9 +634,12 @@ def _recording_clear_forensic() -> int:
 class TonyRecordingInputBreakpoint(TonyBreakpoint):
     """Observe post-poll input and detect the recorder hotkey edge."""
 
-    def __init__(self, controller: RecordingController):
+    def __init__(self, controller: RecordingController, address: int | None = None):
         self.controller = controller
-        super().__init__(THPS2_ADDRESSES["gameplay_update"][0], internal=True)
+        super().__init__(
+            THPS2_ADDRESSES["gameplay_update"][0] if address is None else address,
+            internal=True,
+        )
 
     def on_hit(self, _ctx: Context) -> None:
         self.controller.poll_control()
@@ -693,9 +696,18 @@ class TonyRecordingFrameReturnBreakpoint(TonyBreakpoint):
 class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
     """Begin capture at the canonical per-player physics-frame boundary."""
 
-    def __init__(self, controller: RecordingController):
+    def __init__(
+        self,
+        controller: RecordingController,
+        address: int | None = None,
+        entry_stack_adjust: int = 0,
+    ):
         self.controller = controller
-        super().__init__(THPS2_ADDRESSES["physics_frame"][0], internal=True)
+        self.entry_stack_adjust = entry_stack_adjust
+        super().__init__(
+            THPS2_ADDRESSES["physics_frame"][0] if address is None else address,
+            internal=True,
+        )
 
     def on_hit(self, ctx: Context) -> None:
         player = ctx.this_ptr()
@@ -736,7 +748,7 @@ class TonyRecordingFrameEntryBreakpoint(TonyBreakpoint):
             raise gdb.GdbError(str(exc)) from exc
         if frame is None:
             return
-        return_address = ctx.return_address()
+        return_address = mem.ptr(ctx.esp + self.entry_stack_adjust)
         if return_address == 0:
             raise gdb.GdbError("could not install recording frame return breakpoint")
         runtime_breakpoints.append(
@@ -908,11 +920,32 @@ def install_recording_instrumentation() -> None:
     session_dir = os.environ.get("TONY_SESSION_DIR")
     _recording_controller = RecordingController(session_dir=session_dir)
     _recording_event_sink = _RecordingEventSink(_recording_controller)
+    hybrid = os.environ.get("TONY_CAPTURE_HYBRID") == "1"
+    physics_entry = THPS2_ADDRESSES["physics_frame"][0]
+    input_boundary = THPS2_ADDRESSES["gameplay_update"][0]
+    timer_update = TonyRecordingTimerUpdateBreakpoint.ADDRESS
+    clock_read = TonyRecordingTimerClockReadBreakpoint.ADDRESS
+    entry_stack_adjust = 0
+    if hybrid:
+        # The injected recorder owns the verified prologues.  Break at the
+        # first instruction after each detoured prologue so GDB can remain a
+        # same-process shadow observer without racing or overwriting the DLL
+        # hooks.  Skater_PhysicsFrame's six-byte prologue is ``sub esp, 0xc0``;
+        # after it runs, the caller return address is therefore at ``esp+0xc0``.
+        physics_entry += 6
+        input_boundary += 6
+        timer_update += 10
+        clock_read += 6
+        entry_stack_adjust = 0xC0
     runtime_breakpoints.extend(
         (
-            TonyRecordingInputBreakpoint(_recording_controller),
-            TonyRecordingFrameEntryBreakpoint(_recording_controller),
-            TonyRecordingTimerUpdateBreakpoint(_recording_controller),
-            TonyRecordingTimerClockReadBreakpoint(_recording_controller),
+            TonyRecordingInputBreakpoint(_recording_controller, input_boundary),
+            TonyRecordingFrameEntryBreakpoint(
+                _recording_controller,
+                physics_entry,
+                entry_stack_adjust,
+            ),
+            TonyRecordingTimerUpdateBreakpoint(_recording_controller, timer_update),
+            TonyRecordingTimerClockReadBreakpoint(_recording_controller, clock_read),
         )
     )

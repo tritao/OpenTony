@@ -80,12 +80,29 @@ display. Running the Windows host directly with `wine` is a diagnostic escape
 hatch and may show a game window on the caller's normal display; that does not
 change the headless scenario path.
 
-`--backend hybrid` is reserved for the same-run shadow comparator milestone;
-until the GDB/in-process snapshots have been proven equivalent it exits with a
-clear error rather than silently producing a non-canonical recording.
+`--backend hybrid` launches the injected recorder and GDB against the same
+suspended retail process.  The host waits for GDB to install shadow
+breakpoints, then releases a file rendezvous; GDB observes the post-detour
+instruction boundaries while the DLL owns the verified prologues, frontend
+bootstrap, and action-edge injection.  The command keeps the GDB JSONL sidecar
+as `<recording>.gdb.otrec`, converts the DLL output to the requested canonical
+recording, and fails unless overlapping snapshots and inputs compare exactly.
+The asynchronous global simulation clock is intentionally retained in that
+strict comparison: GDB stop-the-world sampling can expose a different timer
+tick even when every stable player/input field matches, so hybrid remains a
+qualification gate rather than a canonical backend until that clock seam is
+made observer-independent.
 
 The qualification helpers are `scripts/benchmark_capture.py` for wall-clock
 measurements and `scripts/compare_recorders.py --scope snapshots` (or
 `tony capture qualify --gdb GDB.otrec --inproc INPROC.otrec`) for M3
-same-frame before/after snapshot comparisons.  The default `tony capture
-compare` scope remains an exact comparison that includes all event arrays.
+same-frame before/after snapshot comparisons.  The benchmark reports per-run
+and aggregate seconds for GDB, in-process, and optional hybrid backends.  Add
+`--no-forensics` when comparing recorder hot paths without the diagnostic GDB
+probe families; ordinary GDB scenario capture still includes them by default.
+The aggregate includes failed runs as well as successful ones, so a rejected
+hybrid qualification still contributes a useful wall-clock measurement.
+Each benchmark sample gets its own isolated headless Wine prefix under the
+benchmark output root.
+The default `tony capture compare` scope remains an exact comparison that
+includes all event arrays.

@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shlex
+import socket
 import struct
 import subprocess
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -968,6 +972,232 @@ def run_inproc_capture(
         return 1
     print(f"capture: {summary['path']} ({summary['frames']} frames, converted from {capture_path})")
     return 0
+
+
+def _hybrid_free_port() -> int:
+    """Reserve a currently-free loopback port for the WineDbg proxy."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _hybrid_find_game_pid(environment: dict[str, str], host_process: subprocess.Popen) -> int:
+    """Wait until the Windows host has created the suspended retail target."""
+
+    from .debug import _find_game_pid
+
+    deadline = time.monotonic() + 30.0
+    last_error = "no target yet"
+    while time.monotonic() < deadline:
+        if host_process.poll() is not None:
+            raise CaptureDecodeError(
+                f"capture host exited before hybrid attach ({host_process.returncode})"
+            )
+        try:
+            return _find_game_pid(environment)
+        except SystemExit as exc:
+            last_error = str(exc)
+            time.sleep(0.1)
+    raise CaptureDecodeError(f"timed out waiting for hybrid retail target: {last_error}")
+
+
+def run_hybrid_capture(
+    scenario: dict[str, Any],
+    output: str | Path,
+    *,
+    force: bool = False,
+    host: str | Path | None = None,
+    dll: str | Path | None = None,
+    wine_prefix: str | Path | None = None,
+) -> int:
+    """Capture one retail run with the DLL and GDB shadowing the same process."""
+
+    from .debug import _wait_port
+
+    target = resolve(output)
+    capture_path = target.with_suffix(".otcap")
+    gdb_path = target.with_name(f"{target.stem}.gdb.otrec")
+    if not force:
+        for path in (target, capture_path, gdb_path):
+            if path.exists():
+                print(f"refusing to overwrite {path}; use --force if intended")
+                return 1
+    try:
+        host_path = _capture_binary(
+            host,
+            (
+                "build/capture/win32/opentony_capture_host.exe",
+                "build/capture/win32/Release/opentony_capture_host.exe",
+            ),
+        )
+        dll_path = _capture_binary(
+            dll,
+            (
+                "build/capture/win32/opentony_capture.dll",
+                "build/capture/win32/Release/opentony_capture.dll",
+            ),
+        )
+        executable = nocd_executable()
+        build_sha256 = str(
+            load_yaml("re/config/binaries.yml")["executables"]["thps2_pc"]["sha256"]
+        )
+    except (CaptureDecodeError, KeyError, OSError) as exc:
+        print(str(exc))
+        return 1
+
+    environment = headless_wine_env(wine_prefix)
+    environment["TONY_CAPTURE_HYBRID"] = "1"
+    fd, gate_name = tempfile.mkstemp(prefix="opentony-hybrid-gate-")
+    os.close(fd)
+    gate = Path(gate_name)
+    # The host must see the gate appear after GDB has installed its shadow
+    # breakpoints.  Start with the file absent and let GDB's `shell touch`
+    # command publish the rendezvous.
+    Path(gate).unlink()
+    port = _hybrid_free_port()
+    host_command = [
+        "wine",
+        str(host_path),
+        "--exe",
+        _wine_path(executable, environment),
+        "--dll",
+        _wine_path(dll_path, environment),
+        "--output",
+        _wine_path(capture_path, environment),
+        "--build-sha256",
+        build_sha256,
+        "--frames",
+        str(scenario["frames"]),
+        "--level",
+        str({"hangar": 0, "warehouse": 12}.get(scenario["level"], 0)),
+        "--resume-file",
+        _wine_path(gate, environment),
+    ]
+    if force:
+        host_command.append("--force")
+    for action, start, hold in _scenario_action_intervals(scenario):
+        host_command.extend(("--action", f"0x{ACTION_MASKS[action]:x}:{start}:{hold}"))
+
+    cfg = load_yaml("re/config/wine.yml")["wine"]
+    display = HeadlessDisplay(cfg, environment)
+    host_process = None
+    proxy_process = None
+    gdb_process = None
+    try:
+        wrapped_host = _headless_capture_command(
+            host_command, capture_path, _capture_desktop_spec()
+        )
+        host_process = display.popen(
+            headless_wine_command(wrapped_host),
+            cwd=executable.parent,
+            env=environment,
+        )
+        pid = _hybrid_find_game_pid(environment, host_process)
+        proxy_command = [
+            "winedbg",
+            "--gdb",
+            "--no-start",
+            "--port",
+            str(port),
+            str(pid),
+        ]
+        proxy_process = subprocess.Popen(
+            proxy_command,
+            cwd=ROOT,
+            env=environment,
+            start_new_session=True,
+        )
+        _wait_port(port, timeout=30.0)
+        # The DLL owns frontend bootstrap and action-edge injection in a
+        # hybrid run.  Keeping those GDB breakpoints out avoids overwriting
+        # the same verified entry bytes before the injected hooks install.
+        gdb_commands = [
+            "tony-frame-clock frame_tick",
+            "tony-record-start "
+            + shlex.quote(str(gdb_path))
+            + (" --force" if force else "")
+            + f" --frames {scenario['frames']} --quit",
+        ]
+        gdb_commands.extend(
+            (
+                f"shell touch {shlex.quote(str(gate))}",
+                "continue",
+                # WineDbg can report one loader-time DbgBreakPoint after the
+                # rendezvous resumes the primary thread.  Consume it before
+                # the recording breakpoint loop; `--quit` aborts any trailing
+                # commands once the frame limit is reached.
+                "continue",
+            )
+        )
+        gdb_command = [
+            "gdb",
+            "-q",
+            "-nx",
+            "-ex",
+            f"target remote localhost:{port}",
+            "-x",
+            str(ROOT / "re/gdb/bootstrap.gdb"),
+        ]
+        for command in gdb_commands:
+            gdb_command.extend(("-ex", command))
+        gdb_command.append("-batch")
+        gdb_environment = dict(environment)
+        gdb_environment["TONY_CAPTURE_HYBRID"] = "1"
+        gdb_process = subprocess.Popen(
+            gdb_command,
+            cwd=ROOT,
+            env=gdb_environment,
+            start_new_session=True,
+        )
+        try:
+            gdb_code = gdb_process.wait(timeout=180.0)
+        except subprocess.TimeoutExpired as exc:
+            raise CaptureDecodeError("hybrid GDB observer timed out") from exc
+        try:
+            host_code = host_process.wait(timeout=180.0)
+        except subprocess.TimeoutExpired as exc:
+            raise CaptureDecodeError("hybrid capture host timed out") from exc
+        if gdb_code != 0 or host_code != 0:
+            print(f"hybrid capture failed (gdb={gdb_code}, host={host_code})")
+            return 1
+    except CaptureDecodeError as exc:
+        print(str(exc))
+        return 1
+    except BaseException:
+        if gdb_process is not None and gdb_process.poll() is None:
+            terminate_process(gdb_process)
+        if proxy_process is not None and proxy_process.poll() is None:
+            terminate_process(proxy_process)
+        if host_process is not None and host_process.poll() is None:
+            terminate_process(host_process)
+        raise
+    finally:
+        if gdb_process is not None and gdb_process.poll() is None:
+            terminate_process(gdb_process)
+        if proxy_process is not None and proxy_process.poll() is None:
+            terminate_process(proxy_process)
+        if host_process is not None and host_process.poll() is None:
+            terminate_process(host_process)
+        display.close()
+        subprocess.run(
+            ["wineserver", "-k"],
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        gate.unlink(missing_ok=True)
+
+    try:
+        summary = convert_capture_binary(capture_path, target, force=force)
+        result = compare_recordings(gdb_path, target, scope="snapshots")
+    except (CaptureDecodeError, OSError) as exc:
+        print(str(exc))
+        return 1
+    print(json.dumps({"capture": summary, "qualification": result}, indent=2, sort_keys=True))
+    return 0 if result["equal"] else 1
 
 
 def _scenario_action_intervals(scenario: dict[str, Any]) -> list[tuple[str, int, int]]:

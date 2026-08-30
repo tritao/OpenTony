@@ -251,11 +251,17 @@ def _input_intervals(events: list[dict[str, Any]], frame_count: int) -> list[tup
     return intervals
 
 
-def scenario_capture_commands(scenario: dict[str, Any], output: Path, *, force: bool) -> list[str]:
+def scenario_capture_commands(
+    scenario: dict[str, Any],
+    output: Path,
+    *,
+    force: bool,
+    include_forensics: bool = True,
+) -> list[str]:
     """Build the deterministic GDB command sequence used by capture."""
 
     commands = ["tony-frame-clock frame_tick"]
-    if scenario["forensics"]:
+    if include_forensics and scenario["forensics"]:
         commands.append(
             "tony-record-forensic "
             + " ".join(shlex.quote(family) for family in scenario["forensics"])
@@ -357,7 +363,20 @@ def scenario_capture(args) -> int:
             return code or 1
         return 0
     if backend == "hybrid":
-        raise SystemExit("hybrid capture is reserved for same-run shadow qualification (M3)")
+        from .capture import run_hybrid_capture
+
+        print(f"qualifying scenario {scenario['_id']} with same-run GDB/DLL observers -> {output}")
+        code = run_hybrid_capture(
+            scenario,
+            output,
+            force=bool(getattr(args, "force", False)),
+            host=getattr(args, "capture_host", None),
+            dll=getattr(args, "capture_dll", None),
+            wine_prefix=getattr(args, "headless_prefix", None),
+        )
+        if code or not _validated_scenario_recording(scenario, output):
+            return code or 1
+        return 0
     from .commands import _level_debug_args
     from .debug import debug_game as launch_debug
 
@@ -376,6 +395,7 @@ def scenario_capture(args) -> int:
             scenario,
             output,
             force=bool(getattr(args, "force", False)),
+            include_forensics=not bool(getattr(args, "no_forensics", False)),
         ),
     )
     print(f"capturing scenario {scenario['_id']} -> {output}")

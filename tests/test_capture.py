@@ -299,6 +299,7 @@ def test_capture_backend_parser_keeps_gdb_default_and_exposes_inproc():
     inproc = build_parser().parse_args(["scenario", "capture", "warehouse-idle", "--backend", "inproc"])
 
     assert default.backend == "gdb"
+    assert not default.no_forensics
     assert inproc.backend == "inproc"
 
 
@@ -458,6 +459,35 @@ def test_capture_host_launches_suspended_then_resumes_after_injection():
     assert "CreateRemoteThread" in source
     assert "ResumeThread(process.hThread)" in source
     assert "executable_directory" in source
+    assert "--resume-file" in source
+    assert "wait_for_resume_file" in source
+
+
+def test_hybrid_gdb_shadow_uses_post_detour_boundaries():
+    source = Path("re/gdb/opentony/commands/recording.py").read_text()
+
+    assert 'os.environ.get("TONY_CAPTURE_HYBRID")' in source
+    assert "physics_entry += 6" in source
+    assert "input_boundary += 6" in source
+    assert "timer_update += 10" in source
+    assert "clock_read += 6" in source
+    assert "entry_stack_adjust = 0xC0" in source
+
+
+def test_hybrid_capture_starts_gdb_after_dll_rendezvous():
+    source = Path("tony/capture.py").read_text()
+
+    assert "run_hybrid_capture" in source
+    assert "--resume-file" in source
+    assert "shell touch" in source
+    assert "TONY_CAPTURE_HYBRID" in source
+
+
+def test_hybrid_capture_has_bounded_observer_waits():
+    source = Path("tony/capture.py").read_text()
+
+    assert "gdb_process.wait(timeout=180.0)" in source
+    assert "host_process.wait(timeout=180.0)" in source
 
 
 def test_inproc_capture_keeps_game_inside_managed_headless_display():
