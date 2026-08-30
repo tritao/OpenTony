@@ -450,6 +450,7 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     ] if isinstance(events, list) else []
     if not threshold_events:
         for caller, purpose in (
+            ("0x0049e831", "threshold_seed_0xaa"),
             ("0x0049eae9", "threshold_seed_0xdc"),
             ("0x0049eb23", "threshold_seed_0xaa"),
         ):

@@ -164,6 +164,25 @@ def test_native_wire_maps_inproc_shared_random_state_two_call() -> None:
     assert tokens[45:47] == ["1", "50"]
 
 
+def test_native_wire_maps_threshold_random_call() -> None:
+    recording = {
+        "initial": _snapshot(0),
+        "frames": [{
+            "frame": 0,
+            "input": {"action_mask": 0},
+            "events": [{
+                "type": "shared_random_call",
+                "caller": "0x0049e831",
+                "return_value_s32": 50,
+            }],
+        }],
+    }
+
+    tokens = _wire_input(recording["initial"], recording["frames"]).splitlines()[2].split()
+
+    assert tokens[39:41] == ["1", "50"]
+
+
 def test_native_wire_accepts_identical_forensic_damping_observations() -> None:
     recording = {
         "initial": _snapshot(0),
