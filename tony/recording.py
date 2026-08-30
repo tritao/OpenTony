@@ -226,7 +226,7 @@ def load_recording(path: str | Path) -> Recording:
         prefix = source.read_bytes()[:8]
     except OSError as exc:
         raise ValueError(f"could not read recording {source}: {exc}") from exc
-    if prefix == b"OTCAP\0\0\1":
+    if prefix in {b"OTCAP\0\0\1", b"OTCAP\0\0\2"}:
         from .capture import decode_capture  # local import avoids capture → recording cycle
 
         capture = decode_capture(source, include_raw=True)
@@ -252,7 +252,7 @@ def recording_from_capture(capture: dict[str, Any]) -> Recording:
         "retail_executable_sha256": capture.get("build_sha256"),
         "instrumentation_version": "inproc-capture-v1",
         "capture_backend": "inproc",
-        "capture_layout_version": 1,
+        "capture_layout_version": int(capture.get("capture_layout_version", 1)),
         "image_base": capture.get("image_base", 0),
         "frame_boundary": "Skater_PhysicsFrame",
         "input_boundary": "Game_GameplayUpdate",
@@ -409,7 +409,7 @@ def validate_recording(path: str | Path) -> tuple[dict, list[dict]]:
         prefix = source.read_bytes()[:8]
     except OSError as exc:
         return {"path": str(source), "frames": 0}, [{"line": 0, "error": str(exc)}]
-    if prefix.startswith(b"OTREC") or prefix == b"OTCAP\0\0\1":
+    if prefix.startswith(b"OTREC") or prefix in {b"OTCAP\0\0\1", b"OTCAP\0\0\2"}:
         try:
             recording = load_recording(source)
         except (OSError, ValueError) as exc:

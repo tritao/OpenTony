@@ -25,12 +25,19 @@ from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, r
 from .display import HeadlessDisplay, terminate_process
 from .nocd import nocd_executable
 
-OTCAP_MAGIC = b"OTCAP\0\0\1"
-OTCAP_VERSION = 1
+# Version 2 expands the bounded per-frame timer sample array.  Keep the
+# version-1 constants available so old transport captures remain decodable;
+# ``OTCAP_MAGIC`` stays the historical public alias used by fixture builders.
+OTCAP_MAGIC_V1 = b"OTCAP\0\0\1"
+OTCAP_MAGIC_V2 = b"OTCAP\0\0\2"
+OTCAP_MAGIC = OTCAP_MAGIC_V1
+OTCAP_LEGACY_VERSION = 1
+OTCAP_VERSION = 2
 OTCAP_MAPPING_SIZE = 64 * 1024 * 1024
 OTCAP_PLAYER_BLOB_SIZE = 0x3210
 OTCAP_MAX_ACTION_INTERVALS = 128
-OTCAP_MAX_TIMER_SAMPLES = 8
+OTCAP_MAX_TIMER_SAMPLES = 32
+OTCAP_LEGACY_MAX_TIMER_SAMPLES = 8
 OTCAP_MAX_CAUSAL_EVENTS = 16
 OTCAP_CAUSAL_EVENT_SHARED_RANDOM_CALL = 1
 SUPPORTED_BUILD_SHA256 = "f2c7ca7cbc31abd8f748bd4afdc1e30aa1a6700ce91893b618450fd16172669c"
@@ -65,12 +72,21 @@ TIMING_STRUCT = struct.Struct("<6I")
 TIMER_SAMPLE_STRUCT = struct.Struct("<8I2Q")
 EVENT_STRUCT = struct.Struct("<4I64s")
 FRAME_HEADER_STRUCT = struct.Struct("<9I")
-FRAME_STRUCT = struct.Struct(
+_FRAME_STRUCT_TEMPLATE = (
     f"<9I{OTCAP_PLAYER_BLOB_SIZE}s{OTCAP_PLAYER_BLOB_SIZE}s"
     "6I6I"
-    f"{('8I2Q' * OTCAP_MAX_TIMER_SAMPLES)}"
+    "{timer_samples}"
     f"{('4I64s' * OTCAP_MAX_CAUSAL_EVENTS)}"
 )
+FRAME_STRUCT_V1 = struct.Struct(_FRAME_STRUCT_TEMPLATE.format(
+    timer_samples="8I2Q" * OTCAP_LEGACY_MAX_TIMER_SAMPLES,
+))
+FRAME_STRUCT_V2 = struct.Struct(_FRAME_STRUCT_TEMPLATE.format(
+    timer_samples="8I2Q" * OTCAP_MAX_TIMER_SAMPLES,
+))
+# Kept as the version-1 layout alias for callers that construct legacy test
+# captures.  New captures use FRAME_STRUCT_V2 selected by their header.
+FRAME_STRUCT = FRAME_STRUCT_V1
 
 
 class CaptureDecodeError(ValueError):
@@ -459,7 +475,18 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         process_id,
         build_sha256,
     ) = fields
-    if magic != OTCAP_MAGIC or version != OTCAP_VERSION:
+    # Version 1 used eight timer slots.  Version 2 expands that bounded array
+    # to 32; select the complete wire layout from the header rather than
+    # silently interpreting an old file with the new stride.  Accept the
+    # historical OTCAP_MAGIC alias with v2 as well so callers constructing
+    # captures from the public constants continue to work.
+    if version == OTCAP_LEGACY_VERSION and magic == OTCAP_MAGIC_V1:
+        frame_struct = FRAME_STRUCT_V1
+        max_timer_samples = OTCAP_LEGACY_MAX_TIMER_SAMPLES
+    elif version == OTCAP_VERSION and magic in {OTCAP_MAGIC_V1, OTCAP_MAGIC_V2}:
+        frame_struct = FRAME_STRUCT_V2
+        max_timer_samples = OTCAP_MAX_TIMER_SAMPLES
+    else:
         raise CaptureDecodeError("unsupported .otcap magic or version")
     if header_size != HEADER_STRUCT.size or config_size != CONFIG_PREFIX_STRUCT.size + ACTION_STRUCT.size * OTCAP_MAX_ACTION_INTERVALS:
         raise CaptureDecodeError("capture layout version does not match this decoder")
@@ -475,7 +502,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         )
     if bytes_used > len(data) or bytes_used < data_offset:
         raise CaptureDecodeError("capture bytes_used is outside the file")
-    if frame_count > frame_limit or frame_count > (bytes_used - data_offset) // FRAME_STRUCT.size:
+    if frame_count > frame_limit or frame_count > (bytes_used - data_offset) // frame_struct.size:
         raise CaptureDecodeError("capture frame count exceeds its bounded mapping")
     if config_offset + config_size > bytes_used or initial_offset + initial_size > bytes_used:
         raise CaptureDecodeError("capture metadata extends past bytes_used")
@@ -485,7 +512,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         raise CaptureDecodeError("capture config size is invalid")
     config_values = CONFIG_PREFIX_STRUCT.unpack_from(data, config_offset)
     config_version, _config_size, config_frames, action_count, _config_level, flags, config_sha = config_values
-    if config_version != OTCAP_VERSION or config_frames != frame_limit or action_count > OTCAP_MAX_ACTION_INTERVALS:
+    if config_version != version or config_frames != frame_limit or action_count > OTCAP_MAX_ACTION_INTERVALS:
         raise CaptureDecodeError("capture config is invalid")
     if config_sha != build_sha256:
         raise CaptureDecodeError("capture header/config build identities differ")
@@ -508,10 +535,10 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
 
     frames = []
     for index in range(frame_count):
-        offset = data_offset + index * FRAME_STRUCT.size
-        if offset + FRAME_STRUCT.size > bytes_used:
+        offset = data_offset + index * frame_struct.size
+        if offset + frame_struct.size > bytes_used:
             raise CaptureDecodeError(f"capture frame {index} is truncated")
-        values = FRAME_STRUCT.unpack_from(data, offset)
+        values = frame_struct.unpack_from(data, offset)
         header_values = values[:9]
         (
             frame_index,
@@ -526,7 +553,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         ) = header_values
         if frame_index != index or before_size != OTCAP_PLAYER_BLOB_SIZE or after_size != OTCAP_PLAYER_BLOB_SIZE:
             raise CaptureDecodeError(f"capture frame {index} has invalid header")
-        if timer_count > OTCAP_MAX_TIMER_SAMPLES or event_count > OTCAP_MAX_CAUSAL_EVENTS:
+        if timer_count > max_timer_samples or event_count > OTCAP_MAX_CAUSAL_EVENTS:
             raise CaptureDecodeError(f"capture frame {index} exceeds fixed event bounds")
         before_start = 9
         after_start = before_start + 1
@@ -535,7 +562,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         timing_before = values[after_start + 1 : after_start + 7]
         timing_after = values[after_start + 7 : after_start + 13]
         timer_start = after_start + 13
-        timer_values = values[timer_start : timer_start + OTCAP_MAX_TIMER_SAMPLES * 10]
+        timer_values = values[timer_start : timer_start + max_timer_samples * 10]
         timer_samples = _normalize_timer_samples([
             tuple(timer_values[item * 10 : item * 10 + 10])
             for item in range(timer_count)
@@ -543,7 +570,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         timers = [_decode_timer(sample) for sample in timer_samples]
         events = []
         causal_values = values[
-            timer_start + OTCAP_MAX_TIMER_SAMPLES * 10 :
+            timer_start + max_timer_samples * 10 :
         ]
         for event_index in range(event_count):
             event_start = event_index * 5
@@ -575,6 +602,7 @@ def decode_capture(path: str | Path, *, include_raw: bool = False) -> dict[str, 
         "initial_timer_state": initial_timer,
         "frames": frames,
         "status": status,
+        "capture_layout_version": version,
     }
 
 
@@ -606,7 +634,7 @@ def convert_capture(
         "retail_executable_sha256": capture["build_sha256"],
         "instrumentation_version": "inproc-capture-v1",
         "capture_backend": "inproc",
-        "capture_layout_version": OTCAP_VERSION,
+        "capture_layout_version": capture["capture_layout_version"],
         "image_base": capture["image_base"],
         "frame_boundary": "Skater_PhysicsFrame",
         "input_boundary": "Game_GameplayUpdate",

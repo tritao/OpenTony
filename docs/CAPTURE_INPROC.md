@@ -23,9 +23,10 @@ src/capture/win32/capture_hooks_generated.h` after changing a seam.
 The host creates a bounded 64 MiB named mapping, launches the selected retail
 executable suspended, injects `opentony_capture.dll`, and saves the mapping as
 `retail.otcap`.  The host never drops records: a frame-limit or mapping
-overflow is a failed capture.  Python then validates the fixed wire layout and
-promotes it to canonical binary OTREC2 `retail.otrec`; the `.otcap` remains
-available as bounded raw transport evidence.
+overflow is a failed capture.  The current v2 wire layout reserves 32 timer
+samples per frame.  Python validates it and promotes it to canonical binary
+OTREC2 `retail.otrec`; version-1 eight-sample `.otcap` files remain readable,
+and the `.otcap` remains available as bounded raw transport evidence.
 
 Legacy GDB `.otrec` files remain readable during migration.  Use
 `tony record export-json recording.otrec --output recording.jsonl` (or
@@ -101,11 +102,11 @@ and aggregate seconds for GDB, in-process, and optional hybrid backends.  Add
 `--no-forensics` when comparing recorder hot paths without the diagnostic GDB
 probe families; ordinary GDB scenario capture still includes them by default.
 Use `--frames 1024 --runs 2 --warm-prefix` to separate one-time startup from
-the per-frame slope.  The fixed 64 MiB transport has theoretical room for
-about 2,450 frame records, but each frame currently reserves eight timer-sample
-slots; unusually stalled runs can therefore fail earlier with a bounded
-overflow.  Each sample records its frame count and whether it reused its
-prefix.
+the per-frame slope.  Version 2 expands the fixed timer-sample budget to 32
+slots; the 64 MiB transport therefore has theoretical room for about 2,350
+frame records.  A run that exceeds either bound fails closed with a bounded
+overflow; records are never dropped.  Each sample records its frame count and
+whether it reused its prefix.
 The aggregate includes failed runs as well as successful ones, so a rejected
 hybrid qualification still contributes a useful wall-clock measurement.
 By default each benchmark sample gets its own isolated headless Wine prefix
