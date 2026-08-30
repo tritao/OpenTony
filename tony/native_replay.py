@@ -469,7 +469,27 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         and isinstance(threshold_event.get("raw_roll"), int)
         else 0
     )
+    # The post-dispatch threshold writer is observable in the raw player
+    # object.  A rearm producer may also replace the threshold with a sampled
+    # target during the ground-motion phase; that jump is already reproduced
+    # by the causal rearm input and must not be followed by a second generic
+    # threshold update.  Only expose the generic draw when the recording
+    # proves the writer performed its one-unit decay.
     threshold_available = int(threshold_event is not None)
+    if isinstance(raw, dict):
+        raw_before = raw_physics_words
+        raw_after = raw.get("player_after")
+        if (isinstance(raw_before, list)
+                and len(raw_before) > 18
+                and isinstance(raw_after, (bytes, bytearray))
+                and len(raw_after) >= 0x2dcc):
+            before_threshold = _signed(int(raw_before[18]), 32)
+            after_threshold = struct.unpack_from(
+                "<i", raw_after, 0x2dc8)[0]
+            threshold_available = int(
+                threshold_event is not None
+                and after_threshold == before_threshold - 1
+            )
     threshold_blocked = int(
         isinstance(threshold_event, dict)
         and threshold_event.get("purpose") == "threshold_seed_0xdc"

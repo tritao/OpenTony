@@ -1190,7 +1190,11 @@ void PlayerState::apply_orientation_recovery(
         static_cast<std::int16_t>(target[1]),
         static_cast<std::int16_t>(target[2]),
     };
-    const FixedPosition right_cross_raw = q12_cross(current_forward, target_short);
+    const bool reverse_recovery_handedness = physics_state_ == 0
+        && fixed_dot_q12(collision_response_, current_forward) > 0x5000;
+    const FixedPosition right_cross_raw = reverse_recovery_handedness
+        ? q12_cross(target_short, current_forward)
+        : q12_cross(current_forward, target_short);
     const FixedPosition right = q12_normalize(right_cross_raw);
     // FUN_0049d080 normalizes the first cross product, but publishes the
     // second cross product directly.  The raw second cross is already close

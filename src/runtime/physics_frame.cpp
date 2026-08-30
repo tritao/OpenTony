@@ -355,10 +355,15 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     const auto bounce_probe = [&](
                         std::int32_t direction,
                         std::int32_t distance) {
-                        const FixedPosition base = current_player.position();
+                        // The retail helper queries from the candidate published
+                        // by GroundCollision, but its successful normal endpoint
+                        // is based on the frame-start position restored by that
+                        // collision path.  Keep those two roles separate.
+                        const FixedPosition query_base = current_player.position();
+                        const FixedPosition base = current_player.previous_position();
                         const RetailBasis& basis = current_player.retail_basis();
                         const FixedPosition probe_start = offset(
-                            base,
+                            query_base,
                             basis.at_310c,
                             30);
                         const FixedPosition probe_end = offset(
@@ -378,12 +383,38 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                             return false;
                         }
 
+                        // FUN_004957c0 routes the first accepted probe
+                        // through FUN_0049bad0 before its normal-offset
+                        // verification query.  That helper publishes the
+                        // inward response and the collision-aligned basis;
+                        // keep the caller's 200-word heading gate and the
+                        // helper's zero->0x19 fallback in this same phase.
+                        const FixedPosition local_normal{
+                            -hit->normal[0],
+                            -hit->normal[1],
+                            -hit->normal[2],
+                        };
+                        const std::int32_t forward_dot = fixed_dot_q12(
+                            basis.at_30f4,
+                            local_normal);
+                        const std::int32_t yaw_offset = forward_dot > 0xb50
+                            ? 200
+                            : 0x19;
+                        static_cast<void>(
+                            current_player.apply_collision_response(
+                                hit->normal,
+                                0xcd));
+                        static_cast<void>(
+                            current_player.apply_collision_orientation(
+                                hit->normal,
+                                yaw_offset));
+
                         // The second query in FUN_004957c0 begins one raw
                         // normal unit into the hit and ends at the signed
                         // normal * distance endpoint.  A clear second probe
                         // writes that endpoint to the live position.
                         const FixedPosition normal_start = offset(
-                            base,
+                            query_base,
                             hit->normal,
                             1);
                         const FixedPosition normal_end = offset(
@@ -600,6 +631,16 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                        recovery_end,
                                     recovery_hit->hit_parameter_q14)
                                     > 0x74;
+                            const bool steep_class12_leave_air =
+                                current_player.physics_state() == 0
+                                && !recovery_hit->surface_bit_6
+                                && recovery_hit->surface_flags == 0x1800
+                                && recovery_hit->normal[1] < -0xc00
+                                && retail_hit_distance(
+                                       recovery_start,
+                                       recovery_end,
+                                       recovery_hit->hit_parameter_q14)
+                                    > 0x64;
                             // FUN_004956f0 is also the complementary exit
                             // when the grounded recovery hit is no longer a
                             // ground-facing surface. In this path the
@@ -631,6 +672,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                 && result.ground_surface_hit->normal[1] < 0;
                             const bool leave_air =
                                 recovery_leave_air
+                                || steep_class12_leave_air
                                 || non_ground_recovery_leave_air
                                 || support_leave_air;
                             // FUN_0049704f branches to FUN_004956f0 when the
@@ -699,6 +741,12 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                 // live air axis before FUN_004956f0 changes
                                 // state. This is distinct from the short
                                 // recovery projection path above.
+                                desired = offset(
+                                    recovery_hit->position,
+                                    recovery_axis,
+                                    30);
+                            }
+                            if (steep_class12_leave_air) {
                                 desired = offset(
                                     recovery_hit->position,
                                     recovery_axis,
