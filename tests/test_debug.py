@@ -61,6 +61,28 @@ def test_muted_audio_uses_temporary_pulse_sink(monkeypatch):
     ]
 
 
+def test_muted_audio_cleans_up_when_launch_fails(monkeypatch):
+    route = audio.MutedAudio("/usr/bin/pactl", "271", "opentony_headless_run", None)
+    cleaned = []
+
+    monkeypatch.setattr(
+        audio,
+        "start_muted_audio",
+        lambda env, session_id, *, sink_prefix: audio.AudioStart(route),
+    )
+    monkeypatch.setattr(
+        audio,
+        "cleanup_audio_route",
+        lambda value: cleaned.append(value) or audio.AudioCleanup(True, "removed"),
+    )
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        with audio.muted_audio({}, "run", sink_prefix="opentony_headless"):
+            raise RuntimeError("launch failed")
+
+    assert cleaned == [route]
+
+
 
 def test_cleanup_muted_audio_verifies_module_identity(monkeypatch):
     calls = []

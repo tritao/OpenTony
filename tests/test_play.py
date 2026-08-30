@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -153,16 +154,12 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(wine, "configure_visual_capture", lambda display, args: calls.append("capture"))
     route = audio.MutedAudio("/usr/bin/pactl", "271", "opentony_debug_run", None)
 
-    def start_muted(env, session_id):
+    @contextmanager
+    def fake_muted_audio(env, session_id, *, sink_prefix):
         env["PULSE_SINK"] = route.sink_name
-        return audio.AudioStart(route)
+        yield route
 
-    monkeypatch.setattr(wine, "start_muted_audio", start_muted)
-    monkeypatch.setattr(
-        wine,
-        "cleanup_muted_audio",
-        lambda data: calls.append(("cleanup-audio", data)) or audio.AudioCleanup(True, "removed"),
-    )
+    monkeypatch.setattr(wine, "muted_audio", fake_muted_audio)
 
     result = wine.run_game(SimpleNamespace(game_args=["--fullscreen"], headless=True))
 
@@ -176,18 +173,9 @@ def test_run_headless_wraps_the_configured_display(monkeypatch, tmp_path: Path):
         str(executable),
         "--fullscreen",
     ]
-    assert calls[-3:] == [
+    assert calls[-2:] == [
         "stop-recording",
         "close",
-        (
-            "cleanup-audio",
-            {
-                "audio_pactl": "/usr/bin/pactl",
-                "audio_module_id": "271",
-                "audio_sink": "opentony_debug_run",
-                "audio_pulse_server": None,
-            },
-        ),
     ]
     assert calls[0][2]["PULSE_SINK"] == "opentony_debug_run"
 
@@ -196,5 +184,6 @@ def test_headless_wine_command_initializes_empty_prefixes():
     command = common.headless_wine_command(["winedbg", "--gdb"])
 
     assert 'if [ ! -f "$WINEPREFIX/system.reg" ]; then' in command[2]
+    assert "flock -u 9" in command[2]
     assert "wineboot -i" in command[2]
     assert "wineboot -u" not in command[2]

@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .audio import move_process_audio_to_sink, start_muted_audio
+from .audio import audio_route_metadata, move_process_audio_to_sink, start_muted_audio
 from .common import ROOT, headless_wine_command, headless_wine_env, load_yaml, wine_env
 from .display import HeadlessDisplay, configure_visual_capture, terminate_process, xvfb_command
 from .gdb_knowledge import generate as generate_gdb_knowledge
@@ -316,10 +316,7 @@ def debug_game(args) -> int:
             session.update(
                 audio_muted=True,
                 audio_backend="pulse-null-sink",
-                audio_pactl=route.pactl,
-                audio_module_id=route.module_id,
-                audio_sink=route.sink_name,
-                audio_pulse_server=route.pulse_server,
+                **audio_route_metadata(route),
                 audio_moved_inputs=[],
                 audio_error=None,
             )
@@ -331,10 +328,7 @@ def debug_game(args) -> int:
                     session.update(
                         audio_muted=False,
                         audio_error=move_error,
-                        audio_pactl=route.pactl,
-                        audio_module_id=route.module_id,
-                        audio_sink=route.sink_name,
-                        audio_pulse_server=route.pulse_server,
+                        **audio_route_metadata(route),
                     )
                     raise SystemExit(
                         f"could not mute attached game audio: {move_error}; "

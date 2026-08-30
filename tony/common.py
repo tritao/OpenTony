@@ -100,17 +100,20 @@ def headless_wine_command(command: Sequence[str | Path]) -> list[str | Path]:
 
     New per-session prefixes are empty. Wine's ``-u`` update mode can wait
     indefinitely on this Wine build; ``-i`` is the one-shot initialization
-    mode needed for a newly-created prefix.
+    mode needed for a newly-created prefix. The initialization lock also
+    protects the reusable headless prefix from concurrent bootstrap races.
     """
 
     return [
         "sh",
         "-c",
         (
-            'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
+            'mkdir -p "$WINEPREFIX" && '
+            'exec 9>"$WINEPREFIX/.opentony-prefix.lock" && flock 9 && '
             'if [ ! -f "$WINEPREFIX/system.reg" ]; then '
+            'wineserver -k 2>/dev/null || true; timeout 5s wineserver -w 2>/dev/null || true; '
             'timeout 30s env WINEDLLOVERRIDES=mscoree,mshtml= wineboot -i; '
-            'fi && '
+            'fi && flock -u 9 && exec 9>&- && '
             'wine reg add "HKCU\\Software\\Wine\\Direct3D" /v renderer /d gl /f >/dev/null 2>&1 && '
             'mkdir -p "$WINEPREFIX/dosdevices" && '
             'if [ -L "$WINEPREFIX/dosdevices/d:" ] && '

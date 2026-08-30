@@ -4,6 +4,8 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from .common import ROOT
@@ -29,14 +31,21 @@ class AudioCleanup:
     status: str
 
 
-def start_muted_audio(env: dict[str, str], session_id: str) -> AudioStart:
+def start_muted_audio(
+    env: dict[str, str],
+    session_id: str,
+    *,
+    sink_prefix: str = "opentony_debug",
+) -> AudioStart:
     """Create a session-owned silent PulseAudio sink and select it for Wine."""
 
     pactl = shutil.which("pactl")
     if pactl is None:
         return AudioStart(None, "pactl-unavailable")
 
-    sink_name = "opentony_debug_" + re.sub(r"[^A-Za-z0-9_]", "_", session_id)
+    clean_prefix = re.sub(r"[^A-Za-z0-9_]", "_", sink_prefix).strip("_") or "opentony"
+    clean_session_id = re.sub(r"[^A-Za-z0-9_]", "_", session_id).strip("_") or "session"
+    sink_name = f"{clean_prefix}_{clean_session_id}"
     result = subprocess.run(
         [
             pactl,
@@ -66,6 +75,57 @@ def start_muted_audio(env: dict[str, str], session_id: str) -> AudioStart:
             pulse_server=env.get("PULSE_SERVER"),
         )
     )
+
+
+def audio_route_metadata(
+    route: MutedAudio,
+    *,
+    moved_inputs: tuple[tuple[str, str], ...] = (),
+) -> dict[str, object]:
+    """Serialize an audio route for session metadata or cleanup."""
+
+    data: dict[str, object] = {
+        "audio_pactl": route.pactl,
+        "audio_module_id": route.module_id,
+        "audio_sink": route.sink_name,
+        "audio_pulse_server": route.pulse_server,
+    }
+    if moved_inputs:
+        data["audio_moved_inputs"] = [
+            {"input_id": input_id, "original_sink": original_sink}
+            for input_id, original_sink in moved_inputs
+        ]
+    return data
+
+
+def cleanup_audio_route(
+    route: MutedAudio,
+    *,
+    moved_inputs: tuple[tuple[str, str], ...] = (),
+) -> AudioCleanup:
+    """Clean up a live route without requiring a session metadata dictionary."""
+
+    return cleanup_muted_audio(audio_route_metadata(route, moved_inputs=moved_inputs))
+
+
+@contextmanager
+def muted_audio(
+    env: dict[str, str],
+    session_id: str,
+    *,
+    sink_prefix: str = "opentony_debug",
+) -> Iterator[MutedAudio]:
+    """Own a temporary silent sink for the duration of a launch."""
+
+    audio_start = start_muted_audio(env, session_id, sink_prefix=sink_prefix)
+    if audio_start.route is None:
+        raise SystemExit(f"could not mute headless game audio: {audio_start.error}")
+    try:
+        yield audio_start.route
+    finally:
+        cleanup = cleanup_audio_route(audio_start.route)
+        if not cleanup.ok:
+            print(f"WARNING: could not clean muted audio: {cleanup.status}")
 
 
 def _sink_input_records(pactl: str, env: dict[str, str]) -> tuple[list[dict[str, str]], str | None]:
