@@ -823,7 +823,19 @@ private:
                         static_cast<std::uint32_t>(face.source_offset),
                         object.model_index) &&
                     query_record.hit_parameter != old_parameter) {
-                    query_record.hit_normal = model.normals[face.normal_index];
+                    // 0x00462a20 stores the winning model instance in q+0x68
+                    // and the source normal in the collision scratch words.
+                    // The scene walk does not rotate its cached face
+                    // geometry (the static path explicitly rejects rotated
+                    // geometry), but 0x00463d50 finalizes the winning normal
+                    // through that instance's +0x14/+0x16/+0x18 angle
+                    // shorts. Keep the query/face test in model space and
+                    // apply the instance rotation only at the result
+                    // boundary, matching the PC ordering.
+                    query_record.hit_normal = reference::transform_normal_q12(
+                        reference::build_object_rotation_basis(
+                            object.collision_angles),
+                        model.normals[face.normal_index]);
                     if (metadata != nullptr) {
                         metadata->object_index = object_index;
                         metadata->face_index = face_index;

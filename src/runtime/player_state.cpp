@@ -701,7 +701,7 @@ void PlayerState::apply_air_orientation_turn(
     orientation_basis_normalization_pending_ = false;
 }
 
-std::int32_t PlayerState::apply_in_air_orientation_turn(
+std::int32_t PlayerState::apply_orientation_turn_producer(
     AirOrientationTurnConfig config) noexcept {
     const std::int32_t producer_angle =
         compute_air_orientation_turn_angle(turn_accumulator_, config);
@@ -711,6 +711,11 @@ std::int32_t PlayerState::apply_in_air_orientation_turn(
         apply_air_orientation_turn(-producer_angle);
     }
     return producer_angle;
+}
+
+std::int32_t PlayerState::apply_in_air_orientation_turn(
+    AirOrientationTurnConfig config) noexcept {
+    return apply_orientation_turn_producer(config);
 }
 
 void PlayerState::normalize_orientation_basis() noexcept {
@@ -904,22 +909,10 @@ void PlayerState::apply_collision_transient_exit_orientation(
     }
 
     // FUN_0046d970 is the only conditional side effect between the first
-    // projection and the history-based rebuild. Its remaining object gates
-    // are not represented at this boundary; the zero-valued Warehouse path
-    // is selected by the same two dot-product tests.
-    const std::int32_t raw_response_forward_dot = fixed_dot_q12(
-        collision_response_,
-        retail_basis_.at_30f4);
-    if (response_forward_dot > -0x666
-        && response_forward_dot < 0x666
-        && raw_response_forward_dot > 0x5000) {
-        for (std::size_t index = 0; index < 3; ++index) {
-            retail_basis_.at_30f4[index] =
-                -retail_basis_.at_30f4[index];
-            retail_basis_.at_3100[index] =
-                -retail_basis_.at_3100[index];
-        }
-    }
+    // projection and the history-based rebuild. It can flip the tangent
+    // axes and their handedness bit before the history-based state decision
+    // continues; it does not replace the projected response.
+    static_cast<void>(apply_collision_orientation_handedness());
 
     // FUN_004cabf0 receives +0xbc as its second vector and +0x2e00 as its
     // third, producing the displacement between the last two frame starts.
@@ -995,6 +988,102 @@ void PlayerState::apply_collision_transient_exit_orientation(
         target,
         short_vector(retail_basis_.at_3100));
     publish_basis();
+}
+
+bool PlayerState::apply_collision_orientation_handedness() noexcept {
+    // FUN_0046d970 rejects animation 0x22 and either of its two object-owned
+    // guard words before testing the response/forward alignment. The guards
+    // are explicit raw inputs here and are clear for the qualified Warehouse
+    // path.
+    if (animation_state_ == 0x22
+        || collision_orientation_gate_a_ != 0
+        || collision_orientation_gate_b_ != 0) {
+        return false;
+    }
+    if (fixed_dot_q12(collision_response_, retail_basis_.at_30f4) <= 0x5000) {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < 3; ++index) {
+        retail_basis_.at_30f4[index] = -retail_basis_.at_30f4[index];
+        retail_basis_.at_3100[index] = -retail_basis_.at_3100[index];
+    }
+    collision_orientation_handedness_ =
+        !collision_orientation_handedness_;
+    orientation_.at(0, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[0]);
+    orientation_.at(1, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[1]);
+    orientation_.at(2, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[2]);
+    orientation_.at(0, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[0]);
+    orientation_.at(1, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[1]);
+    orientation_.at(2, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[2]);
+    orientation_basis_normalization_pending_ = false;
+    return true;
+}
+
+bool PlayerState::apply_landing_orientation_handoff(
+    const FixedPosition& collision_normal) noexcept {
+    // 0x00497960 is a state-0 landing-only branch.  +0x2f64 is the
+    // control-blocked gate and +0x30b8 is the raw physics-state field.
+    if (control_blocked_ || physics_state_ == 2) {
+        return false;
+    }
+
+    const FixedPosition short_normal{
+        static_cast<std::int16_t>(collision_normal[0]),
+        static_cast<std::int16_t>(collision_normal[1]),
+        static_cast<std::int16_t>(collision_normal[2]),
+    };
+    const std::int32_t normal_alignment = fixed_dot_q12(
+        retail_basis_.at_310c,
+        short_normal);
+    if (normal_alignment >= 2000
+        || retail_basis_.at_310c[1] <= -2000
+        || (collision_response_[1] <= 150000 && normal_alignment >= 200)) {
+        return false;
+    }
+
+    // The PC swaps only the forward/air columns here. The lateral column is
+    // preserved by the helper, and PublishOrientationBasis mirrors all three
+    // integer vectors back to the packed short matrix.
+    const FixedPosition old_air = retail_basis_.at_310c;
+    const FixedPosition old_forward = retail_basis_.at_30f4;
+    retail_basis_.at_30f4 = FixedPosition{
+        -old_air[0], -old_air[1], -old_air[2]};
+    retail_basis_.at_310c = old_forward;
+    air_motion_ = retail_basis_.at_310c;
+    orientation_.at(0, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[0]);
+    orientation_.at(1, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[1]);
+    orientation_.at(2, 0) = static_cast<std::int16_t>(
+        retail_basis_.at_3100[2]);
+    orientation_.at(0, 1) = static_cast<std::int16_t>(
+        retail_basis_.at_310c[0]);
+    orientation_.at(1, 1) = static_cast<std::int16_t>(
+        retail_basis_.at_310c[1]);
+    orientation_.at(2, 1) = static_cast<std::int16_t>(
+        retail_basis_.at_310c[2]);
+    orientation_.at(0, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[0]);
+    orientation_.at(1, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[1]);
+    orientation_.at(2, 2) = static_cast<std::int16_t>(
+        retail_basis_.at_30f4[2]);
+    orientation_basis_normalization_pending_ = false;
+
+    // 0x00497960 calls the state request before the basis publication and
+    // then writes (-short_normal * 10), clearing the Y response word.
+    request_physics_state(3, 0);
+    collision_response_[0] = -short_normal[0] * 10;
+    collision_response_[1] = 0;
+    collision_response_[2] = -short_normal[2] * 10;
+    return true;
 }
 
 CollisionResponseResult PlayerState::apply_collision_response(
@@ -1297,7 +1386,11 @@ void PlayerState::apply_orientation_recovery(
 void PlayerState::seed_ground_surface_recovery(
     const FixedPosition& surface_normal) noexcept {
     ground_surface_recovery_target_ = surface_normal;
-    ground_surface_recovery_base_ = retail_basis_.at_310c;
+    // The landing common tail stores the accepted normal in both the target
+    // shorts and the persistent +0x3134/+0x3138/+0x313c interpolation base.
+    // 0x0049d080 therefore starts the next recovery sample from this target,
+    // not from whatever air axis preceded the landing handoff.
+    ground_surface_recovery_base_ = surface_normal;
     ground_surface_recovery_progress_q11_ = 0;
     ground_surface_recovery_update_frame_ = frame_counter_;
 }
@@ -1480,12 +1573,14 @@ void PlayerState::apply_ground_turn_velocity_phase() noexcept {
         ground_turn_saved_orientation_valid_ = false;
         return;
     }
-    // 0x00496360 calls 0x0049b500 after B010 and before the ordinary ground
-    // collision line. Publish its orientation first; the response phase then
-    // uses the saved pre-turn matrix while the subsequent ground tail sees
-    // the new basis.
+    // 0x00496360 calls 0x0049b500 after the pre-query ground work and before
+    // the ordinary collision line. The first phase multiplies the current
+    // orientation; that matters when 0x00496550 has just run 0x0046d970 and
+    // flipped the tangent handedness. The second phase below still uses the
+    // saved pre-turn matrix, as the retail helper does for its response
+    // rescale.
     orientation_ = q12_apply_ground_yaw(
-        ground_turn_saved_orientation_,
+        orientation_,
         ground_turn_angle12_);
     retail_basis_ = retail_basis_from_matrix(orientation_);
     collision_response_ = q12_rotate_ground_velocity(

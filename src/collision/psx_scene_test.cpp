@@ -179,8 +179,12 @@ void check_synthetic_scene() {
     CHECK(scene->objects()[0].collision_angles ==
            (std::array<std::int16_t, 3>{0x1234, -16, -32767}));
     CHECK(scene->models()[0].vertices.size() == 4);
-    const std::array<std::int16_t, 3> expected_normal{0, 0, 4096};
-    CHECK(scene->models()[0].normals[0] == expected_normal);
+    const std::array<std::int16_t, 3> model_normal{0, 0, 4096};
+    const auto expected_normal = opentony::collision::reference::transform_normal_q12(
+        opentony::collision::reference::build_object_rotation_basis(
+            scene->objects()[0].collision_angles),
+        model_normal);
+    CHECK(scene->models()[0].normals[0] == model_normal);
     CHECK(scene->models()[0].faces[0].normal_index == 0);
     const auto query = scene->query({4096, 4096, 4096},
                                     {4096, 4096, -4096});
@@ -281,7 +285,7 @@ void check_synthetic_scene() {
     CHECK(dynamic_result.query.hit_body == 1);
     CHECK(dynamic_result.query.hit_distance == 10);
     CHECK(dynamic_result.query.hit_position.at(2) == 40900);
-    CHECK(dynamic_result.query.hit_normal == expected_normal);
+    CHECK(dynamic_result.query.hit_normal == model_normal);
     CHECK(dynamic_result.object_index == 0);
     CHECK(dynamic_result.face_index == 0);
 
@@ -316,7 +320,7 @@ void check_synthetic_scene() {
     CHECK(linked_result.query.hit_body == 0xfeed1234);
     CHECK(linked_result.query.hit_distance == 1);
     CHECK(linked_result.query.hit_position.at(2) == 0);
-    CHECK(linked_result.query.hit_normal == expected_normal);
+    CHECK(linked_result.query.hit_normal == model_normal);
     CHECK(linked_result.object_index == 0);
     CHECK(linked_result.face_index == 0);
 

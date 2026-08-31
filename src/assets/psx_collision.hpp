@@ -70,6 +70,12 @@ struct PsxCollisionFace {
     std::size_t object_index{};
     std::size_t model_index{};
     std::size_t model_face_index{};
+    // The static PC query keeps face geometry/model normals in model space,
+    // then 0x00463d50 rotates the winning normal through the object's
+    // +0x14/+0x16/+0x18 collision-angle shorts.  Retain those source angles
+    // with the flattened face so the legacy adapter can publish the same
+    // result contract as the recovered scene adapter.
+    std::array<std::int16_t, 3> collision_angles{};
     std::array<std::array<std::int32_t, 3>, 4> vertices{};
     std::array<std::int16_t, 3> normal{};
     std::uint16_t face_flags{};

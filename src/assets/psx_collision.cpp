@@ -1,5 +1,7 @@
 #include "psx_collision.hpp"
 
+#include "../../re/evidence/collision_reference.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -236,6 +238,11 @@ PsxCollisionWorld PsxCollisionWorld::build(const PsxArchive& archive) {
             face.object_index = object_index;
             face.model_index = model_index;
             face.model_face_index = face_index;
+            face.collision_angles = {
+                static_cast<std::int16_t>(object.unknown_1 & 0xffffu),
+                static_cast<std::int16_t>((object.unknown_1 >> 16u) & 0xffffu),
+                static_cast<std::int16_t>(object.unknown_2),
+            };
             face.normal = model.normals[source_face.normal_index];
             face.face_flags = source_face.flags;
             face.surface_flags = source_face.surface_flags;
@@ -501,7 +508,10 @@ std::optional<PsxCollisionHit> PsxCollisionWorld::trace_segment(
                 parameter,
                 static_cast<double>(parameter) / 0x4000,
                 point,
-                face.normal,
+                opentony::collision_reference::transform_normal_q12(
+                    opentony::collision_reference::build_object_rotation_basis(
+                        face.collision_angles),
+                    face.normal),
                 face.face_flags,
                 face.surface_flags,
             };

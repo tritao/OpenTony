@@ -473,10 +473,23 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 // object itself now exposes the integrated point just as
                 // retail +0x08 does at 0x00496f2b.
                 current_player.set_position(desired);
+                // 0x00496550 calls FUN_0046d970 after its pre-query motion
+                // work and before FUN_00496360. Keep this orientation
+                // handedness producer at that boundary; it is not part of
+                // the later 0x00491780 recovery helper.
+                if (current_player.physics_state() != 2) {
+                    static_cast<void>(
+                        current_player.apply_collision_orientation_handedness());
+                }
             }
-            if (stage == PhysicsDispatchStage::GroundCollision_96550
-                && (current_player.physics_state() == 0
-                    || current_player.physics_state() == 2)
+            const bool uses_shared_surface_response =
+                (stage == PhysicsDispatchStage::GroundCollision_96550
+                 && (current_player.physics_state() == 0
+                     || current_player.physics_state() == 2))
+                || (stage == PhysicsDispatchStage::InAir_97f40
+                    && current_player.physics_state() == 1
+                    && current_player.ground_update_state() != 0);
+            if (uses_shared_surface_response
                 && hooks.ground_surface_response_input) {
                 // FUN_00496360 is called by FUN_00496550 before the ordinary
                 // movement line is built and queried. Its response/service
@@ -506,6 +519,27 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 // than after collision selection.
                 current_player.apply_ground_turn_velocity_phase();
             }
+            const bool uses_state_specific_turn_phase =
+                (stage == PhysicsDispatchStage::GroundCollision_96550
+                 && current_player.physics_state() == 2)
+                || (stage == PhysicsDispatchStage::InAir_97f40
+                    && current_player.physics_state() == 1
+                    && current_player.ground_update_state() != 0);
+            if (uses_state_specific_turn_phase
+                && hooks.air_orientation_turn_input) {
+                // State 2 reaches FUN_00496360's shared orientation phase
+                // here. Its bVar1 predicate selects the state-specific
+                // profile formula, while !bVar1 passes zero as FUN_0049b500's
+                // response phase: publish the turn, leave +0x4c untouched.
+                const std::optional<AirOrientationTurnConfig> turn_input =
+                    hooks.air_orientation_turn_input(current_player, input,
+                                                     frame_scale_q8);
+                if (turn_input.has_value()) {
+                    static_cast<void>(
+                        current_player.apply_orientation_turn_producer(
+                            *turn_input));
+                }
+            }
             if (stage == PhysicsDispatchStage::InAir_97f40
                 && current_player.physics_state() != 2
                 && hooks.air_orientation_pivot_input) {
@@ -524,6 +558,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             }
             if (stage == PhysicsDispatchStage::InAir_97f40
                 && current_player.physics_state() == 1
+                && current_player.ground_update_state() == 0
                 && hooks.air_orientation_turn_input) {
                 const std::optional<AirOrientationTurnConfig> turn_input =
                     hooks.air_orientation_turn_input(
@@ -1159,6 +1194,7 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 hooks.bypass_collision);
             if (stage == PhysicsDispatchStage::InAir_97f40
                 && current_player.physics_state() != 2
+                && current_player.ground_update_state() == 0
                 && hooks.air_upright_input) {
                 const std::optional<FixedPosition> global_up =
                     hooks.air_upright_input(current_player, input);
@@ -1372,16 +1408,18 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     current_player.set_turn_accumulator(0);
                     current_player.apply_collision_transient_exit_orientation(
                         result.collision_hit->normal);
-                    // The state request makes the post-landing state differ
-                    // from the in-air state, so retail's trailing
-                    // FUN_0049d080 publication runs on the accepted normal
-                    // after FUN_00491780. This is the ordinary landing path,
-                    // not a material-specific replay branch.
+                    static_cast<void>(
+                        current_player.apply_landing_orientation_handoff(
+                            result.collision_hit->normal));
+                    // The common landing tail writes the accepted normal to
+                    // +0x80 and +0x3134/+0x3138/+0x313c before the terminal
+                    // FUN_0049d080 publication. This is the ordinary landing
+                    // path, not a material-specific replay branch.
+                    current_player.seed_ground_surface_recovery(
+                        result.collision_hit->normal);
                     current_player.apply_orientation_recovery(
                         result.collision_hit->normal,
                         true);
-                    current_player.seed_ground_surface_recovery(
-                        result.collision_hit->normal);
                     result.landed = true;
                 } else {
                     result.landed = current_player.accept_air_contact(

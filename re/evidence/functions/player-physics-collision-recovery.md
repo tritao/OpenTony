@@ -30,11 +30,17 @@ Skater_PhysicsFrame 0049e680
                -> Skater_ApplyCollisionResponse 0049bad0
        state 2:
          Skater_DoGroundPhysics 00496550
+            -> Skater_GroundSurfaceResponseStep 00496360
+               -> Skater_ProfileService 0048f3a0(4)
+               -> Skater_ApplyTurnVelocityPhase 0049b500(angle, 0, 0)
        state 1 / 3 / 6:
          Skater_DoPhysicsInAir 00497f40
          -> Skater_UpdateAirBasis 00497df0
-         -> Skater_AirTurnProducer (inline block 00498666..00498a10)
+         -> if +30c4 == 0: Skater_AirTurnProducer (inline block 00498666..00498a10)
+            if +30c4 != 0: Skater_GroundSurfaceResponseStep 00496360
          -> Skater_AirCollisionRecovery 00497aa0
+         -> Skater_AirCollisionOrientationRecovery 00491780
+         -> Skater_AirLandingOrientationRecovery 00497960
          -> Skater_ApplyCollisionResponse 0049bad0
          -> Skater_RebuildOrientationRecovery 0049d080
        state 4:
@@ -75,8 +81,9 @@ callback.
 | `0x00493370` | `Skater_ActionPhysicsUpdate` | `__fastcall(void *skater)` | `0x0049e680`; state 0/7 and state 1/2 turn producers, animation/profile update | confirmed for connected turn blocks |
 | `0x0048f3a0` | `Skater_ProfileService` (provisional) | `__thiscall(void *owner, int selector)` returning `int` | `0x00497f40` selector `4`; resolves profile/table data through `+0x2cc0` | body confirmed, semantic owner provisional |
 | `0x00416980` | `PhysicsTimingSelector` (provisional) | `__cdecl(int selector)` returning `char` | `0x00497f40` selector `10`; selects `AnimationTimeScale` application | confirmed selector/table read |
-| `0x00491780` | `Skater_AirCollisionOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; calls normal projection, history/basis helpers, state request | confirmed |
-| `0x00497960` | `Skater_AirLandingOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; called by the accepted-contact landing branch | confirmed |
+| `0x00491780` | `Skater_AirCollisionOrientationRecovery` | `__thiscall(u32 packed_xy, i16 z)` | `0x00497f40`; calls normal projection, `0x0046d970`, history/basis helpers, state request | confirmed |
+| `0x00497960` | `Skater_AirLandingOrientationRecovery` | `__thiscall(void)` | `0x00497f40`; called by the accepted-contact landing branch | confirmed |
+| `0x0046d970` | `Skater_ApplyCollisionOrientationHandedness` | `__thiscall(void)` returning `bool`-like `int` | `0x00496550` pre-query state-0 path and `0x00491780`; flips tangent axes only when object gates and response/forward threshold permit | confirmed |
 | `0x0049bad0` | `Skater_ApplyCollisionResponse` | `__thiscall(u32 packed_xy, i16 z, int heading)` | ground, air, rail, swept-contact callers; calls fixed dot/multiply, matrix rotation, `0x0049c7d0`, `0x0049c850` | confirmed |
 | `0x0049b500` | `Skater_ApplyTurnVelocityPhase` | `__thiscall(int angle12, int response_phase, short offset)` | `0x00496360`, `0x00490730`, other steering/recovery callers; calls `0x004e80e0`, `0x004e3130`, `0x0049c7d0`, `0x004cac30`, `0x004cac90` | confirmed |
 | `0x004ca8f0` | `Runtime_QuantizedVectorMagnitudeClamp` | `__thiscall(const int *vector)` returning `int` | `0x004957c0`, `0x00496550`; calls `0x004e3ce0`/`0x004e2130` and `0x004f53b0` | confirmed |
@@ -402,7 +409,9 @@ Otherwise it advances each component of the current recovery base
 `+0x3134/+0x3138/+0x313c` toward those target shorts by an arithmetic shift
 right of two. It then normalizes the target, crosses it with the current
 forward/tangent vector, crosses again to form the paired tangent, and
-publishes the basis.
+publishes the basis. The helper writes the interpolated vector back to the
+same `+0x3134/+0x3138/+0x313c` base words, so those words are persistent
+recovery state rather than scratch temporaries.
 
 This function writes temporary basis/orientation state first and publishes
 the resulting persistent short matrix and `+0x30f4/+0x3100/+0x310c` vectors
@@ -432,9 +441,10 @@ The air recovery subpaths are ordered, not interchangeable:
 * `0x00491780` removes the contact-normal component from a local response,
   requires the speed metric to exceed `0x1e000`, and uses the strict basis
   thresholds `abs(dot) > 0xfc1`, `< 0xb50`, and the deeper `< 0x666` history
-  branch. The history delta is `position + 0xbc - +0x2e00`; after the
-  fixed-point shift/normalization it supplies the handedness for the rebuilt
-  forward/up basis and possible state request.
+  branch. The `0x0046d970` handedness helper is called only after entering
+  that narrow band. The history delta is `position + 0xbc - +0x2e00`; after
+  the fixed-point shift/normalization it supplies the handedness for the
+  rebuilt forward/up basis and possible state request.
 * `0x00497960` accepts the recovery orientation window only when the target
   dot is between `-2000` and `2000` and either `+0x50 > 150000` or the dot is
   below `200`. It publishes the reversed forward/up basis, writes response
@@ -442,9 +452,12 @@ The air recovery subpaths are ordered, not interchangeable:
 * `0x00497df0` updates the air basis scalar by subtracting `500` per frame to
   a floor of `-0xe0c`, then normalizes and republishes the paired basis.
 
-After the landing state request, the non-state-1 path removes the selected
-normal from response, seeds `+0x80/+0x3134/+0x3138/+0x313c`, resets `+0x3130`,
-and calls `0x0049d080`. The state-2 to state-1 recovery exit at
+The accepted landing path is explicitly ordered as
+`0x00491780 -> 0x00497960 -> 0x004916d0 -> 0x00497bb0` before the common
+normal/recovery tail. After the landing state request, the non-state-1 path
+removes the selected normal from response, seeds
+`+0x80/+0x3134/+0x3138/+0x313c`, resets `+0x3130`, and calls `0x0049d080`.
+The state-2 to state-1 recovery exit at
 `0x004956f0` uses reason `0x1605`; the ordinary exit uses `0x160b` and its
 separate cleanup writes. These reason codes are state-machine contracts, not
 surface class labels.
@@ -563,23 +576,24 @@ static chunk:
 
 | recording | result |
 |---|---|
-| canonical retail `warehouse-idle-256-canonical` | 259/259 strict frames |
-| qualification `warehouse-straight` | 256/256 strict frames |
-| qualification `warehouse-ollie-land` | 256/256 strict frames |
-| qualification `warehouse-turn-ollie` | first mismatch at frame 84, collision response |
-| qualification `warehouse-turn` | first mismatch at frame 207, collision response |
+| `build/scenarios/warehouse-idle/retail.otrec` | 256/256 strict frames |
+| `build/scenarios/warehouse-straight/retail.otrec` | 256/256 strict frames |
+| `build/qualification/hybrid-input/warehouse-ollie-land.otrec` | 256/256 strict frames |
+| `build/qualification/hybrid-input/warehouse-turn-ollie.otrec` | first mismatch at frame 164, collision response |
+| `build/qualification/hybrid-input/warehouse-turn.otrec` | first mismatch at frame 207, collision response |
 
 The new in-air producer closes the previous turn-ollie orientation mismatch:
 the native trace follows the retail accumulator, orientation, position, and
-state transition through the landing at frame 83. Its first residual is frame
-84 collision response, retail `[31301,-50089,-100445]` versus native
-`[31301,-50088,-100445]`; this is a one-unit post-landing fixed-point seam,
-not an orientation-input divergence. The non-ollie turn fixture remains exact
-through frame 206. Its first residual at frame 207 is the already isolated
-collision-normal provenance seam: retail response `[-13279,0,-41956]` versus
-native `[-13279,35,-41956]`. The response arithmetic is statically confirmed;
-the retail query's Y normal component still needs to be reconciled with the
-portable scene-query normal.
+state transition through the landing at frame 83 and remains exact through
+frame 163. Its first residual is frame 164 collision response, retail
+`[-4488,0,117775]` versus native `[-4488,27,117775]`; this is a response-only
+normal-provenance seam, not an orientation-input divergence. The non-ollie
+turn fixture remains exact through frame 206. Its first residual at frame 207
+is the same seam: retail response `[-13279,0,-41956]` versus native
+`[-13279,35,-41956]`. The response arithmetic and the PC final-normal
+producer are statically bounded; the remaining question is why the portable
+scene result retains a low Y component at these contacts when the retail
+response snapshot does not.
 
 The remaining qualification mismatches are outside the already matching
 idle/straight collision frontier:
@@ -589,9 +603,8 @@ idle/straight collision frontier:
   its existing `0x0049eaed` observer alias, and the recording now matches all
   256 frames. The selected contact at the former boundary was the flat ground
   normal, confirming that no collision class or recorder channel was missing.
-* `warehouse-turn-ollie` now reaches frame 83 exactly through the in-air
-  orientation/landing handoff; frame 84 is a one-unit collision-response
-  rounding difference.
+* `warehouse-turn-ollie` now reaches frame 163 exactly through the in-air
+  orientation/landing handoff; frame 164 is a response-only normal difference.
 * `warehouse-turn` remains exact through frame 206; frame 207 is the narrow
   query-normal provenance difference described above.
 * the outer `0x00490730` floor/restart helper is now represented as a focused
@@ -603,11 +616,13 @@ idle/straight collision frontier:
 The remaining narrow static questions are the nonzero `+0x2858`/`0x0048cb60`
 profile-array contract, the alternate `+0x40/+0x60` and `+0x2e80` action
 branches, the `0x0049b010` animation/profile/stat owner outside qualified
-Warehouse, and the retail Y-normal provenance at frame 207. The frame-84
-one-unit response difference is also a candidate for fixed-point ordering
-inspection after those contracts are mapped. The requested `0x0049ca8f`
-service ambiguity is closed: the actual `0x004ca8f0` call is deterministic
-quantized magnitude code. Dynamic debugging is justified only if static bytes
-leave two plausible call ordering, ownership, or indirect-dispatch
-interpretations. Replay remains the verification oracle, not the source of
-new collision behavior.
+Warehouse, and the retail Y-normal provenance at the two turn residuals. A
+single future PC experiment is justified only if the static normal pipeline
+cannot discriminate these two possibilities: inspect `q+0x78..0x7c` after
+`0x00463d50` and `+0x4c/+0x50/+0x54` across `0x0049bad0` for the first
+residual contact. That experiment would distinguish a finalizer/source-normal
+difference from a later response-side write; it does not justify a replay
+special case or recorder expansion. The requested `0x0049ca8f` service
+ambiguity is closed: the actual `0x004ca8f0` call is deterministic quantized
+magnitude code. Replay remains the verification oracle, not the source of new
+collision behavior.

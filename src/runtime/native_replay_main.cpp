@@ -403,13 +403,15 @@ int run(int argc, char** argv) {
         std::int32_t frame_scale_q8) {
         if (active_frame == nullptr
             || !active_frame->air_orientation_profile_available
-            || player.physics_state() != 1) {
+            || (player.physics_state() != 1
+                && player.physics_state() != 2)) {
             return std::optional<opentony::runtime::AirOrientationTurnConfig>{};
         }
-        // The qualified Warehouse path has +0x2858 == 0, so retail uses the
-        // persistent +0x306c modifier. Its captured state is zero at this
-        // producer call; the nonzero profile-array helper remains a separate
-        // unresolved contract for other retail paths.
+        // The qualified Warehouse path has +0x2858 == 0, so both the
+        // ordinary 0x00498725 producer and state-2 0x004963e3 use the
+        // persistent +0x306c modifier. Its captured state is zero at these
+        // producer calls; the nonzero profile-array helper remains a
+        // separate unresolved contract for other retail paths.
         return std::optional<opentony::runtime::AirOrientationTurnConfig>{
             opentony::runtime::AirOrientationTurnConfig{
                 active_frame->air_orientation_profile_value,

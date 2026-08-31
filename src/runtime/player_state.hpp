@@ -312,6 +312,15 @@ public:
     void set_collision_response(FixedPosition response) noexcept {
         collision_response_ = response;
     }
+    // Raw gates consumed by FUN_0046d970 at +0x2c7c/+0x2c78. They default to
+    // the clear Warehouse values; callers with a recovered owner can fill
+    // them without changing the helper's static predicate.
+    void set_collision_orientation_helper_gates(
+        std::int32_t gate_a,
+        std::int32_t gate_b) noexcept {
+        collision_orientation_gate_a_ = gate_a;
+        collision_orientation_gate_b_ = gate_b;
+    }
     void add_collision_response(const FixedPosition& delta) noexcept {
         for (std::size_t index = 0; index < collision_response_.size(); ++index) {
             collision_response_[index] += delta[index];
@@ -555,14 +564,19 @@ public:
     void apply_upright_correction(
         const FixedPosition& global_up) noexcept;
 
-    // Applies the recovered in-air turn accumulator to the orientation
-    // matrix. Retail rotates around the published air axis, so the Q12 yaw
-    // leaves +0x310c unchanged while updating the two tangent axes.
+    // Applies the shared recovered orientation-turn producer used by
+    // FUN_00496360 and the ordinary state-1 portion of FUN_00497f40. The
+    // resulting signed angle is the same right-multiplied Q12 operation in
+    // both callers; the state-2 caller simply omits the response phase.
     void apply_air_orientation_turn(std::int32_t angle12) noexcept;
 
-    // Computes and applies the later ordinary state-1 turn producer. The
-    // returned value is the producer angle before the matrix writer's sign
-    // convention is applied.
+    // Computes and applies the shared profile/accumulator turn producer. The
+    // returned value is the positive retail scalar before the matrix writer's
+    // opposite signed angle is applied.
+    [[nodiscard]] std::int32_t apply_orientation_turn_producer(
+        AirOrientationTurnConfig config) noexcept;
+
+    // Compatibility name for the ordinary state-1 0x00497f40 caller.
     [[nodiscard]] std::int32_t apply_in_air_orientation_turn(
         AirOrientationTurnConfig config) noexcept;
 
@@ -673,6 +687,18 @@ public:
     // is used only by the state-2 recovery exit, after its collision normal
     // and two-position history have been selected.
     void apply_collision_transient_exit_orientation(
+        const FixedPosition& collision_normal) noexcept;
+
+    // Executes FUN_0046d970 at the 0x00496550 pre-query boundary. The helper
+    // conditionally flips the two tangent axes and its handedness flag when
+    // the response is strongly aligned with the current forward axis.
+    [[nodiscard]] bool apply_collision_orientation_handedness() noexcept;
+
+    // Executes the conditional landing handoff at retail 0x00497960. It can
+    // reverse the forward/air axes and replace the response with the
+    // negative short normal scaled by ten before the final recovery-record
+    // write and 0x0049d080 publication.
+    [[nodiscard]] bool apply_landing_orientation_handoff(
         const FixedPosition& collision_normal) noexcept;
 
     [[nodiscard]] CollisionResponseResult apply_collision_response(
@@ -812,6 +838,9 @@ private:
     bool ground_turn_policy_changed_{};
     bool control_blocked_{};
     std::int32_t control_blocked_velocity_decay_divisor_{};
+    std::int32_t collision_orientation_gate_a_{};
+    std::int32_t collision_orientation_gate_b_{};
+    bool collision_orientation_handedness_{};
     std::uint16_t animation_state_{};
     std::int16_t animation_frame_{};
     std::int32_t field_2cdc_{};

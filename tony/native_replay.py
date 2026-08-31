@@ -230,13 +230,19 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             "raw_roll": int(event["return_value_s32"]),
         }
 
-    # FUN_00497f40's ordinary turn block consumes the existing profile
-    # service result from FUN_0048f3a0(4). This is a causal shared-service
-    # input already present in OTREC2; do not derive the orientation angle
-    # from the before/after +0x3068 snapshot word.
+    # Both connected orientation consumers use the same existing profile
+    # service channel.  The ordinary state-1 branch returns through
+    # 0x00498725, while FUN_00496360 returns through 0x004963e3 for state 2
+    # (and for state 1 with +0x30c4 set).  Prefer the latter when present;
+    # this keeps the already-recorded causal service result attached to the
+    # correct retail call boundary instead of deriving it from snapshots.
     orientation_profile_events = generic_random_by_caller.get(
-        "0x00498725", []
+        "0x004963e3", []
     )
+    if not orientation_profile_events:
+        orientation_profile_events = generic_random_by_caller.get(
+            "0x00498725", []
+        )
     if len(orientation_profile_events) > 1:
         raise ValueError(
             f"frame {frame_index} has duplicate air orientation profile events"

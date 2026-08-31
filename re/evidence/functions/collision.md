@@ -438,11 +438,16 @@ until `match/original` is available.
   is parameter-ordering along the segment; `q+0x40` is the same parameter
   converted to the line's integer length. This resolves the former
   `q+0x40` versus `q+0x8c` ambiguity.
-- `0x00463d50` tests `q+0x68`. On a hit it transforms the model normal data
-  at `q+0x68 + 0x14`, writes the resulting three short components to
-  `q+0x78..0x7c`, copies auxiliary normal data to globals, and returns `1`.
-  With no hit it returns `0`. This is the strongest normal-output candidate,
-  but the axis/sign convention is not finalized.
+- `0x00463d50` tests `q+0x68`, which `0x00462a20` populated with the winning
+  model instance. On a hit it reads that instance's collision-angle shorts at
+  `+0x14/+0x16/+0x18`, prepares the object rotation through `0x004e80e0`,
+  transforms the model-space normal held in the shared collision scratch
+  words through `0x004e39a0`, and writes the resulting signed shorts to
+  `q+0x78..0x7c`. It also copies the auxiliary model-normal words to globals
+  and returns `1`; with no winning instance it returns `0`. The face test and
+  contact interpolation therefore remain in model space, while only the
+  final normal is object-oriented. This is the normal contract used by the
+  native PSX scene and legacy adapters.
 - `0x0048ea80` is a 131-byte, no-callee result consumer immediately after
   several physics queries, not the geometric tester. If `q+0x68` is nonzero,
   it reads `q+0x80` and the face record's word at `+0x0c`, then derives the
