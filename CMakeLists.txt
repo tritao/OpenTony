@@ -78,6 +78,7 @@ add_library(opentony_runtime STATIC
     src/runtime/ground_motion.cpp
     src/runtime/ground_animation.cpp
     src/runtime/ground_motion_threshold.cpp
+    src/runtime/ground_surface_response.cpp
     src/runtime/ground_turn.cpp
     src/runtime/action_profile.cpp
     src/runtime/action_sequence.cpp

@@ -65,6 +65,11 @@ void PlayerState::request_physics_state_from_basis(
             fixed_multiply_q12(transition_basis[1], 0x32c8);
         ground_surface_response_correction_[2] =
             -fixed_multiply_q12(transition_basis[2], 0x32c8);
+        if (reason == 0x1ac9) {
+            // The special-ground entry calls FUN_0048f5f0 before the state
+            // request; that service seeds +0x2d90 with 0xf.
+            ground_surface_response_timer_ = 0xf;
+        }
     }
     last_state_request_ = PhysicsStateRequest{
         physics_state_,
@@ -113,6 +118,9 @@ PlayerState::exit_ground_collision_recovery() noexcept {
     collision_recovery_correction_gate_ = 0;
     collision_recovery_active_ = 1;
     collision_recovery_latch_ = 0;
+    // FUN_0048f5f0, called by the ordinary branch, seeds the shared
+    // surface-response latch consumed by FUN_00496360.
+    ground_surface_response_timer_ = 0xf;
 
     if (!control_blocked_) {
         if (collision_recovery_stream_ != 0 && field_2dd4_ != 0) {
@@ -174,6 +182,10 @@ void PlayerState::apply_restart(
     ground_surface_response_correction_ = {};
     ground_surface_response_normal_ = retail_basis_.at_310c;
     ground_surface_response_mode_ = 0;
+    ground_surface_response_correction_units_ = 0;
+    ground_surface_response_timer_ = 0;
+    ground_surface_response_phase_accumulator_ = 0;
+    ground_surface_response_phase_count_ = 0;
     ground_surface_recovery_progress_q11_ = 0;
     orientation_basis_normalization_pending_ = true;
     ground_turn_saved_orientation_ = orientation_;
@@ -1205,13 +1217,15 @@ CollisionOrientationResult PlayerState::apply_collision_orientation(
     };
 }
 
-std::int32_t PlayerState::apply_ground_surface_response(
-    const GroundSurfaceResponseInput& input,
-    std::int32_t frame_scale_q8,
-    bool rotate_collision_response) noexcept {
+std::int32_t PlayerState::compute_ground_surface_response_delta(
+    const GroundSurfaceResponseInput& input) noexcept {
     // FUN_0049c060 uses the response speed metric for its cap. Its surface
     // correction path consumes the same magnitude helper before the caller's
     // fixed-point scale, so this value is the Q12 magnitude's high component.
+    ground_surface_response_correction_units_ = 0;
+    if (control_blocked_) {
+        return 0;
+    }
     std::int32_t response_metric = retail_vector_speed_metric(
         collision_response_);
     const std::int32_t correction_magnitude = retail_vector_magnitude_q12(
@@ -1245,6 +1259,7 @@ std::int32_t PlayerState::apply_ground_surface_response(
     const std::int32_t response_delta = divide32(
         numerator,
         randomized_speed_limit(input.denominator_random));
+    ground_surface_response_correction_units_ = response_delta;
     if (response_delta == 0) {
         ground_surface_response_mode_ = 0;
         return 0;
@@ -1282,6 +1297,16 @@ std::int32_t PlayerState::apply_ground_surface_response(
         return 0;
     }
 
+    ground_surface_response_correction_units_ = signed_delta;
+    return signed_delta;
+}
+
+std::int32_t PlayerState::apply_ground_surface_response(
+    const GroundSurfaceResponseInput& input,
+    std::int32_t frame_scale_q8,
+    bool rotate_collision_response) noexcept {
+    const std::int32_t signed_delta =
+        compute_ground_surface_response_delta(input);
     const std::int32_t angle12 = fixed_scale_q8(
         signed_delta,
         frame_scale_q8);
@@ -1300,6 +1325,74 @@ std::int32_t PlayerState::apply_ground_surface_response(
         }
     }
     return angle12;
+}
+
+GroundSurfaceResponseStepResult
+PlayerState::apply_ground_surface_response_step(
+    GroundSurfaceResponseStepInput input,
+    const std::optional<GroundSurfaceResponseInput>& response_input) noexcept {
+    input.physics_state = physics_state_;
+    input.ground_update_state = ground_update_state_;
+    input.turn_accumulator_q12 = turn_accumulator_;
+    input.surface_response_timer = ground_surface_response_timer_;
+
+    GroundSurfaceResponseStepResult result =
+        compute_ground_surface_response_step(input);
+    ground_surface_response_correction_units_ = 0;
+    bool response_input_missing = false;
+    if (result.response_call_requested) {
+        if (response_input.has_value()) {
+            ground_surface_response_correction_units_ =
+                compute_ground_surface_response_delta(*response_input);
+        } else {
+            response_input_missing = true;
+        }
+        input.response_correction_units =
+            ground_surface_response_correction_units_;
+        result = compute_ground_surface_response_step(input);
+    }
+    result.response_input_missing = response_input_missing;
+
+    ground_surface_response_timer_ = result.timer_after;
+    if (result.special_ground_phase) {
+        if (result.angle12 != 0) {
+            // FUN_00496360 passes zero as the response phase for state 2 and
+            // for state 1 with +0x30c4 set. The matrix writer still receives
+            // the positive scalar with the same opposite signed angle as the
+            // ordinary in-air turn producer.
+            apply_air_orientation_turn(-result.angle12);
+            result.orientation_written = true;
+        }
+    } else {
+        const bool had_turn_phase = ground_turn_saved_orientation_valid_;
+        apply_ground_turn_velocity_phase(
+            result.response_correction_units,
+            input.frame_scale_q8);
+        result.orientation_written = had_turn_phase
+            && result.angle12 != 0;
+    }
+
+    if (field_2dd4_ == 0) {
+        ground_surface_response_phase_accumulator_ = wrap32(
+            static_cast<std::int64_t>(
+                ground_surface_response_phase_accumulator_)
+            + result.angle12);
+        result.phase_accumulator_written = true;
+        if (ground_surface_response_phase_accumulator_ >= 0x800) {
+            ground_surface_response_phase_accumulator_ -= 0x800;
+            ++ground_surface_response_phase_count_;
+            result.phase_accumulator_wrapped = true;
+            result.phase_refresh_service_requested =
+                !input.phase_refresh_blocked_2c84;
+        } else if (ground_surface_response_phase_accumulator_ <= -0x800) {
+            ground_surface_response_phase_accumulator_ += 0x800;
+            ++ground_surface_response_phase_count_;
+            result.phase_accumulator_wrapped = true;
+            result.phase_refresh_service_requested =
+                !input.phase_refresh_blocked_2c84;
+        }
+    }
+    return result;
 }
 
 void PlayerState::apply_ground_leave_air_response(
@@ -1568,8 +1661,21 @@ GroundTurnResult PlayerState::update_ground_turn(
     return resolved;
 }
 
-void PlayerState::apply_ground_turn_velocity_phase() noexcept {
-    if (!ground_turn_saved_orientation_valid_ || ground_turn_angle12_ == 0) {
+void PlayerState::apply_ground_turn_velocity_phase(
+    std::int32_t additional_turn_units,
+    std::int32_t frame_scale_q8) noexcept {
+    if (!ground_turn_saved_orientation_valid_) {
+        return;
+    }
+    std::int32_t angle12 = ground_turn_angle12_;
+    if (additional_turn_units != 0) {
+        angle12 = fixed_scale_q8(
+            wrap32(
+                static_cast<std::int64_t>(turn_accumulator_ >> 12)
+                + additional_turn_units),
+            frame_scale_q8);
+    }
+    if (angle12 == 0) {
         ground_turn_saved_orientation_valid_ = false;
         return;
     }
@@ -1581,12 +1687,12 @@ void PlayerState::apply_ground_turn_velocity_phase() noexcept {
     // rescale.
     orientation_ = q12_apply_ground_yaw(
         orientation_,
-        ground_turn_angle12_);
+        angle12);
     retail_basis_ = retail_basis_from_matrix(orientation_);
     collision_response_ = q12_rotate_ground_velocity(
         collision_response_,
         ground_turn_saved_orientation_,
-        ground_turn_angle12_);
+        angle12);
     ground_turn_saved_orientation_valid_ = false;
 }
 

@@ -292,13 +292,17 @@ The native predicate is recorded in `collision_recovery.cpp` and receives
 the target normal, forward basis, response, and decoded face bits as separate
 inputs.
 
-The state-2 special branch writes the recovery normal to the state-2 normal
-words, sets the recovery progress to `0x19000`, removes the normal component
-from the forward basis, rebuilds the orientation basis, and requests state 0
-with reason `0x19bf`. The same function's ordinary state-0/state-1 branch can
-request state 2 with reason `0x1ac9` after the recent-window test, or request
-state 1 with reason `0x1ab6` after the long recovery response shaping. These
-are separate branches and must not be collapsed into a surface-flag name.
+The accepted support-contact state-2 branch writes the recovery normal to the
+state-2 normal words, sets the recovery progress to `0x19000`, removes the
+normal component from the forward basis, rebuilds the orientation basis, and
+requests state 0 with reason `0x19bf`. A separate inverse-material branch for
+nonzero state requests state 0 with reason `0x1b19` after
+`Skater_AirCollisionOrientationRecovery`; it also clears the collision/action
+history at `+0x29e0`/`+0x2a14` and refreshes `+0x2d98`. The same function's
+ordinary state-0/state-1 branch can request state 2 with reason `0x1ac9` after
+the recent-window test, or request state 1 with reason `0x1ab6` after the long
+recovery response shaping. These are separate branches and must not be
+collapsed into a surface-flag name.
 
 The final correction tail runs after the selected collision branch. For state
 0 it projects response onto `+0x3100` and, when its profile/speed gates are
@@ -413,6 +417,98 @@ calls `0x0049b500` and updates `+0x3068/+0x306c`. The pre-query call order is
 `0x00496360` before the ordinary movement line in `0x00496550`; the native
 frame preserves that boundary even where the upstream profile/stat producer
 is still an explicit input.
+
+## Ground surface-response phase: `0x00496360`
+
+The complete PC body is in `build/physics-sprint/decomp/00496360.c`. It is a
+`__fastcall(void *skater)` helper called from `0x00496550`; its relevant
+callees are `0x0049c060(0x28)`, `0x0049b500(angle, response_phase, 0)`,
+`0x0048f3a0(4)`, the alternate modifier service `0x0048cb60`, and the phase
+refresh service `0x0048ddc0`. The body is a caller-side control phase around
+the response service, not a collision query or a new random producer.
+
+Its branch predicates and side-effect order are:
+
+```text
+special = (+0x30b8 == 2) || (+0x30b8 == 1 && +0x30c4 != 0)
+if (+0x2c88 != 0 || +0x2e80 != 0 || +0x2c80 != 0):
+    +0x2d90 = 0
+
+turn = +0x3144 >> 12
+if special:
+    modifier = +0x306c if +0x2858 == 0 else 0x0048cb60(+0x2858 - 1)
+    profile = 0x0048f3a0(4)
+    turn = (((profile + 300) * turn * 25) / 10000)
+            * (modifier * -9 + 100) / 100
+
+timer = +0x2d90
++0x3124 = 0
+if timer == 0:
+    +0x2d90 = 0
+else if turn == 0:
+    0x0049c060(0x28)
+    turn += +0x3124
+else:
+    decrement = 3 if action[+0x10] == 0 && action[+0x20] == 0 else 1
+    +0x2d90 = max(timer - decrement, 0)
+    turn += +0x3124
+
+angle = AnimationTimeScale * turn >> 8
+0x0049b500(angle, !special, 0)
+if +0x2dd4 == 0:
+    +0x3068 += angle
+if +0x3068 > 0x7ff:
+    +0x3068 -= 0x800
+    if +0x2c84 == 0:
+        ++0x306c
+        0x0048ddc0()
+if +0x3068 < -0x7ff:
+    +0x3068 += 0x800
+    if +0x2c84 == 0:
+        ++0x306c
+        0x0048ddc0()
+```
+
+The constants have distinct roles. `+0x3144` is a Q12 turn accumulator and
+the arithmetic shift discards its fractional units for this phase. `300`,
+`25`, `10000`, `-9`, and `100` are the special-ground profile/modifier
+scaling terms; `25` is the literal `0x19` in the PC instruction stream.
+`AnimationTimeScale` and `>> 8` convert the resulting integer turn units to
+the Q12 angle consumed by the matrix/velocity writer. `0x28` is the response
+service mode/parameter, not a distance or a material ID. The `+0x2d90`
+counter is a persistent recovery/action latch: it is seeded to `0xf` by the
+`0x0048f5f0` path reached from recovery/contact handling, decays by three or
+one tick, and is not a generic acceleration field. `+0x3068` is the wrapped
+angle accumulator, `+0x306c` is the count/modifier field, `+0x2dd4` suppresses
+the accumulator write, and `+0x2c84` suppresses only the count/refresh
+service after wrapping.
+
+The writes divide cleanly by ownership. `+0x2d90`, `+0x3124`, `+0x3068`, and
+`+0x306c` are persistent player state. The action bytes and profile/modifier
+values are caller/service inputs. `0x0049c060` produces the persistent signed
+`+0x3124` correction from the already-published `+0x4c` response,
+`+0x3118` correction, and `+0x3128/+0x312a/+0x312c` normal. The `0x0049b500`
+orientation/basis write is a derived output; with `!special != 0` its second
+phase also rotates/rescales `+0x4c/+0x50/+0x54`, while special ground passes
+zero and leaves that response vector untouched. The accumulator wrap and
+`0x0048ddc0` call occur after the orientation writer, so they cannot be moved
+ahead of collision response/orientation without changing the next movement
+query.
+
+The native semantic boundary is `src/runtime/ground_surface_response.hpp` and
+`ground_surface_response.cpp`, called by
+`PlayerState::apply_ground_surface_response_step()` from
+`src/runtime/physics_frame.cpp`. `compute_ground_surface_response_step()` is
+the pure branch reconstruction; `PlayerState` supplies the persistent timer,
+the response-service result, orientation handoff, accumulator, and count.
+The existing `ground_surface_response_input` hook carries only the already
+recorded shared-service values used by `0x0049c060`. Because the producer of
+`+0x2d90` is not yet owned by native state, replay also supplies an explicit
+`response_call_observed` bridge when that existing service call is present.
+This is marked provisional in the native header: it preserves the static
+call/result boundary without adding a recorder channel or treating a
+before/after observation as a new causal input. The next static task is to
+recover the `+0x2d90` producer and the owners of the three clear gates.
 
 ## Shared position writer: `0x00496060`
 

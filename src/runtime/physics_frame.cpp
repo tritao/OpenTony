@@ -493,55 +493,61 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 || (stage == PhysicsDispatchStage::InAir_97f40
                     && current_player.physics_state() == 1
                     && current_player.ground_update_state() != 0);
-            if (uses_shared_surface_response
-                && hooks.ground_surface_response_input) {
-                // FUN_00496360 is called by FUN_00496550 before the ordinary
-                // movement line is built and queried. Its response/service
-                // writes therefore belong after integration, but before the
-                // first collision query.
-                const std::optional<GroundSurfaceResponseInput> response_input =
-                    hooks.ground_surface_response_input(current_player, input);
-                if (response_input.has_value()) {
-                    static_cast<void>(current_player.apply_ground_surface_response(
-                        *response_input,
-                        frame_scale_q8,
-                        current_player.physics_state() == 0));
-                    if (current_player.physics_state() == 0) {
-                        collision_transient_basis =
-                            current_player.retail_basis().at_30f4;
-                        collision_transient_basis_valid = true;
-                    }
-                }
-            }
-            if (stage == PhysicsDispatchStage::GroundCollision_96550
-                && current_player.physics_state() == 0) {
-                // FUN_00496550 calls FUN_00496360 after integrating the live
-                // point and before it builds the ordinary movement query.
-                // FUN_00496360 always reaches FUN_0049b500, including when
-                // its optional FUN_0049c060 service path has no draw.  The
-                // response phase therefore belongs at this boundary rather
-                // than after collision selection.
-                current_player.apply_ground_turn_velocity_phase();
-            }
             const bool uses_state_specific_turn_phase =
                 (stage == PhysicsDispatchStage::GroundCollision_96550
                  && current_player.physics_state() == 2)
                 || (stage == PhysicsDispatchStage::InAir_97f40
                     && current_player.physics_state() == 1
                     && current_player.ground_update_state() != 0);
-            if (uses_state_specific_turn_phase
-                && hooks.air_orientation_turn_input) {
-                // State 2 reaches FUN_00496360's shared orientation phase
-                // here. Its bVar1 predicate selects the state-specific
-                // profile formula, while !bVar1 passes zero as FUN_0049b500's
-                // response phase: publish the turn, leave +0x4c untouched.
-                const std::optional<AirOrientationTurnConfig> turn_input =
-                    hooks.air_orientation_turn_input(current_player, input,
-                                                     frame_scale_q8);
-                if (turn_input.has_value()) {
-                    static_cast<void>(
-                        current_player.apply_orientation_turn_producer(
-                            *turn_input));
+            if (uses_shared_surface_response) {
+                // FUN_00496360 is the complete caller-side phase around
+                // FUN_0049c060 and FUN_0049b500. It runs after integration,
+                // before the first collision query, and folds a requested
+                // +0x3124 correction into the same turn units that reach the
+                // orientation writer.
+                std::optional<GroundSurfaceResponseInput> response_input;
+                if (hooks.ground_surface_response_input) {
+                    response_input = hooks.ground_surface_response_input(
+                        current_player,
+                        input);
+                }
+                std::optional<AirOrientationTurnConfig> turn_input;
+                if (uses_state_specific_turn_phase
+                    && hooks.air_orientation_turn_input) {
+                    turn_input = hooks.air_orientation_turn_input(
+                        current_player,
+                        input,
+                        frame_scale_q8);
+                }
+                GroundSurfaceResponseStepInput phase_input{};
+                phase_input.profile_value = turn_input.has_value()
+                    ? turn_input->profile_value
+                    : 0;
+                phase_input.modifier_value = turn_input.has_value()
+                    ? turn_input->modifier_value
+                    : 0;
+                phase_input.frame_scale_q8 = frame_scale_q8;
+                phase_input.special_turn_inputs_available =
+                    !uses_special_ground_surface_response_phase(
+                        current_player.physics_state(),
+                        current_player.ground_update_state())
+                    || turn_input.has_value();
+                // The action-bank bytes at +0x10/+0x20 are the only part of
+                // this control block represented by InputState today. The
+                // +0x2c88/+0x2e80/+0x2c80 owners remain explicit raw gates.
+                phase_input.action_bank_10_nonzero =
+                    input.action(0x0080).held;
+                phase_input.action_bank_20_nonzero =
+                    input.action(0x0020).held;
+                phase_input.response_call_observed = response_input.has_value();
+                static_cast<void>(
+                    current_player.apply_ground_surface_response_step(
+                        phase_input,
+                        response_input));
+                if (current_player.physics_state() == 0) {
+                    collision_transient_basis =
+                        current_player.retail_basis().at_30f4;
+                    collision_transient_basis_valid = true;
                 }
             }
             if (stage == PhysicsDispatchStage::InAir_97f40

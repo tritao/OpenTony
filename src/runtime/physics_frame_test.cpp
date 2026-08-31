@@ -17,6 +17,107 @@ int main() {
     using opentony::runtime::PlayerState;
     using opentony::runtime::movement_bit;
 
+    // FUN_00496360 folds the state-2 profile turn and the optional
+    // FUN_0049c060 +0x3124 result into one angle, while the active +0x2d90
+    // latch decays by three without either action-bank byte and by one when
+    // either byte is active.
+    const auto state_two_surface_phase =
+        opentony::runtime::compute_ground_surface_response_step(
+            opentony::runtime::GroundSurfaceResponseStepInput{
+                2,
+                0,
+                10 * 0x1000,
+                15,
+                80,
+                0,
+                0x100,
+                5,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            });
+    CHECK(state_two_surface_phase.special_ground_phase);
+    CHECK(state_two_surface_phase.turn_units_before_response == 9);
+    CHECK(state_two_surface_phase.timer_after == 12);
+    CHECK(state_two_surface_phase.turn_units == 14);
+    CHECK(state_two_surface_phase.angle12 == 14);
+
+    const auto response_probe_phase =
+        opentony::runtime::compute_ground_surface_response_step(
+            opentony::runtime::GroundSurfaceResponseStepInput{
+                0,
+                0,
+                0,
+                15,
+                0,
+                0,
+                0x100,
+                7,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+            });
+    CHECK(response_probe_phase.response_call_requested);
+    CHECK(response_probe_phase.timer_after == 15);
+    CHECK(response_probe_phase.turn_units == 7);
+
+    const auto action_bank_phase =
+        opentony::runtime::compute_ground_surface_response_step(
+            opentony::runtime::GroundSurfaceResponseStepInput{
+                0,
+                0,
+                0x1000,
+                15,
+                0,
+                0,
+                0x100,
+                0,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+            });
+    CHECK(!action_bank_phase.response_call_requested);
+    CHECK(action_bank_phase.timer_after == 14);
+
+    const auto cleared_surface_phase =
+        opentony::runtime::compute_ground_surface_response_step(
+            opentony::runtime::GroundSurfaceResponseStepInput{
+                0,
+                0,
+                0x1000,
+                15,
+                0,
+                0,
+                0x100,
+                9,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+            });
+    CHECK(!cleared_surface_phase.response_call_requested);
+    CHECK(cleared_surface_phase.timer_after == 0);
+    CHECK(cleared_surface_phase.turn_units == 1);
+
     // FUN_0049d9c0 selects 10/70 from +0x2f64, while FUN_004957c0 uses the
     // live point for its first line and the restored +0xbc point for both
     // endpoints of its normal-offset verification line.

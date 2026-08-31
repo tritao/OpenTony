@@ -21,6 +21,7 @@
 #include "ground_animation.hpp"
 #include "ground_physics.hpp"
 #include "ground_motion_threshold.hpp"
+#include "ground_surface_response.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -54,17 +55,6 @@ struct GroundCollisionRecoveryExitResult final {
     bool animation_request_issued{};
     std::uint32_t animation{};
     std::uint32_t animation_reason{};
-};
-
-// Causal random inputs consumed by FUN_0049c060 before the grounded
-// orientation/recovery call. The second draw is only present when the first
-// draw caps the current response speed.
-struct GroundSurfaceResponseInput final {
-    std::int32_t cap_random{};
-    std::int32_t capped_response_random{};
-    std::int32_t target_random{};
-    std::int32_t denominator_random{};
-    bool capped_response_random_available{};
 };
 
 // Raw skater fields written by the level-script dispatcher. The retail
@@ -254,6 +244,17 @@ public:
     }
     [[nodiscard]] std::int32_t collision_recovery_frame() const noexcept {
         return collision_recovery_frame_;
+    }
+    // Raw +0x2d90 latch consumed by FUN_00496360. Its producer is a
+    // recovery/action service; it is not a per-frame random input.
+    [[nodiscard]] std::int32_t ground_surface_response_timer() const noexcept {
+        return ground_surface_response_timer_;
+    }
+    [[nodiscard]] std::int32_t ground_surface_response_phase_accumulator() const noexcept {
+        return ground_surface_response_phase_accumulator_;
+    }
+    [[nodiscard]] std::int32_t ground_surface_response_phase_count() const noexcept {
+        return ground_surface_response_phase_count_;
     }
     // Mirror the frame-start +0x2d8c recovery-window gate. The window is
     // armed on a stable UP/heading input and cleared by a cancelled heading
@@ -634,7 +635,9 @@ public:
     // movement collision query. B010 consumes the saved pre-turn basis;
     // this boundary then publishes the new matrix and rotates the response
     // from that same saved matrix.
-    void apply_ground_turn_velocity_phase() noexcept;
+    void apply_ground_turn_velocity_phase(
+        std::int32_t additional_turn_units = 0,
+        std::int32_t frame_scale_q8 = 0x100) noexcept;
 
     // Executes the recovered temporary-correction writes from FUN_0049b010.
     // The caller supplies the profile/animation/stat gates that are still
@@ -727,6 +730,19 @@ public:
         const GroundSurfaceResponseInput& input,
         std::int32_t frame_scale_q8,
         bool rotate_collision_response = true) noexcept;
+
+    // FUN_0049c060's persistent +0x3124 result, before the caller folds it
+    // into the +0x3144 turn units and invokes FUN_0049b500.
+    [[nodiscard]] std::int32_t compute_ground_surface_response_delta(
+        const GroundSurfaceResponseInput& input) noexcept;
+
+    // Executes the complete FUN_00496360 control phase. The optional service
+    // input is consumed only when the static timer/turn predicate requests
+    // FUN_0049c060; the caller does not pre-apply its result.
+    [[nodiscard]] GroundSurfaceResponseStepResult
+    apply_ground_surface_response_step(
+        GroundSurfaceResponseStepInput input,
+        const std::optional<GroundSurfaceResponseInput>& response_input) noexcept;
 
     // Completes the state-1 leave-air branch in FUN_00496550. Retail scales
     // the final collision normal by one quarter of the current response
@@ -877,6 +893,10 @@ private:
     FixedPosition ground_surface_response_correction_{};
     FixedPosition ground_surface_response_normal_{0, 4096, 0};
     std::int32_t ground_surface_response_mode_{};
+    std::int32_t ground_surface_response_correction_units_{};
+    std::int32_t ground_surface_response_timer_{};
+    std::int32_t ground_surface_response_phase_accumulator_{};
+    std::int32_t ground_surface_response_phase_count_{};
     std::int32_t ground_surface_recovery_progress_q11_{};
     std::int32_t ground_surface_recovery_update_frame_{-1};
     Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};
