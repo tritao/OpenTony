@@ -950,25 +950,6 @@ int run(int argc, char** argv) {
             session.player().set_animation_state(animation.id);
             session.player().set_animation_frame(animation.frame);
         }
-        const auto& post_physics = advance_result.last.physics;
-        if (post_physics.collision_hit.has_value()
-            && post_physics.collision_hit->surface_flags == 0x0190
-            && post_physics.collision_hit->normal ==
-                opentony::runtime::FixedPosition{0, 0, 0x1000}) {
-            // The final class-0x190 wall handoff publishes the signed-short
-            // response/orientation boundary after the shared basis tail.
-            // Preserve the native producer values while carrying the two
-            // observed truncation corrections at that seam.
-            session.player().add_collision_response(
-                opentony::runtime::FixedPosition{-433, -746, -39});
-            opentony::runtime::Q12Matrix3 orientation =
-                session.player().orientation();
-            orientation.values[2] = static_cast<std::int16_t>(
-                orientation.values[2] - 1);
-            orientation.values[6] = static_cast<std::int16_t>(
-                orientation.values[6] + 1);
-            session.player().set_orientation(orientation);
-        }
         const bool apply_post_state_one_handoff_animation5 =
             post_state_one_handoff_animation5;
         post_state_one_handoff_animation5 = false;

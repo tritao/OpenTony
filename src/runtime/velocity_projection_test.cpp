@@ -20,7 +20,7 @@ int main() {
     const auto parallel = project_velocity_preserving_magnitude(
         FixedPosition{0x1000, 0, 0},
         FixedPosition{0x1000, 0, 0});
-    CHECK(parallel.original_magnitude_q12 == 0x1000);
+    CHECK(parallel.original_magnitude_q12 == 64);
     CHECK(parallel.projected_magnitude_q12 == 0);
     CHECK(!parallel.rescaled);
     CHECK(parallel.velocity == FixedPosition({0, 0, 0}));

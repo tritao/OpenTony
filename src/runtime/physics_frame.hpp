@@ -103,6 +103,12 @@ struct PlayerPhysicsFrameHooks {
     // animation fields, and applies the returned state/cooldown writes.
     std::function<std::optional<GroundPhysicsInput>(
         const PlayerState&, const InputState&)> ground_physics_input;
+    // FUN_004956f0's external cleanup boundary. PlayerState has already
+    // performed its persistent stores when this callback runs; the caller
+    // owns FUN_0048f5f0, action-stream restart, and animation services.
+    std::function<void(
+        PlayerState&, const GroundCollisionRecoveryExitResult&)>
+        on_ground_collision_recovery_exit;
     // Optional config seam for the confirmed scalar in-air gravity producer
     // at FUN_00497df0. The candidate air-motion vector lives separately from
     // the +4c collision/platform response until the remaining transform and

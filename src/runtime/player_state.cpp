@@ -74,6 +74,54 @@ void PlayerState::request_physics_state_from_basis(
     physics_state_ = state;
 }
 
+GroundCollisionRecoveryExitResult
+PlayerState::exit_ground_collision_recovery() noexcept {
+    GroundCollisionRecoveryExitResult result{};
+    if (physics_state_ == 2) {
+        request_physics_state(1, 0x1605);
+        result.state_request = last_state_request_;
+        result.state_two_shortcut = true;
+        return result;
+    }
+
+    request_physics_state(1, 0x160b);
+    result.state_request = last_state_request_;
+    result.ordinary_cleanup = true;
+
+    // This is the exact store ordering in FUN_004956f0 after its ordinary
+    // state request. The service call at FUN_0048f5f0 is reported by the
+    // result hook; it does not belong to PlayerState's portable storage.
+    collision_recovery_auxiliary_x_ = 0;
+    collision_recovery_auxiliary_y_ = 0;
+    collision_recovery_correction_gate_ = 0;
+    collision_recovery_active_ = 1;
+    collision_recovery_latch_ = 0;
+
+    if (!control_blocked_) {
+        if (collision_recovery_stream_ != 0 && field_2dd4_ != 0) {
+            result.action_stream_restart_requested = true;
+            result.action_stream_reference = collision_recovery_stream_;
+            collision_recovery_stream_ = 0;
+            field_2dd4_ = 0;
+            return result;
+        }
+
+        collision_recovery_block_ = 0;
+        if (field_2dd8_ != 0) {
+            result.animation_request_issued = true;
+            result.animation = 0x1a;
+            result.animation_reason = 0x1628;
+            field_2dd4_ = 0;
+            return result;
+        }
+        result.animation_request_issued = true;
+        result.animation = 0x1b;
+        result.animation_reason = 0x162a;
+    }
+    field_2dd4_ = 0;
+    return result;
+}
+
 void PlayerState::apply_restart(
     FixedPosition position,
     std::uint32_t auxiliary,
@@ -92,6 +140,15 @@ void PlayerState::apply_restart(
     ground_motion_event_pending_ = false;
     ground_motion_event_reason_ = 0;
     ground_motion_animation_speed_ = 0;
+    field_2dd4_ = 0;
+    field_2dd8_ = 0;
+    collision_recovery_stream_ = 0;
+    collision_recovery_auxiliary_x_ = 0;
+    collision_recovery_auxiliary_y_ = 0;
+    collision_recovery_correction_gate_ = 0;
+    collision_recovery_active_ = 0;
+    collision_recovery_latch_ = 0;
+    collision_recovery_block_ = 0;
     orientation_ = q12_restart_matrix(auxiliary);
     retail_basis_ = retail_basis_from_matrix(orientation_);
     ground_surface_recovery_target_ = retail_basis_.at_310c;
@@ -886,57 +943,6 @@ void PlayerState::apply_collision_transient_exit_orientation(
     publish_basis();
 }
 
-void PlayerState::complete_air_landing_ground_handoff() noexcept {
-    // FUN_004991fe has already requested raw state 0 and FUN_00491780 has
-    // published the landing basis.  This final FUN_00497960 handoff runs
-    // after the outer +58 -> +4c response integration, so its response write
-    // is authoritative for the completed frame.
-    const FixedPosition previous_forward = retail_basis_.at_30f4;
-    const FixedPosition previous_up = retail_basis_.at_310c;
-    air_motion_ = previous_forward;
-    retail_basis_.at_30f4 = FixedPosition{
-        -previous_up[0],
-        -previous_up[1],
-        -previous_up[2],
-    };
-    retail_basis_.at_310c = previous_forward;
-
-    // FUN_00497960 scales the former up axis by ten for the lateral response
-    // and explicitly clears its Y component before returning to state 1.
-    collision_response_ = FixedPosition{
-        previous_up[0] * 10,
-        0,
-        previous_up[2] * 10,
-    };
-
-    const auto publish_basis = [this]() noexcept {
-        orientation_.at(0, 0) = static_cast<std::int16_t>(
-            retail_basis_.at_3100[0]);
-        orientation_.at(1, 0) = static_cast<std::int16_t>(
-            retail_basis_.at_3100[1]);
-        orientation_.at(2, 0) = static_cast<std::int16_t>(
-            retail_basis_.at_3100[2]);
-        orientation_.at(0, 1) = static_cast<std::int16_t>(
-            retail_basis_.at_310c[0]);
-        orientation_.at(1, 1) = static_cast<std::int16_t>(
-            retail_basis_.at_310c[1]);
-        orientation_.at(2, 1) = static_cast<std::int16_t>(
-            retail_basis_.at_310c[2]);
-        orientation_.at(0, 2) = static_cast<std::int16_t>(
-            retail_basis_.at_30f4[0]);
-        orientation_.at(1, 2) = static_cast<std::int16_t>(
-            retail_basis_.at_30f4[1]);
-        orientation_.at(2, 2) = static_cast<std::int16_t>(
-            retail_basis_.at_30f4[2]);
-    };
-    publish_basis();
-    // FUN_004904d0's control-blocked reset leaves +0x2f64 asserted until
-    // the landing animation/service clears the window.  It gates the
-    // grounded collision tail and is consumed by the outer reset below.
-    control_blocked_ = true;
-    request_physics_state(1, 0x715);
-}
-
 CollisionResponseResult PlayerState::apply_collision_response(
     const FixedPosition& surface_delta,
     std::int32_t bias_q12) {
@@ -1205,11 +1211,9 @@ void PlayerState::apply_orientation_recovery(
         static_cast<std::int16_t>(target[1]),
         static_cast<std::int16_t>(target[2]),
     };
-    const bool reverse_recovery_handedness = physics_state_ == 0
-        && fixed_dot_q12(collision_response_, current_forward) > 0x5000;
-    const FixedPosition right_cross_raw = reverse_recovery_handedness
-        ? q12_cross(target_short, current_forward)
-        : q12_cross(current_forward, target_short);
+    const FixedPosition right_cross_raw = q12_cross(
+        current_forward,
+        target_short);
     const FixedPosition right = q12_normalize(right_cross_raw);
     // FUN_0049d080 normalizes the first cross product, but publishes the
     // second cross product directly.  The raw second cross is already close
@@ -1234,6 +1238,14 @@ void PlayerState::apply_orientation_recovery(
     orientation_.at(1, 2) = static_cast<std::int16_t>(forward[1]);
     orientation_.at(2, 2) = static_cast<std::int16_t>(forward[2]);
     orientation_basis_normalization_pending_ = false;
+}
+
+void PlayerState::seed_ground_surface_recovery(
+    const FixedPosition& surface_normal) noexcept {
+    ground_surface_recovery_target_ = surface_normal;
+    ground_surface_recovery_base_ = retail_basis_.at_310c;
+    ground_surface_recovery_progress_q11_ = 0;
+    ground_surface_recovery_update_frame_ = frame_counter_;
 }
 
 bool PlayerState::update_ground_surface_recovery(

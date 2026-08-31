@@ -227,12 +227,13 @@ types:
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x30f4
-        name: acceleration_source_vector
+        name: forward_basis_vector
         type: array<i32,3>
         confidence: observed
-        description: Three player-relative words negated/scaled by the post-action acceleration writer; final semantic name remains open.
+        description: Published forward basis consumed by collision response/orientation and recovery helpers; the same storage is also used as a player-relative source by earlier action code.
         evidence:
           - re/evidence/functions/physics.md
+          - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0xf4
         name: heading_angle_candidate
         type: u16
@@ -459,6 +460,125 @@ types:
         description: Latched launch word cleared by the geometry-hint StartGrind branch.
         evidence:
           - re/evidence/functions/physics-states.md
+      - offset: 0x2c68
+        name: collision_recovery_correction_gate
+        type: i32
+        confidence: observed
+        description: Ground recovery word cleared by the ordinary branch of Skater_ExitGroundCollisionRecovery after its state request.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2c74
+        name: bounce_heading_gate
+        type: i32
+        confidence: observed
+        description: Grounded bounce predicate read by Skater_GroundedBounceProbe before the optional 200-heading response path.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x29d0
+        name: collision_recovery_stream
+        type: i32
+        confidence: observed
+        description: Pending action stream/reference consumed by the ordinary collision-recovery exit before +0x29c8 is cleared.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3068
+        name: collision_recovery_auxiliary_x
+        type: i32
+        confidence: observed
+        description: Auxiliary collision-recovery word cleared by Skater_ExitGroundCollisionRecovery.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x306c
+        name: collision_recovery_auxiliary_y
+        type: i32
+        confidence: observed
+        description: Auxiliary collision-recovery word cleared by Skater_ExitGroundCollisionRecovery.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2ddc
+        name: collision_recovery_active
+        type: i32
+        confidence: observed
+        description: Set to one by the ordinary collision-recovery exit before its animation/action cleanup.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2e0c
+        name: bounce_restore_position
+        type: array<i32,3>
+        confidence: observed
+        description: Saved XYZ used by the final grounded bounce helper when both directional probes succeed.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3100
+        name: collision_basis_right
+        type: array<i32,3>
+        confidence: confirmed
+        description: Fixed-point tangent/right basis used by grounded bounce and support probes.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x310c
+        name: collision_basis_up
+        type: array<i32,3>
+        confidence: confirmed
+        description: Fixed-point up/ground-normal basis used by bounce and recovery probes.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3130
+        name: orientation_recovery_progress
+        type: i32
+        confidence: confirmed
+        description: Recovery progress compared strictly against 0x18001; exact 0x18000 selects the stored target normal.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3134
+        name: orientation_recovery_base
+        type: array<i32,3>
+        confidence: confirmed
+        description: Full-width normal/base vector eased toward the target short normal by the orientation recovery helper.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2da4
+        name: support_recovery_distance
+        type: i32
+        confidence: observed
+        description: Ground support/recovery threshold accumulator compared with the secondary sweep distance plus 0x74.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2db4
+        name: collision_face_recovery_flags
+        type: i32
+        confidence: observed
+        description: Collision/recovery result word receiving the face-bit output on the long support branch.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2d9c
+        name: steep_surface_response_accumulator
+        type: i32
+        confidence: observed
+        description: Signed accumulator updated from the state-2 surface normal response angle and compared with -0x400.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3128
+        name: recovery_normal_packed
+        type: array<i32,2>
+        confidence: observed
+        description: Packed recovery-normal storage written by the grounded collision branch for later state-2 response consumption.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3118
+        name: collision_surface_correction
+        type: array<i32,3>
+        confidence: observed
+        description: Projected surface correction published by the grounded collision path before the outer frame handoff.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x80
+        name: recovery_target_normal_short
+        type: array<i16,3>
+        confidence: observed
+        description: Short target normal selected at the terminal orientation-recovery branch.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
 
   - name: RuntimeCollisionQueryRecord
     kind: alias

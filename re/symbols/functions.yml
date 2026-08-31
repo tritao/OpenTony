@@ -560,18 +560,80 @@ functions:
     evidence:
       - re/evidence/functions/physics.md
       - re/evidence/functions/vector-math.md
+  - address: 0x004956f0
+    name: Skater_ExitGroundCollisionRecovery
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: exit grounded collision recovery, with the distinct state-2 and ordinary state-1 handoffs
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x004957c0
+    name: Skater_GroundedBounceProbe
+    signature:
+      calling_convention: thiscall
+      return: i32
+      parameters:
+        - {name: direction, type: i32}
+        - {name: distance, type: i32}
+        - {name: heading, type: i32}
+    description: run one directional grounded bounce probe, response/orientation handoff, and normal-offset verification query
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+  - address: 0x0049d9c0
+    name: Skater_RunGroundedBounceRecovery
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: select the blocked/nonblocked bounce distance and run the final grounded directional recovery sequence
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
   - address: 0x0049bad0
     name: Skater_ApplyCollisionResponse
-    description: apply a collision vector to skater response/basis state
-    confidence: observed
+    signature:
+      calling_convention: thiscall
+      return: void
+      parameters:
+        - {name: packed_normal_xy, type: u32}
+        - {name: normal_z, type: i16}
+        - {name: heading, type: i32}
+    description: apply collision response and, when its orientation predicate is met, rebuild and publish the paired basis
+    confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/player-physics-collision-recovery.md
   - address: 0x00496550
     name: Skater_DoGroundPhysics
     description: integrate grounded motion, submit PSX collision queries, and branch on selected-face surface flags
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+  - address: 0x00495cc0
+    name: Skater_GroundPostCollision
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: post-ground-collision score, motion, and recovery marker update between the main sweep and bounce probes
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+  - address: 0x0049dad0
+    name: Skater_GroundPreparation
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: grounded animation/event preparation preceding the main collision routine
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
   - address: 0x004628f0
     name: M3D_PrepareCollisionObjectList
     signature:
@@ -2986,6 +3048,60 @@ functions:
     confidence: confirmed
     evidence:
       - re/evidence/functions/physics.md
+      - re/evidence/functions/player-physics-collision-recovery.md
+  - address: 0x00496360
+    name: Skater_GroundSurfaceResponseStep
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: consume grounded surface-response state before the movement collision line
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
+  - address: 0x00490730
+    name: Skater_OuterFloorRecoveryCheck
+    description: perform the outer pre-dispatch floor/restart collision checks and fallback position writes
+    confidence: provisional
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics.md
+  - address: 0x00491780
+    name: Skater_AirCollisionOrientationRecovery
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: remove air-contact normal response and rebuild the handed recovery orientation
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics-states.md
+  - address: 0x00497960
+    name: Skater_AirLandingOrientationRecovery
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
+    description: apply the accepted air-contact orientation reversal and response reset
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+  - address: 0x0049c060
+    name: Skater_ApplySurfaceResponseCorrection
+    description: consume the published surface correction vector and collision normal for the next grounded response step
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
+  - address: 0x0049b500
+    name: Skater_ApplyTurnVelocityPhase
+    description: rotate and rescale the response vector after the grounded orientation update
+    confidence: confirmed
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
   - address: 0x00497f40
     name: Skater_DoPhysicsInAir
     gdb_aliases:
@@ -3003,10 +3119,15 @@ functions:
       - re/evidence/functions/physics-states.md
   - address: 0x0049d080
     name: Skater_RebuildOrientationRecovery
+    signature:
+      calling_convention: fastcall
+      return: void
+      parameters: []
     description: collision/heading target interpolation and orientation-basis rebuild
-    confidence: inferred
+    confidence: confirmed
     evidence:
       - re/evidence/functions/physics-states.md
+      - re/evidence/functions/player-physics-collision-recovery.md
   - address: 0x0049c330
     name: Skater_UprightCorrection
     description: global-up alignment correction and small Z-axis orientation step

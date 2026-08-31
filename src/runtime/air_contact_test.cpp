@@ -13,7 +13,9 @@ int main() {
 
     const opentony::runtime::PositionCollisionHit rejected{
         1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0,
-        0x01c00000U};
+        // Bit 23 remains clear so the state-3 material branch survives the
+        // inverse-23 filter; bit 22 supplies the independent material bit.
+        0x01400000U};
     CHECK(!opentony::runtime::accepts_standard_air_contact(
         rejected, 1, true, 0, 100, {false, 0}));
     CHECK(opentony::runtime::accepts_standard_air_contact(
@@ -42,7 +44,7 @@ int main() {
         if (start[1] > 0 && end[1] <= 0) {
             return opentony::runtime::PositionCollisionHit{
                 1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, 0x1000, 0}, 0, 0,
-                0x01000000U};
+                0x00000000U};
         }
         return std::nullopt;
     };
@@ -51,7 +53,9 @@ int main() {
         const opentony::runtime::InputState&,
         const opentony::runtime::PositionCollisionHit&)
         -> std::optional<opentony::runtime::StandardAirContactInput> {
-        return opentony::runtime::StandardAirContactInput{false, 0};
+        // The in-air handler's landing branch requires the last surface
+        // timestamp to be older than the 0x28-frame guard.
+        return opentony::runtime::StandardAirContactInput{false, -100};
     };
     const auto frame = opentony::runtime::PlayerPhysicsFrame::step(
         player, input, hooks);

@@ -1,5 +1,6 @@
 #include "physics_frame.hpp"
 #include "physics_replay.hpp"
+#include "collision_recovery.hpp"
 
 #include "tests/test_check.hpp"
 #include <iostream>
@@ -9,11 +10,121 @@ int main() {
     using opentony::runtime::FixedPosition;
     using opentony::runtime::InputState;
     using opentony::runtime::MovementAction;
+    using opentony::runtime::PositionCollisionHit;
     using opentony::runtime::PhysicsDispatchStage;
     using opentony::runtime::PlayerPhysicsFrame;
     using opentony::runtime::PlayerPhysicsFrameHooks;
     using opentony::runtime::PlayerState;
     using opentony::runtime::movement_bit;
+
+    // FUN_0049d9c0 selects 10/70 from +0x2f64, while FUN_004957c0 uses the
+    // live point for its first line and the restored +0xbc point for both
+    // endpoints of its normal-offset verification line.
+    CHECK(opentony::runtime::grounded_bounce_probe_distance(false) == 10);
+    CHECK(opentony::runtime::grounded_bounce_probe_distance(true) == 70);
+    CHECK(opentony::runtime::accepts_grounded_bounce_normal(0x3ff));
+    CHECK(!opentony::runtime::accepts_grounded_bounce_normal(0x400));
+    CHECK(!opentony::runtime::accepts_grounded_bounce_normal(-0x400));
+    const auto bounce_geometry =
+        opentony::runtime::make_grounded_bounce_probe_geometry(
+            FixedPosition{1000, 2000, 3000},
+            FixedPosition{4096, 0, 0},
+            FixedPosition{0, 4096, 0},
+            -1,
+            10);
+    CHECK(bounce_geometry.first_start == FixedPosition({1000, 124880, 3000}));
+    CHECK(bounce_geometry.first_end == FixedPosition({-39960, 124880, 3000}));
+    const FixedPosition verification_start =
+        opentony::runtime::make_grounded_bounce_verification_start(
+            FixedPosition{10, 20, 30},
+            FixedPosition{0, -4096, 0});
+    const FixedPosition verification_end =
+        opentony::runtime::make_grounded_bounce_verification_end(
+            FixedPosition{10, 20, 30},
+            FixedPosition{0, -4096, 0},
+            -1,
+            10);
+    CHECK(verification_start == FixedPosition({10, -4076, 30}));
+    CHECK(verification_end == FixedPosition({10, 40980, 30}));
+
+    // FUN_00496550's support tail has two distinct state-0 exits.  The
+    // inverse24-clear branch exits directly; the inverse24-set branch only
+    // exits when its target/forward/response gate is satisfied.  These cases
+    // preserve the raw face-bit contract independently of material numbers.
+    const FixedPosition recovery_target{0, -4096, 0};
+    const FixedPosition current_forward{0, 0, 4096};
+    PositionCollisionHit support_hit{};
+    support_hit.normal = FixedPosition{0, -2272, -3408};
+    support_hit.surface_bit_6 = false;
+    support_hit.surface_bit_8_clear = true;
+    CHECK(opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        current_forward,
+        FixedPosition{0, 0, 0}));
+
+    support_hit.normal = FixedPosition{0, -3019, 2768};
+    CHECK(!opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        current_forward,
+        FixedPosition{0, 0, 0}));
+
+    support_hit.normal = FixedPosition{0, -3019, 2768};
+    support_hit.surface_bit_8_clear = false;
+    CHECK(opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        current_forward,
+        FixedPosition{0, 0, 1}));
+
+    support_hit.surface_bit_8_clear = true;
+    support_hit.normal = FixedPosition{0, -2272, -3408};
+    CHECK(!opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        FixedPosition{0, 0, -4096},
+        FixedPosition{0, 0, 0}));
+    CHECK(!opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        current_forward,
+        FixedPosition{0, 1, 0}));
+
+    support_hit.surface_bit_6 = true;
+    support_hit.surface_bit_8_clear = false;
+    CHECK(!opentony::runtime::support_hit_requests_ground_exit(
+        support_hit,
+        recovery_target,
+        current_forward,
+        FixedPosition{0, 0, 0}));
+
+    PlayerState state_two_exit_player;
+    state_two_exit_player.set_physics_state(2);
+    const auto state_two_exit =
+        state_two_exit_player.exit_ground_collision_recovery();
+    CHECK(state_two_exit.state_two_shortcut);
+    CHECK(state_two_exit.state_request.to == 1);
+    CHECK(state_two_exit.state_request.reason == 0x1605);
+    CHECK(!state_two_exit.animation_request_issued);
+
+    PlayerState ordinary_exit_player;
+    ordinary_exit_player.set_physics_state(0);
+    const auto ordinary_exit =
+        ordinary_exit_player.exit_ground_collision_recovery();
+    CHECK(ordinary_exit.ordinary_cleanup);
+    CHECK(ordinary_exit.state_request.reason == 0x160b);
+    CHECK(ordinary_exit.animation_request_issued);
+    CHECK(ordinary_exit.animation == 0x1b);
+    CHECK(ordinary_exit.animation_reason == 0x162a);
+
+    PlayerState blocked_exit_player;
+    blocked_exit_player.set_physics_state(0);
+    blocked_exit_player.set_control_blocked(true);
+    const auto blocked_exit =
+        blocked_exit_player.exit_ground_collision_recovery();
+    CHECK(blocked_exit.ordinary_cleanup);
+    CHECK(!blocked_exit.animation_request_issued);
 
     PlayerState player({0, 0, 0});
     player.set_physics_state(3);

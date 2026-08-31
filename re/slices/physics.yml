@@ -5,22 +5,49 @@ status: active
 
 scope:
   functions:
+    - 0x004956f0
+    - 0x004957c0
+    - 0x00495cc0
+    - 0x00496360
+    - 0x00496550
+    - 0x00490730
+    - 0x00491780
+    - 0x00497aa0
+    - 0x00497df0
+    - 0x00497f40
+    - 0x00497960
+    - 0x0049c060
+    - 0x0049bad0
+    - 0x0049d080
+    - 0x0049d9c0
+    - 0x0049dad0
+    - 0x0049db80
     - 0x0049e680
     - 0x00492190
     - 0x00491c90
-    - 0x0049db80
-    - 0x00497f40
-  types: []
-  globals: []
+  types:
+    - RuntimeSkaterMovementState
+    - RuntimeCollisionQueryRecord
+  globals:
+    - AnimationClock
+    - AnimationTimeScale
+    - CollisionResultFlagSurface40
+    - CollisionResultFlagInverse23
+    - CollisionResultFlagFace80
+    - CollisionResultFlagInverse24
+    - CollisionSurfaceClass
 
 shared:
   functions:
     - 0x00493370
+    - 0x00496060
+    - 0x0049b010
 
 artifacts:
   evidence:
     - re/evidence/functions/physics-states.md
     - re/evidence/functions/physics.md
+    - re/evidence/functions/player-physics-collision-recovery.md
     - re/evidence/functions/player-frame-integration.md
     - re/evidence/fixtures/player-frame-integration.json
   native:
@@ -28,12 +55,18 @@ artifacts:
     - src/runtime/gameplay_frame.cpp
     - src/runtime/physics_frame.cpp
     - src/runtime/player_state.cpp
+    - src/runtime/collision_recovery.hpp
+    - src/runtime/collision_recovery.cpp
   tests:
     - tests/test_native_progress.py
     - src/runtime/player_frame_integration_test.cpp
 
 open_questions:
   - Resolve the remaining stat/table producers behind the explicit frame hooks without changing the confirmed producer/consumer order.
+  - Complete native parity for the outer floor/restart helper at 0x00490730.
+  - Complete the 0x0049b010 animation/profile/service contract outside the qualified Warehouse path; warehouse-ollie-land now matches 256/256 after associating the existing 0x0049eae9 threshold draw with its 0x0049eaed observer alias.
+  - Resolve the grounded turn fixed-point producer at frame 20 in the turn qualification fixtures; this is upstream of collision recovery.
+  - Confirm the service/table role behind the 0x0049ca8f call used by the bounce and grounded response gates.
 
 completion:
   - A deterministic native GameplayFrame fixture covers one ordinary grounded and one air-to-landing frame across input history, action history, movement, collision, commit, state transition, and animation request.

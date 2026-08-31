@@ -155,6 +155,45 @@ def _frame_wire(frame: dict[str, Any]) -> str:
                 raise ValueError(f"frame {frame_index} has duplicate ollie random purpose {purpose!r}")
             random_by_purpose[purpose] = _signed(raw_roll, 32)
 
+    # In-process captures made before the typed ollie probe was enabled still
+    # retain the same causal results as generic shared-random events.  The PC
+    # static callsites in FUN_0049a280 establish the order and purpose of
+    # those results, so consume that existing evidence instead of replacing
+    # it with zero-valued defaults.
+    shared_ollie_callsite_purposes = {
+        "0x0049a5bb": "charge_cap.first",
+        "0x0049a5c5": "charge_cap.second",
+        "0x0049a623": "charge_refresh.first",
+        "0x0049a62d": "charge_refresh.second",
+        "0x0049ab0b": "impulse.first",
+        "0x0049ab15": "impulse.second",
+        "0x0049ab38": "impulse.third",
+        "0x0049ab69": "impulse.fourth",
+        "0x0049abbb": "impulse.fifth",
+        "0x0049ac1a": "early_release.first",
+        "0x0049ac24": "early_release.second",
+    }
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict) or event.get("type") != "shared_random_call":
+                continue
+            purpose = shared_ollie_callsite_purposes.get(event.get("caller"))
+            raw_roll = event.get("return_value_s32")
+            if purpose is None or not isinstance(raw_roll, int):
+                continue
+            # A typed probe and the generic service observer can coexist in
+            # newer recordings.  Reject contradictory evidence while letting
+            # the typed purpose retain precedence.
+            value = _signed(raw_roll, 32)
+            if purpose in random_by_purpose:
+                if random_by_purpose[purpose] != value:
+                    raise ValueError(
+                        f"frame {frame_index} has conflicting ollie random "
+                        f"purpose {purpose!r} values"
+                    )
+            else:
+                random_by_purpose[purpose] = value
+
     random_purposes = (
         "charge_cap.first",
         "charge_cap.second",
@@ -334,6 +373,26 @@ def _frame_wire(frame: dict[str, Any]) -> str:
         else 0
         for name in ("slope_metric", "horizontal_speed_metric", "height_delta_metric")
     ]
+    if metric_event is None:
+        # These are the producer fields read by FUN_0049a280, not derived
+        # output copied from the post-frame snapshot.  Capture V1 already
+        # includes the complete +0x2d80 raw player window before physics.
+        before_snapshot = frame.get("before")
+        raw_words = (
+            before_snapshot.get("raw_physics_words")
+            if isinstance(before_snapshot, dict)
+            else None
+        )
+        if isinstance(raw_words, list) and len(raw_words) > 228:
+            slope_metric = _signed(int(raw_words[228]), 32)
+            horizontal_speed_metric = _signed(int(raw_words[108]), 32)
+            height_start = _signed(int(raw_words[114]), 32)
+            height_end = _signed(int(raw_words[115]), 32)
+            metrics = [
+                slope_metric,
+                horizontal_speed_metric,
+                (height_start - height_end) >> 12,
+            ]
     damping_by_purpose: dict[str, int] = {}
     damping_components: dict[str, int] = {}
     if isinstance(events, list):
@@ -450,9 +509,13 @@ def _frame_wire(frame: dict[str, Any]) -> str:
     ] if isinstance(events, list) else []
     if not threshold_events:
         for caller, purpose in (
-            ("0x0049e831", "threshold_seed_0xaa"),
             ("0x0049eae9", "threshold_seed_0xdc"),
-            ("0x0049eb23", "threshold_seed_0xaa"),
+            # The current shared-service observer records this call using
+            # the return-site address on the special branch.  The static
+            # call instruction remains 0049eae9; accept the existing alias
+            # rather than adding another recorder channel.
+            ("0x0049eaed", "threshold_seed_0xdc"),
+            ("0x0049eb25", "threshold_seed_0xaa"),
         ):
             generic_threshold = generic_random_event(caller, purpose)
             if generic_threshold is not None:
@@ -486,10 +549,19 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             before_threshold = _signed(int(raw_before[18]), 32)
             after_threshold = struct.unpack_from(
                 "<i", raw_after, 0x2dc8)[0]
-            threshold_available = int(
-                threshold_event is not None
-                and after_threshold == before_threshold - 1
-            )
+            if (isinstance(threshold_event, dict)
+                    and threshold_event.get("purpose") == "threshold_seed_0xdc"):
+                sampled_target = (
+                    (_signed(int(threshold_event["raw_roll"]), 32) + 0xdc)
+                    * 0x2d000
+                    // 0x118
+                )
+                threshold_available = int(after_threshold == sampled_target)
+            else:
+                threshold_available = int(
+                    threshold_event is not None
+                    and after_threshold == before_threshold - 1
+                )
     orientation_turn_delta = 0
     orientation_turn_available = 0
     before_words = (

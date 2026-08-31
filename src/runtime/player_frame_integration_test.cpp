@@ -293,9 +293,15 @@ int main() {
     CHECK(!grounded.physics.collision_hit.has_value());
     const std::vector<FixedPosition> grounded_starts{
         FixedPosition{0, 0x2000, 0},
+        FixedPosition{0, 0x2000, 0},
+        FixedPosition{384, 0x20000, 128},
+        FixedPosition{384, 0x20000, 128},
     };
     const std::vector<FixedPosition> grounded_ends{
         FixedPosition{0x180, 0x2000, 0x80},
+        FixedPosition{0x180, 0x2000, 0x80},
+        FixedPosition{-40566, 0x20000, 308},
+        FixedPosition{41334, 0x20000, -52},
     };
     CHECK(query_starts == grounded_starts);
     CHECK(query_ends == grounded_ends);
@@ -310,14 +316,18 @@ int main() {
         "stage-ground-preparation",
         "stage-ground-collision",
         "collision-query",
+        "collision-query",
         "stage-ground-post",
         "stage-ground-final",
+        "collision-query",
+        "collision-query",
     };
     CHECK(observer.order == grounded_order);
 
     // The second frame starts from an in-air state and crosses a fixed floor.
-    // Candidates 1-3 retain the below-floor Y and hit; candidate 4 retains
-    // old Y and is accepted, matching the shared retail axis order.
+    // The accepted-contact bridge uses the contact-plus-normal candidate;
+    // the shared position writer sees the ordinary movement query and its
+    // final candidate probe in the same frame.
     landing_phase = true;
     player.set_position({0, 0x1000, 0});
     player.set_physics_state(1);
@@ -335,10 +345,10 @@ int main() {
     CHECK(landed.physics.state_request.to == 0);
     CHECK(landed.physics.state_request.reason == 0x1fd6);
     CHECK(landed.physics.position_commit.position
-        == FixedPosition({0, 0x1000, 0}));
-    CHECK(landed.physics.position_commit.probes == 4);
+        == FixedPosition({0, 0x1e000, 0}));
+    CHECK(landed.physics.position_commit.probes == 1);
     CHECK(landed.physics.position_commit.selected_candidate ==
-        static_cast<std::uint8_t>(PositionCommitCandidate::OldY));
+        static_cast<std::uint8_t>(PositionCommitCandidate::Desired));
     CHECK(landed.physics.collision_hit.has_value());
     CHECK(landed.physics.landed);
     CHECK(landed.physics.landing_animation_request.has_value());
@@ -346,11 +356,13 @@ int main() {
     CHECK(landed.physics.landing_animation_request->start == 0);
     CHECK(landed.physics.landing_animation_request->end == -1);
     CHECK(landed.physics.landing_animation_request->alternate == -1);
-    CHECK(query_starts.size() == 5);
-    CHECK(query_ends[1] == FixedPosition({0, -0x2000, 0}));
-    CHECK(query_ends[2] == FixedPosition({0, -0x2000, 0}));
-    CHECK(query_ends[3] == FixedPosition({0, -0x2000, 0}));
-    CHECK(query_ends[4] == FixedPosition({0, 0x1000, 0}));
+    CHECK(query_starts.size() == 10);
+    CHECK(query_ends[4] == FixedPosition({0, -0x2000, 0}));
+    CHECK(query_ends[5] == FixedPosition({0, -0x2000, 0}));
+    CHECK(query_ends[6] == FixedPosition({0, -0x2000, 0}));
+    CHECK(query_ends[7] == FixedPosition({0, -0x2000, 0}));
+    CHECK(query_ends[8] == FixedPosition({0, 0x1000, 0}));
+    CHECK(query_ends[9] == FixedPosition({0, 0x1e000, 0}));
     CHECK(player.action_history().write_index() == 2);
     CHECK(player.action_history().record(1).action == 4);
     CHECK(!player.action_history().record(1).pressed);
@@ -362,8 +374,11 @@ int main() {
         "stage-ground-preparation",
         "stage-ground-collision",
         "collision-query",
+        "collision-query",
         "stage-ground-post",
         "stage-ground-final",
+        "collision-query",
+        "collision-query",
         "input-frame",
         "level-tick",
         "action-history",
@@ -373,8 +388,10 @@ int main() {
         "collision-query",
         "collision-query",
         "collision-query",
+        "collision-query",
         "collision-consumer",
         "air-contact",
+        "collision-query",
         "landing-animation",
     };
     CHECK(observer.order == complete_order);

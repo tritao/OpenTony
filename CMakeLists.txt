@@ -63,6 +63,7 @@ target_link_libraries(opentony_trg PUBLIC opentony_assets)
 add_library(opentony_runtime STATIC
     src/camera/camera_runtime.cpp
     src/runtime/collision_response.cpp
+    src/runtime/collision_recovery.cpp
     src/runtime/air_motion.cpp
     src/runtime/air_contact.cpp
     src/runtime/fixed_matrix.cpp

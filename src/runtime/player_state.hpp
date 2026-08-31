@@ -45,6 +45,17 @@ struct PhysicsStateRequest {
         const PhysicsStateRequest&) = default;
 };
 
+struct GroundCollisionRecoveryExitResult final {
+    PhysicsStateRequest state_request{};
+    bool state_two_shortcut{};
+    bool ordinary_cleanup{};
+    bool action_stream_restart_requested{};
+    std::int32_t action_stream_reference{};
+    bool animation_request_issued{};
+    std::uint32_t animation{};
+    std::uint32_t animation_reason{};
+};
+
 // Causal random inputs consumed by FUN_0049c060 before the grounded
 // orientation/recovery call. The second draw is only present when the first
 // draw caps the current response speed.
@@ -244,6 +255,11 @@ public:
     [[nodiscard]] const RetailBasis& retail_basis() const noexcept {
         return retail_basis_;
     }
+    // The short normal at +0x80 is the current orientation-recovery target
+    // consumed by the grounded support tail.
+    [[nodiscard]] const FixedPosition& ground_surface_recovery_target() const noexcept {
+        return ground_surface_recovery_target_;
+    }
     [[nodiscard]] const QueuedMotionState& queued_motion() const noexcept {
         return queued_motion_;
     }
@@ -433,6 +449,22 @@ public:
         std::uint32_t reason,
         const FixedPosition& transition_basis) noexcept;
 
+    // Static contract of retail FUN_004956f0. The state-2 branch is a short
+    // handoff with reason 0x1605; the ordinary branch owns the cleanup write
+    // ordering and returns the external stream/animation requests as a
+    // result so their services remain explicit at the frame boundary.
+    [[nodiscard]] GroundCollisionRecoveryExitResult
+    exit_ground_collision_recovery() noexcept;
+
+    void set_ground_collision_recovery_fields(
+        std::int32_t stream_reference,
+        std::int32_t stream_lock,
+        std::int32_t heading_override) noexcept {
+        collision_recovery_stream_ = stream_reference;
+        field_2dd4_ = stream_lock;
+        field_2dd8_ = heading_override;
+    }
+
     [[nodiscard]] OllieImpulseResult apply_ollie_impulse(
         const OllieImpulseInput& input) noexcept;
 
@@ -601,12 +633,6 @@ public:
     void apply_collision_transient_exit_orientation(
         const FixedPosition& collision_normal) noexcept;
 
-    // Completes the special accepted-air-contact handoff used by the
-    // collision class that enters FUN_00497960 after the ordinary landing
-    // request.  Retail reorients the basis, resets the response onto the
-    // former up axis, and re-enters raw state 1 with reason 0x715.
-    void complete_air_landing_ground_handoff() noexcept;
-
     [[nodiscard]] CollisionResponseResult apply_collision_response(
         const FixedPosition& surface_delta,
         std::int32_t bias_q12 = 0xcd);
@@ -648,6 +674,13 @@ public:
     void apply_orientation_recovery(
         const FixedPosition& surface_normal,
         bool recovery_complete = false) noexcept;
+
+    // Seeds the persistent +0x80/+0x313x recovery record after the in-air
+    // handler publishes an accepted landing normal. The next grounded frame
+    // must continue from this contact rather than from the prior ground
+    // surface's recovery target.
+    void seed_ground_surface_recovery(
+        const FixedPosition& surface_normal) noexcept;
 
     // FUN_00496550 remembers the last accepted surface normal at +0x80 and
     // advances its recovery timer at +0x3130. A new normal resets that timer;
@@ -734,6 +767,14 @@ private:
     std::int16_t animation_frame_{};
     std::int32_t field_2cdc_{};
     std::int32_t field_2dd4_{};
+    std::int32_t field_2dd8_{};
+    std::int32_t collision_recovery_stream_{};
+    std::int32_t collision_recovery_auxiliary_x_{};
+    std::int32_t collision_recovery_auxiliary_y_{};
+    std::int32_t collision_recovery_correction_gate_{};
+    std::int32_t collision_recovery_active_{};
+    std::int32_t collision_recovery_latch_{};
+    std::int32_t collision_recovery_block_{};
     std::int32_t ground_surface_class_{};
     std::uint8_t field_107_{};
     std::int32_t field_2a8_{};

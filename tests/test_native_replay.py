@@ -170,11 +170,14 @@ def test_native_wire_maps_threshold_random_call() -> None:
         "frames": [{
             "frame": 0,
             "input": {"action_mask": 0},
-            "events": [{
-                "type": "shared_random_call",
-                "caller": "0x0049e831",
-                "return_value_s32": 50,
-            }],
+                "events": [{
+                    "type": "shared_random_call",
+                    # The special +0xdc threshold call is observed at its
+                    # return-site alias; 0049e831 is a separate frame-local
+                    # scalar producer.
+                    "caller": "0x0049eaed",
+                    "return_value_s32": 50,
+                }],
         }],
     }
 

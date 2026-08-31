@@ -160,6 +160,12 @@ threshold, animation, and event stores; with `--correction` or `--control` it
 can be narrowed to one group. The two random return sites are included in
 the `--control` group.
 
+This B010 rearm pair is distinct from the outer per-frame threshold refresh
+in `0x0049e680`. That refresh calls `FUN_0048f3a0(3)` at `0x0049eb25` for the
+`+0xaa` decay path and at `0x0049eae9` for the `+0xdc` replacement path. The
+nearby `0x0049e831` draw has argument `5` and feeds a frame-local scalar at
+`+0x2f3c`; it is not a `+0x2dc8` threshold source.
+
 These probes do not change game state. A deterministic Warehouse replay should
 arm the producer, profile, and writer probes together with the existing frame,
 position-commit, and collision probes. That trace can then distinguish a

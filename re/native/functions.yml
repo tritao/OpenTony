@@ -228,6 +228,151 @@ functions:
       - re/evidence/fixtures/player-frame-integration.json
     notes: The renderer-independent frame boundary connects scheduler input/level order, action history, dispatch, candidate queries, commit, landing state request, and animation request in a deterministic native fixture; unresolved stat/table producers remain explicit hooks.
 
+  - address: 0x004956f0
+    name: Skater_ExitGroundCollisionRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.hpp
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/physics_frame_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Exact state-2 0x1605 shortcut, ordinary 0x160b request, persistent cleanup stores, and external service result boundary are modeled; animation/action services remain explicit.
+
+  - address: 0x004957c0
+    name: Skater_GroundedBounceProbe
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/collision_recovery.hpp
+      - src/runtime/collision_recovery.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/physics_frame_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Static probe geometry, strict normal gate, response ordering, and previous-position verification anchor are modeled in the grounded frame boundary.
+
+  - address: 0x00495cc0
+    name: Skater_GroundPostCollision
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/physics_dispatch.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: The static stage boundary and call ordering are modeled; score/motion service producers remain outside the renderer-independent frame.
+
+  - address: 0x00496550
+    name: Skater_DoGroundPhysics
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/physics_frame.cpp
+      - src/runtime/player_state.cpp
+      - src/runtime/collision_recovery.cpp
+    tests:
+      - src/runtime/physics_frame_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics.md
+    notes: Ground movement/collision ordering and the retail support sweep are represented; remaining surface/stat service predicates stay explicit and provisional.
+
+  - address: 0x00497aa0
+    name: Skater_AirCollisionRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/air_contact.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/air_contact_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics-states.md
+    notes: Air landing/recovery handoff is retained at the shared collision stage; the complete retail service side effects remain an explicit boundary.
+
+  - address: 0x00497df0
+    name: Skater_UpdateAirBasis
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/air_motion_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics-states.md
+    notes: Scalar air-axis clamp and paired basis rebuild are modeled with the fixed-point orientation helpers.
+
+  - address: 0x0049bad0
+    name: Skater_ApplyCollisionResponse
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/collision_response.cpp
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/physics_frame_test.cpp
+      - src/runtime/player_state_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics.md
+    notes: Response projection and ordered orientation handoff are represented as one caller-owned pipeline boundary; full retail matrix scratch equivalence remains under static review.
+
+  - address: 0x0049d080
+    name: Skater_RebuildOrientationRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/player_state_test.cpp
+      - src/runtime/physics_frame_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics-states.md
+    notes: Strict progress gate, terminal target selection, easing, cross products, and basis publication are modeled.
+
+  - address: 0x0049d9c0
+    name: Skater_RunGroundedBounceRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/collision_recovery.hpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/physics_frame_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Directional sequence and blocked-dependent distance are modeled; bounce animation/debug/service calls remain caller-owned.
+
+  - address: 0x0049dad0
+    name: Skater_GroundPreparation
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/physics_dispatch.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Dispatcher boundary and stage order are modeled; the preparation routine's animation/stat producers remain outside PlayerState.
+
   - address: 0x00480730
     name: Animation_Start
     slice: animation-endpoint-transition
@@ -317,6 +462,72 @@ functions:
       - re/evidence/functions/player-frame-integration.md
       - re/evidence/fixtures/player-frame-integration.json
     notes: Candidate order, desired/old-Y native selections, fixed-point caller values, and optional-hit consumer ordering are covered by the integration fixture. Static matching resolves +0x3200 as the direct-commit gate; its writer is not present in the selected paths/current split.
+
+  - address: 0x00490730
+    name: Skater_OuterFloorRecoveryCheck
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/physics_frame.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/physics.md
+    notes: Outer pre-dispatch floor/restart query ownership is recorded statically; the renderer-independent native frame retains this as an explicit boundary pending full parity.
+
+  - address: 0x00491780
+    name: Skater_AirCollisionOrientationRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/air_contact_test.cpp
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Air-contact normal removal, strict speed/alignment gates, history-handed basis recovery, and state handoff are represented; the indirect service branch remains explicit.
+
+  - address: 0x00496360
+    name: Skater_GroundSurfaceResponseStep
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/physics_frame.cpp
+      - src/runtime/player_state.cpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
+    notes: The pre-movement-query response/correction boundary is preserved; upstream profile/stat and service producers remain explicit inputs.
+
+  - address: 0x00497960
+    name: Skater_AirLandingOrientationRecovery
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/air_contact_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+    notes: Landing orientation window, reversed basis publication, response reset, and strict dot gates are represented.
+
+  - address: 0x0049c060
+    name: Skater_ApplySurfaceResponseCorrection
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/player_frame_integration_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
+    notes: The published +0x3118/+0x3128 response contract is carried across the grounded frame boundary; the remaining service/table producer is explicit.
 
   - address: 0x0049b010
     name: Skater_UpdateAcceleration
