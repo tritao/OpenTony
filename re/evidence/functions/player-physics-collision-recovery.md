@@ -253,6 +253,15 @@ globals. The relevant decoded values are:
 | `CollisionResultFlagFace80` (`DAT_0056b7ac`) | `face[0] & 0x80` | face/service recovery predicate |
 | surface class (`DAT_0056b7e8`) | `(face[0xc] >> 25) & 0xf` | raw class consumed by special paths |
 
+The movement-hit side effects precede this support line. In the static PC
+body, the ordinary movement query returns to `0x00496db8`, which calls
+`0x0049bad0` and then continues to the support-query setup at
+`0x00496ebe`. The response and orientation writes at that boundary are
+persistent player state (`+0x4c/+0x50/+0x54` and the published basis); they
+are not deferred result decoration. A later generic collision-result hook
+would be ordered incorrectly because it would run after the support response
+has already been projected.
+
 The ordinary branch calls `0x004956f0` from three static sites
 (`0x0049744e`, `0x004974d5`, and `0x00497571`). The routine does not have a
 single “steep class 12” predicate. Its branch conditions combine the decoded
@@ -303,6 +312,29 @@ calling `0x00490680`. For state 2 the vector is transition-owned; for the
 ordinary branch it is the local correction beginning with `0x1964` and
 projected against the selected normal. This ordering is the contract consumed
 by `0x00496360 -> 0x0049c060` on the next relevant frame.
+
+The exact common-tail ordering is visible in the decompilation of
+`0x00496550` at the static callsite `0x00497641`: after the movement/support
+branch (including any `0x004956f0` state handoff), the routine checks
+`+0x30b8 != 1`, publishes the selected support correction and normal, and
+calls `0x00490680(+0x4c, hit_normal, +0x4c)`. The state-0 basis tail then
+starts at `0x004976cf`; when `+0x2f64 == 0` it subtracts the response's
+projection onto `+0x3100` directly from persistent `+0x4c/+0x50/+0x54`,
+before applying the temporary `+0x58` forward term. Thus the support
+projection is after either recovery branch, while the movement response is
+before the support query.
+
+Two narrow PC replay observations confirm the state/order interpretation.
+At `0x00490680`, frame 164 entered with state `0` and response
+`(110809,0,-34952)`; frame 207 entered with state `0` and response
+`(-205,35,-46184)`. Neither frame entered `0x004956f0`, so the common tail
+did not follow the state-1 exit on these contacts. The native Warehouse
+query returns the same flat support normal `(0,-4096,0)` at both boundaries.
+The frame-207 Y clear is therefore caused by the response-before-support
+ordering, not by a missing collision normal or recorder input. Confidence is
+high for the PC call order and medium for applying the same state-0 boundary
+to other material/state combinations; state-2's existing pending-transition
+path remains a separate follow-up contract.
 
 ## State-2 recovery exit: `0x004956f0`
 
@@ -579,21 +611,16 @@ static chunk:
 | `build/scenarios/warehouse-idle/retail.otrec` | 256/256 strict frames |
 | `build/scenarios/warehouse-straight/retail.otrec` | 256/256 strict frames |
 | `build/qualification/hybrid-input/warehouse-ollie-land.otrec` | 256/256 strict frames |
-| `build/qualification/hybrid-input/warehouse-turn-ollie.otrec` | first mismatch at frame 164, collision response |
-| `build/qualification/hybrid-input/warehouse-turn.otrec` | first mismatch at frame 207, collision response |
+| `build/qualification/hybrid-input/warehouse-turn-ollie.otrec` | 256/256 strict frames |
+| `build/qualification/hybrid-input/warehouse-turn.otrec` | 256/256 strict frames |
 
 The new in-air producer closes the previous turn-ollie orientation mismatch:
 the native trace follows the retail accumulator, orientation, position, and
-state transition through the landing at frame 83 and remains exact through
-frame 163. Its first residual is frame 164 collision response, retail
-`[-4488,0,117775]` versus native `[-4488,27,117775]`; this is a response-only
-normal-provenance seam, not an orientation-input divergence. The non-ollie
-turn fixture remains exact through frame 206. Its first residual at frame 207
-is the same seam: retail response `[-13279,0,-41956]` versus native
-`[-13279,35,-41956]`. The response arithmetic and the PC final-normal
-producer are statically bounded; the remaining question is why the portable
-scene result retains a low Y component at these contacts when the retail
-response snapshot does not.
+state transition through the landing and remains exact through all 256 frames.
+The grounded movement-response ordering then closes the former residuals at
+frames 164 and 207. Those values are now produced by the same semantic chain:
+movement response/orientation, support recovery, `0x00490680` projection,
+and the state-0 basis tail.
 
 The remaining qualification mismatches are outside the already matching
 idle/straight collision frontier:
@@ -603,10 +630,10 @@ idle/straight collision frontier:
   its existing `0x0049eaed` observer alias, and the recording now matches all
   256 frames. The selected contact at the former boundary was the flat ground
   normal, confirming that no collision class or recorder channel was missing.
-* `warehouse-turn-ollie` now reaches frame 163 exactly through the in-air
-  orientation/landing handoff; frame 164 is a response-only normal difference.
-* `warehouse-turn` remains exact through frame 206; frame 207 is the narrow
-  query-normal provenance difference described above.
+* `warehouse-turn-ollie` is exact through the in-air orientation/landing
+  handoff and the grounded movement collision path.
+* `warehouse-turn` is exact through the grounded movement collision path,
+  including the former frame-207 response boundary.
 * the outer `0x00490730` floor/restart helper is now represented as a focused
   native query chain. Warehouse leaves its restart global disabled, so the
   live replay path verifies the no-hit/ordinary handoff rather than the
@@ -615,14 +642,10 @@ idle/straight collision frontier:
 
 The remaining narrow static questions are the nonzero `+0x2858`/`0x0048cb60`
 profile-array contract, the alternate `+0x40/+0x60` and `+0x2e80` action
-branches, the `0x0049b010` animation/profile/stat owner outside qualified
-Warehouse, and the retail Y-normal provenance at the two turn residuals. A
-single future PC experiment is justified only if the static normal pipeline
-cannot discriminate these two possibilities: inspect `q+0x78..0x7c` after
-`0x00463d50` and `+0x4c/+0x50/+0x54` across `0x0049bad0` for the first
-residual contact. That experiment would distinguish a finalizer/source-normal
-difference from a later response-side write; it does not justify a replay
-special case or recorder expansion. The requested `0x0049ca8f` service
-ambiguity is closed: the actual `0x004ca8f0` call is deterministic quantized
-magnitude code. Replay remains the verification oracle, not the source of new
-collision behavior.
+branches, and the `0x0049b010` animation/profile/stat owner outside qualified
+Warehouse. The former response-normal provenance question is closed by the
+static call order and the two bounded PC observations above; it did not
+require a recorder expansion. The requested `0x0049ca8f` service ambiguity is
+also closed: the actual `0x004ca8f0` call is deterministic quantized magnitude
+code. Replay remains the verification oracle, not the source of new collision
+behavior.

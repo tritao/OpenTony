@@ -245,6 +245,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     bool collision_transient_requested = false;
     bool collision_transient_exit_requested = false;
     bool collision_response_projection_pending = false;
+    bool collision_response_applied = false;
+    bool collision_orientation_applied = false;
     bool ground_leave_air_requested = false;
     std::int32_t ground_leave_air_reason = 0x1ab6;
     bool state_two_entered_from_recovery = false;
@@ -256,6 +258,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
         [&result, &hooks, &input, &collision_transient_requested,
          &collision_transient_exit_requested,
          &collision_response_projection_pending,
+         &collision_response_applied,
+         &collision_orientation_applied,
          &ground_leave_air_requested,
          &ground_leave_air_reason,
          &state_two_entered_from_recovery,
@@ -603,6 +607,42 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 movement_collision = ground_collision_query(start, desired);
                 if (movement_collision.has_value()) {
                     queried_hit = movement_collision;
+                    if (stage == PhysicsDispatchStage::GroundCollision_96550) {
+                        // FUN_00496550 calls FUN_0049bad0 at 0x00496db8
+                        // immediately after the movement query. Its response
+                        // and orientation writes therefore feed the secondary
+                        // support sweep and the later FUN_00490680 tail; the
+                        // generic result publication below is too late for
+                        // this grounded movement-hit path.
+                        if (hooks.collision_response_bias_q12) {
+                            const std::optional<std::int32_t> bias =
+                                hooks.collision_response_bias_q12(
+                                    current_player,
+                                    *movement_collision,
+                                    stage);
+                            if (bias.has_value()) {
+                                result.collision_response =
+                                    current_player.apply_collision_response(
+                                        movement_collision->normal,
+                                        *bias);
+                                collision_response_applied = true;
+                            }
+                        }
+                        if (hooks.collision_orientation_yaw) {
+                            const std::optional<std::int32_t> yaw =
+                                hooks.collision_orientation_yaw(
+                                    current_player,
+                                    *movement_collision,
+                                    stage);
+                            if (yaw.has_value()) {
+                                result.collision_orientation =
+                                    current_player.apply_collision_orientation(
+                                        movement_collision->normal,
+                                        *yaw);
+                                collision_orientation_applied = true;
+                            }
+                        }
+                    }
                 }
                 probe = [&ground_collision_query, &start, &queried_hit](
                     const FixedPosition& candidate) {
@@ -1110,11 +1150,11 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         // movement query. The grounded tail then consumes that
                         // complete accumulated +0x58 value.
                         current_player.add_motion_correction(surface_correction);
-                        // The support-hit common tail calls FUN_00490680 only
-                        // after the selected surface correction has been
-                        // added to +0x58. Keep this projection at that
-                        // boundary; it is not the earlier FUN_00490610
-                        // response stage.
+                        // The ordinary recovery branch reaches FUN_00490680
+                        // before its candidate/exit continuation. The
+                        // common-tail call is represented here for the
+                        // non-leave path; the state-0 movement response has
+                        // already been produced above at 0x00496db8.
                         if (current_player.physics_state() != 1) {
                             static_cast<void>(
                                 current_player.project_collision_velocity(
@@ -1259,7 +1299,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     *result.collision_hit);
             }
             if (result.collision_hit.has_value()
-                && hooks.collision_response_bias_q12) {
+                && hooks.collision_response_bias_q12
+                && !collision_response_applied) {
                 const std::optional<std::int32_t> bias =
                     hooks.collision_response_bias_q12(
                         current_player,
@@ -1273,7 +1314,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 }
             }
             if (result.collision_hit.has_value()
-                && hooks.collision_orientation_yaw) {
+                && hooks.collision_orientation_yaw
+                && !collision_orientation_applied) {
                 const std::optional<std::int32_t> yaw =
                     hooks.collision_orientation_yaw(
                         current_player,

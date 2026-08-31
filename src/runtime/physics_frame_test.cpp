@@ -516,6 +516,51 @@ int main() {
     CHECK(response_frame.collision_response->adjusted);
     CHECK(response_player.collision_response()[1] == 0xcd);
 
+    // The grounded movement hit reaches FUN_0049bad0 before the secondary
+    // support sweep and FUN_00490680. If the response hook is left at the
+    // generic result boundary, the support projection is immediately undone
+    // by a second bias application. Keep this ordering visible as a semantic
+    // regression test rather than relying only on the Warehouse recording.
+    PlayerState ordered_response_player({0, 100, 0});
+    ordered_response_player.set_physics_state(0);
+    ordered_response_player.set_collision_response({0, 0x1000, 0});
+    PlayerPhysicsFrameHooks ordered_response_hooks{};
+    ordered_response_hooks.integrate_motion_correction = false;
+    int ordered_query_count = 0;
+    bool response_seen_by_support_query = false;
+    ordered_response_hooks.collision_query = [
+        &ordered_response_player,
+        &ordered_query_count,
+        &response_seen_by_support_query](
+        const FixedPosition&,
+        const FixedPosition&)
+        -> std::optional<opentony::runtime::PositionCollisionHit> {
+        ++ordered_query_count;
+        if (ordered_query_count == 1) {
+            return opentony::runtime::PositionCollisionHit{
+                1, 2, 3, 4, 0x2000, {0, 0, 0}, {0, -0x1000, 0}, 0, 0x0110};
+        }
+        if (ordered_query_count == 2) {
+            response_seen_by_support_query =
+                ordered_response_player.collision_response()[1] < 0;
+            return opentony::runtime::PositionCollisionHit{
+                5, 6, 7, 8, 0x2000, {0, 0, 0}, {0, -0x1000, 0}, 0, 0};
+        }
+        return std::nullopt;
+    };
+    ordered_response_hooks.collision_response_bias_q12 = [](
+        const PlayerState&,
+        const opentony::runtime::PositionCollisionHit&,
+        PhysicsDispatchStage) {
+        return std::optional<std::int32_t>{0xcd};
+    };
+    static_cast<void>(PlayerPhysicsFrame::step(
+        ordered_response_player,
+        surface_input,
+        ordered_response_hooks));
+    CHECK(response_seen_by_support_query);
+    CHECK(ordered_response_player.collision_response()[1] == 0);
+
     PlayerState gravity_player;
     gravity_player.set_physics_state(3);
     gravity_player.set_air_motion({100, -1000, 300});
