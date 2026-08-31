@@ -90,6 +90,7 @@ public:
     explicit PlayerState(FixedPosition position = {}) noexcept
         : position_(position),
           previous_position_(position),
+          outer_floor_reference_position_(position),
           orientation_(q12_identity_matrix()),
           retail_basis_(retail_basis_from_matrix(orientation_)) {}
 
@@ -101,6 +102,15 @@ public:
     }
     [[nodiscard]] const FixedPosition& older_position() const noexcept {
         return older_position_;
+    }
+    [[nodiscard]] const FixedPosition& outer_floor_reference_position() const noexcept {
+        return outer_floor_reference_position_;
+    }
+    [[nodiscard]] bool outer_floor_recovery_blocked() const noexcept {
+        return outer_floor_recovery_blocked_;
+    }
+    [[nodiscard]] std::int32_t outer_floor_distance() const noexcept {
+        return outer_floor_distance_;
     }
     [[nodiscard]] const FixedPosition& collision_response() const noexcept {
         return collision_response_;
@@ -284,6 +294,21 @@ public:
         previous_position_ = position;
         older_position_ = position;
     }
+    // FUN_00490730 writes +0xbc without touching the preceding +0x2e00
+    // history slot. Keep that raw store distinct from the public reset-style
+    // setter above.
+    void set_previous_position_only(FixedPosition position) noexcept {
+        previous_position_ = position;
+    }
+    void set_outer_floor_reference_position(FixedPosition position) noexcept {
+        outer_floor_reference_position_ = position;
+    }
+    void set_outer_floor_recovery_blocked(bool blocked) noexcept {
+        outer_floor_recovery_blocked_ = blocked;
+    }
+    void set_outer_floor_distance(std::int32_t distance) noexcept {
+        outer_floor_distance_ = distance;
+    }
     void set_collision_response(FixedPosition response) noexcept {
         collision_response_ = response;
     }
@@ -324,6 +349,10 @@ public:
         ground_surface_recovery_update_frame_ = -1;
         orientation_basis_normalization_pending_ = true;
     }
+    // Retail FUN_00490730 reaches FUN_0049b500 with (0x4b0, 1, 0) after a
+    // restart-at-start acceptance. This is the same orientation/response
+    // contract as the grounded turn phase, but with a caller-supplied angle.
+    void apply_ground_response_yaw(std::int32_t angle12) noexcept;
     // Grounded retail frames canonicalize the three published basis vectors
     // before the turn producer consumes them. Keep the raw setter above
     // lossless so recordings can preserve the pre-frame state.
@@ -574,10 +603,10 @@ public:
         const InputState& input,
         GroundTurnConfig config = {}) noexcept;
 
-    // Completes the ordinary state-0 phase of FUN_0049b500 after the current
-    // frame's candidate position has been integrated. The saved orientation
-    // is captured by update_ground_turn(); the response update therefore
-    // affects the following frame's displacement, not this one.
+    // Completes the ordinary state-0 phase of FUN_0049b500 before the
+    // movement collision query. The saved orientation is captured before
+    // the grounded turn producer, matching the +0x2e38 copy in
+    // FUN_0049e680; the producer's matrix publication remains separate.
     void apply_ground_turn_velocity_phase() noexcept;
 
     // Executes the recovered temporary-correction writes from FUN_0049b010.
@@ -751,6 +780,13 @@ private:
     // Retail +0x2e00 is the position from the preceding physics frame;
     // previous_position_ is the current frame's +0xbc history value.
     FixedPosition older_position_{};
+    // +0x2e0c/+0x2e10/+0x2e14: persistent scratch reference used by the
+    // outer floor/restart helper's two component fallback sweeps.
+    FixedPosition outer_floor_reference_position_{};
+    // +0x2e90 is a gate: zero enables FUN_00490730. The native name describes
+    // the nonzero/blocked sense to avoid hiding the retail comparison.
+    bool outer_floor_recovery_blocked_{};
+    std::int32_t outer_floor_distance_{};
     FixedPosition collision_response_{};
     FixedPosition motion_correction_{};
     FixedPosition air_motion_{};

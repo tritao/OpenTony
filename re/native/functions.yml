@@ -466,13 +466,34 @@ functions:
   - address: 0x00490730
     name: Skater_OuterFloorRecoveryCheck
     slice: physics
-    status: modeled
+    status: integrated
     sources:
       - src/runtime/physics_frame.cpp
+      - src/runtime/collision_recovery.hpp
+      - src/runtime/collision_recovery.cpp
     evidence:
       - re/evidence/functions/player-physics-collision-recovery.md
       - re/evidence/functions/physics.md
-    notes: Outer pre-dispatch floor/restart query ownership is recorded statically; the renderer-independent native frame retains this as an explicit boundary pending full parity.
+    tests:
+      - src/runtime/collision_recovery_test.cpp
+    notes: Static PC query order is implemented as the pre-dispatch native helper, including the upward/restart/short/X/Z branches, persistent reference/history writes, and explicit external service callback. Warehouse keeps the restart global disabled; the accepted branch is covered by the focused query-order test.
+
+  - address: 0x0049b500
+    name: Skater_ApplyTurnVelocityPhase
+    slice: physics
+    status: modeled
+    sources:
+      - src/runtime/player_state.cpp
+      - src/runtime/player_state.hpp
+      - src/runtime/physics_frame.cpp
+    tests:
+      - src/runtime/ground_turn_test.cpp
+      - src/runtime/physics_frame_test.cpp
+    evidence:
+      - re/evidence/functions/player-physics-collision-recovery.md
+      - re/evidence/functions/ground-movement.md
+      - re/evidence/functions/physics.md
+    notes: PC __thiscall contract, caller-selected response phase, saved-matrix source, Q12 yaw/basis publication, and pre-movement-query state-0 ordering are modeled. The restart caller's 0x4b0 path shares the same native orientation/response helper; state-specific service ownership remains explicit.
 
   - address: 0x00491780
     name: Skater_AirCollisionOrientationRecovery

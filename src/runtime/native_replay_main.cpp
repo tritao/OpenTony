@@ -407,6 +407,11 @@ int run(int argc, char** argv) {
     session.physics_hooks().apply_ground_basis_correction = true;
     session.physics_hooks().apply_ground_basis_forward_term = true;
     session.physics_hooks().apply_ground_surface_recovery = true;
+    // FUN_00490730 is part of the retail pre-dispatch frame even when its
+    // Warehouse upward query misses. Its level-9 restart-at-start subpath is
+    // disabled by the retail global for this fixture.
+    session.physics_hooks().apply_outer_floor_recovery = true;
+    session.physics_hooks().outer_floor_restart_at_start = false;
     // Warehouse's ordinary wall result enters FUN_0049bad0 with the raw
     // 0x110 surface class. Its inward response and heading rewrite occur
     // before the shared ground tail; keep those caller-owned gates explicit.

@@ -20,7 +20,7 @@ Left/Right action record
     -> 0x0049b010 prephysics correction using the basis copied from the prior matrix
     -> 0x004967b6: position += velocity*dt + correction*dt^2/2
     -> 0x00496360 in grounded state 0x00496550
-    -> 0x0049b500(angle & 0xfff, 1, 0)
+    -> 0x0049b500(angle & 0xfff, 1, 0), before the ordinary movement query
     -> 0x004e80e0 / 0x004e7de0 fixed-point Y rotation and 0x004e3130 matrix multiply
     -> player+0x2e58..+0x2e68 orientation matrix
     -> 0x0049c7d0 refreshes integer basis player+0x30f4..+0x3114
@@ -81,7 +81,8 @@ basis = {
 };
 // Ordinary state 0 passes param_3 == 1 to 0x0049b500.  That second phase
 // transforms velocity through the saved pre-frame matrix and rescales it to
-// the old integer magnitude; state-2/special state-1 passes zero.
+// the old integer magnitude before the ordinary movement query; state-2 /
+// special state-1 passes zero.
 if (ordinary_state0)
     velocity_4c = rotate_and_rescale_velocity(velocity_4c,
                                                saved_old_matrix,
@@ -301,7 +302,7 @@ The `0x0049b500` writer is the strongest orientation evidence:
    basis_2 = matrix column 1 -> player+0x310c/+0x3110/+0x3114
    ```
 
-For ordinary grounded state 0, `0x00496360` passes `param_3 == 1` (`!bVar1`) to `0x0049b500`; the state-2 / special state-1 path passes zero. Therefore the normal grounded call takes the function's second phase as well: after the matrix rotation it transforms `player+0x4c/+0x50/+0x54` through the saved pre-frame matrix and rescales the result using the pre/post vector magnitudes. That velocity update affects the following frame's position add. The first matrix rotation and basis write remain the direct orientation evidence; the velocity phase is kept separate in the C++ core because its saved-matrix transform is not itself the orientation candidate.
+For ordinary grounded state 0, `0x00496360` passes `param_3 == 1` (`!bVar1`) to `0x0049b500`; the state-2 / special state-1 path passes zero. Therefore the normal grounded call takes the function's second phase as well: after the matrix rotation it transforms `player+0x4c/+0x50/+0x54` through the saved matrix at `+0x2e38` and rescales the result using the pre/post vector magnitudes. That velocity update is complete before `0x00496550` builds the ordinary movement line, so it affects that frame's collision candidate and the following frame's position add. The first matrix rotation and basis write remain the direct orientation evidence; the velocity phase is kept separate in the C++ core because its saved-matrix transform is not itself the orientation candidate.
 
 The second phase's supported fixed-point shape is:
 
@@ -329,10 +330,10 @@ The basis is consumed in the same per-frame grounded pipeline rather than being 
 
 1. `0x0049b010` uses the basis copied at the start of `0x0049e680` to build the temporary correction at `player+0x58/+0x5c/+0x60`.
 2. `0x00496550` integrates the live position at `0x004967b6`.
-3. `0x00496360` then calls `0x0049b500`, rotating the short matrix from the updated turn accumulator.
-4. A later `0x0049c7d0` refreshes the integer basis from that matrix for ground-follow, projection, and collision handling.
+3. `0x00496360` calls `0x0049b500`, rotating the short matrix from the updated turn accumulator and completing its response phase before the ordinary movement line.
+4. `0x0049c7d0` refreshes the integer basis from that matrix for ground-follow, projection, and collision handling.
 
-This ordering matters: the first position add in a frame uses the basis from before that frame's `0x0049b500` rotation; the refreshed basis controls the subsequent correction/collision work and the next frame's integration.
+This ordering matters: the prephysics correction uses the basis copied before the turn writer, while the ordinary movement line uses the response and basis published by `0x0049b500`. The refreshed basis also controls the subsequent correction/collision work and the next frame's integration.
 
 `0x0049b010`, called before the dispatcher by `0x0049e680`, uses `player+0x30f4/+0x30f8/+0x30fc` to write the temporary correction vector at `player+0x58/+0x5c/+0x60` in grounded branches. `0x00496550` also uses the basis after its collision work. The exact helper arithmetic is:
 

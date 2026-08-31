@@ -38,6 +38,13 @@ types:
         description: Adjacent u16 copied from the selected type-8 TRG restart record; its high-word companion at +0x16 contributes to the restart yaw angle.
         evidence:
           - re/evidence/functions/restart-runtime.md
+      - offset: 0x2f40
+        name: outer_floor_distance
+        type: i32
+        confidence: confirmed
+        description: Upward-query hit Y minus current player Y minus 0x1e000, written by FUN_00490730 before its restart/service decision.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0x4c
         name: collision_response_vector
         type: array<i32,3>
@@ -117,7 +124,7 @@ types:
         name: ground_motion_threshold
         type: i32
         confidence: observed
-        description: Threshold read by the grounded acceleration producer when comparing the response speed metric; the post-dispatch writer remains a separate service boundary.
+        description: Threshold read by the grounded acceleration producer when comparing the response speed metric; FUN_0049e680 refreshes it before the outer floor/restart helper.
         evidence:
           - re/evidence/functions/physics.md
       - offset: 0x2dd4
@@ -298,11 +305,13 @@ types:
         evidence:
           - re/evidence/functions/physics-states.md
       - offset: 0x2e90
-        name: rail_entry_active
+        name: outer_floor_recovery_gate_rail_entry_active
         type: i32
         confidence: observed
+        description: "Context-shared word: zero enables the FUN_00490730 outer floor/restart chain, while the rail-entry path uses nonzero as its active marker."
         evidence:
           - re/evidence/functions/physics-states.md
+          - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0x2e94
         name: rail_entry_landing_marker
         type: i32
@@ -503,10 +512,10 @@ types:
         evidence:
           - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0x2e0c
-        name: bounce_restore_position
+        name: outer_floor_reference_bounce_restore_position
         type: array<i32,3>
-        confidence: observed
-        description: Saved XYZ used by the final grounded bounce helper when both directional probes succeed.
+        confidence: confirmed
+        description: "Context-shared saved XYZ: FUN_00490730 consumes it as the persistent outer recovery reference, while the final grounded bounce helper uses it to restore its saved position."
         evidence:
           - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0x3100

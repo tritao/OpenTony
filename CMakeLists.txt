@@ -438,6 +438,14 @@ if(OPENTONY_BUILD_TESTS)
     target_compile_options(opentony_fixed_matrix_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME opentony_fixed_matrix_test COMMAND opentony_fixed_matrix_test)
 
+    add_executable(opentony_collision_recovery_test
+        src/runtime/collision_recovery_test.cpp
+    )
+    target_link_libraries(opentony_collision_recovery_test PRIVATE opentony_runtime)
+    target_compile_features(opentony_collision_recovery_test PRIVATE cxx_std_20)
+    target_compile_options(opentony_collision_recovery_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME opentony_collision_recovery_test COMMAND opentony_collision_recovery_test)
+
     add_executable(opentony_physics_dispatch_test
         src/runtime/physics_dispatch_test.cpp
     )

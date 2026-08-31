@@ -74,6 +74,22 @@ void PlayerState::request_physics_state_from_basis(
     physics_state_ = state;
 }
 
+void PlayerState::apply_ground_response_yaw(std::int32_t angle12) noexcept {
+    // FUN_0049b500 has the same +0x2f64 early-out as the ordinary grounded
+    // response phase.  The outer restart caller reaches it, but the writer
+    // must remain a no-op while that control gate is set.
+    if (angle12 == 0 || control_blocked()) {
+        return;
+    }
+    const Q12Matrix3 saved_orientation = orientation_;
+    orientation_ = q12_apply_ground_yaw(orientation_, angle12);
+    retail_basis_ = retail_basis_from_matrix(orientation_);
+    collision_response_ = q12_rotate_ground_velocity(
+        collision_response_,
+        saved_orientation,
+        angle12);
+}
+
 GroundCollisionRecoveryExitResult
 PlayerState::exit_ground_collision_recovery() noexcept {
     GroundCollisionRecoveryExitResult result{};
@@ -129,6 +145,7 @@ void PlayerState::apply_restart(
     position_ = position;
     previous_position_ = position;
     older_position_ = position;
+    outer_floor_reference_position_ = position;
     collision_response_ = {};
     motion_correction_ = {};
     air_motion_ = {};
@@ -1378,6 +1395,10 @@ FixedPosition PlayerState::integrated_position(
 GroundTurnResult PlayerState::update_ground_turn(
     const InputState& input,
     GroundTurnConfig config) noexcept {
+    // Retail stores the pre-0x0049b500 matrix in +0x2e38 immediately after
+    // the accumulator producer. Preserve that source matrix for the later
+    // response phase; the native orientation publication is a separate
+    // renderer-independent handoff.
     ground_turn_saved_orientation_ = orientation_;
     ground_turn_saved_orientation_valid_ = true;
     const GroundTurnResult result = GroundTurn::update(
@@ -1421,7 +1442,8 @@ GroundTurnResult PlayerState::update_ground_turn(
 }
 
 void PlayerState::apply_ground_turn_velocity_phase() noexcept {
-    if (!ground_turn_saved_orientation_valid_) {
+    if (!ground_turn_saved_orientation_valid_ || ground_turn_angle12_ == 0) {
+        ground_turn_saved_orientation_valid_ = false;
         return;
     }
     collision_response_ = q12_rotate_ground_velocity(

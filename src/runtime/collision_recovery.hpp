@@ -3,8 +3,11 @@
 #include "position_commit.hpp"
 
 #include <cstdint>
+#include <functional>
 
 namespace opentony::runtime {
+
+class PlayerState;
 
 // Constants from the PC retail grounded bounce/recovery helpers.  These are
 // fixed-point/world-space contracts, not replay-tuned thresholds.
@@ -65,5 +68,34 @@ struct GroundedBounceProbeGeometry final {
     const FixedPosition& recovery_target_normal,
     const FixedPosition& current_forward,
     const FixedPosition& collision_response) noexcept;
+
+struct OuterFloorRecoveryResult final {
+    bool gated{};
+    bool upward_hit{};
+    bool restart_probe_hit{};
+    bool restart_probe_rejected{};
+    bool short_recovery_hit{};
+    bool x_recovery_hit{};
+    bool z_recovery_hit{};
+    bool position_changed{};
+    bool response_yaw_applied{};
+    bool external_service_requested{};
+
+    friend bool operator==(
+        const OuterFloorRecoveryResult&,
+        const OuterFloorRecoveryResult&) = default;
+};
+
+// Reconstructs the pre-dispatch FUN_00490730 query chain. The helper owns the
+// player writes at +0x2f40, +0x08/+0x10, +0xbc/+0xc4, and the persistent
+// +0x2e0c scratch reference. The caller supplies the retail global restart
+// predicate and keeps FUN_0046d2e0 as an explicit external service boundary.
+[[nodiscard]] OuterFloorRecoveryResult apply_outer_floor_recovery(
+    PlayerState& player,
+    const FixedPosition& query_position,
+    const PositionCollisionQuery& query,
+    bool restart_at_start,
+    const std::function<void(const PositionCollisionHit&)>&
+        on_external_service = {});
 
 } // namespace opentony::runtime

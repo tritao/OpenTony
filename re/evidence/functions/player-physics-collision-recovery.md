@@ -12,8 +12,9 @@ The current connected control flow is:
 
 ```text
 Skater_PhysicsFrame 0049e680
-  -> outer floor/restart helper 00490730
   -> prephysics producers 00493370 / 0049b010 / 0049a280
+  -> threshold and +0x2dcc correction refresh
+  -> outer floor/restart helper 00490730
   -> Skater_PhysicsDispatcher 0049db80
        state 0 / 7:
          Skater_GroundPreparation 0049dad0
@@ -48,13 +49,14 @@ helpers are called from ground, air, rail, and swept-contact paths. The outer
 wrapper at `0x0049e680` performs the frame setup and post-dispatch handoff;
 it is not itself the owner of every collision predicate.
 
-The order before dispatch is material. `0x0049e680` copies the persistent
-response, invokes the grounded/action producers, clears the temporary
-correction, and then enters `0x00490730` and the prephysics calls before the
-state switch. After the state handler it restores the saved/current position
-through `0x00496060` when the outer guard permits it. This is why the support
-query, response correction, and final position write cannot be modeled as one
-collision callback.
+The order before dispatch is material. `0x0049e680` invokes the grounded and
+action producers, clears the temporary correction, saves the orientation and
+position history, refreshes the threshold and the `+0x2dcc` correction, and
+then calls `0x00490730` before the state switch. After the state handler it
+performs the saved/current position handoff through `0x00496060` when the
+outer guard permits it. This is why the support query, response correction,
+outer recovery, and final position write cannot be modeled as one collision
+callback.
 
 ## ABI and function contracts
 
@@ -64,6 +66,7 @@ collision callback.
 | `0x004957c0` | `Skater_GroundedBounceProbe` | `__thiscall(int direction, int distance, int heading)` returning `int` | `0x0049d9c0`; calls collision query, `0x0049bad0`, collision debug/service helpers | confirmed |
 | `0x00496550` | `Skater_DoGroundPhysics` | `__fastcall(void *skater)` | `0x0049db80`; calls the collision/recovery helpers in this document | confirmed |
 | `0x00496060` | `Skater_PositionWritePath` | `__thiscall(x, y, z)` returning `void` | ground, air, and outer frame handoff; calls `0x004624d0`, `0x00466090` | confirmed |
+| `0x00490730` | `Skater_OuterFloorRecoveryCheck` | `__cdecl(void *skater, int x, int y, int z, const char *debug_label)`; trailing label is caller-owned diagnostic data | `0x0049e680`; calls collision query, `0x0049b500`, `0x0046d2e0` | confirmed |
 | `0x00496360` | `Skater_GroundSurfaceResponseStep` | `__fastcall(void *skater)` | `0x00496550`; calls `0x0049c060`, `0x0049b500` | confirmed |
 | `0x00497aa0` | `Skater_AirCollisionRecovery` | `__thiscall(void *query)` | `0x00497f40`; calls state request, response, and animation helpers | confirmed |
 | `0x00497df0` | `Skater_UpdateAirBasis` | `__fastcall(void *skater)` | `0x00497f40`; calls fixed normalization/cross/publish helpers | confirmed |
@@ -71,6 +74,8 @@ collision callback.
 | `0x00491780` | `Skater_AirCollisionOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; calls normal projection, history/basis helpers, state request | confirmed |
 | `0x00497960` | `Skater_AirLandingOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; called by the accepted-contact landing branch | confirmed |
 | `0x0049bad0` | `Skater_ApplyCollisionResponse` | `__thiscall(u32 packed_xy, i16 z, int heading)` | ground, air, rail, swept-contact callers; calls fixed dot/multiply, matrix rotation, `0x0049c7d0`, `0x0049c850` | confirmed |
+| `0x0049b500` | `Skater_ApplyTurnVelocityPhase` | `__thiscall(int angle12, int response_phase, short offset)` | `0x00496360`, `0x00490730`, other steering/recovery callers; calls `0x004e80e0`, `0x004e3130`, `0x0049c7d0`, `0x004cac30`, `0x004cac90` | confirmed |
+| `0x004ca8f0` | `Runtime_QuantizedVectorMagnitudeClamp` | `__thiscall(const int *vector)` returning `int` | `0x004957c0`, `0x00496550`; calls `0x004e3ce0`/`0x004e2130` and `0x004f53b0` | confirmed |
 | `0x0049d080` | `Skater_RebuildOrientationRecovery` | `__fastcall(void *skater)` | ground, air, rail, swept-contact callers; calls fixed normalization/cross/publish helpers | confirmed |
 | `0x0049d9c0` | `Skater_RunGroundedBounceRecovery` | `__fastcall(void *skater)` | ground dispatcher case 0/7; calls `0x004957c0` and bounce service/debug path | confirmed |
 | `0x0049db80` | `Skater_PhysicsDispatcher` | `__fastcall(void *skater)` | `0x0049e680`; calls state-specific routines | confirmed |
@@ -80,6 +85,73 @@ The `0x004957c0` parameter roles are direction (`-1`/`+1`), probe distance,
 and the heading value passed to `0x0049bad0`. A zero heading is converted by
 `0x0049bad0` to its default `0x19` value. The `0x00497aa0` query parameter is
 the selected collision record; it is not a second player object.
+
+## Outer floor/restart handoff: `0x00490730`
+
+The Windows PC function is a cdecl-style helper with the player pointer and
+three fixed-point coordinates in the ordinary stack argument sequence. The
+callsite at `0x0049ebac` also supplies the literal restart diagnostic string;
+the helper does not read that trailing value. The first instruction gate is
+`player+0x2e90 == 0`. The same gate is repeated by the later outer
+`0x00496060` handoff, so this helper is a pre-dispatch producer rather than a
+generic collision-query callback.
+
+With the gate open, the exact query chain is:
+
+1. Query `(x,y,z)` to `(x,y+0x1f40000,z)`. On a hit, write
+   `+0x2f40 = hit_y - player_y - 0x1e000`.
+2. When the level global `DAT_005614c4` is nonzero and
+   `abs(hit_y) < 6000`, query `(x,y-0x7d0000,z)` to `(x,y,z)`. A hit whose
+   raw face word at `hit_face+0xc` has bit `0x40000` set is re-queried from
+   `hit_y+0x6000` to the same endpoint. The restart probe is rejected when
+   that re-query misses or still has bit `0x40000`.
+3. An accepted restart probe copies the persistent reference triplet
+   `+0x2e0c/+0x2e10/+0x2e14` to live position `+0x08/+0x0c/+0x10` and to the
+   current position history `+0xbc/+0xc0/+0xc4`, then calls
+   `0x0049b500(0x4b0, 1, 0)`. This is the only branch here that performs the
+   orientation/response handoff.
+4. Any upward hit not accepted by the restart branch calls
+   `0x0046d2e0(hit_face, hit_body, hit_x >> 12, hit_z >> 12)` and returns.
+5. If the upward query misses, query `(x,y-0x12c000,z)` to
+   `(x,y+0x64000,z)`. A hit writes `(hit_x, hit_y-0x1e000, hit_z)` to live
+   position and copies that result to `+0xbc/+0xc0/+0xc4`.
+6. If that short recovery misses, sweep the stored reference X over a
+   `0x190000` Y segment, restoring the original X on a miss; then sweep the
+   stored reference Z, restoring the original Z on a miss. The stores to live
+   X/Z and the corresponding history words occur immediately before each
+   query. If both sweeps miss, write the reference X/current Y/reference Z
+   to live and history, set `+0x4c = -old_+0x54/2`, and set
+   `+0x54 = +0x4c/2`; the Y response is unchanged.
+
+The query geometry and write ordering are from the static body at
+`0x00490730` in `build/physics-sprint/decomp/00490730.c`. The query records
+and their face words are temporary collision outputs; the position/history,
+`+0x2f40`, response vector, and `+0x2e0c` reference are persistent player
+state. `DAT_005614c4` is written by level-selection code (Warehouse leaves it
+zero), while `0x0046d2e0` remains an external collision/debug service. Native
+`apply_outer_floor_recovery()` preserves this chain and is covered by its
+focused query-order test; no recorder channel was added.
+
+## Quantized vector gate: `0x004ca8f0` (the requested `0x0049ca8f`)
+
+There is no function entry at the requested spelling `0x0049ca8f`. The
+relevant PC entry is `0x004ca8f0`, shared by the bounce and grounded response
+gates. It is deterministic fixed-point service code, not a random source:
+
+```text
+q12_component = signed_arithmetic_shift(component, 12)
+scratch_short[0..2] = q12_component[0..2]
+square/clamp each short through 0x004e3ce0 -> 0x004e2130
+sum clamped squares
+return 0x004f53b0(sum)
+```
+
+The helper reads its three-component pointer through ECX, stores the signed
+short quantization in globals `DAT_006a3eb0..006a3eb4`, and stores the clamped
+square outputs in `DAT_006a3eb8..006a3ec0`. `0x004957c0` and the ordinary
+grounded collision code at `0x00496550` compare its result with `6` as a
+magnitude gate. These globals are temporary service scratch, not player
+fields, and the call cannot explain a missing random/service recording value.
 
 ## Grounded bounce probe: `0x0049d9c0` -> `0x004957c0`
 
@@ -377,18 +449,19 @@ surface class labels.
 
 | category | fields/globals | owner |
 |---|---|---|
-| persistent player state | `+0x4c`, `+0x50`, `+0x54`; `+0x30b8`; `+0x30c4`; `+0x2f64`; recovery words; position/history | state-specific retail helper and outer frame in the listed order |
+| persistent player state | `+0x4c`, `+0x50`, `+0x54`; `+0x30b8`; `+0x30c4`; `+0x2f64`; `+0x2e0c/+0x2e10/+0x2e14`; `+0x2e90`; `+0x2f40`; recovery words; position/history | state-specific retail helper and outer frame in the listed order |
 | temporary working state | local query records; matrix scratch `DAT_006a3e10..`; local dot/cross products | current helper only |
 | collision-query outputs | query hit body, `+0x120/+0x124` normal, line parameter, selected face | collision query plus `0x0048ea80`; consumers must not recompute material bits |
-| causal service inputs | `FUN_004ca8f0`, `FUN_0046e1d0`, `FUN_0048f5f0`, animation requests, `FUN_00491b80`, trick script start, shared random/stat values | caller/service boundary; recording already carries these where qualified |
+| causal service inputs | `FUN_0046d2e0`, `FUN_0046e1d0`, `FUN_0048f5f0`, animation requests, `FUN_00491b80`, trick script start, shared random/stat values | caller/service boundary; recording already carries these where qualified; `0x004ca8f0` is deterministic scratch/magnitude code |
 | derived outputs | decoded surface flags, basis vectors, recovery target/progress, direct bounce endpoint | the helper that produces them; later consumers read them without reclassification |
 
 ## Static/native gaps and dynamic policy
 
 The collision/recovery implementation now follows the recovered connected
-ordering: bounce geometry and 10/70 selection, movement query, support sweep,
-face-bit exit predicate, response-before-orientation, shared position writer,
-and air/landing handoff. No frame-number rule or new recorder hook was added.
+ordering: pre-dispatch threshold/response refresh and outer floor handoff,
+bounce geometry and 10/70 selection, movement query, support sweep, face-bit
+exit predicate, response-before-orientation, shared position writer, and
+air/landing handoff. No frame-number rule or new recorder hook was added.
 The replay adapter's ollie mapping consumes the existing generic random-call
 records at the statically identified `0x0049a280` callsites; it does not add a
 causal channel. The outer threshold call at static `0x0049eae9` is likewise
@@ -404,22 +477,24 @@ static chunk:
 
 | recording | result |
 |---|---|
-| `warehouse-idle` | 256/256 strict frames |
-| `warehouse-straight` | 256/256 strict frames |
+| canonical retail `warehouse-idle-256-canonical` | 259/259 strict frames |
 | qualification `warehouse-straight` | 256/256 strict frames |
 | qualification `warehouse-ollie-land` | 256/256 strict frames |
 | qualification `warehouse-turn-ollie` | first mismatch at frame 20, position |
-| qualification `warehouse-turn` | first mismatch at frame 20, collision response |
+| qualification `warehouse-turn` | first mismatch at frame 38, position |
 
 The two turn fixtures share the same grounded steering/turn producer boundary.
 At frame 20 the `warehouse-turn-ollie` retail position is
 `[23929391,-5902336,11568131]`, while native is
 `[23929460,-5902336,11568128]`; the turn accumulator and basis have already
-diverged in that producer. The non-ollie turn fixture retains the same position
-through its first mismatch but differs in the derived response by
-`[1561,0,130401]` versus `[1560,0,130419]`. Static evidence currently places
-both differences in the grounded turn/fixed-point producer boundary, before a
-new collision/recovery branch is justified.
+diverged in that producer. The non-ollie turn fixture now remains exact through
+frame 37 after moving the response phase before the ordinary movement query.
+Its first residual at frame 38 is the integrated position
+`[24956582,-5902336,13515951]` versus `[24956645,-5902336,13515826]`; the
+same boundary has response `[117256,0,54688]` versus `[117383,0,54437]`.
+The static model therefore narrows that residual to fixed-point turn-response
+rounding or a still-unresolved pre-query writer, not a newly invented
+collision branch.
 
 The remaining qualification mismatches are outside the already matching
 idle/straight collision frontier:
@@ -429,17 +504,20 @@ idle/straight collision frontier:
   its existing `0x0049eaed` observer alias, and the recording now matches all
   256 frames. The selected contact at the former boundary was the flat ground
   normal, confirming that no collision class or recorder channel was missing.
-* the turn fixtures first diverge at frame 20 in the grounded steering/turn
-  producer and its fixed-point response rounding, before a collision recovery
-  branch can explain the difference.
-* the outer `0x00490730` floor/restart helper is statically bounded but only
-  partially represented by the renderer-independent native frame; its
-  vertical and fallback query ownership remains an explicit adjacent seam.
+* `warehouse-turn-ollie` still first diverges at frame 20 in the grounded
+  steering/turn producer; the ordinary `warehouse-turn` path now reaches its
+  first residual at frame 38 in the fixed-point response phase.
+* the outer `0x00490730` floor/restart helper is now represented as a focused
+  native query chain. Warehouse leaves its restart global disabled, so the
+  live replay path verifies the no-hit/ordinary handoff rather than the
+  accepted restart branch; the accepted branch is covered by the isolated
+  query-order test.
 
-These are narrow static questions: complete the `0x0049b010` animation,
-profile/table, and `0x0049ca8f` service contract outside the qualified
-Warehouse path; identify the grounded turn fixed-point producer; and finish
-the `0x00490730` caller handoff. Dynamic debugging is justified only if static
-bytes leave two plausible call ordering or indirect-dispatch interpretations.
-Replay remains the verification oracle, not the source of new collision
-behavior.
+The remaining narrow static questions are upstream of this chunk: complete the
+`0x0049b010` animation/profile/stat owner outside the qualified Warehouse path
+and explain the residual grounded turn fixed-point rounding at frame 38 in the
+non-ollie turn fixture. The requested `0x0049ca8f` service ambiguity is closed:
+the actual `0x004ca8f0` call is deterministic quantized magnitude code.
+Dynamic debugging is justified only if static bytes leave two plausible call
+ordering or indirect-dispatch interpretations. Replay remains the
+verification oracle, not the source of new collision behavior.

@@ -492,6 +492,16 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     }
                 }
             }
+            if (stage == PhysicsDispatchStage::GroundCollision_96550
+                && current_player.physics_state() == 0) {
+                // FUN_00496550 calls FUN_00496360 after integrating the live
+                // point and before it builds the ordinary movement query.
+                // FUN_00496360 always reaches FUN_0049b500, including when
+                // its optional FUN_0049c060 service path has no draw.  The
+                // response phase therefore belongs at this boundary rather
+                // than after collision selection.
+                current_player.apply_ground_turn_velocity_phase();
+            }
             if (stage == PhysicsDispatchStage::InAir_97f40
                 && current_player.physics_state() != 2
                 && hooks.air_orientation_pivot_input) {
@@ -1161,11 +1171,6 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                 current_player.add_motion_correction(
                     FixedPosition{0, 0x1964, 0});
             }
-            if (stage == PhysicsDispatchStage::GroundCollision_96550
-                && current_player.physics_state() == 0
-                && !result.ground_surface_hit.has_value()) {
-                current_player.apply_ground_turn_velocity_phase();
-            }
             if (hooks.collision_query) {
                 result.collision_hit = queried_hit;
             }
@@ -1407,6 +1412,25 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             result.position_integrated = true;
         },
     };
+    // FUN_0049e680 refreshes +0x2dc8 before the outer floor check and before
+    // entering Skater_PhysicsDispatcher. Keep the threshold producer at that
+    // same pre-dispatch boundary.
+    if (hooks.ground_motion_threshold_input) {
+        const std::optional<GroundMotionThresholdInput> threshold_input =
+            hooks.ground_motion_threshold_input(player, input);
+        if (threshold_input.has_value()) {
+            result.ground_motion_threshold =
+                player.update_ground_motion_threshold(*threshold_input);
+        }
+    }
+    if (hooks.apply_outer_floor_recovery && hooks.collision_query) {
+        result.outer_floor_recovery = apply_outer_floor_recovery(
+            player,
+            player.position(),
+            hooks.collision_query,
+            hooks.outer_floor_restart_at_start,
+            hooks.on_outer_floor_external_service);
+    }
     result.dispatch = PhysicsDispatcher::dispatch(player, dispatch_hooks);
     if (collision_transient_requested) {
         if (collision_transient_basis_valid) {
@@ -1531,14 +1555,6 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             hooks.response_correction_input(player, result.dispatch);
         if (response_correction.has_value()) {
             player.add_collision_response(*response_correction);
-        }
-    }
-    if (hooks.ground_motion_threshold_input) {
-        const std::optional<GroundMotionThresholdInput> threshold_input =
-            hooks.ground_motion_threshold_input(player, input);
-        if (threshold_input.has_value()) {
-            result.ground_motion_threshold =
-                player.update_ground_motion_threshold(*threshold_input);
         }
     }
     if (hooks.velocity_damping_input) {

@@ -3,6 +3,7 @@
 #include "physics_dispatch.hpp"
 #include "action_profile.hpp"
 #include "air_contact.hpp"
+#include "collision_recovery.hpp"
 
 #include <functional>
 #include <optional>
@@ -73,13 +74,21 @@ struct PlayerPhysicsFrameHooks {
     // orientation write, and response rotation.
     std::function<std::optional<GroundSurfaceResponseInput>(
         const PlayerState&, const InputState&)> ground_surface_response_input;
+    // FUN_00490730 runs after the frame-local +0x2dcc response handoff and
+    // before Skater_PhysicsDispatcher. Its geometry uses the shared collision
+    // query; the restart-at-start global and FUN_0046d2e0 service remain
+    // explicit caller-owned inputs.
+    bool apply_outer_floor_recovery{false};
+    bool outer_floor_restart_at_start{false};
+    std::function<void(const PositionCollisionHit&)>
+        on_outer_floor_external_service;
     // State/frame portion of FUN_00492f20. The default derives its verified
     // lean/profile inputs from the current action profile and PlayerState.
     std::function<GroundAnimationInput(
         const PlayerState&,
         const InputState&,
         const ActionProfileState&)> ground_animation_input;
-    // Post-dispatch +0x2dc8 update. The callback supplies the retail random
+    // Pre-dispatch +0x2dc8 update. The callback supplies the retail random
     // roll and the unresolved +0x2dd8 special-state predicate.
     std::function<std::optional<GroundMotionThresholdInput>(
         const PlayerState&, const InputState&)> ground_motion_threshold_input;
@@ -290,6 +299,7 @@ struct PlayerPhysicsFrameResult {
     std::optional<GroundAnimationResult> ground_animation;
     std::optional<GroundAnimationRequest> landing_animation_request;
     std::optional<GroundMotionThresholdResult> ground_motion_threshold;
+    std::optional<OuterFloorRecoveryResult> outer_floor_recovery;
     QueuedMotionDrainResult queued_motion{};
     FixedPosition queued_motion_world_delta{};
 };
