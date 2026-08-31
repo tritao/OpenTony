@@ -44,8 +44,11 @@ int main() {
     const auto turn = player.update_ground_turn(input);
     CHECK(turn.accumulator == -0x3c00);
     CHECK(player.turn_mirror() == -0x3c00);
-    // The -4 table-unit yaw is applied to the live Q12 orientation and its
-    // three retail basis handoff vectors are refreshed in the same update.
+    // The accumulator producer runs before B010. Retail defers the -4
+    // table-unit yaw until the 0x00496360 pre-query phase.
+    const auto pre_turn_orientation = player.orientation();
+    player.apply_ground_turn_velocity_phase();
+    CHECK(player.orientation() != pre_turn_orientation);
     CHECK(player.orientation().at(1, 1) == -0x1000);
     CHECK(player.retail_basis().at_310c[1] == -0x1000);
 
@@ -69,6 +72,35 @@ int main() {
     const opentony::runtime::Q12Matrix3 expected_air_orientation{
         {-4096, 0, -4, 0, -4064, -504, 4, 503, -4064}};
     CHECK(air_orientation.orientation() == expected_air_orientation);
+
+    const opentony::runtime::AirOrientationTurnConfig air_turn_config{
+        80,
+        0,
+        0x100,
+        true,
+    };
+    CHECK(opentony::runtime::compute_air_orientation_turn_angle(
+        45 * 0x1000,
+        air_turn_config) == 42);
+    opentony::runtime::PlayerState air_turn;
+    air_turn.set_physics_state(1);
+    opentony::runtime::InputState right_input;
+    right_input.begin_frame(opentony::runtime::movement_bit(
+        opentony::runtime::MovementAction::Right));
+    air_turn.update_in_air_orientation_accumulator(right_input, 0x100);
+    CHECK(air_turn.turn_accumulator() == 0xa000);
+    CHECK(air_turn.apply_in_air_orientation_turn(
+        opentony::runtime::AirOrientationTurnConfig{
+            80,
+            0,
+            0x100,
+            true,
+        }) == 9);
+    air_turn.set_orientation(opentony::runtime::q12_identity_matrix());
+    air_turn.set_turn_accumulator(45 * 0x1000);
+    CHECK(air_turn.apply_in_air_orientation_turn(air_turn_config) == 42);
+    CHECK(air_turn.orientation()
+        == opentony::runtime::q12_yaw_matrix(-42));
 
     player.set_collision_response({0x1000, 0x2000, 0});
     CHECK(player.remove_collision_normal_component({0x1000, 0, 0}) == 0x1000);

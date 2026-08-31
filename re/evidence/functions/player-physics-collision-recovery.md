@@ -33,6 +33,7 @@ Skater_PhysicsFrame 0049e680
        state 1 / 3 / 6:
          Skater_DoPhysicsInAir 00497f40
          -> Skater_UpdateAirBasis 00497df0
+         -> Skater_AirTurnProducer (inline block 00498666..00498a10)
          -> Skater_AirCollisionRecovery 00497aa0
          -> Skater_ApplyCollisionResponse 0049bad0
          -> Skater_RebuildOrientationRecovery 0049d080
@@ -71,6 +72,9 @@ callback.
 | `0x00497aa0` | `Skater_AirCollisionRecovery` | `__thiscall(void *query)` | `0x00497f40`; calls state request, response, and animation helpers | confirmed |
 | `0x00497df0` | `Skater_UpdateAirBasis` | `__fastcall(void *skater)` | `0x00497f40`; calls fixed normalization/cross/publish helpers | confirmed |
 | `0x00497f40` | `Skater_DoPhysicsInAir` | `__fastcall(void *skater)` | `0x0049db80`; calls air integration, collision query, `0x00497aa0`, `0x00491780`, `0x00497960` | confirmed |
+| `0x00493370` | `Skater_ActionPhysicsUpdate` | `__fastcall(void *skater)` | `0x0049e680`; state 0/7 and state 1/2 turn producers, animation/profile update | confirmed for connected turn blocks |
+| `0x0048f3a0` | `Skater_ProfileService` (provisional) | `__thiscall(void *owner, int selector)` returning `int` | `0x00497f40` selector `4`; resolves profile/table data through `+0x2cc0` | body confirmed, semantic owner provisional |
+| `0x00416980` | `PhysicsTimingSelector` (provisional) | `__cdecl(int selector)` returning `char` | `0x00497f40` selector `10`; selects `AnimationTimeScale` application | confirmed selector/table read |
 | `0x00491780` | `Skater_AirCollisionOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; calls normal projection, history/basis helpers, state request | confirmed |
 | `0x00497960` | `Skater_AirLandingOrientationRecovery` | `__fastcall(void *skater)` | `0x00497f40`; called by the accepted-contact landing branch | confirmed |
 | `0x0049bad0` | `Skater_ApplyCollisionResponse` | `__thiscall(u32 packed_xy, i16 z, int heading)` | ground, air, rail, swept-contact callers; calls fixed dot/multiply, matrix rotation, `0x0049c7d0`, `0x0049c850` | confirmed |
@@ -445,6 +449,86 @@ and calls `0x0049d080`. The state-2 to state-1 recovery exit at
 separate cleanup writes. These reason codes are state-machine contracts, not
 surface class labels.
 
+### In-air turn producer and handoff
+
+The connected action/air path is now treated as one producer-consumer chain:
+
+```text
+0x0049e680
+  -> 0x00493370: state-1/2 directional accumulator (+0x3144/+0x3148)
+  -> 0x0049db80 -> 0x00497f40
+       -> 0x00497df0 air direction/basis update
+       -> 0x00498666..0x00498a10 ordinary turn/orientation writer
+       -> air collision query and landing/recovery branches
+```
+
+The state-1/2 block in `0x00493370` is not the grounded `0x3c/0x78/0xb4`
+producer. After its `+0x2e80` action/spin handling, the ordinary directional
+path selects action records at `+0x80/+0x90` (and, when the global control
+gate is clear, the paired `+0x40/+0x60` records). The qualified Warehouse
+Right input is the `+0x90` record, so the static path computes
+
+```text
+step       = (DAT_0056865c * 0xa000) >> 8
+turn       = clamp(turn + step, -0xa0000, +0xa0000)
++0x3148    = +0x3144
+```
+
+The no-input branch can set the action target and the small-lean branch has
+additional `+0x31a1`/`+0x30c4` predicates; those are not promoted to the
+ordinary Right model. At `0x00497f40:0x00498c80..0x00498ca0`, an accepted
+landing path clears `+0x3144` before calling `0x00491780`. This explains why
+the accumulator is nonzero throughout the air turn but zero in the first
+ground frame after landing.
+
+The later turn block begins after its candidate displacement metric check and
+is gated by `+0x30c4 == 0`. Its static data contract is:
+
+| input / write | PC evidence | role |
+|---|---|---|
+| `+0x3144 >> 12` | `0x00497f40` turn block, before the first service call | integer turn units; fractional Q12 remainder discarded by `sar 12` |
+| `+0x2858` | `0x00497f40` around the `0x0049872a` callsite | selects the modifier source; zero selects persistent `+0x306c` |
+| `+0x306c` or `0x0048cb60(+0x2858-1)` | `0x00497f40` turn block | turn modifier, percent-like multiplier input |
+| `0x0048f3a0(4)` | callsite `0x00498725` | profile/service scalar used as `profile_value` |
+| `0x00416980(10)` | callsite `0x00498783` and the later scale check | selects frame-scaled versus unscaled angle path |
+| `0x004e80e0` + 3x `0x004e3130` | orientation writes begin at `0x004987bc` | builds and right-multiplies the current orientation |
+| `+0x3068/+0x306c` | `0x00497f40` tail, within `0x00498650..0x00498a10` | persistent post-write angle accumulator and turn count |
+
+The exact scalar ordering is:
+
+```text
+turn_units   = +0x3144 >> 12
+profile_term = ((profile_value + 300) * turn_units * 25) / 10000
+angle        = (profile_term * (modifier_value * -9 + 100)) / 100
+if 0x00416980(10) == 0:
+    angle = (angle * AnimationTimeScale) >> 8
+```
+
+The first service result is used as the profile value, not as a new native
+random generator. The body of `0x0048f3a0` is a selector/table service with
+no established PRNG state transition; its existing shared-call observation
+is therefore the causal input boundary. A narrow PC memory check at the
+`0x0049872a` callsite confirmed Warehouse `+0x2858 == 0`, `+0x306c == 0`,
+and service return `80`; a second check at `0x00498783` confirmed selector
+return zero and timing-table byte zero. These checks resolve the two static
+ownership ambiguities for this fixture but do not generalize the values to
+other players or modes.
+
+The matrix writer reads the current `+0x2e58..+0x2e68` shorts into the shared
+scratch basis, calls `0x004e80e0` with the computed angle, and writes the
+three resulting columns back through `0x004e3130` before the air query. In
+the native row-major representation this is the same right multiplication
+as `PlayerState::apply_air_orientation_turn(-angle)`: the negative sign is
+the recovered matrix convention, not a replay correction. The old native
+replay path derived a delta from before/after `+0x3068`; that was an output
+observation and has been removed.
+
+The remaining static gaps in this connected block are explicit: nonzero
+`+0x2858` ownership and `0x0048cb60`'s table contract, the alternate
+`+0x40/+0x60` and `+0x2e80` action/spin paths, and the full producer for the
+profile service. The qualified Warehouse implementation uses only the
+zero-`+0x2858`, `+0x90` path established above.
+
 ## Side-effect ownership
 
 | category | fields/globals | owner |
@@ -460,15 +544,17 @@ surface class labels.
 The collision/recovery implementation now follows the recovered connected
 ordering: pre-dispatch threshold/response refresh and outer floor handoff,
 bounce geometry and 10/70 selection, movement query, support sweep, face-bit
-exit predicate, response-before-orientation, shared position writer, and
-air/landing handoff. No frame-number rule or new recorder hook was added.
-The replay adapter's ollie mapping consumes the existing generic random-call
-records at the statically identified `0x0049a280` callsites; it does not add a
-causal channel. The outer threshold call at static `0x0049eae9` is likewise
-fed from the existing shared-service observation recorded at its return-site
-alias `0x0049eaed`; the normal decay call remains `0x0049eb25`. This preserves
-the retail `+0xdc` threshold replacement without treating the post-frame
-threshold as an input.
+exit predicate, response-before-orientation, shared position writer,
+state-1/2 turn production, in-air orientation publication, and air/landing
+handoff. No frame-number rule or new recorder hook was added. The replay
+adapter consumes the existing shared-service result at `0x00498725` for the
+in-air profile scalar; it no longer follows the derived before/after
+`+0x3068` delta. The ollie and threshold mappings likewise consume existing
+generic service observations at their statically identified callsites. The
+outer threshold call at static `0x0049eae9` remains associated with its
+existing return-site alias `0x0049eaed`; the normal decay call remains
+`0x0049eb25`. This preserves the retail `+0xdc` threshold replacement without
+treating post-frame state as a causal input.
 
 ## Verification checkpoint
 
@@ -480,21 +566,20 @@ static chunk:
 | canonical retail `warehouse-idle-256-canonical` | 259/259 strict frames |
 | qualification `warehouse-straight` | 256/256 strict frames |
 | qualification `warehouse-ollie-land` | 256/256 strict frames |
-| qualification `warehouse-turn-ollie` | first mismatch at frame 20, position |
-| qualification `warehouse-turn` | first mismatch at frame 38, position |
+| qualification `warehouse-turn-ollie` | first mismatch at frame 84, collision response |
+| qualification `warehouse-turn` | first mismatch at frame 207, collision response |
 
-The two turn fixtures share the same grounded steering/turn producer boundary.
-At frame 20 the `warehouse-turn-ollie` retail position is
-`[23929391,-5902336,11568131]`, while native is
-`[23929460,-5902336,11568128]`; the turn accumulator and basis have already
-diverged in that producer. The non-ollie turn fixture now remains exact through
-frame 37 after moving the response phase before the ordinary movement query.
-Its first residual at frame 38 is the integrated position
-`[24956582,-5902336,13515951]` versus `[24956645,-5902336,13515826]`; the
-same boundary has response `[117256,0,54688]` versus `[117383,0,54437]`.
-The static model therefore narrows that residual to fixed-point turn-response
-rounding or a still-unresolved pre-query writer, not a newly invented
-collision branch.
+The new in-air producer closes the previous turn-ollie orientation mismatch:
+the native trace follows the retail accumulator, orientation, position, and
+state transition through the landing at frame 83. Its first residual is frame
+84 collision response, retail `[31301,-50089,-100445]` versus native
+`[31301,-50088,-100445]`; this is a one-unit post-landing fixed-point seam,
+not an orientation-input divergence. The non-ollie turn fixture remains exact
+through frame 206. Its first residual at frame 207 is the already isolated
+collision-normal provenance seam: retail response `[-13279,0,-41956]` versus
+native `[-13279,35,-41956]`. The response arithmetic is statically confirmed;
+the retail query's Y normal component still needs to be reconciled with the
+portable scene-query normal.
 
 The remaining qualification mismatches are outside the already matching
 idle/straight collision frontier:
@@ -504,20 +589,25 @@ idle/straight collision frontier:
   its existing `0x0049eaed` observer alias, and the recording now matches all
   256 frames. The selected contact at the former boundary was the flat ground
   normal, confirming that no collision class or recorder channel was missing.
-* `warehouse-turn-ollie` still first diverges at frame 20 in the grounded
-  steering/turn producer; the ordinary `warehouse-turn` path now reaches its
-  first residual at frame 38 in the fixed-point response phase.
+* `warehouse-turn-ollie` now reaches frame 83 exactly through the in-air
+  orientation/landing handoff; frame 84 is a one-unit collision-response
+  rounding difference.
+* `warehouse-turn` remains exact through frame 206; frame 207 is the narrow
+  query-normal provenance difference described above.
 * the outer `0x00490730` floor/restart helper is now represented as a focused
   native query chain. Warehouse leaves its restart global disabled, so the
   live replay path verifies the no-hit/ordinary handoff rather than the
   accepted restart branch; the accepted branch is covered by the isolated
   query-order test.
 
-The remaining narrow static questions are upstream of this chunk: complete the
-`0x0049b010` animation/profile/stat owner outside the qualified Warehouse path
-and explain the residual grounded turn fixed-point rounding at frame 38 in the
-non-ollie turn fixture. The requested `0x0049ca8f` service ambiguity is closed:
-the actual `0x004ca8f0` call is deterministic quantized magnitude code.
-Dynamic debugging is justified only if static bytes leave two plausible call
-ordering or indirect-dispatch interpretations. Replay remains the
-verification oracle, not the source of new collision behavior.
+The remaining narrow static questions are the nonzero `+0x2858`/`0x0048cb60`
+profile-array contract, the alternate `+0x40/+0x60` and `+0x2e80` action
+branches, the `0x0049b010` animation/profile/stat owner outside qualified
+Warehouse, and the retail Y-normal provenance at frame 207. The frame-84
+one-unit response difference is also a candidate for fixed-point ordering
+inspection after those contracts are mapped. The requested `0x0049ca8f`
+service ambiguity is closed: the actual `0x004ca8f0` call is deterministic
+quantized magnitude code. Dynamic debugging is justified only if static bytes
+leave two plausible call ordering, ownership, or indirect-dispatch
+interpretations. Replay remains the verification oracle, not the source of
+new collision behavior.

@@ -10,6 +10,13 @@ namespace {
     return static_cast<std::int32_t>(-(((-value) + 0xfff) >> 12));
 }
 
+[[nodiscard]] std::int32_t arithmetic_shift_8(std::int64_t value) noexcept {
+    if (value >= 0) {
+        return static_cast<std::int32_t>(value >> 8);
+    }
+    return static_cast<std::int32_t>(-(((-value) + 0xff) >> 8));
+}
+
 } // namespace
 
 AirGravityResult apply_air_gravity(
@@ -185,6 +192,27 @@ AirActionControlResult apply_air_action_control(
     });
     result.applied = true;
     return result;
+}
+
+std::int32_t compute_air_orientation_turn_angle(
+    std::int32_t turn_accumulator_q12,
+    AirOrientationTurnConfig config) noexcept {
+    // FUN_00497f40 first discards the fractional Q12 turn accumulator with
+    // SAR 12. The following two IDIVs are deliberately kept in their retail
+    // order: the first is the profile/turn scale (25 / 10000), and the
+    // second is the +306c/+2858 modifier (percent / 100).
+    const std::int64_t turn_units = arithmetic_shift_12(
+        turn_accumulator_q12);
+    const std::int64_t profile_term =
+        (static_cast<std::int64_t>(config.profile_value) + 300)
+        * turn_units * 25 / 10000;
+    const std::int64_t modifier_term =
+        static_cast<std::int64_t>(config.modifier_value) * -9 + 100;
+    const std::int64_t angle = profile_term * modifier_term / 100;
+    if (!config.scale_with_frame) {
+        return static_cast<std::int32_t>(angle);
+    }
+    return arithmetic_shift_8(angle * config.frame_scale_q8);
 }
 
 } // namespace opentony::runtime

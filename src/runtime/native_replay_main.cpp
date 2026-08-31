@@ -81,8 +81,8 @@ struct ReplayFrame final {
     std::int32_t air_normal_recovery_gate_random{};
     std::int32_t air_normal_recovery_x_random{};
     std::int32_t air_normal_recovery_z_random{};
-    std::int32_t orientation_turn_delta{};
-    bool orientation_turn_available{};
+    bool air_orientation_profile_available{};
+    std::int32_t air_orientation_profile_value{};
 };
 
 template <typename T>
@@ -248,10 +248,10 @@ ReplayFrame read_frame(std::istringstream& input) {
         input, "air normal-recovery z random");
     frame.velocity_decay_divisor = read_value<std::int32_t>(
         input, "blocked velocity decay divisor");
-    frame.orientation_turn_delta = read_value<std::int32_t>(
-        input, "air orientation turn delta");
-    frame.orientation_turn_available = read_value<std::uint8_t>(
-        input, "air orientation turn availability") != 0;
+    frame.air_orientation_profile_available = read_value<std::uint8_t>(
+        input, "air orientation profile availability") != 0;
+    frame.air_orientation_profile_value = read_value<std::int32_t>(
+        input, "air orientation profile value");
     return frame;
 }
 
@@ -396,6 +396,27 @@ int run(int argc, char** argv) {
             input,
             frame_scale_q8,
             !active_frame->air_control_enabled);
+    };
+    session.physics_hooks().air_orientation_turn_input = [&active_frame](
+        const opentony::runtime::PlayerState& player,
+        const opentony::runtime::InputState&,
+        std::int32_t frame_scale_q8) {
+        if (active_frame == nullptr
+            || !active_frame->air_orientation_profile_available
+            || player.physics_state() != 1) {
+            return std::optional<opentony::runtime::AirOrientationTurnConfig>{};
+        }
+        // The qualified Warehouse path has +0x2858 == 0, so retail uses the
+        // persistent +0x306c modifier. Its captured state is zero at this
+        // producer call; the nonzero profile-array helper remains a separate
+        // unresolved contract for other retail paths.
+        return std::optional<opentony::runtime::AirOrientationTurnConfig>{
+            opentony::runtime::AirOrientationTurnConfig{
+                active_frame->air_orientation_profile_value,
+                0,
+                frame_scale_q8,
+                true,
+            }};
     };
     // The Warehouse player-frame fixture identifies the player's +0x29b7
     // grounded turn profile as 1 (the 0x78 branch). This is configuration,
@@ -718,16 +739,6 @@ int run(int argc, char** argv) {
     bool previous_control_blocked = session.player().control_blocked();
     for (const ReplayFrame& frame : frames) {
         active_frame = &frame;
-        if (state1_after_state2_exit
-            && frame.orientation_turn_available) {
-            // The post-state-2 in-air path carries the turn accumulator
-            // through the current air-axis transform.  Apply its signed
-            // delta before dispatch so collision/position consumers see the
-            // same tangent basis as retail; the published air axis itself
-            // remains unchanged by this Y rotation.
-            session.player().apply_air_orientation_turn(
-                -frame.orientation_turn_delta);
-        }
         session.player().set_control_blocked_velocity_decay_divisor(
             frame.velocity_decay_divisor);
         session.physics_hooks().ground_surface_recovery_delta_q11 =

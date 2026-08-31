@@ -158,6 +158,12 @@ struct PlayerPhysicsFrameHooks {
     std::function<std::optional<std::int32_t>(
         const PlayerState&, const InputState&, std::int32_t)>
         air_orientation_pivot_input;
+    // Later ordinary state-1 turn block in FUN_00497f40. The frame owns the
+    // +3144 accumulator and matrix-write ordering; the caller supplies the
+    // existing FUN_0048f3a0(4)/modifier service result.
+    std::function<std::optional<AirOrientationTurnConfig>(
+        const PlayerState&, const InputState&, std::int32_t)>
+        air_orientation_turn_input;
     // FUN_0049c330 runs after the in-air position commit and republishes the
     // short orientation/basis. The shared global-up vector is supplied by the
     // caller; the earlier pivot displacement is a separate phase above.

@@ -101,6 +101,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
             input,
             turn_config);
     }
+    // The state-1/2 portion of FUN_00493370 advances +0x3144 before the
+    // dispatcher enters FUN_00497f40. Keep this producer before animation,
+    // correction reset, and the in-air collision handoff.
+    player.update_in_air_orientation_accumulator(input, frame_scale_q8);
     GroundAnimationInput animation_input{
         player.turn_mirror(),
         result.action_profile.vertical_axis,
@@ -516,6 +520,22 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     for (std::size_t index = 0; index < desired.size(); ++index) {
                         desired[index] += pivot_delta[index];
                     }
+                }
+            }
+            if (stage == PhysicsDispatchStage::InAir_97f40
+                && current_player.physics_state() == 1
+                && hooks.air_orientation_turn_input) {
+                const std::optional<AirOrientationTurnConfig> turn_input =
+                    hooks.air_orientation_turn_input(
+                        current_player,
+                        input,
+                        frame_scale_q8);
+                if (turn_input.has_value()) {
+                    // The producer writes the tangent basis before the
+                    // common upright helper and before the air query.
+                    static_cast<void>(
+                        current_player.apply_in_air_orientation_turn(
+                            *turn_input));
                 }
             }
             PositionCollisionProbe probe = hooks.collision_probe;
@@ -1346,6 +1366,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                     // recovery; class/material bits do not select a second
                     // synthetic landing handoff.
                     current_player.request_physics_state(0, 0x1fd6);
+                    // Retail 0x00497f40 clears +0x3144 before
+                    // FUN_00491780/FUN_00497960. This belongs to the
+                    // state-1 -> state-0 landing handoff.
+                    current_player.set_turn_accumulator(0);
                     current_player.apply_collision_transient_exit_orientation(
                         result.collision_hit->normal);
                     // The state request makes the post-landing state differ

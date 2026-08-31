@@ -2,6 +2,7 @@
 
 #include "tricks_bin.hpp"
 
+#include <algorithm>
 #include <cstdint>
 
 namespace opentony::runtime {
@@ -584,6 +585,30 @@ PlayerState::compute_in_air_orientation_angle(
     return angle;
 }
 
+void PlayerState::update_in_air_orientation_accumulator(
+    const InputState& input,
+    std::int32_t frame_scale_q8) noexcept {
+    // This is the ordinary state-1/2 direction path in FUN_00493370. The
+    // separate +2e80 action/spin branch is intentionally not folded into
+    // this helper until its producer contract is recovered.
+    if (physics_state_ != 1 && physics_state_ != 2) {
+        return;
+    }
+    const bool left = input.held(movement_bit(MovementAction::Left));
+    const bool right = input.held(movement_bit(MovementAction::Right));
+    if (!left && !right) {
+        return;
+    }
+
+    const std::int32_t step = fixed_scale_q8(0xa000, frame_scale_q8);
+    std::int64_t next = turn_accumulator_;
+    // As with the grounded producer, Left is the first branch in retail and
+    // therefore wins if both direction records are active.
+    next += left ? -static_cast<std::int64_t>(step) : step;
+    next = std::clamp<std::int64_t>(next, -0xa0000, 0xa0000);
+    turn_accumulator_ = static_cast<std::int32_t>(next);
+}
+
 FixedPosition PlayerState::apply_in_air_orientation_pivot(
     std::int32_t angle12) noexcept {
     const FixedPosition old_pivot = q12_transform_vector(
@@ -674,6 +699,18 @@ void PlayerState::apply_air_orientation_turn(
         q12_yaw_matrix(angle12));
     retail_basis_ = retail_basis_from_matrix(orientation_);
     orientation_basis_normalization_pending_ = false;
+}
+
+std::int32_t PlayerState::apply_in_air_orientation_turn(
+    AirOrientationTurnConfig config) noexcept {
+    const std::int32_t producer_angle =
+        compute_air_orientation_turn_angle(turn_accumulator_, config);
+    if (producer_angle != 0) {
+        // FUN_00497f40's matrix construction is the opposite signed angle
+        // from the positive scalar carried by the accumulator formula.
+        apply_air_orientation_turn(-producer_angle);
+    }
+    return producer_angle;
 }
 
 void PlayerState::normalize_orientation_basis() noexcept {
@@ -1395,10 +1432,11 @@ FixedPosition PlayerState::integrated_position(
 GroundTurnResult PlayerState::update_ground_turn(
     const InputState& input,
     GroundTurnConfig config) noexcept {
-    // Retail stores the pre-0x0049b500 matrix in +0x2e38 immediately after
-    // the accumulator producer. Preserve that source matrix for the later
-    // response phase; the native orientation publication is a separate
-    // renderer-independent handoff.
+    // Retail stores the pre-0x0049b500 matrix in +0x2e38 after the grounded
+    // accumulator producer. B010 runs before 0x00496360 publishes the new
+    // matrix, so preserve the old basis for both B010 and the later response
+    // phase. The matrix publication is deliberately deferred to
+    // apply_ground_turn_velocity_phase().
     ground_turn_saved_orientation_ = orientation_;
     ground_turn_saved_orientation_valid_ = true;
     const GroundTurnResult result = GroundTurn::update(
@@ -1434,10 +1472,6 @@ GroundTurnResult PlayerState::update_ground_turn(
     ground_turn_angle12_ = GroundTurn::angle12(
         resolved.accumulator,
         config.frame_scale_q8);
-    orientation_ = q12_apply_ground_yaw(
-        orientation_,
-        ground_turn_angle12_);
-    retail_basis_ = retail_basis_from_matrix(orientation_);
     return resolved;
 }
 
@@ -1446,6 +1480,14 @@ void PlayerState::apply_ground_turn_velocity_phase() noexcept {
         ground_turn_saved_orientation_valid_ = false;
         return;
     }
+    // 0x00496360 calls 0x0049b500 after B010 and before the ordinary ground
+    // collision line. Publish its orientation first; the response phase then
+    // uses the saved pre-turn matrix while the subsequent ground tail sees
+    // the new basis.
+    orientation_ = q12_apply_ground_yaw(
+        ground_turn_saved_orientation_,
+        ground_turn_angle12_);
+    retail_basis_ = retail_basis_from_matrix(orientation_);
     collision_response_ = q12_rotate_ground_velocity(
         collision_response_,
         ground_turn_saved_orientation_,

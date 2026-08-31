@@ -534,6 +534,13 @@ public:
         std::int32_t frame_scale_q8,
         bool alignment_gate_open) const noexcept;
 
+    // FUN_00493370's state-1/2 action block advances +0x3144 before the
+    // later in-air turn producer consumes it. The ordinary directional path
+    // uses a 0xa000 Q12 step and clamps the accumulator at +/-0xa0000.
+    void update_in_air_orientation_accumulator(
+        const InputState& input,
+        std::int32_t frame_scale_q8) noexcept;
+
     // Applies the early in-air orientation pivot and returns the old-pivot
     // minus new-pivot displacement used by the movement candidate.
     [[nodiscard]] FixedPosition apply_in_air_orientation_pivot(
@@ -552,6 +559,12 @@ public:
     // matrix. Retail rotates around the published air axis, so the Q12 yaw
     // leaves +0x310c unchanged while updating the two tangent axes.
     void apply_air_orientation_turn(std::int32_t angle12) noexcept;
+
+    // Computes and applies the later ordinary state-1 turn producer. The
+    // returned value is the producer angle before the matrix writer's sign
+    // convention is applied.
+    [[nodiscard]] std::int32_t apply_in_air_orientation_turn(
+        AirOrientationTurnConfig config) noexcept;
 
     // Applies the confirmed in-air Up/Down action contribution to the
     // temporary +58 correction using an explicit +0x2dac scalar.
@@ -604,9 +617,9 @@ public:
         GroundTurnConfig config = {}) noexcept;
 
     // Completes the ordinary state-0 phase of FUN_0049b500 before the
-    // movement collision query. The saved orientation is captured before
-    // the grounded turn producer, matching the +0x2e38 copy in
-    // FUN_0049e680; the producer's matrix publication remains separate.
+    // movement collision query. B010 consumes the saved pre-turn basis;
+    // this boundary then publishes the new matrix and rotates the response
+    // from that same saved matrix.
     void apply_ground_turn_velocity_phase() noexcept;
 
     // Executes the recovered temporary-correction writes from FUN_0049b010.

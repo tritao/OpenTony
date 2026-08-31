@@ -11,7 +11,7 @@ from typing import Any
 from .common import resolve
 from .recording import load_recording, validate_recording
 
-NATIVE_REPLAY_WIRE_VERSION = 10
+NATIVE_REPLAY_WIRE_VERSION = 11
 
 
 def _signed(value: int, bits: int) -> int:
@@ -229,6 +229,31 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             "purpose": purpose,
             "raw_roll": int(event["return_value_s32"]),
         }
+
+    # FUN_00497f40's ordinary turn block consumes the existing profile
+    # service result from FUN_0048f3a0(4). This is a causal shared-service
+    # input already present in OTREC2; do not derive the orientation angle
+    # from the before/after +0x3068 snapshot word.
+    orientation_profile_events = generic_random_by_caller.get(
+        "0x00498725", []
+    )
+    if len(orientation_profile_events) > 1:
+        raise ValueError(
+            f"frame {frame_index} has duplicate air orientation profile events"
+        )
+    orientation_profile_event = (
+        orientation_profile_events[0]
+        if orientation_profile_events
+        else None
+    )
+    air_orientation_profile_available = int(
+        orientation_profile_event is not None
+    )
+    air_orientation_profile_value = (
+        _signed(int(orientation_profile_event["return_value_s32"]), 32)
+        if orientation_profile_event is not None
+        else 0
+    )
 
     surface_response_events = [
         event
@@ -562,39 +587,6 @@ def _frame_wire(frame: dict[str, Any]) -> str:
                     threshold_event is not None
                     and after_threshold == before_threshold - 1
                 )
-    orientation_turn_delta = 0
-    orientation_turn_available = 0
-    before_words = (
-        before_snapshot.get("raw_physics_words")
-        if isinstance(before_snapshot, dict)
-        else None
-    )
-    after_snapshot = frame.get("after")
-    after_words = (
-        after_snapshot.get("raw_physics_words")
-        if isinstance(after_snapshot, dict)
-        else None
-    )
-    orientation_word_index = (0x3068 - 0x2D80) // 4
-    if (
-        isinstance(before_words, list)
-        and isinstance(after_words, list)
-        and len(before_words) > orientation_word_index
-        and len(after_words) > orientation_word_index
-    ):
-        orientation_turn_delta = _signed(
-            int(after_words[orientation_word_index])
-            - int(before_words[orientation_word_index]),
-            32,
-        )
-        before_state = (
-            before_snapshot.get("physics_state")
-            if isinstance(before_snapshot, dict)
-            else None
-        )
-        orientation_turn_available = int(
-            before_state == 1 and orientation_turn_delta != 0
-        )
     threshold_blocked = int(
         isinstance(threshold_event, dict)
         and threshold_event.get("purpose") == "threshold_seed_0xdc"
@@ -658,8 +650,8 @@ def _frame_wire(frame: dict[str, Any]) -> str:
             *surface_response_values,
             *normal_recovery_values,
             velocity_decay_divisor,
-            orientation_turn_delta,
-            orientation_turn_available,
+            air_orientation_profile_available,
+            air_orientation_profile_value,
         )
     )
 

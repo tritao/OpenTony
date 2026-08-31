@@ -94,11 +94,31 @@ struct AirActionControlResult {
         const AirActionControlResult&) = default;
 };
 
+// Inputs consumed by the later ordinary state-1 turn block in retail
+// FUN_00497f40. `profile_value` is the result of FUN_0048f3a0(4), while
+// `modifier_value` is +0x306c when +0x2858 is zero and otherwise comes from
+// FUN_0048cb60(+0x2858 - 1). The Warehouse path takes the former branch.
+struct AirOrientationTurnConfig {
+    std::int32_t profile_value{};
+    std::int32_t modifier_value{};
+    std::int32_t frame_scale_q8{0x100};
+    // FUN_00416980(10) selects whether the producer applies the Q8 frame
+    // scale after its integer angle calculation. Warehouse returns zero.
+    bool scale_with_frame{true};
+};
+
 [[nodiscard]] AirActionControlResult apply_air_action_control(
     const FixedPosition& velocity,
     const FixedPosition& motion_correction,
     const RetailBasis& basis,
     AirActionControlConfig config) noexcept;
+
+// Reconstructs the ordinary state-1 angle producer in FUN_00497f40. The
+// returned angle is the positive producer value; the matrix writer applies
+// its right-multiplied rotation with the opposite signed angle.
+[[nodiscard]] std::int32_t compute_air_orientation_turn_angle(
+    std::int32_t turn_accumulator_q12,
+    AirOrientationTurnConfig config) noexcept;
 
 // Reconstructs the scalar part of retail FUN_00497df0. The basis operation
 // below mirrors its subsequent FUN_004e2ff0/FUN_00465f60 handoff.
