@@ -57,6 +57,9 @@ artifacts:
     - src/runtime/gameplay_frame.cpp
     - src/runtime/physics_frame.cpp
     - src/runtime/player_state.cpp
+    - src/runtime/player_state.hpp
+    - src/runtime/ground_surface_response.hpp
+    - src/runtime/ground_surface_response.cpp
     - src/runtime/collision_recovery.hpp
     - src/runtime/collision_recovery.cpp
     - src/runtime/collision_recovery_test.cpp

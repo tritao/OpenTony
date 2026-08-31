@@ -443,6 +443,72 @@ types:
         confidence: observed
         evidence:
           - re/evidence/functions/physics-states.md
+      - offset: 0x2c80
+        name: surface_response_action_gate
+        type: i32
+        confidence: confirmed
+        description: Command/action gate read by the grounded surface-response phase and cleared by the transient reset helper.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+          - re/evidence/functions/bin-runtime.md
+      - offset: 0x2c84
+        name: surface_response_phase_refresh_gate
+        type: i32
+        confidence: observed
+        description: Read after the wrapped response phase to suppress the refresh service; direct PC stores found in scope are clears only.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2c88
+        name: surface_response_phase_countdown
+        type: i32
+        confidence: confirmed
+        description: Action-phase countdown decremented by 0x0049e430 when the phase crosses a 0x1000 boundary.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+          - re/evidence/functions/physics-states.md
+      - offset: 0x2c8c
+        name: surface_response_phase
+        type: i32
+        confidence: confirmed
+        description: Fixed-point phase advanced by the +0x2c90 rate and AnimationTimeScale.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2c90
+        name: surface_response_phase_rate
+        type: i32
+        confidence: confirmed
+        description: Fixed-point phase rate consumed by 0x0049e430 and cleared when its countdown expires.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2cbc
+        name: surface_response_transient_auxiliary
+        type: i32
+        confidence: observed
+        description: Cleared by the guarded 0x0048f5f0 transient reset; semantic producer remains provisional.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2cc8
+        name: surface_response_action_context
+        type: i32
+        confidence: observed
+        description: Presence gate for 0x0048f5f0; its numeric value is produced by adjacent animation/game-mode services.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2d90
+        name: surface_response_timer
+        type: i32
+        confidence: confirmed
+        description: Recovery/action latch seeded to 0xf by 0x0048f5f0 and consumed/decayed by 0x00496360.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x2e80
+        name: signed_surface_action_spin_phase
+        type: i32
+        confidence: observed
+        description: Signed action-spin phase consumed by 0x00493370; 0x0048f5f0 clears it except in state 2.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+          - re/evidence/functions/physics.md
       - offset: 0x3064
         name: trick_dispatch_flag
         type: i32
@@ -450,6 +516,34 @@ types:
         description: Nonzero post-TrickInput_SelectSequence flag that invokes StartGrind from landing cleanup.
         evidence:
           - re/evidence/functions/physics-states.md
+      - offset: 0x3074
+        name: surface_response_reset_flag_3074
+        type: i32
+        confidence: observed
+        description: Cleared by 0x0048f5f0 before its transient action/reset services.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3078
+        name: surface_response_reset_flag_3078
+        type: i32
+        confidence: observed
+        description: Cleared by 0x0048f5f0; broader trick/level ownership remains provisional.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x307c
+        name: surface_response_reset_flag_307c
+        type: i32
+        confidence: observed
+        description: Cleared by 0x0048f5f0; broader trick/level ownership remains provisional.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
+      - offset: 0x3214
+        name: surface_response_mode_auxiliary_list_flag
+        type: i32
+        confidence: observed
+        description: Cleared through 0x0046ce60 only when LevelEventGameModeSelector is 2 or 4.
+        evidence:
+          - re/evidence/functions/player-physics-collision-recovery.md
       - offset: 0x304c
         name: rail_update_count
         type: i32

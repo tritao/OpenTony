@@ -242,6 +242,11 @@ void GameplaySession::initialize(
     // an autoexec pulse observes the same mode gate as retail.
     level_.state().set_special_runtime_game_mode(
         config_.special_runtime_game_mode);
+    // The same DAT_00533f38 selector gates the mode-2/4 auxiliary clear in
+    // FUN_0048f5f0. Publish it before any restart/action service can invoke
+    // that recovered boundary.
+    player_.set_surface_response_game_mode(
+        static_cast<std::int32_t>(config_.special_runtime_game_mode));
     if (config_.level_event_inputs.has_value()) {
         level_.state().set_level_event_inputs(*config_.level_event_inputs);
     }

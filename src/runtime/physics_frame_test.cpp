@@ -118,6 +118,72 @@ int main() {
     CHECK(cleared_surface_phase.timer_after == 0);
     CHECK(cleared_surface_phase.turn_units == 1);
 
+    const auto surface_response_reset =
+        opentony::runtime::compute_ground_surface_response_reset(
+            opentony::runtime::GroundSurfaceResponseResetInput{0, 1, 2});
+    CHECK(surface_response_reset.applied);
+    CHECK(surface_response_reset.clear_spin_phase_2e80);
+    CHECK(surface_response_reset.clear_auxiliary_list_3214);
+    const auto state_two_surface_reset =
+        opentony::runtime::compute_ground_surface_response_reset(
+            opentony::runtime::GroundSurfaceResponseResetInput{2, 1, 0});
+    CHECK(state_two_surface_reset.applied);
+    CHECK(!state_two_surface_reset.clear_spin_phase_2e80);
+    CHECK(!opentony::runtime::compute_ground_surface_response_reset(
+        opentony::runtime::GroundSurfaceResponseResetInput{5, 1, 0}).applied);
+    CHECK(!opentony::runtime::compute_ground_surface_response_reset(
+        opentony::runtime::GroundSurfaceResponseResetInput{0, 0, 0}).applied);
+
+    const auto completed_surface_phase =
+        opentony::runtime::compute_ground_surface_response_phase(
+            opentony::runtime::GroundSurfaceResponsePhaseInput{
+                1,
+                0x0ff0,
+                0x20,
+                0x100,
+            });
+    CHECK(completed_surface_phase.phase_boundary_crossed);
+    CHECK(completed_surface_phase.completed);
+    CHECK(completed_surface_phase.countdown_after == 0);
+    CHECK(completed_surface_phase.phase_after == 0);
+    CHECK(completed_surface_phase.rate_after == 0);
+
+    const auto continuing_surface_phase =
+        opentony::runtime::compute_ground_surface_response_phase(
+            opentony::runtime::GroundSurfaceResponsePhaseInput{
+                2,
+                0x0ff0,
+                0x20,
+                0x100,
+            });
+    CHECK(continuing_surface_phase.phase_boundary_crossed);
+    CHECK(!continuing_surface_phase.completed);
+    CHECK(continuing_surface_phase.countdown_after == 1);
+    CHECK(continuing_surface_phase.phase_after == 0x1010);
+
+    PlayerState reset_context_player;
+    reset_context_player.set_physics_state(0);
+    reset_context_player.set_surface_response_spin_phase(4);
+    reset_context_player.set_surface_response_action_gate(1);
+    reset_context_player.set_surface_response_phase_refresh_gate(1);
+    CHECK(reset_context_player.reset_surface_response_context());
+    CHECK(reset_context_player.ground_surface_response_timer() == 0xf);
+    CHECK(reset_context_player.surface_response_dispatch_active() == 1);
+    CHECK(!reset_context_player.surface_response_spin_active());
+    CHECK(!reset_context_player.surface_response_action_gate_active());
+    CHECK(!reset_context_player.surface_response_phase_refresh_blocked());
+
+    PlayerState state_two_reset_context_player;
+    state_two_reset_context_player.set_physics_state(2);
+    state_two_reset_context_player.set_surface_response_spin_phase(4);
+    CHECK(state_two_reset_context_player.reset_surface_response_context());
+    CHECK(state_two_reset_context_player.surface_response_spin_active());
+
+    PlayerState phase_context_player;
+    phase_context_player.set_surface_response_phase(1, 0x0ff0, 0x20);
+    phase_context_player.advance_surface_response_phase();
+    CHECK(!phase_context_player.surface_response_phase_active());
+
     // FUN_0049d9c0 selects 10/70 from +0x2f64, while FUN_004957c0 uses the
     // live point for its first line and the restored +0xbc point for both
     // endpoints of its normal-offset verification line.

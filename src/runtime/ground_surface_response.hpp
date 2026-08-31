@@ -14,10 +14,63 @@ struct GroundSurfaceResponseInput final {
     bool capped_response_random_available{};
 };
 
-// Inputs owned by the caller of FUN_00496360. The three clear flags retain
-// the raw +0x2c88/+0x2e80/+0x2c80 gates until their object owners are fully
-// recovered. `response_correction_units` is the +0x3124 result from the
-// preceding FUN_0049c060 call, not a new random input.
+// Deterministic part of retail FUN_0048f5f0. The numeric value at +0x2cc8 is
+// owned by an adjacent animation/action service; this boundary only needs its
+// established zero/nonzero predicate.
+struct GroundSurfaceResponseResetInput final {
+    std::int32_t physics_state{};
+    std::int32_t action_context_2cc8{};
+    std::int32_t game_mode{};
+};
+
+struct GroundSurfaceResponseResetResult final {
+    bool applied{};
+    bool clear_spin_phase_2e80{};
+    bool clear_auxiliary_list_3214{};
+
+    friend bool operator==(
+        const GroundSurfaceResponseResetResult&,
+        const GroundSurfaceResponseResetResult&) = default;
+};
+
+// Pure PC reconstruction of FUN_0048f5f0's branch predicate and mode gate.
+[[nodiscard]] GroundSurfaceResponseResetResult
+compute_ground_surface_response_reset(
+    const GroundSurfaceResponseResetInput& input) noexcept;
+
+// Pure PC reconstruction of FUN_0049e430. The countdown is distinct from
+// +0x2d90: it advances an action phase and its nonzero post-update value is
+// later consumed by FUN_00496360 as a clear gate.
+struct GroundSurfaceResponsePhaseInput final {
+    std::int32_t countdown_2c88{};
+    std::int32_t phase_2c8c{};
+    std::int32_t rate_2c90{};
+    std::int32_t frame_scale_q8{0x100};
+};
+
+struct GroundSurfaceResponsePhaseResult final {
+    std::int32_t countdown_before{};
+    std::int32_t countdown_after{};
+    std::int32_t phase_before{};
+    std::int32_t phase_after{};
+    std::int32_t rate_after{};
+    bool phase_boundary_crossed{};
+    bool completed{};
+
+    friend bool operator==(
+        const GroundSurfaceResponsePhaseResult&,
+        const GroundSurfaceResponsePhaseResult&) = default;
+};
+
+[[nodiscard]] GroundSurfaceResponsePhaseResult
+compute_ground_surface_response_phase(
+    const GroundSurfaceResponsePhaseInput& input) noexcept;
+
+// Inputs owned by the caller of FUN_00496360. The clear flags are the raw
+// +0x2c88/+0x2e80/+0x2c80 gates after their frame/control producers have run;
+// `phase_refresh_blocked_2c84` is the raw post-wrap refresh gate.
+// `response_correction_units` is the +0x3124 result from the preceding
+// FUN_0049c060 call, not a new random input.
 struct GroundSurfaceResponseStepInput final {
     std::int32_t physics_state{};
     std::int32_t ground_update_state{};

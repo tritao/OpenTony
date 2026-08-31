@@ -113,8 +113,9 @@ struct PlayerPhysicsFrameHooks {
     std::function<std::optional<GroundPhysicsInput>(
         const PlayerState&, const InputState&)> ground_physics_input;
     // FUN_004956f0's external cleanup boundary. PlayerState has already
-    // performed its persistent stores when this callback runs; the caller
-    // owns FUN_0048f5f0, action-stream restart, and animation services.
+    // performed the deterministic FUN_0048f5f0 stores when this callback
+    // runs; the caller owns its service-owned cleanup, action-stream restart,
+    // and animation services.
     std::function<void(
         PlayerState&, const GroundCollisionRecoveryExitResult&)>
         on_ground_collision_recovery_exit;

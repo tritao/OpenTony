@@ -256,6 +256,47 @@ public:
     [[nodiscard]] std::int32_t ground_surface_response_phase_count() const noexcept {
         return ground_surface_response_phase_count_;
     }
+    [[nodiscard]] bool surface_response_phase_active() const noexcept {
+        return surface_response_phase_countdown_2c88_ != 0;
+    }
+    [[nodiscard]] bool surface_response_spin_active() const noexcept {
+        return surface_response_spin_phase_2e80_ != 0;
+    }
+    [[nodiscard]] bool surface_response_action_gate_active() const noexcept {
+        return surface_response_action_gate_2c80_ != 0;
+    }
+    [[nodiscard]] bool surface_response_phase_refresh_blocked() const noexcept {
+        return surface_response_phase_refresh_gate_2c84_ != 0;
+    }
+    [[nodiscard]] bool reset_surface_response_context() noexcept;
+    void advance_surface_response_phase(
+        std::int32_t frame_scale_q8 = 0x100) noexcept;
+    void set_surface_response_action_context(std::int32_t value) noexcept {
+        surface_response_action_context_2cc8_ = value;
+    }
+    void set_surface_response_game_mode(std::int32_t value) noexcept {
+        surface_response_game_mode_ = value;
+    }
+    void set_surface_response_phase(
+        std::int32_t countdown,
+        std::int32_t phase,
+        std::int32_t rate) noexcept {
+        surface_response_phase_countdown_2c88_ = countdown;
+        surface_response_phase_2c8c_ = phase;
+        surface_response_phase_rate_2c90_ = rate;
+    }
+    void set_surface_response_spin_phase(std::int32_t value) noexcept {
+        surface_response_spin_phase_2e80_ = value;
+    }
+    void set_surface_response_action_gate(std::int32_t value) noexcept {
+        surface_response_action_gate_2c80_ = value;
+    }
+    void set_surface_response_phase_refresh_gate(std::int32_t value) noexcept {
+        surface_response_phase_refresh_gate_2c84_ = value;
+    }
+    [[nodiscard]] std::int32_t surface_response_dispatch_active() const noexcept {
+        return surface_response_dispatch_active_3064_;
+    }
     // Mirror the frame-start +0x2d8c recovery-window gate. The window is
     // armed on a stable UP/heading input and cleared by a cancelled heading
     // or by releasing UP.
@@ -897,6 +938,25 @@ private:
     std::int32_t ground_surface_response_timer_{};
     std::int32_t ground_surface_response_phase_accumulator_{};
     std::int32_t ground_surface_response_phase_count_{};
+    // Raw control block consumed by the connected 0x0048f5f0/0x0049e430 /
+    // 0x00496360 chain. The 0x2cc8 value is a presence-only service contract;
+    // its constructor fallback is known, while later external writers remain
+    // outside this player boundary.
+    // FUN_0046c720's ordinary constructor fallback for +0x2cc8. Mode/table
+    // owners can replace this value through the setter before a reset call.
+    std::int32_t surface_response_action_context_2cc8_{0x1c3e};
+    std::int32_t surface_response_game_mode_{};
+    std::int32_t surface_response_phase_countdown_2c88_{};
+    std::int32_t surface_response_phase_2c8c_{};
+    std::int32_t surface_response_phase_rate_2c90_{};
+    std::int32_t surface_response_action_gate_2c80_{};
+    std::int32_t surface_response_phase_refresh_gate_2c84_{};
+    std::int32_t surface_response_spin_phase_2e80_{};
+    std::int32_t surface_response_dispatch_active_3064_{};
+    std::int32_t surface_response_level_flag_3074_{};
+    std::int32_t surface_response_level_flag_3078_{};
+    std::int32_t surface_response_level_flag_307c_{};
+    std::int32_t surface_response_auxiliary_2cbc_{};
     std::int32_t ground_surface_recovery_progress_q11_{};
     std::int32_t ground_surface_recovery_update_frame_{-1};
     Q12Matrix3 ground_turn_saved_orientation_{q12_identity_matrix()};

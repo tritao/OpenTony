@@ -13,6 +13,7 @@ The current connected control flow is:
 ```text
 Skater_PhysicsFrame 0049e680
   -> prephysics producers 00493370 / 0049b010 / 0049a280
+  -> transient action phase 0049e430
   -> threshold and +0x2dcc correction refresh
   -> outer floor/restart helper 00490730
   -> Skater_PhysicsDispatcher 0049db80
@@ -91,6 +92,8 @@ callback.
 | `0x0049d9c0` | `Skater_RunGroundedBounceRecovery` | `__fastcall(void *skater)` | ground dispatcher case 0/7; calls `0x004957c0` and bounce service/debug path | confirmed |
 | `0x0049db80` | `Skater_PhysicsDispatcher` | `__fastcall(void *skater)` | `0x0049e680`; calls state-specific routines | confirmed |
 | `0x0049e680` | `Skater_PhysicsFrame` | `__fastcall(void *skater)` | gameplay frame caller; calls dispatcher and frame services | confirmed |
+| `0x0048f5f0` | `Skater_ResetTransientSurfaceResponse` | `__thiscall(void *skater)` (ECX-only) | `0x00490e30`, `0x004956f0`, `0x00496550`, `0x00497aa0`, `0x00499710`, `0x0049a280`, `0x0049db80`, script/gap callers; calls `0x004904c0`, `0x0048d6d0`, `0x0046ce60` | confirmed PC contract; semantic name confirmed for deterministic reset, external owners provisional |
+| `0x0049e430` | `Skater_AdvanceTransientSurfacePhase` | `__fastcall(void *skater)` (ECX-only) | `0x0049e680`; no callees; reads `AnimationTimeScale` | confirmed |
 
 The `0x004957c0` parameter roles are direction (`-1`/`+1`), probe distance,
 and the heading value passed to `0x0049bad0`. A zero heading is converted by
@@ -340,6 +343,102 @@ high for the PC call order and medium for applying the same state-0 boundary
 to other material/state combinations; state-2's existing pending-transition
 path remains a separate follow-up contract.
 
+## Transient surface-response reset and phase: `0x0048f5f0` / `0x0049e430`
+
+The PC body at `0x0048f5f0` is an ECX-only skater helper. Its first two
+predicates are exact:
+
+```text
+if skater_+0x30b8 == 5:
+    return
+if skater_+0x2cc8 == 0:
+    return
+```
+
+For the remaining path, the store and call order is:
+
+```text
++0x3074 = 0
++0x3078 = 0
++0x307c = 0
++0x3064 = 1
++0x2cbc = 0
++0x2d90 = 0xf
+if +0x30b8 != 2:
+    FUN_004904c0()             // +0x2e80 = 0
++0x2c80 = 0
++0x2c84 = 0
+FUN_0048d6d0(skater)
+if LevelEventGameModeSelector == 2 || == 4:
+    FUN_0046ce60()             // +0x3214 = 0
+```
+
+`0x0048d6d0` receives the skater on the stack, clears `+0x2988`, and, when
+`+0x2dd4 == 0` and the state is neither 4 nor 5, clears `+0x3024/+0x3028`
+before calling the downstream `0x004cb580` service. Those are service-owned
+gap/list effects, not aliases for the `+0x2d90` latch. `0x004904c0` is the
+one-instruction `+0x2e80` clear; state 2 deliberately preserves that signed
+action-spin phase. `0x0046ce60` is the one-instruction `+0x3214` clear behind
+the mode 2/4 gate.
+
+The helper has callers in `0x00490e30`, `0x004956f0`, `0x00496550`,
+`0x00497aa0`, `0x00499710`, `0x0049a280`, `0x0049db80`, `0x004a86f0`,
+`TrickScript_Execute`, and `TRG_InterpretCommandStream` (the Ghidra caller
+names are retained where the surrounding semantic owner is not yet settled).
+The relevant physics callers are the ordinary recovery exit, ground contact
+failure/restart paths, accepted air-contact recovery, and the dispatcher’s
+deferred action path. The value at `+0x2cc8` is initialized by the skater
+constructor `0x0046c720` (instruction range `0x0046c90c..0x0046c962`): the
+indexed appearance table and game-mode selector choose `0xe2e`, `0x276`, or
+the ordinary fallback `0x1c3e`, while modes 5/8/9 replace it with the shared
+`0x5685fc` value. Later animation/game-mode services can rewrite the same
+word, including the update path near `0x0046ddc0`. This establishes its
+numeric initialization contract without promoting the table/global values to
+a physics random input.
+
+The separate pre-dispatch helper at `0x0049e430` is also ECX-only and has no
+callees. `0x0049e680` calls it after `0x0049e480` and before
+`0x0049c7d0`/`0x00493370`. Its exact fixed-point body is:
+
+```text
+if +0x2c88 != 0:
+    old = +0x2c8c
+    next = old + ((+0x2c90 * AnimationTimeScale) >> 8)
+    +0x2c8c = next
+    if ((next ^ old) & 0x1000) != 0:
+        --+0x2c88
+        if +0x2c88 == 0:
+            +0x2c8c = 0
+            +0x2c90 = 0
+```
+
+This countdown is not `+0x2d90`: it advances an action phase, and its
+post-update nonzero value becomes one of `0x00496360`'s clear gates. The
+`+0x2e80` signed spin phase is separately produced/consumed in
+`0x00493370`; `+0x2c80` is a command/action gate, and `+0x2c84` is read by
+the phase-wrap refresh path. An exhaustive direct-store search of the PC
+image found clears of `+0x2c84` but no nonzero direct store, so its nonzero
+producer remains unresolved rather than being invented in native code.
+
+Native now has a pure reset model and a pure phase-countdown model in
+`src/runtime/ground_surface_response.*`. `PlayerState` owns the persistent
+control words, advances `0x0049e430` at the frame boundary, feeds the actual
+post-update gates to `0x00496360`, and invokes the guarded reset at the
+recovered state-2 entry and ordinary recovery-exit callsites. The
+`+0x2cc8` value starts at the constructor’s ordinary `0x1c3e` fallback and has an
+explicit setter for a recovered mode/table owner; its mode-2/4 service list
+remains an external provisional boundary. No recorder channel or frame-
+specific rule was added.
+
+Confidence: the branch predicates, stores, call order, and immediate helper
+contracts are confirmed by PC disassembly at `0x0048f5f0` and `0x0049e430`.
+The constructor fallback and mode/table selection for `+0x2cc8` are confirmed;
+its later external writers, plus the semantic labels for `+0x2cbc`,
+`+0x3074/+0x3078/+0x307c`, and the service-owned list fields remain
+provisional. The remaining static question is to connect those external
+producers without confusing them with collision-query outputs or shared
+random results.
+
 ## State-2 recovery exit: `0x004956f0`
 
 The function has two exact entry branches:
@@ -501,14 +600,15 @@ The native semantic boundary is `src/runtime/ground_surface_response.hpp` and
 `src/runtime/physics_frame.cpp`. `compute_ground_surface_response_step()` is
 the pure branch reconstruction; `PlayerState` supplies the persistent timer,
 the response-service result, orientation handoff, accumulator, and count.
-The existing `ground_surface_response_input` hook carries only the already
-recorded shared-service values used by `0x0049c060`. Because the producer of
-`+0x2d90` is not yet owned by native state, replay also supplies an explicit
-`response_call_observed` bridge when that existing service call is present.
-This is marked provisional in the native header: it preserves the static
-call/result boundary without adding a recorder channel or treating a
-before/after observation as a new causal input. The next static task is to
-recover the `+0x2d90` producer and the owners of the three clear gates.
+The `+0x2d90` producer is now owned by the guarded
+`PlayerState::reset_surface_response_context()` model of `0x0048f5f0`, and the
+`+0x2c88` producer is owned by the pure `0x0049e430` phase model at the frame
+boundary. The existing `ground_surface_response_input` hook carries only the
+already recorded shared-service values used by `0x0049c060`; it remains a
+service-result seam, not a substitute for either persistent producer.
+The numeric `+0x2cc8` producer, the mode-2/4 `+0x3214` service, and the
+nonzero `+0x2c84` owner remain explicitly provisional. No recorder channel
+was added.
 
 ## Shared position writer: `0x00496060`
 
@@ -674,7 +774,7 @@ zero-`+0x2858`, `+0x90` path established above.
 
 | category | fields/globals | owner |
 |---|---|---|
-| persistent player state | `+0x4c`, `+0x50`, `+0x54`; `+0x30b8`; `+0x30c4`; `+0x2f64`; `+0x2e0c/+0x2e10/+0x2e14`; `+0x2e90`; `+0x2f40`; recovery words; position/history | state-specific retail helper and outer frame in the listed order |
+| persistent player state | `+0x4c`, `+0x50`, `+0x54`; `+0x30b8`; `+0x30c4`; `+0x2f64`; `+0x2e0c/+0x2e10/+0x2e14`; `+0x2e90`; `+0x2f40`; recovery words; position/history; `+0x2d90`; `+0x2c88/+0x2c8c/+0x2c90`; reset words `+0x2c80/+0x2c84/+0x2cbc/+0x3064/+0x3074/+0x3078/+0x307c` | state-specific retail helper and outer frame in the listed order; `0x0048f5f0` and `0x0049e430` own the connected control-block writes |
 | temporary working state | local query records; matrix scratch `DAT_006a3e10..`; local dot/cross products | current helper only |
 | collision-query outputs | query hit body, `+0x120/+0x124` normal, line parameter, selected face | collision query plus `0x0048ea80`; consumers must not recompute material bits |
 | causal service inputs | `FUN_0046d2e0`, `FUN_0046e1d0`, `FUN_0048f5f0`, animation requests, `FUN_00491b80`, trick script start, shared random/stat values | caller/service boundary; recording already carries these where qualified; `0x004ca8f0` is deterministic scratch/magnitude code |

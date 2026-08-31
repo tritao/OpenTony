@@ -533,6 +533,19 @@ external animation and trick state and remains outside the native boundary.
 The outer-frame callback is placed after dispatch/blocked cleanup and before
 the final velocity integration; the native regression covers that ordering.
 
+The two control-block consumers in this landing/recovery neighborhood are now
+also statically separated. `0x0049e430`, called by `0x0049e680` before the
+action producer, advances `+0x2c8c` by the frame-scaled `+0x2c90` rate and
+decrements `+0x2c88` only when bit `0x1000` changes; expiry clears both phase
+and rate. The remaining nonzero `+0x2c88` value is a clear gate for the
+grounded `0x00496360` response step. The reset helper `0x0048f5f0` is a
+separate guarded operation: state 5 or zero `+0x2cc8` returns, while the
+active path seeds `+0x2d90`, clears the action/refresh gates, arms `+0x3064`,
+and clears its transient flags, preserving `+0x2e80` only for state 2. Native
+keeps both producers as explicit semantic boundaries in
+`ground_surface_response.*`; the external `+0x2cc8` writer and service-owned
+list effects remain provisional.
+
 The post-marker recovery decision is now split at its deterministic seam. An
 angle-window flag is true when `+0x2c88` is set and the low 12 bits of
 `+0x2c8c` are above `0x12c` for nonpositive `+0x2c90`, or below `0xed4` for

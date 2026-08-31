@@ -1,5 +1,6 @@
 #include "player_state.hpp"
 
+#include "ground_surface_response.hpp"
 #include "tricks_bin.hpp"
 
 #include <algorithm>
@@ -65,11 +66,6 @@ void PlayerState::request_physics_state_from_basis(
             fixed_multiply_q12(transition_basis[1], 0x32c8);
         ground_surface_response_correction_[2] =
             -fixed_multiply_q12(transition_basis[2], 0x32c8);
-        if (reason == 0x1ac9) {
-            // The special-ground entry calls FUN_0048f5f0 before the state
-            // request; that service seeds +0x2d90 with 0xf.
-            ground_surface_response_timer_ = 0xf;
-        }
     }
     last_state_request_ = PhysicsStateRequest{
         physics_state_,
@@ -78,6 +74,49 @@ void PlayerState::request_physics_state_from_basis(
         physics_state_ != state,
     };
     physics_state_ = state;
+}
+
+bool PlayerState::reset_surface_response_context() noexcept {
+    const GroundSurfaceResponseResetResult reset =
+        compute_ground_surface_response_reset(
+            GroundSurfaceResponseResetInput{
+                physics_state_,
+                surface_response_action_context_2cc8_,
+                surface_response_game_mode_,
+            });
+    if (!reset.applied) {
+        return false;
+    }
+    surface_response_level_flag_3074_ = 0;
+    surface_response_level_flag_3078_ = 0;
+    surface_response_level_flag_307c_ = 0;
+    surface_response_dispatch_active_3064_ = 1;
+    surface_response_auxiliary_2cbc_ = 0;
+    ground_surface_response_timer_ = 0xf;
+    if (reset.clear_spin_phase_2e80) {
+        surface_response_spin_phase_2e80_ = 0;
+    }
+    surface_response_action_gate_2c80_ = 0;
+    surface_response_phase_refresh_gate_2c84_ = 0;
+    // FUN_0048f5f0's mode-2/4 auxiliary-list clear is an external service;
+    // the native player boundary records the deterministic predicate but does
+    // not fabricate the service-owned list.
+    return true;
+}
+
+void PlayerState::advance_surface_response_phase(
+    std::int32_t frame_scale_q8) noexcept {
+    const GroundSurfaceResponsePhaseResult phase =
+        compute_ground_surface_response_phase(
+            GroundSurfaceResponsePhaseInput{
+                surface_response_phase_countdown_2c88_,
+                surface_response_phase_2c8c_,
+                surface_response_phase_rate_2c90_,
+                frame_scale_q8,
+            });
+    surface_response_phase_countdown_2c88_ = phase.countdown_after;
+    surface_response_phase_2c8c_ = phase.phase_after;
+    surface_response_phase_rate_2c90_ = phase.rate_after;
 }
 
 void PlayerState::apply_ground_response_yaw(std::int32_t angle12) noexcept {
@@ -118,9 +157,10 @@ PlayerState::exit_ground_collision_recovery() noexcept {
     collision_recovery_correction_gate_ = 0;
     collision_recovery_active_ = 1;
     collision_recovery_latch_ = 0;
-    // FUN_0048f5f0, called by the ordinary branch, seeds the shared
-    // surface-response latch consumed by FUN_00496360.
-    ground_surface_response_timer_ = 0xf;
+    // FUN_0048f5f0 follows the state request on this branch. Keep its guard
+    // and deterministic reset stores in the semantic helper rather than
+    // reducing the call to an unconditional +0x2d90 write.
+    static_cast<void>(reset_surface_response_context());
 
     if (!control_blocked_) {
         if (collision_recovery_stream_ != 0 && field_2dd4_ != 0) {
@@ -186,6 +226,17 @@ void PlayerState::apply_restart(
     ground_surface_response_timer_ = 0;
     ground_surface_response_phase_accumulator_ = 0;
     ground_surface_response_phase_count_ = 0;
+    surface_response_phase_countdown_2c88_ = 0;
+    surface_response_phase_2c8c_ = 0;
+    surface_response_phase_rate_2c90_ = 0;
+    surface_response_action_gate_2c80_ = 0;
+    surface_response_phase_refresh_gate_2c84_ = 0;
+    surface_response_spin_phase_2e80_ = 0;
+    surface_response_dispatch_active_3064_ = 0;
+    surface_response_level_flag_3074_ = 0;
+    surface_response_level_flag_3078_ = 0;
+    surface_response_level_flag_307c_ = 0;
+    surface_response_auxiliary_2cbc_ = 0;
     ground_surface_recovery_progress_q11_ = 0;
     orientation_basis_normalization_pending_ = true;
     ground_turn_saved_orientation_ = orientation_;

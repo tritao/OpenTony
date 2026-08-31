@@ -233,6 +233,8 @@ functions:
     slice: physics
     status: modeled
     sources:
+      - src/runtime/ground_surface_response.hpp
+      - src/runtime/ground_surface_response.cpp
       - src/runtime/player_state.hpp
       - src/runtime/player_state.cpp
       - src/runtime/physics_frame.cpp
@@ -274,6 +276,8 @@ functions:
     slice: physics
     status: modeled
     sources:
+      - src/runtime/ground_surface_response.hpp
+      - src/runtime/ground_surface_response.cpp
       - src/runtime/physics_frame.cpp
       - src/runtime/player_state.cpp
       - src/runtime/collision_recovery.cpp
@@ -514,6 +518,8 @@ functions:
     slice: physics
     status: modeled
     sources:
+      - src/runtime/ground_surface_response.hpp
+      - src/runtime/ground_surface_response.cpp
       - src/runtime/physics_frame.cpp
       - src/runtime/player_state.cpp
     tests:
@@ -521,7 +527,7 @@ functions:
     evidence:
       - re/evidence/functions/player-physics-collision-recovery.md
       - re/evidence/functions/ground-movement.md
-    notes: The pre-movement-query response/correction boundary is preserved; upstream profile/stat and service producers remain explicit inputs.
+    notes: The pre-movement-query response/correction boundary and the connected +0x2c88/+0x2e80/+0x2c80/+0x2c84 gates are preserved; upstream profile/stat and service producers remain explicit inputs.
 
   - address: 0x00497960
     name: Skater_AirLandingOrientationRecovery

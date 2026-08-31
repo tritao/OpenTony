@@ -64,6 +64,51 @@ namespace {
 
 } // namespace
 
+GroundSurfaceResponseResetResult compute_ground_surface_response_reset(
+    const GroundSurfaceResponseResetInput& input) noexcept {
+    if (input.physics_state == 5 || input.action_context_2cc8 == 0) {
+        return {};
+    }
+    return GroundSurfaceResponseResetResult{
+        true,
+        input.physics_state != 2,
+        input.game_mode == 2 || input.game_mode == 4,
+    };
+}
+
+GroundSurfaceResponsePhaseResult compute_ground_surface_response_phase(
+    const GroundSurfaceResponsePhaseInput& input) noexcept {
+    GroundSurfaceResponsePhaseResult result{};
+    result.countdown_before = input.countdown_2c88;
+    result.countdown_after = input.countdown_2c88;
+    result.phase_before = input.phase_2c8c;
+    result.phase_after = input.phase_2c8c;
+    result.rate_after = input.rate_2c90;
+    if (input.countdown_2c88 == 0) {
+        return result;
+    }
+
+    const std::int32_t phase_delta = arithmetic_shift_right(
+        multiply32(input.rate_2c90, input.frame_scale_q8),
+        8);
+    result.phase_after = wrap32(
+        static_cast<std::int64_t>(input.phase_2c8c) + phase_delta);
+    result.phase_boundary_crossed =
+        ((static_cast<std::uint32_t>(result.phase_after)
+          ^ static_cast<std::uint32_t>(input.phase_2c8c)) & 0x1000U) != 0;
+    if (!result.phase_boundary_crossed) {
+        return result;
+    }
+
+    result.countdown_after = input.countdown_2c88 - 1;
+    if (result.countdown_after == 0) {
+        result.phase_after = 0;
+        result.rate_after = 0;
+        result.completed = true;
+    }
+    return result;
+}
+
 GroundSurfaceResponseStepResult compute_ground_surface_response_step(
     const GroundSurfaceResponseStepInput& input) noexcept {
     GroundSurfaceResponseStepResult result{};

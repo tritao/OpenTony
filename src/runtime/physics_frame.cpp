@@ -62,6 +62,10 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
 
     player.begin_physics_frame();
     player.update_collision_recovery_window(input);
+    // FUN_0049e430 runs in FUN_0049e680 before the action/turn producer and
+    // before the state dispatcher. Its remaining +0x2c88 value is consumed by
+    // FUN_00496360 as a response-latch clear gate later in this frame.
+    player.advance_surface_response_phase(frame_scale_q8);
     // Retail canonicalizes the initially published grounded basis before
     // FUN_00493370 consumes it. The initial recording snapshot remains raw;
     // this is the one frame-boundary write that turns it canonical.
@@ -532,13 +536,21 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         current_player.physics_state(),
                         current_player.ground_update_state())
                     || turn_input.has_value();
-                // The action-bank bytes at +0x10/+0x20 are the only part of
-                // this control block represented by InputState today. The
-                // +0x2c88/+0x2e80/+0x2c80 owners remain explicit raw gates.
+                // The action-bank bytes at +0x10/+0x20 are caller inputs; the
+                // +0x2c88/+0x2e80/+0x2c80/+0x2c84 gates are persistent control
+                // words advanced/reset at their recovered retail boundaries.
                 phase_input.action_bank_10_nonzero =
                     input.action(0x0080).held;
                 phase_input.action_bank_20_nonzero =
                     input.action(0x0020).held;
+                phase_input.clear_timer_2c88 =
+                    current_player.surface_response_phase_active();
+                phase_input.clear_timer_2e80 =
+                    current_player.surface_response_spin_active();
+                phase_input.clear_timer_2c80 =
+                    current_player.surface_response_action_gate_active();
+                phase_input.phase_refresh_blocked_2c84 =
+                    current_player.surface_response_phase_refresh_blocked();
                 phase_input.response_call_observed = response_input.has_value();
                 static_cast<void>(
                     current_player.apply_ground_surface_response_step(
@@ -838,6 +850,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                                 // FUN_004900b0 consumes that exact vector.
                                 const FixedPosition transition_basis =
                                     current_player.retail_basis().at_30f4;
+                                static_cast<void>(
+                                    current_player.reset_surface_response_context());
                                 current_player.request_physics_state_from_basis(
                                     2,
                                     0x1ac9,
@@ -1072,6 +1086,8 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
                         // branch merely because the hit carries bit 6.
                         const FixedPosition transition_basis =
                             current_player.retail_basis().at_30f4;
+                        static_cast<void>(
+                            current_player.reset_surface_response_context());
                         current_player.request_physics_state_from_basis(
                             2,
                             0x1ac9,
@@ -1544,11 +1560,13 @@ PlayerPhysicsFrameResult PlayerPhysicsFrame::step(
     result.dispatch = PhysicsDispatcher::dispatch(player, dispatch_hooks);
     if (collision_transient_requested) {
         if (collision_transient_basis_valid) {
+            static_cast<void>(player.reset_surface_response_context());
             player.request_physics_state_from_basis(
                 2,
                 0x1ac9,
                 collision_transient_basis);
         } else {
+            static_cast<void>(player.reset_surface_response_context());
             player.request_physics_state(2, 0x1ac9);
         }
         if (collision_response_projection_pending
